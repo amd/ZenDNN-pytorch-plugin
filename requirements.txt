@@ -1,0 +1,5 @@
+cmake>=3.13.0
+ninja
+hypothesis
+expecttest
+setuptools>=50.0
