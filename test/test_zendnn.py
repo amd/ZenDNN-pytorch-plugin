@@ -32,6 +32,10 @@ class TestZENDNN(TestCase):
 
         self.assertEqual(y_eb, y_ebz)
 
+    @unittest.skipIf(not zentorch._C.is_bf16_supported(), "CPU has does not support AVX512 BF16.")
+    def test_bf16_device(self):
+        self.assertTrue(zentorch._C.is_bf16_supported(), "CPU supports AVX512 BF16.")
+
 class SampleEmbeddingNN(nn.Module):
         def __init__(self, embedding_dim, output_dim):
             super(SampleEmbeddingNN, self).__init__()
