@@ -20,6 +20,8 @@ ENDIF(CMAKE_BUILD_TYPE STREQUAL "Debug")
 
 include(FetchContent)
 
+get_filename_component(PLUGIN_PARENT_DIR ${CMAKE_CURRENT_SOURCE_DIR} DIRECTORY)
+
 IF("$ENV{ZENDNN_PT_USE_LOCAL_BLIS}" EQUAL 0)
     FetchContent_Declare(blis
     GIT_REPOSITORY https://github.com/amd/blis.git
@@ -32,7 +34,11 @@ IF("$ENV{ZENDNN_PT_USE_LOCAL_BLIS}" EQUAL 0)
     endif()
 ELSE()
     IF(NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/third_party/blis)
-        file(COPY $ENV{ZENDNN_PARENT_FOLDER}/blis DESTINATION "${CMAKE_CURRENT_SOURCE_DIR}/third_party")
+        IF(EXISTS ${PLUGIN_PARENT_DIR}/blis)
+            file(COPY ${PLUGIN_PARENT_DIR}/blis DESTINATION "${CMAKE_CURRENT_SOURCE_DIR}/third_party")
+        ELSE()
+            message( FATAL_ERROR "Copying of blis library from local failed, CMake will exit." )
+        ENDIF()
     ENDIF()
 ENDIF()
 
@@ -62,8 +68,13 @@ IF("$ENV{ZENDNN_PT_USE_LOCAL_ZENDNN}" EQUAL 0)
     endif()
 ELSE()
     IF(NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/third_party/ZenDNN)
-        file(COPY $ENV{ZENDNN_PARENT_FOLDER}/ZenDNN DESTINATION "${CMAKE_CURRENT_SOURCE_DIR}/third_party")
+        IF(EXISTS ${PLUGIN_PARENT_DIR}/ZenDNN)
+            file(COPY ${PLUGIN_PARENT_DIR}/ZenDNN DESTINATION "${CMAKE_CURRENT_SOURCE_DIR}/third_party")
+        ELSE()
+            message( FATAL_ERROR "Copying of ZenDNN library from local failed, CMake will exit." )
+        ENDIF()
     ENDIF()
+    execute_process(COMMAND git pull WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/third_party/ZenDNN)
 ENDIF()
 
 # To get the ZenDNN Git Hash

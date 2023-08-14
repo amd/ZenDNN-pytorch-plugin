@@ -83,7 +83,7 @@ include_dirs = [
 ]
 
 torch_zendnn_plugin_build_version = get_build_version(project_root_dir)
-wheel_file_dependencies = []
+wheel_file_dependencies = ["numpy", "torch"]
 
 long_description = ""
 with open(os.path.join(project_root_dir, "README.md"), encoding="utf-8") as f:

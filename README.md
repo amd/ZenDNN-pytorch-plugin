@@ -37,7 +37,7 @@ Following ops are integrated as of now
 
 ### Build System
 
-The static libraries for ZenDNN, AOCL BLIS and the cpp Extension modules that bind the ZenDNN operators with Python are built using `setup.py` script. 
+The static libraries for ZenDNN, AOCL BLIS and the cpp Extension modules that bind the ZenDNN operators with Python are built using `setup.py` script.
 
 #### CMake Based Build: ZenDNN and AOCL BLIS
 CMake downloads the ZenDNN and AOCL BLIS during configure stage. It generates a config.h with GIT hashes of ZenDNN and AOCL BLIS. It builds both ZenDNN and AOCL BLIS as static libraries.
@@ -62,14 +62,19 @@ Plugin uses following libraries for its functionality.
 
 ## From Binaries
 Create conda or python environment and activate it. Download the wheel file and install it using pip or conda install command
+
+Note: Dependent packages 'numpy' and 'torch' packages will be installed by 'torch_zendnn_plugin'
 ```bash
-pip install numpy
-pip install torch --index-url https://download.pytorch.org/whl/cpu
 pip install torch_zendnn_plugin-*-linux_x86_64.whl
 ```
 
 ## From Source
-### Create conda environment for the build
+
+Note: To use local copies of ZenDNN/BLIS, export ZENDNN_PT_USE_LOCAL_ZENDNN=1, export ZENDNN_PT_USE_LOCAL_BLIS=1.
+The libraries should be present/downloaded in the parent directory of current working directory.
+
+### non-manylinux build
+#### Create conda environment for the build
 ```bash
 conda create -n pt-plugin python=3.8
 conda activate pt-plugin
@@ -78,10 +83,31 @@ conda install pytorch cpuonly -c pytorch
 
 Note: cmake & ninja are required for cpp extension builds, will be installed through build script
 
-### To build & install the plugin
+#### To build & install the plugin
 ```bash
 bash build.sh
 ```
+
+### manylinux build
+'manylinux_setup' script allows you to create a docker container, you need to install conda and proceed the build process
+
+```bash
+sudo bash manylinux_setup.sh
+export SCRIPT_TYPE=many_linux
+```
+
+#### Create conda environment for the build
+```bash
+conda create -n pt-plugin python=3.8
+conda activate pt-plugin
+conda install pytorch cpuonly -c pytorch
+```
+#### To build & install the plugin
+Note: Change the current directory to Plugin directory i.e. cd PLUGIN_DIRECTORY
+```bash
+bash build.sh
+```
+
 # Usage
 
 ```python
