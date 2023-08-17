@@ -1,12 +1,55 @@
-#******************************************************************************
+# ******************************************************************************
 # Copyright (c) 2023 Advanced Micro Devices, Inc.
 # All rights reserved.
-#******************************************************************************
+# ******************************************************************************
 
-from setuptools import setup, Command
+from setuptools import setup
 from torch.utils.cpp_extension import BuildExtension, CppExtension
-import os, shutil, torch
+import os, shutil
 import glob, subprocess
+
+
+class CustomBuildExtension(BuildExtension):
+    def run(self) -> None:
+        """
+        Invoke the CMAKE compilation commands.
+        """
+        # Env variables set to copy ZenDNN/BLIS from local
+        # After ZenDNN4.1 release ZENDNN_PT_USE_LOCAL_ZENDNN should be set to 0
+
+        # if variables not set: then use default values
+        if "ZENDNN_PT_USE_LOCAL_BLIS" not in os.environ:
+            os.environ["ZENDNN_PT_USE_LOCAL_BLIS"] = "0"
+        if "ZENDNN_PT_USE_LOCAL_ZENDNN" not in os.environ:
+            os.environ["ZENDNN_PT_USE_LOCAL_ZENDNN"] = "1"
+
+        if os.path.exists(self.build_temp):
+            shutil.rmtree(self.build_temp)
+        os.makedirs(self.build_temp, exist_ok=True)
+
+        working_dir = os.path.abspath(os.path.dirname(__file__))
+        cmake_cmd = ["cmake", "-S", working_dir, "-B", self.build_temp]
+        self.spawn(cmake_cmd)
+        self.spawn(["make", "-j", "-C", self.build_temp])
+
+        super().run()
+
+    def build_extensions(self) -> None:
+        """
+        Dynamically add the static libraries generated during compile phase.
+        """
+        project_root_dir = os.path.abspath(os.path.dirname(__file__))
+
+        extension = self.extensions[0]
+
+        extra_objects = [
+            os.path.join(project_root_dir, self.build_temp, "lib/libamdZenDNN.a"),
+            os.path.join(project_root_dir, self.build_temp, "lib/libblis-mt.a"),
+        ]
+
+        extension.extra_objects.extend(extra_objects)
+
+        super().build_extensions()
 
 
 #   ZenTorch_BUILD_VERSION
@@ -17,20 +60,26 @@ import glob, subprocess
 PACKAGE_NAME = "torch_zendnn_plugin"
 PACKAGE_VERSION = "1.0.0"
 
-def get_build_version(base_dir): 
+
+def get_build_version(base_dir):
     git_sha = (
         subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], cwd=base_dir)
         .decode("ascii")
         .strip()
     )
-    zen_version = os.getenv("ZenTorch_BUILD_VERSION", PACKAGE_VERSION + "+git" + git_sha[:7])
+    zen_version = os.getenv(
+        "ZenTorch_BUILD_VERSION", PACKAGE_VERSION + "+git" + git_sha[:7]
+    )
     return zen_version
 
 
 project_root_dir = os.path.abspath(os.path.dirname(__file__))
-sources = glob.glob(os.path.join(project_root_dir, 'src/cpu/cpp/*.cpp'))
-include_dirs = [os.path.join(project_root_dir, "third_party/ZenDNN/inc"), os.path.join(project_root_dir, "third_party/blis/include/amdzen")]
-extra_objects = [os.path.join(project_root_dir, "build/lib/libamdZenDNN.a"), os.path.join(project_root_dir, "build/lib/libblis-mt.a")]
+sources = glob.glob(os.path.join(project_root_dir, "src/cpu/cpp/*.cpp"))
+include_dirs = [
+    os.path.join(project_root_dir, "third_party/ZenDNN/inc"),
+    os.path.join(project_root_dir, "third_party/blis/include/amdzen"),
+]
+
 torch_zendnn_plugin_build_version = get_build_version(project_root_dir)
 wheel_file_dependencies = []
 
@@ -38,32 +87,36 @@ long_description = ""
 with open(os.path.join(project_root_dir, "README.md"), encoding="utf-8") as f:
     long_description = f.read()
 
+
 def main():
     setup(
         name=PACKAGE_NAME,
         version=torch_zendnn_plugin_build_version,
-        description = "ZenDNN plugin for PyTorch*",
-        long_description = long_description,
+        description="ZenDNN plugin for PyTorch*",
+        long_description=long_description,
         long_description_content_type="text/markdown",
-        author_email= "",
-        author = "",
+        author_email="",
+        author="",
         # URL needs to be updates once the plugin is open sourced
-        url = "",
+        url="",
         # license needs to be added when the source code gets the license
-        license  = "",
+        license="",
         install_requires=wheel_file_dependencies,
         ext_modules=[
             CppExtension(
-                name=f'{PACKAGE_NAME}._C',
+                name=f"{PACKAGE_NAME}._C",
                 sources=sources,
-                extra_objects=extra_objects,
                 include_dirs=include_dirs,
-                extra_compile_args=['-Werror']
-                )],
-            cmdclass={'build_ext': BuildExtension,},
-            packages=[PACKAGE_NAME],
-            package_dir={"":"src/cpu/python"}
+                extra_compile_args=["-Werror"],
             )
+        ],
+        cmdclass={
+            "build_ext": CustomBuildExtension,
+        },
+        packages=[PACKAGE_NAME],
+        package_dir={"": "src/cpu/python"},
+    )
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()
