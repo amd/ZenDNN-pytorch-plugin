@@ -1,7 +1,7 @@
 /******************************************************************************
-* Copyright (c) 2023 Advanced Micro Devices, Inc.
-* All rights reserved.
-******************************************************************************/
+ * Copyright (c) 2023 Advanced Micro Devices, Inc.
+ * All rights reserved.
+ ******************************************************************************/
 
 #pragma once
 
@@ -25,15 +25,15 @@ namespace utils {
 struct engine : public zendnn::engine {
 
   // Singleton CPU engine for all primitives
-  static engine& cpu_engine();
+  static engine &cpu_engine();
 
   engine(kind akind = kind::cpu, size_t index = 0)
-       : zendnn::engine(akind, index){}
+      : zendnn::engine(akind, index) {}
 };
 
 // A default stream
 struct stream : public zendnn::stream {
-  static zendnn::stream& default_stream() {
+  static zendnn::stream &default_stream() {
     static zendnn::stream s(engine::cpu_engine());
     return s;
   }

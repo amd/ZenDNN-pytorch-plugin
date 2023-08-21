@@ -1,35 +1,35 @@
 /******************************************************************************
-* Copyright (c) 2023 Advanced Micro Devices, Inc.
-* All rights reserved.
-******************************************************************************/
+ * Copyright (c) 2023 Advanced Micro Devices, Inc.
+ * All rights reserved.
+ ******************************************************************************/
 
 #pragma once
 
-#include <torch/all.h>
 #include "ZenDNNUtils.hpp"
+#include <torch/all.h>
 
 using namespace zendnn;
 
-namespace ZenDNNTorch{
+namespace ZenDNNTorch {
 
 // this infers the zendnn datatype from aten tensor
-inline auto get_ztype_from_aten(const at::Tensor &atensor){
+inline auto get_ztype_from_aten(const at::Tensor &atensor) {
   using ZenDType = typename memory::data_type;
   auto atype = atensor.scalar_type();
-  switch(atype) {
+  switch (atype) {
   case c10::kByte:
-      return ZenDType::u8;
+    return ZenDType::u8;
   case c10::kChar:
-      return ZenDType::s8;
+    return ZenDType::s8;
   case c10::kInt:
-      return ZenDType::s32;
+    return ZenDType::s32;
   case c10::kFloat:
-      return ZenDType::f32;
-  case c10:: kBFloat16:
-      return ZenDType::bf16;
+    return ZenDType::f32;
+  case c10::kBFloat16:
+    return ZenDType::bf16;
   default:
-      TORCH_CHECK(false,"ZenDNNTorch::get_ztype_from_aten:"
-                  " Unsupported data type.");
+    TORCH_CHECK(false, "ZenDNNTorch::get_ztype_from_aten:"
+                       " Unsupported data type.");
   }
 }
 
@@ -54,62 +54,56 @@ inline memory::format_tag get_default_format(const memory::dims &adims) {
 }
 
 // create a memory descriptor from aten tensor
-inline memory::desc zen_memory_desc(const at::Tensor &atensor){
+inline memory::desc zen_memory_desc(const at::Tensor &atensor) {
   // currently the only supported memory format is the default one
   // for which we have the check below
-  if(!atensor.is_contiguous()){
+  if (!atensor.is_contiguous()) {
     TORCH_CHECK(false, "ZenDNNTensor::zen_memory_desc:"
-                " Only default contiguous format is supported!");
-  }
-  else{
+                       " Only default contiguous format is supported!");
+  } else {
     // if the default format is given, then we proceed with descriptor creation
     memory::dims zdims = {atensor.sizes().cbegin(), atensor.sizes().cend()};
-    memory::desc mem_desc = memory::desc(zdims,
-                      get_ztype_from_aten(atensor), get_default_format(zdims));
+    memory::desc mem_desc = memory::desc(zdims, get_ztype_from_aten(atensor),
+                                         get_default_format(zdims));
     return mem_desc;
   }
 }
 
 // below function returns memory from aten tensor
 inline memory zen_memory(const at::Tensor &atensor,
-                    const engine &aengine=utils::engine::cpu_engine()){
+                         const engine &aengine = utils::engine::cpu_engine()) {
   // we create memory descriptor inside this to avoid passing it as an argument
   memory::desc mem_desc = zen_memory_desc(atensor);
   auto atype = atensor.scalar_type();
-  switch(atype) {
-  case c10::kByte:
-  {
+  switch (atype) {
+  case c10::kByte: {
     using cpptype = decltype(c10::impl::ScalarTypeToCPPType<c10::kByte>::t);
     return memory(mem_desc, utils::engine::cpu_engine(),
-                          atensor.data_ptr<cpptype>());
+                  atensor.data_ptr<cpptype>());
   }
-  case c10::kInt:
-  {
+  case c10::kInt: {
     using cpptype = decltype(c10::impl::ScalarTypeToCPPType<c10::kInt>::t);
     return memory(mem_desc, utils::engine::cpu_engine(),
-                          atensor.data_ptr<cpptype>());
+                  atensor.data_ptr<cpptype>());
   }
-  case c10::kChar:
-  {
+  case c10::kChar: {
     using cpptype = decltype(c10::impl::ScalarTypeToCPPType<c10::kChar>::t);
     return memory(mem_desc, utils::engine::cpu_engine(),
-                          atensor.data_ptr<cpptype>());
+                  atensor.data_ptr<cpptype>());
   }
-  case c10::kFloat:
-  {
+  case c10::kFloat: {
     using cpptype = decltype(c10::impl::ScalarTypeToCPPType<c10::kFloat>::t);
     return memory(mem_desc, utils::engine::cpu_engine(),
-                          atensor.data_ptr<cpptype>());
+                  atensor.data_ptr<cpptype>());
   }
-  case c10::kBFloat16:
-  {
+  case c10::kBFloat16: {
     using cpptype = decltype(c10::impl::ScalarTypeToCPPType<c10::kBFloat16>::t);
     return memory(mem_desc, utils::engine::cpu_engine(),
-                          atensor.data_ptr<cpptype>());
+                  atensor.data_ptr<cpptype>());
   }
   default:
-    TORCH_CHECK(false,"ZenDNNTorch::zen_memory:"
-                " Invalid data type, creating zendnn memory failed.");
+    TORCH_CHECK(false, "ZenDNNTorch::zen_memory:"
+                       " Invalid data type, creating zendnn memory failed.");
   }
 }
-} // ZenDNNTorch
+} // namespace ZenDNNTorch

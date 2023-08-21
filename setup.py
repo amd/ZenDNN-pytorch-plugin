@@ -5,8 +5,10 @@
 
 from setuptools import setup
 from torch.utils.cpp_extension import BuildExtension, CppExtension
-import os, shutil
-import glob, subprocess
+import os
+import glob
+import shutil
+import subprocess
 
 
 class CustomBuildExtension(BuildExtension):

@@ -12,6 +12,7 @@ Copyright &copy; 2023 Advanced Micro Devices, Inc. All rights reserved.
   - [From Source](#from-source)
 - [Usage](#usage)
 - [Testing](#testing)
+- [Linting](#linting)
 <!-- tocstop -->
 
 # About zentorch
@@ -61,7 +62,7 @@ Plugin uses following libraries for its functionality.
 
 ## From Binaries
 Create conda or python environment and activate it. Download the wheel file and install it using pip or conda install command
-```
+```bash
 pip install numpy
 pip install torch --index-url https://download.pytorch.org/whl/cpu
 pip install torch_zendnn_plugin-*-linux_x86_64.whl
@@ -69,7 +70,7 @@ pip install torch_zendnn_plugin-*-linux_x86_64.whl
 
 ## From Source
 ### Create conda environment for the build
-```
+```bash
 conda create -n pt-plugin python=3.8
 conda activate pt-plugin
 conda install pytorch cpuonly -c pytorch
@@ -78,12 +79,12 @@ conda install pytorch cpuonly -c pytorch
 Note: cmake & ninja are required for cpp extension builds, will be installed through build script
 
 ### To build & install the plugin
-```
+```bash
 bash build.sh
 ```
 # Usage
 
-```
+```python
 import torch_zendnn_plugin as zentorch
 model = zentorch.optimize(model)
 output = model(input)
@@ -92,6 +93,13 @@ output = model(input)
 # Testing
 
 ### To run tests
-```
+```bash
 python test/test_zendnn.py
+```
+
+# Linting
+
+## To run coding format checks with linter script
+```bash
+bash linter/py_cpp_linter.sh
 ```
