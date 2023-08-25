@@ -66,15 +66,17 @@ Zentorch can be installed using binary wheel file or can be built from source it
 Create conda or python environment and activate it. Download the wheel file and install it using pip or conda install command
 
 Note: Dependent packages 'numpy' and 'torch' will be installed by 'torch_zendnn_plugin'
+
+
 ```bash
-pip install torch_zendnn_plugin-*-linux_x86_64.whl
+pip install --ignore-installed torch_zendnn_plugin-*-linux_x86_64.whl
 ```
 
 ## From Source
 
 ### preparing third party repositories
 
-Build setup downloads AOCL BLIS and ZenDNN repos into `third_party` folder. It can alternatively use local copies of ZenDNN and AOCL BLIS. This is very useful for day to day development scenarios, where developer may be interested in using recent version of repositories. Build setup will switch between local and remote copies of ZenDNN and AOCL BLIS with environmental variables `ZENDNN_PT_USE_LOCAL_ZENDNN` and `ZENDNN_PT_USE_LOCAL_BLIS` respectively. To use local copies of ZenDNN or AOCL BLIS, set `ZENDNN_PT_USE_LOCAL_ZENDNN` or `ZENDNN_PT_USE_LOCAL_BLIS` to 1 respectively. The source repositories should be downloaded/cloned in the directory where plugin is cloned for local setting. Folder structure may look like below. 
+Build setup downloads AOCL BLIS and ZenDNN repos into `third_party` folder. It can alternatively use local copies of ZenDNN and AOCL BLIS. This is very useful for day to day development scenarios, where developer may be interested in using recent version of repositories. Build setup will switch between local and remote copies of ZenDNN and AOCL BLIS with environmental variables `ZENDNN_PT_USE_LOCAL_ZENDNN` and `ZENDNN_PT_USE_LOCAL_BLIS` respectively. To use local copies of ZenDNN or AOCL BLIS, set `ZENDNN_PT_USE_LOCAL_ZENDNN` or `ZENDNN_PT_USE_LOCAL_BLIS` to 1 respectively. The source repositories should be downloaded/cloned in the directory where plugin is cloned for local setting. Folder structure may look like below.
 
 ```
 <parent folder>
@@ -85,7 +87,7 @@ Build setup downloads AOCL BLIS and ZenDNN repos into `third_party` folder. It c
     |
     |------><ZenDNN_PyTorch_Plugin>
 ```
->NOTE: 
+>NOTE:
 > 1. default and recommended values of `ZENDNN_PT_USE_LOCAL_ZENDNN` and `ZENDNN_PT_USE_LOCAL_BLIS` are 1 and 0.
 > 2. ZenDNN repository can be cloned using command<br> `git clone "ssh://gerritgit/amd/ec/ZenDNN"`
 > 3. AOCL BLIS can be cloned using command<br> `git clone "ssh://gerritgit/cpulibraries/er/blis"`
@@ -97,6 +99,15 @@ Build setup downloads AOCL BLIS and ZenDNN repos into `third_party` folder. It c
 ```bash
 conda create -n pt-plugin python=3.8
 conda activate pt-plugin
+```
+# You can install torch using 'conda' or 'pip'
+```bash
+# Pip command
+pip install torch --index-url https://download.pytorch.org/whl/cpu
+```
+or
+```bash
+# Conda command
 conda install pytorch cpuonly -c pytorch
 ```
 
