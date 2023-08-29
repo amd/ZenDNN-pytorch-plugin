@@ -28,7 +28,11 @@ target_include_directories(torch_zendnn_plugin INTERFACE
                            ${ZENDNN_INCLUDE_DIR}
                            ${CMAKE_SOURCE_DIR}/ATen/native/zendnn/)
 
-
+# Set default build type
+if(NOT CMAKE_BUILD_TYPE)
+    message(STATUS "Build type not set - defaulting to Release")
+    set(CMAKE_BUILD_TYPE "Release")
+endif()
 
 # Link against ZenDNN and AOCL BLIS
 target_link_libraries(torch_zendnn_plugin INTERFACE ${ZENDNN_LIBRARIES} ${BLIS_LIBRARIES})

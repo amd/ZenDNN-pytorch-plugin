@@ -104,7 +104,7 @@ add_custom_command(
    WORKING_DIRECTORY
        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/blis
    COMMAND
-       make clean && make distclean && CC=gcc ./configure --prefix=${CMAKE_CURRENT_BINARY_DIR}/blis_gcc_build  --enable-threading=openmp --disable-blas --disable-cblas amdzen && make -j install
+       make clean && make distclean && CC=gcc ./configure --prefix=${CMAKE_CURRENT_BINARY_DIR}/blis_gcc_build  --enable-threading=openmp --disable-blas --disable-cblas amdzen && make -j install CMAKE_BUILD_TYPE==${CMAKE_BUILD_TYPE}
    COMMAND
        mkdir -p ${CMAKE_CURRENT_BINARY_DIR}/lib/ && cp ${CMAKE_CURRENT_BINARY_DIR}/blis_gcc_build/lib/libblis-mt.a ${CMAKE_CURRENT_BINARY_DIR}/lib/
    COMMAND

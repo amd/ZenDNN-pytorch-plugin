@@ -29,8 +29,10 @@ class CustomBuildExtension(BuildExtension):
             shutil.rmtree(self.build_temp)
         os.makedirs(self.build_temp, exist_ok=True)
 
+        build_type = "Debug" if os.getenv("DEBUG", 0) == "1" else "Release"
         working_dir = os.path.abspath(os.path.dirname(__file__))
-        cmake_cmd = ["cmake", "-S", working_dir, "-B", self.build_temp]
+        cmake_cmd = ["cmake", "-S", working_dir, "-B", self.build_temp,
+                     f"-DCMAKE_BUILD_TYPE={build_type}"]
         self.spawn(cmake_cmd)
         self.spawn(["make", "-j", "-C", self.build_temp])
 

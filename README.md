@@ -146,6 +146,7 @@ conda activate pt-plugin
 conda install pytorch cpuonly -c pytorch
 ```
 #### 2.2.3.2. To build & install the plugin
+>Note: To build in debug mode 'export DEBUG=1'
 ```bash
 bash build.sh
 ```

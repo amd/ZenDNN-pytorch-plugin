@@ -16,7 +16,9 @@ pip install -r requirements.txt
 # setup.py
 #   python -m build --wheel --no-isolation
 
+# to build in debug mode 'export DEBUG=1'
 python setup.py bdist_wheel
+
 WHL_FILE=$(find dist -name *.whl -type f -printf "%T@ %p\n" | sort -n | cut -d' ' -f 2- | tail -n 1)
 if [ "$SCRIPT_TYPE" == many_linux ];
 then
@@ -27,6 +29,7 @@ pip uninstall -y torch_zendnn_plugin && pip install $WHL_FILE
 
 # to check the config of torch_zendnn_plugin
 python -c 'import torch; import torch_zendnn_plugin as zentorch; print(*zentorch._C.__config__.split("\n"), sep="\n")'
+
 
 # to test the plugin is successfully built and installed
 echo "Running PT PLUGIN Tests:"
