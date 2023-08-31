@@ -11,14 +11,12 @@ Copyright &copy; 2023 Advanced Micro Devices, Inc. All rights reserved.
   - [From Binaries](#from-binaries)
   - [From Source](#from-source)
 - [Usage](#usage)
-- [Testing](#testing)
-- [Linting](#linting)
 <!-- tocstop -->
 
 # About zentorch
 
 ## Overview
-zentorch enables ZenDNN library on top of PyTorch. This plugin enables inference optimizations for deep learning workloads on AMD CPUs. It uses ZenDNN for accelerating basic deep learning ops. ZenDNN is a library which enables performance improvements on AMD CPU architectures. Find the repo for more details [here](https://github.com/amd/ZenDNN). Plugin further accelerates the performance by adding more optimizations at graph(model) level using multiple passes on torch.fx graph. All plugin optimizations can be enabled with a call to optimize function on your model.
+zentorch enables ZenDNN library on top of PyTorch. This plugin enables inference optimizations for deep learning workloads on AMD CPUs. It uses ZenDNN for accelerating basic deep learning ops. ZenDNN is a library which enables performance improvements on AMD CPU architectures. Find the repo for more details [here](https://github.com/amd/ZenDNN). Plugin further accelerates the performance by adding more optimizations at graph(model) level using multiple passes on torch.fx graph. All plugin optimizations can be enabled with a call to optimize function on models.
 
 ## Structure
 zentorch consists of three parts. They are
@@ -142,20 +140,13 @@ bash build.sh
 
 ```python
 import torch_zendnn_plugin as zentorch
-model = zentorch.optimize(model)
-output = model(input)
+model_optim = zentorch.optimize(model_fx)
+output = model_optim(input)
 ```
 
-# Testing
+The model should be a fx graph which can be generated with model and input fed to make_fx, sample code below:
 
-### To run tests
-```bash
-python test/test_zendnn.py
-```
-
-# Linting
-
-## To run coding format checks with linter script
-```bash
-bash linter/py_cpp_linter.sh
+```python
+from torch.fx.experimental.proxy_tensor import make_fx
+model_fx = make_fx(model)(input)
 ```

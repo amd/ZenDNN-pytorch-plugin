@@ -3,4 +3,4 @@
 # All rights reserved.
 # ******************************************************************************
 
-from .fx_graph_pass import optimize  # noqa
+from ._optimize import optimize  # noqa

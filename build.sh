@@ -30,4 +30,4 @@ python -c 'import torch; import torch_zendnn_plugin as zentorch; print(*zentorch
 
 # to test the plugin is successfully built and installed
 echo "Running PT PLUGIN Tests:"
-python test/test_zendnn.py
+python test/test_zentorch.py
