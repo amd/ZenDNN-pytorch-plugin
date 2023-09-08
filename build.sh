@@ -23,7 +23,7 @@ then
     mv -f "$WHL_FILE" "${WHL_FILE%linux_x86_64.*}manylinux2014_x86_64.${WHL_FILE##*.}"
     WHL_FILE=$(find dist -name *.whl -type f -printf "%T@ %p\n" | sort -n | cut -d' ' -f 2- | tail -n 1)
 fi
-pip install --force-reinstall --ignore-installed  $WHL_FILE
+pip uninstall -y torch_zendnn_plugin && pip install $WHL_FILE
 
 # to check the config of torch_zendnn_plugin
 python -c 'import torch; import torch_zendnn_plugin as zentorch; print(*zentorch._C.__config__.split("\n"), sep="\n")'

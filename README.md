@@ -1,6 +1,51 @@
+<style type="text/css">
+body { counter-reset: h0counter h1counter h2counter h3counter h4counter h5counter h6counter; }
+
+h0 { counter-reset: h1counter; }
+h1 { counter-reset: h2counter; }
+h2 { counter-reset: h3counter; }
+h3 { counter-reset: h4counter; }
+h4 { counter-reset: h5counter; }
+h5 { counter-reset: h6counter; }
+h6 {}
+
+h1:before {
+    counter-increment: h1counter;
+    content: counter(h1counter) ".\0000a0\0000a0";
+}
+
+h2:before {
+    counter-increment: h2counter;
+    content: counter(h1counter) "." counter(h2counter) ".\0000a0\0000a0";
+}
+
+h3:before {
+    counter-increment: h3counter;
+    content: counter(h1counter) "." counter(h2counter) "." counter(h3counter) ".\0000a0\0000a0";
+}
+
+h4:before {
+    counter-increment: h4counter;
+    content: counter(h1counter) "." counter(h2counter) "." counter(h3counter) "." counter(h4counter) ".\0000a0\0000a0";
+}
+
+h5:before {
+    counter-increment: h5counter;
+    content: counter(h1counter) "." counter(h2counter) "." counter(h3counter) "." counter(h4counter) "." counter(h5counter) ".\0000a0\0000a0";
+}
+
+h6:before {
+    counter-increment: h6counter;
+    content: counter(h1counter) "." counter(h2counter) "." counter(h3counter) "." counter(h4counter) "." counter(h5counter) "." counter(h6counter) ".\0000a0\0000a0";
+}
+</style>
+
 Copyright &copy; 2023 Advanced Micro Devices, Inc. All rights reserved.
 
-# zentorch: A PyTorch Add-on for AMD  CPUs
+<font size="+3"><center>
+**zentorch: A PyTorch Add-on for AMD CPUs**
+___
+</center></font>
 
 <!-- toc -->
 - [About zentorch](#about-zentorch)
@@ -11,6 +56,7 @@ Copyright &copy; 2023 Advanced Micro Devices, Inc. All rights reserved.
   - [From Binaries](#from-binaries)
   - [From Source](#from-source)
 - [Usage](#usage)
+- [Contributing](#contributing)
 <!-- tocstop -->
 
 # About zentorch
@@ -27,7 +73,7 @@ zentorch consists of three parts. They are
 ### ZenDNN Integration Code
 ZenDNN is integrated into plugin using CPP code which interfaces ATen API to ZenDNN's API. This code exports torch compatible API similar to ATen IR of PyTorch. The exported API is made avaiable for usage from python code using PYBIND11 library. PYBIND11 is a header only library. Integration code is linked and compiled into plugin using CppExtension provided by PyTorch.
 
-Following ops are integrated as of now
+The following ops are integrated as of now:
 - Embedding bag op
 
 ### Optimize Function
@@ -61,14 +107,17 @@ Plugin uses following libraries for its functionality.
 Zentorch can be installed using binary wheel file or can be built from source itself.
 
 ## From Binaries
-Create conda or python environment and activate it. Download the wheel file and install it using pip or conda install command
-
-Note: Dependent packages 'numpy' and 'torch' will be installed by 'torch_zendnn_plugin'
-
+* Create conda or python environment and activate it.
+* Uninstall any existing plugin installations.
+```bash
+pip uninstall torch_zendnn_plugin
+```
+* Download the wheel file and install it using pip or conda install command.
 
 ```bash
-pip install --ignore-installed torch_zendnn_plugin-*-linux_x86_64.whl
+pip install torch_zendnn_plugin-*-linux_x86_64.whl
 ```
+>Note: Dependent packages 'numpy' and 'torch' will be installed by 'torch_zendnn_plugin' if not already present.
 
 ## From Source
 
@@ -86,11 +135,13 @@ Build setup downloads AOCL BLIS and ZenDNN repos into `third_party` folder. It c
     |------><ZenDNN_PyTorch_Plugin>
 ```
 >NOTE:
-> 1. default and recommended values of `ZENDNN_PT_USE_LOCAL_ZENDNN` and `ZENDNN_PT_USE_LOCAL_BLIS` are 1 and 0.
+> 1. The recommended values of `ZENDNN_PT_USE_LOCAL_ZENDNN` and `ZENDNN_PT_USE_LOCAL_BLIS` are 1 and 0 respectively. Default values are the same as recommended values.
+>```bash
+>export ZENDNN_PT_USE_LOCAL_ZENDNN=1
+>export ZENDNN_PT_USE_LOCAL_BLIS=0
+>```
 > 2. ZenDNN repository can be cloned using command<br> `git clone "ssh://gerritgit/amd/ec/ZenDNN"`
 > 3. AOCL BLIS can be cloned using command<br> `git clone "ssh://gerritgit/cpulibraries/er/blis"`
-
-
 
 ### Linux build
 #### Create conda environment for the build
@@ -98,7 +149,7 @@ Build setup downloads AOCL BLIS and ZenDNN repos into `third_party` folder. It c
 conda create -n pt-plugin python=3.8
 conda activate pt-plugin
 ```
-# You can install torch using 'conda' or 'pip'
+#### You can install torch using 'conda' or 'pip'
 ```bash
 # Pip command
 pip install torch --index-url https://download.pytorch.org/whl/cpu
@@ -109,7 +160,7 @@ or
 conda install pytorch cpuonly -c pytorch
 ```
 
-Note: cmake & ninja are required for cpp extension builds, will be installed through build script
+>Note: cmake & ninja are required for cpp extension builds, will be installed through build script
 
 #### To build & install the plugin
 ```bash
@@ -131,7 +182,7 @@ conda activate pt-plugin
 conda install pytorch cpuonly -c pytorch
 ```
 #### To build & install the plugin
-Note: Change the current directory to Plugin directory i.e. `cd ZenDNN_PyTorch_Plugin`
+>Note: Change the current directory to Plugin directory i.e. `cd ZenDNN_PyTorch_Plugin`
 ```bash
 bash build.sh
 ```
@@ -150,3 +201,6 @@ The model should be a fx graph which can be generated with model and input fed t
 from torch.fx.experimental.proxy_tensor import make_fx
 model_fx = make_fx(model)(input)
 ```
+
+# Contributing
+Contributing guidelines for zentorch can be found [here](CONTRIBUTING.md).
