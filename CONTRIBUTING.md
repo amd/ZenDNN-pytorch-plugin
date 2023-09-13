@@ -1,69 +1,25 @@
-<style type="text/css">
-body { counter-reset: h0counter h1counter h2counter h3counter h4counter h5counter h6counter; }
-
-h0 { counter-reset: h1counter; }
-h1 { counter-reset: h2counter; }
-h2 { counter-reset: h3counter; }
-h3 { counter-reset: h4counter; }
-h4 { counter-reset: h5counter; }
-h5 { counter-reset: h6counter; }
-h6 {}
-
-h1:before {
-    counter-increment: h1counter;
-    content: counter(h1counter) ".\0000a0\0000a0";
-}
-
-h2:before {
-    counter-increment: h2counter;
-    content: counter(h1counter) "." counter(h2counter) ".\0000a0\0000a0";
-}
-
-h3:before {
-    counter-increment: h3counter;
-    content: counter(h1counter) "." counter(h2counter) "." counter(h3counter) ".\0000a0\0000a0";
-}
-
-h4:before {
-    counter-increment: h4counter;
-    content: counter(h1counter) "." counter(h2counter) "." counter(h3counter) "." counter(h4counter) ".\0000a0\0000a0";
-}
-
-h5:before {
-    counter-increment: h5counter;
-    content: counter(h1counter) "." counter(h2counter) "." counter(h3counter) "." counter(h4counter) "." counter(h5counter) ".\0000a0\0000a0";
-}
-
-h6:before {
-    counter-increment: h6counter;
-    content: counter(h1counter) "." counter(h2counter) "." counter(h3counter) "." counter(h4counter) "." counter(h5counter) "." counter(h6counter) ".\0000a0\0000a0";
-}
-</style>
-
 Copyright &copy; 2023 Advanced Micro Devices, Inc. All rights reserved.
 
 This file details the technical contributions made to zentorch. If you are interested in contributing to zentorch, please read through this!
 
-<font size="+3"><left>
-**Table of Contents**
-___
-</left></font>
+Table of Contents
+============
 
 <!-- toc -->
-- [Making changes to zentorch](#making-changes-to-zentorch)
-- [Codebase structure](#codebase-structure)
-- [Coding-style guidelines](#coding-style-guidelines)
-  - [Linting mechanism](#linting-mechanism)
-- [License header check](#license-header-check)
-- [Logging and Profiling](#logging-and-profiling)
-- [Unit-testing](#unit-testing)
-- [Git commit guidelines](#git-commit-guidelines)
+- [Making changes to zentorch](#1-making-changes-to-zentorch)
+- [Codebase structure](#2-codebase-structure)
+- [Coding-style guidelines](#3-coding-style-guidelines)
+  - [Linting mechanism](#31-linting-mechanism)
+- [License header check](#4-license-header-check)
+- [Logging and Profiling](#5-logging-and-profiling)
+- [Unit-testing](#6-unit-testing)
+- [Git commit guidelines](#7-git-commit-guidelines)
 <!-- tocstop -->
 
-# Making changes to zentorch
+# 1. Making changes to zentorch
 You will have to install zentorch from [source](README.md#from-source) to start contributing. You should run the [linting checks](#linting-mechanism), [license header check](#license-header-check) and [unit-tests](#unit-testing) before creating a PR. Once you have the changes ready, create a PR and follow the instructions given under the section [Git commit guidelines](#git-commit-guidelines).
 
-# Codebase structure
+# 2. Codebase structure
 * [cmake](cmake) - Downloads and builds AOCL BLIS and ZenDNN in [third_party](third_party) directory. For more details refer to [FindZENDNN.cmake](cmake/modules/FindZENDNN.cmake).
 * [src](src/cpu) - Contains python and cpp sources for zentorch.
 * [linter](linter) - Shell script for linting is present in this directory.
@@ -72,17 +28,17 @@ You will have to install zentorch from [source](README.md#from-source) to start 
 * [build.sh](build.sh) - Lightweight shell script for building, using [setup.py](setup.py).
 * [license_header_check.py](license_header_check.py) - Checks for the presence of AMD copyright header.
 
-# Coding-style guidelines
+# 3. Coding-style guidelines
 zentorch follows the **PEP-8** guidelines for Python and the **LLVM** style for C/C++ code. [Linting mechanism](#linting-mechanism) section below gives further details.
 
-## Linting mechanism
+## 3.1. Linting mechanism
 You can perform a code-check on all Python and CPP files by running the following command from repo root.
 ```bash
 bash linter/py_cpp_linter.sh
 ```
 This will install all the prerequisites and then perform code check; the script displays the optional commands to re-format as well. The repo uses a combination of **flake8** and **black** for linting and formatting the python files and **clang-format** for the C/C++ sources.
 
-# License header check
+# 4. License header check
 To check for the presence of license headers, we have a comment style agnostic python script, which can be invoked as given below from the repo root.
 ```bash
 python license_header_check.py
@@ -95,7 +51,7 @@ For example, the license header for a .cpp file is:
  ******************************************************************************/
 ```
 
-# Logging and Profiling
+# 5. Logging and Profiling
 Logging is disabled by default but can be enabled by using the environment variable **ZENDNN_LOG_OPTS** before running any tests. Its behavior can be specified by setting **ZENDNN_LOG_OPTS** to a comma-delimited list of **ACTOR:DBGLVL** pairs. An example to turn on info logging is given below.
 ```bash
 export ZENDNN_LOG_OPTS=ALL:2
@@ -107,13 +63,13 @@ export ZENDNN_PRIMITIVE_LOG_ENABLE=1
 
 For further details on logging, refer to ZenDNN user-guide from [this page](https://www.amd.com/en/developer/zendnn.html#:~:text=Documentation-,ZenDNN%20User%20Guide,-TensorFlow%20%2B%20ZenDNN%20User).
 
-# Unit-testing
+# 6. Unit-testing
 Unit tests for Python are located in a script test_zentorch.py inside the test directory. It contains tests for all ops supported by zentorch, bf16 device support check and a few other tests. The pre-requisites for running or adding new tests are the **expecttest** and **hypothesis** packages. To run the tests:
 ```bash
 python test/test_zentorch.py
 ```
 
-# Git commit guidelines
+# 7. Git commit guidelines
 Don't use `git commit -m <your message>` option as you cannot compose the body of the git commit message with this, instead use `git commit -s` to add a sign-off and be more descriptive about your change.
 
 Use module names at the beginning of your commit message, an example for ZENTORCH CORE is given below:
