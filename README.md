@@ -15,7 +15,10 @@ Table of Contents
   - [From Binaries](#21-from-binaries)
   - [From Source](#22-from-source)
 - [Usage](#3-usage)
-- [Contributing](#4-contributing)
+- [Logging and Profiling](#4-logging-and-profiling)
+  - [ZenDNN logs](#41-zendnn-logs)
+  - [zentorch logs](#42-zentorch-logs)
+- [Contributing](#5-contributing)
 <!-- tocstop -->
 
 # 1. About zentorch
@@ -85,7 +88,7 @@ git clone "ssh://gerritgit/amd/ec/ZenDNN_PyTorch_Plugin"
 cd ZenDNN_PyTorch_Plugin/
 ```
 
-### 2.2.1. preparing third party repositories
+### 2.2.1. Preparing third party repositories
 
 Build setup downloads AOCL BLIS and ZenDNN repos into `third_party` folder. It can alternatively use local copies of ZenDNN and AOCL BLIS. This is very useful for day to day development scenarios, where developer may be interested in using recent version of repositories. Build setup will switch between local and remote copies of ZenDNN and AOCL BLIS with environmental variables `ZENDNN_PT_USE_LOCAL_ZENDNN` and `ZENDNN_PT_USE_LOCAL_BLIS` respectively. To use local copies of ZenDNN or AOCL BLIS, set `ZENDNN_PT_USE_LOCAL_ZENDNN` or `ZENDNN_PT_USE_LOCAL_BLIS` to 1 respectively. The source repositories should be downloaded/cloned in the directory where plugin is cloned for local setting. Folder structure may look like below.
 
@@ -166,5 +169,28 @@ from torch.fx.experimental.proxy_tensor import make_fx
 model_fx = make_fx(model)(input)
 ```
 
-# 4. Contributing
+
+# 4. Logging and Profiling
+## 4.1 ZenDNN logs
+Logging for ZenDNN is disabled by default but can be enabled by using the environment variable **ZENDNN_LOG_OPTS** before running any tests. Its behavior can be specified by setting **ZENDNN_LOG_OPTS** to a comma-delimited list of **ACTOR:DBGLVL** pairs. An example to turn on info logging is given below.
+```bash
+export ZENDNN_LOG_OPTS=ALL:2
+```
+To enable the profiling logs **zendnn_primitive_create** and **zendnn_primitive_execute**, you can use:
+```bash
+export ZENDNN_PRIMITIVE_LOG_ENABLE=1
+```
+
+For further details on ZenDNN logging mechanism, refer to ZenDNN user-guide from [this page](https://www.amd.com/en/developer/zendnn.html#:~:text=Documentation-,ZenDNN%20User%20Guide,-TensorFlow%20%2B%20ZenDNN%20User).
+
+## 4.2 zentorch logs
+For zentorch, CPP specific logging can be enabled by setting the environment variable `TORCH_CPP_LOG_LEVEL`. This has four levels: **INFO**, **WARNING**, **ERROR** and **FATAL** in decreasing order of verbosity. Similarly, python logging can be enabled by setting the environment variable `ZENTORCH_PY_LOG_LEVEL`, this has five levels: **DEBUG**, **INFO**, **WARNING**, **ERROR** and **CRITICAL**, again in decreasing order of verbosity. An example to enable INFO level logs for cpp and DEBUG level for python (most verbose) is given below:
+```bash
+export TORCH_CPP_LOG_LEVEL=INFO
+export ZENTORCH_PY_LOG_LEVEL=DEBUG
+```
+The default level of logs is **WARNING** for both cpp and python sources but can be overridden as discussed above.
+>NOTE: The log levels are the same as those provided by the python logging module.
+
+# 5. Contributing
 Any contribution to zentorch can be done by following the guidelines given [here](CONTRIBUTING.md).

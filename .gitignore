@@ -3,4 +3,4 @@ dist/
 third_party/ZenDNN/
 third_party/blis/
 *.egg-info/
-src/cpu/cpp/Config.h
+src/cpu/cpp/Config.hpp

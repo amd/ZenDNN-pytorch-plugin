@@ -10,8 +10,8 @@ Table of Contents
 - [Codebase structure](#2-codebase-structure)
 - [Coding-style guidelines](#3-coding-style-guidelines)
   - [Linting mechanism](#31-linting-mechanism)
-- [License header check](#4-license-header-check)
-- [Logging and Profiling](#5-logging-and-profiling)
+- [Adding log messages to sources](#4-adding-log-messages-to-sources)
+- [License header check](#5-license-header-check)
 - [Unit-testing](#6-unit-testing)
 - [Git commit guidelines](#7-git-commit-guidelines)
 <!-- tocstop -->
@@ -38,7 +38,26 @@ bash linter/py_cpp_linter.sh
 ```
 This will install all the prerequisites and then perform code check; the script displays the optional commands to re-format as well. The repo uses a combination of **flake8** and **black** for linting and formatting the python files and **clang-format** for the C/C++ sources.
 
-# 4. License header check
+>**IMPORTANT**: Since the script uses git integration for clang-format, it should be run after the files have been added to the staging area i.e., files untracked by git are not checked for CPP coding style and will not be modified. First, `git add` the files and then run the linter script.
+
+# 4. Adding log messages to sources
+It is a good practice to add logging messages along with the changes you make.
+
+For CPP source files, zentorch supports the LOG() macro. An example to put an error message is given below:
+```cpp
+LOG(ERROR) << "This is an error message!";
+```
+For Python sources, first import the custom logging module, set the logger for the file and then put the logging messages in your code:
+```python
+from ._logging import get_logger
+logger = get_logger(__name__)
+--snip--
+logger.info("This is an info message!")
+--snip--
+```
+The log levels have been discussed [here](README.md#42-zentorch-logs).
+
+# 5. License header check
 To check for the presence of license headers, we have a comment style agnostic python script, which can be invoked as given below from the repo root.
 ```bash
 python license_header_check.py
@@ -50,18 +69,6 @@ For example, the license header for a .cpp file is:
  * All rights reserved.
  ******************************************************************************/
 ```
-
-# 5. Logging and Profiling
-Logging is disabled by default but can be enabled by using the environment variable **ZENDNN_LOG_OPTS** before running any tests. Its behavior can be specified by setting **ZENDNN_LOG_OPTS** to a comma-delimited list of **ACTOR:DBGLVL** pairs. An example to turn on info logging is given below.
-```bash
-export ZENDNN_LOG_OPTS=ALL:2
-```
-To enable the profiling logs **zendnn_primitive_create** and **zendnn_primitive_execute**, you can use:
-```bash
-export ZENDNN_PRIMITIVE_LOG_ENABLE=1
-```
-
-For further details on logging, refer to ZenDNN user-guide from [this page](https://www.amd.com/en/developer/zendnn.html#:~:text=Documentation-,ZenDNN%20User%20Guide,-TensorFlow%20%2B%20ZenDNN%20User).
 
 # 6. Unit-testing
 Unit tests for Python are located in a script test_zentorch.py inside the test directory. It contains tests for all ops supported by zentorch, bf16 device support check and a few other tests. The pre-requisites for running or adding new tests are the **expecttest** and **hypothesis** packages. To run the tests:

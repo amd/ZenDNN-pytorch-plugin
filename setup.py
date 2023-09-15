@@ -119,6 +119,12 @@ def main():
         },
         packages=[PACKAGE_NAME],
         package_dir={"": "src/cpu/python"},
+        data_files=[
+            (
+                "build/src/cpu/python/torch_zendnn_plugin/",
+                ["src/cpu/python/torch_zendnn_plugin/logging.conf"],
+            )
+        ],
     )
 
 

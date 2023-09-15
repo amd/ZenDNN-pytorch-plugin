@@ -18,6 +18,8 @@ _embedding_bag_zendnn_impl(
     bool sparse, const c10::optional<at::Tensor> &per_sample_weights_opt,
     bool include_last_offset, int64_t padding_idx) {
 
+  LOG(INFO) << "Executing function: " << __FUNCTION__;
+
   // check if all the input tensors are on cpu device
   TORCH_CHECK(weight.device().is_cpu() && indices.device().is_cpu() &&
                   offsets.device().is_cpu(),
@@ -68,6 +70,10 @@ _embedding_bag_zendnn_impl(
   int dim_embedding = weight.sizes()[1];
   int num_bags = coffsets.sizes()[0];
 
+  LOG(INFO) << "Embedding matrix dimensions: " << weight.sizes()[0] << "x"
+            << dim_embedding;
+  LOG(INFO) << "Number of embedding bags: " << num_bags;
+
   // at::empty instead of at::zero is more efficient
   at::Tensor output = at::empty({num_bags, dim_embedding}, weight.options());
 
@@ -77,6 +83,7 @@ _embedding_bag_zendnn_impl(
   embedding_bag::primitive_desc pd;
 
   if (per_sample_weights.defined()) {
+    LOG(INFO) << "Using the per-sample weights tensor!";
     memory z_weights = zen_memory(per_sample_weights);
     // declare embedding bag primitive
     pdesc = embedding_bag::desc(
@@ -85,7 +92,7 @@ _embedding_bag_zendnn_impl(
         z_weights.get_desc(), z_dst.get_desc(), padding_idx);
 
     pd = embedding_bag::primitive_desc(pdesc, utils::engine::cpu_engine());
-
+    LOG(INFO) << "EmbeddingBag compute in progress...";
     embedding_bag(pd).execute(utils::stream::default_stream(),
                               {{ZENDNN_ARG_SRC_0, z_input},
                                {ZENDNN_ARG_SRC_1, z_indices},
@@ -93,6 +100,7 @@ _embedding_bag_zendnn_impl(
                                {ZENDNN_ARG_SRC_3, z_weights},
                                {ZENDNN_ARG_DST, z_dst}});
   } else {
+    LOG(WARNING) << "Per-sample weights is not defined!";
     // declare embedding bag primitive
     pdesc = embedding_bag::desc(prop_kind::forward_inference, z_algorithm,
                                 ZENDNN_EMBED_BAG_THRDS, z_input.get_desc(),
@@ -100,7 +108,7 @@ _embedding_bag_zendnn_impl(
                                 z_dst.get_desc(), padding_idx);
 
     pd = embedding_bag::primitive_desc(pdesc, utils::engine::cpu_engine());
-
+    LOG(INFO) << "EmbeddingBag compute in progress...";
     embedding_bag(pd).execute(utils::stream::default_stream(),
                               {{ZENDNN_ARG_SRC_0, z_input},
                                {ZENDNN_ARG_SRC_1, z_indices},
@@ -111,6 +119,8 @@ _embedding_bag_zendnn_impl(
   std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor> out;
   out = std::make_tuple(std::move(output), std::move(offset2bag),
                         std::move(bag_size), std::move(max_indices));
+
+  LOG(INFO) << "Finished executing: " << __FUNCTION__ << "!\n";
 
   return out;
 }

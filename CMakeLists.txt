@@ -12,8 +12,8 @@ set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake/modules)
 # build and add ZenDNN and BLIS libraries
 find_package(ZENDNN REQUIRED)
 
-configure_file ("${CMAKE_CURRENT_SOURCE_DIR}/src/cpu/cpp/Config.h.in"
-            "${CMAKE_CURRENT_SOURCE_DIR}/src/cpu/cpp/Config.h" )
+configure_file ("${CMAKE_CURRENT_SOURCE_DIR}/src/cpu/cpp/Config.hpp.in"
+            "${CMAKE_CURRENT_SOURCE_DIR}/src/cpu/cpp/Config.hpp" )
 
 # Define our library target
 add_library(torch_zendnn_plugin INTERFACE)

@@ -3,7 +3,7 @@
  * All rights reserved.
  ******************************************************************************/
 
-#include "Config.h"
+#include "Config.hpp"
 
 #include <blis.h>
 #include <zendnn_version.h>
