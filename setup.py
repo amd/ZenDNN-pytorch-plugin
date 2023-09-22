@@ -55,6 +55,11 @@ class CustomBuildExtension(BuildExtension):
 
         super().build_extensions()
 
+def subproc_communicate(cmd):
+    p1 = subprocess.Popen([cmd], stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+    out, err = p1.communicate()
+    rc = p1.returncode
+    return rc, out.decode('ascii', 'ignore'), err.decode('ascii', 'ignore')
 
 #   ZenTorch_BUILD_VERSION
 #     specify the version of torch_zendnn_plugin, rather than the hard-coded version
@@ -62,19 +67,19 @@ class CustomBuildExtension(BuildExtension):
 
 # Define env values
 PACKAGE_NAME = "torch_zendnn_plugin"
-PACKAGE_VERSION = "1.0.0"
+PACKAGE_VERSION = "0.1.0"
 
-
-def get_build_version(base_dir):
-    git_sha = (
-        subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=base_dir)
-        .decode("ascii")
-        .strip()
-    )
-    zen_version = os.getenv(
-        "ZenTorch_BUILD_VERSION", PACKAGE_VERSION + "+git" + git_sha[:7]
-    )
-    return zen_version, git_sha
+def get_commit_hash(base_dir):
+    cwd=os.getcwd()
+    os.chdir(base_dir)
+    rc,out,err=subproc_communicate('git rev-parse HEAD')
+    if rc==0:
+        git_sha = out.strip()
+    else:
+        print("Issue with getting the GIT hash of %s" % base_dir)
+        exit(1)
+    os.chdir(cwd)
+    return git_sha
 
 
 project_root_dir = os.path.abspath(os.path.dirname(__file__))
@@ -84,7 +89,10 @@ include_dirs = [
     os.path.join(project_root_dir, "third_party/blis/include/amdzen"),
 ]
 
-torch_zendnn_plugin_build_version, git_sha = get_build_version(project_root_dir)
+torch_zendnn_plugin_build_version = os.getenv(
+        "ZenTorch_BUILD_VERSION", PACKAGE_VERSION
+    )
+git_sha = get_commit_hash(project_root_dir)
 wheel_file_dependencies = ["numpy", "torch"]
 
 long_description = ""
@@ -112,7 +120,8 @@ def main():
                 sources=sources,
                 include_dirs=include_dirs,
                 extra_compile_args=["-Werror",
-                                    "-DZENTORCH_VERSION_HASH=" + git_sha],
+                                    "-DZENTORCH_VERSION_HASH=" + git_sha,
+                                    "-DZENTORCH_VERSION=" + PACKAGE_VERSION],
             )
         ],
         cmdclass={

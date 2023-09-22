@@ -7,6 +7,7 @@ from torch.testing._internal.common_utils import TestCase, run_tests
 import torch
 import unittest
 import torch.nn as nn
+from importlib import metadata
 from torch.fx.experimental.proxy_tensor import make_fx
 
 try:
@@ -44,6 +45,7 @@ class TestZENDNN(TestCase):
         self.assertTrue(zentorch._C.is_bf16_supported(), "CPU supports AVX512 BF16.")
 
 
+
 class SampleEmbeddingNN(nn.Module):
     def __init__(self, embedding_dim, output_dim):
         super(SampleEmbeddingNN, self).__init__()
@@ -57,6 +59,9 @@ class SampleEmbeddingNN(nn.Module):
         output = self.output(intermediate)
         return output
 
+class TestZenTorchVersion(TestCase):
+    def test_plugin_version(self):
+        self.assertTrue(zentorch.__version__, metadata.version('torch-zendnn-plugin'))
 
 class TestZenDNNOptimize(TestCase):
     @torch.no_grad()
