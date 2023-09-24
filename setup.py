@@ -67,14 +67,14 @@ PACKAGE_VERSION = "1.0.0"
 
 def get_build_version(base_dir):
     git_sha = (
-        subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], cwd=base_dir)
+        subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=base_dir)
         .decode("ascii")
         .strip()
     )
     zen_version = os.getenv(
         "ZenTorch_BUILD_VERSION", PACKAGE_VERSION + "+git" + git_sha[:7]
     )
-    return zen_version
+    return zen_version, git_sha
 
 
 project_root_dir = os.path.abspath(os.path.dirname(__file__))
@@ -84,7 +84,7 @@ include_dirs = [
     os.path.join(project_root_dir, "third_party/blis/include/amdzen"),
 ]
 
-torch_zendnn_plugin_build_version = get_build_version(project_root_dir)
+torch_zendnn_plugin_build_version, git_sha = get_build_version(project_root_dir)
 wheel_file_dependencies = ["numpy", "torch"]
 
 long_description = ""
@@ -111,7 +111,8 @@ def main():
                 name=f"{PACKAGE_NAME}._C",
                 sources=sources,
                 include_dirs=include_dirs,
-                extra_compile_args=["-Werror"],
+                extra_compile_args=["-Werror",
+                                    "-DZENTORCH_VERSION_HASH=" + git_sha],
             )
         ],
         cmdclass={

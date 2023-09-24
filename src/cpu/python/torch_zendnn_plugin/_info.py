@@ -3,5 +3,6 @@
 # All rights reserved.
 # ******************************************************************************
 
-from ._optimize import optimize  # noqa
-from ._info import __config__  # noqa
+import torch_zendnn_plugin._C
+
+__config__ = torch_zendnn_plugin._C.show_config()
