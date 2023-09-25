@@ -5,7 +5,6 @@
 
 import os
 import logging
-import logging.config
 
 
 def get_logger(__name__):
@@ -14,8 +13,10 @@ def get_logger(__name__):
     takes in the filename and,
     returns a logger based on logging.conf file
     """
+    # define a message format
+    FORMAT = "[%(levelname)s %(name)s - %(funcName)s:%(lineno)d] %(message)s"
     # use the logging configurations from a .conf file
-    logging.config.fileConfig("src/cpu/python/torch_zendnn_plugin/logging.conf")
+    logging.basicConfig(format=FORMAT)
     # make a logger for this file
     logger = logging.getLogger(__name__)
     # check if user has set some logging level
