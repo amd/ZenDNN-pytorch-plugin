@@ -31,8 +31,14 @@ class CustomBuildExtension(BuildExtension):
 
         build_type = "Debug" if os.getenv("DEBUG", 0) == "1" else "Release"
         working_dir = os.path.abspath(os.path.dirname(__file__))
-        cmake_cmd = ["cmake", "-S", working_dir, "-B", self.build_temp,
-                     f"-DCMAKE_BUILD_TYPE={build_type}"]
+        cmake_cmd = [
+            "cmake",
+            "-S",
+            working_dir,
+            "-B",
+            self.build_temp,
+            f"-DCMAKE_BUILD_TYPE={build_type}",
+        ]
         self.spawn(cmake_cmd)
         self.spawn(["make", "-j", "-C", self.build_temp])
 
@@ -55,11 +61,15 @@ class CustomBuildExtension(BuildExtension):
 
         super().build_extensions()
 
+
 def subproc_communicate(cmd):
-    p1 = subprocess.Popen([cmd], stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+    p1 = subprocess.Popen(
+        [cmd], stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True
+    )
     out, err = p1.communicate()
     rc = p1.returncode
-    return rc, out.decode('ascii', 'ignore'), err.decode('ascii', 'ignore')
+    return rc, out.decode("ascii", "ignore"), err.decode("ascii", "ignore")
+
 
 #   ZenTorch_BUILD_VERSION
 #     specify the version of torch_zendnn_plugin, rather than the hard-coded version
@@ -69,11 +79,12 @@ def subproc_communicate(cmd):
 PACKAGE_NAME = "torch_zendnn_plugin"
 PACKAGE_VERSION = "0.1.0"
 
+
 def get_commit_hash(base_dir):
-    cwd=os.getcwd()
+    cwd = os.getcwd()
     os.chdir(base_dir)
-    rc,out,err=subproc_communicate('git rev-parse HEAD')
-    if rc==0:
+    rc, out, err = subproc_communicate("git rev-parse HEAD")
+    if rc == 0:
         git_sha = out.strip()
     else:
         print("Issue with getting the GIT hash of %s" % base_dir)
@@ -89,9 +100,7 @@ include_dirs = [
     os.path.join(project_root_dir, "third_party/blis/include/amdzen"),
 ]
 
-torch_zendnn_plugin_build_version = os.getenv(
-        "ZenTorch_BUILD_VERSION", PACKAGE_VERSION
-    )
+torch_zendnn_plugin_build_version = os.getenv("ZenTorch_BUILD_VERSION", PACKAGE_VERSION)
 git_sha = get_commit_hash(project_root_dir)
 wheel_file_dependencies = ["numpy", "torch"]
 
@@ -119,9 +128,11 @@ def main():
                 name=f"{PACKAGE_NAME}._C",
                 sources=sources,
                 include_dirs=include_dirs,
-                extra_compile_args=["-Werror",
-                                    "-DZENTORCH_VERSION_HASH=" + git_sha,
-                                    "-DZENTORCH_VERSION=" + PACKAGE_VERSION],
+                extra_compile_args=[
+                    "-Werror",
+                    "-DZENTORCH_VERSION_HASH=" + git_sha,
+                    "-DZENTORCH_VERSION=" + PACKAGE_VERSION
+                ],
             )
         ],
         cmdclass={

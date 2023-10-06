@@ -12,6 +12,7 @@ from torch.fx.experimental.proxy_tensor import make_fx
 
 try:
     import torch_zendnn_plugin as zentorch
+
     HAS_PT_PLUGIN = True
 except ImportError:
     HAS_PT_PLUGIN = False
@@ -31,7 +32,7 @@ class TestZENDNNOps(TestCase):
             embedding_matrix, input, offsets, False, 0, False, None, False
         )
 
-        y_ebz, _, _, _ = zentorch._C.embedding_bag_zendnn(
+        y_ebz, _, _, _ = torch.ops.zentorch.zendnn_embedding_bag(
             embedding_matrix, input, offsets, False, 0, False, None, False, -1
         )
 
@@ -62,42 +63,53 @@ class TestZENDNNOps(TestCase):
 
         # mm
         self.assertEqual(
-            torch._C._VariableFunctions.mm(x, y),
-            zentorch._C.zendnn_mm(x, y))
+            torch._C._VariableFunctions.mm(x, y), torch.ops.zentorch.zendnn_mm(x, y)
+        )
         # mm->relu
         self.assertEqual(
-            torch._C._VariableFunctions.relu(
-                torch._C._VariableFunctions.mm(x, y)),
-            zentorch._C.zendnn_mm(x, y, fuse_relu=True))
+            torch._C._VariableFunctions.relu(torch._C._VariableFunctions.mm(x, y)),
+            torch.ops.zentorch.zendnn_mm(x, y, fuse_relu=True),
+        )
 
         # addmm
         self.assertEqual(
             torch._C._VariableFunctions.addmm(input, x, y),
-            zentorch._C.zendnn_addmm(input, x, y,))
+            torch.ops.zentorch.zendnn_addmm(
+                input,
+                x,
+                y,
+            ),
+        )
         # addmm with kw_only arguments
         self.assertEqual(
             torch._C._VariableFunctions.addmm(input, x, y, beta=1.3),
-            zentorch._C.zendnn_addmm(input, x, y, beta=1.3))
+            torch.ops.zentorch.zendnn_addmm(input, x, y, beta=1.3),
+        )
         # addmm->relu [used kw_only arguments for fuse relu]
         self.assertEqual(
             torch._C._VariableFunctions.relu(
-                torch._C._VariableFunctions.addmm(input, x, y,
-                                                  beta=1.5, alpha=1.7)),
-            zentorch._C.zendnn_addmm(input, x, y,
-                                     beta=1.5, alpha=1.7, fuse_relu=True))
+                torch._C._VariableFunctions.addmm(input, x, y, beta=1.5, alpha=1.7)
+            ),
+            torch.ops.zentorch.zendnn_addmm(
+                input, x, y, beta=1.5, alpha=1.7, fuse_relu=True
+            ),
+        )
 
         # bmm
         self.assertEqual(
             torch._C._VariableFunctions.bmm(x3d, y3d),
-            zentorch._C.zendnn_bmm(x3d, y3d))
+            torch.ops.zentorch.zendnn_bmm(x3d, y3d),
+        )
 
         # baddbmm
         self.assertEqual(
             torch._C._VariableFunctions.baddbmm(input3d, x3d, y3d),
-            zentorch._C.zendnn_baddbmm(input3d, x3d, y3d))
+            torch.ops.zentorch.zendnn_baddbmm(input3d, x3d, y3d),
+        )
 
-    @unittest.skipIf(not zentorch._C.is_bf16_supported(),
-                     "CPU does not support AVX512 BF16.")
+    @unittest.skipIf(
+        not zentorch._C.is_bf16_supported(), "CPU does not support AVX512 BF16."
+    )
     @torch.no_grad()
     def test_zendnn_matmul_bf16(self):
         b = torch.randint(1, 11, (1,)).item()
@@ -118,45 +130,63 @@ class TestZENDNNOps(TestCase):
         # mm
         self.assertEqual(
             torch._C._VariableFunctions.mm(x, y),
-            zentorch._C.zendnn_mm(x, y), atol=1e-1, rtol=1e-3)
+            torch.ops.zentorch.zendnn_mm(x, y),
+            atol=1e-1,
+            rtol=1e-3,
+        )
         # mm->relu
         self.assertEqual(
-            torch._C._VariableFunctions.relu(
-                torch._C._VariableFunctions.mm(x, y)),
-            zentorch._C.zendnn_mm(x, y, fuse_relu=True),
-            atol=1e-1, rtol=1e-3)
+            torch._C._VariableFunctions.relu(torch._C._VariableFunctions.mm(x, y)),
+            torch.ops.zentorch.zendnn_mm(x, y, fuse_relu=True),
+            atol=1e-1,
+            rtol=1e-3,
+        )
 
         # addmm
         self.assertEqual(
             torch._C._VariableFunctions.addmm(input, x, y),
-            zentorch._C.zendnn_addmm(input, x, y,),
-            atol=1e-1, rtol=1e-3)
+            torch.ops.zentorch.zendnn_addmm(
+                input,
+                x,
+                y,
+            ),
+            atol=1e-1,
+            rtol=1e-3,
+        )
         # addmm with kw_only arguments
         self.assertEqual(
             torch._C._VariableFunctions.addmm(input, x, y, beta=1),
-            zentorch._C.zendnn_addmm(input, x, y, beta=1),
-            atol=1e-1, rtol=1e-3)
+            torch.ops.zentorch.zendnn_addmm(input, x, y, beta=1),
+            atol=1e-1,
+            rtol=1e-3,
+        )
         # addmm->relu [used kw_only arguments for fuse relu]
         self.assertEqual(
             torch._C._VariableFunctions.relu(
-                torch._C._VariableFunctions.addmm(input, x, y,
-                                                  beta=1.5, alpha=1.7)),
-            zentorch._C.zendnn_addmm(input, x, y, beta=1.5, alpha=1.7,
-                                     fuse_relu=True),
-            atol=1e-1, rtol=1e-3)
+                torch._C._VariableFunctions.addmm(input, x, y, beta=1.5, alpha=1.7)
+            ),
+            torch.ops.zentorch.zendnn_addmm(
+                input, x, y, beta=1.5, alpha=1.7, fuse_relu=True
+            ),
+            atol=1e-1,
+            rtol=1e-3,
+        )
 
         # bmm
         self.assertEqual(
             torch._C._VariableFunctions.bmm(x3d, y3d),
-            zentorch._C.zendnn_bmm(x3d, y3d),
-            atol=1e-1, rtol=1e-3)
+            torch.ops.zentorch.zendnn_bmm(x3d, y3d),
+            atol=1e-1,
+            rtol=1e-3,
+        )
 
         # baddbmm
         self.assertEqual(
             torch._C._VariableFunctions.baddbmm(input3d, x3d, y3d),
-            zentorch._C.zendnn_baddbmm(input3d, x3d, y3d),
-            atol=1e-1, rtol=1e-3)
-
+            torch.ops.zentorch.zendnn_baddbmm(input3d, x3d, y3d),
+            atol=1e-1,
+            rtol=1e-3,
+        )
 
 
 class SampleEmbeddingNN(nn.Module):
@@ -172,9 +202,11 @@ class SampleEmbeddingNN(nn.Module):
         output = self.output(intermediate)
         return output
 
+
 class TestZenTorchVersion(TestCase):
     def test_plugin_version(self):
-        self.assertTrue(zentorch.__version__, metadata.version('torch-zendnn-plugin'))
+        self.assertTrue(zentorch.__version__, metadata.version("torch-zendnn-plugin"))
+
 
 class BmmAdd(nn.Module):
     def __init__(self):
@@ -183,8 +215,7 @@ class BmmAdd(nn.Module):
     def forward(self, input, batch1, batch2):
         bmm_res = torch.bmm(batch1, batch2)
         add_res = torch.add(bmm_res, input)
-        baddbmm_res = torch.baddbmm(add_res, batch1, batch2,
-                                    beta=1.5, alpha=1.4)
+        baddbmm_res = torch.baddbmm(add_res, batch1, batch2, beta=1.5, alpha=1.4)
         return baddbmm_res
 
 
@@ -196,8 +227,7 @@ class AddmmRelu(nn.Module):
         mm_res = torch.mm(batch1, batch2)
         add_res = torch.add(mm_res, input)
         relu1_res = torch.relu(add_res)
-        addmm_res = torch.addmm(relu1_res, batch1, batch2,
-                                beta=1.7, alpha=1.6)
+        addmm_res = torch.addmm(relu1_res, batch1, batch2, beta=1.7, alpha=1.6)
         relu2_res = torch.relu(addmm_res)
         return relu2_res
 
@@ -218,8 +248,7 @@ class TestZenDNNOptimize(TestCase):
 
     @torch.no_grad()
     def test_zendnn_linear_relu(self):
-        model = nn.Sequential(nn.Linear(4, 5),
-                              nn.ReLU())
+        model = nn.Sequential(nn.Linear(4, 5), nn.ReLU())
 
         input = torch.randn(10, 4)
 
@@ -236,8 +265,7 @@ class TestZenDNNOptimize(TestCase):
         for node in fx_g_modified.graph.nodes:
             if isinstance(node.target, torch._ops.OpOverload):
                 if node.target.name() in ["aten::addmm"]:
-                    self.assertEqual(node.target,
-                                     zentorch._C.zendnn_addmm)
+                    self.assertEqual(node.target, torch.ops.zentorch.zendnn_addmm)
 
     @torch.no_grad()
     def test_zendnn_bmm_baddbmm(self):
@@ -266,15 +294,18 @@ class TestZenDNNOptimize(TestCase):
 
                 fx_g_modified_output = fx_g_modified(M, x1[i], y1[j])
 
-                self.assertEqual(fx_g_output, fx_g_modified_output,
-                                 atol=1e-1, rtol=1e-3)
+                self.assertEqual(
+                    fx_g_output, fx_g_modified_output, atol=1e-1, rtol=1e-3
+                )
 
                 for node in fx_g_modified.graph.nodes:
                     if isinstance(node.target, torch._ops.OpOverload):
                         if node.target.name() in ["aten::bmm", "aten::baddbmm"]:
-                            self.assertEqual(node.target,
-                                             zentorch._C.zendnn_bmm
-                                             or zentorch._C.zendnn_baddbmm)
+                            self.assertEqual(
+                                node.target,
+                                torch.ops.zentorch.zendnn_bmm
+                                or torch.ops.zentorch.zendnn_baddbmm,
+                            )
 
     @torch.no_grad()
     def test_zendnn_addmm_relu(self):
@@ -300,15 +331,18 @@ class TestZenDNNOptimize(TestCase):
 
                 fx_g_modified_output = fx_g_modified(M, x1[i], y1[j])
 
-                self.assertEqual(fx_g_output, fx_g_modified_output,
-                                 atol=1e-1, rtol=1e-3)
+                self.assertEqual(
+                    fx_g_output, fx_g_modified_output, atol=1e-1, rtol=1e-3
+                )
 
                 for node in fx_g_modified.graph.nodes:
                     if isinstance(node.target, torch._ops.OpOverload):
                         if node.target.name() in ["aten::mm", "aten::addmm"]:
-                            self.assertEqual(node.target,
-                                             zentorch._C.zendnn_mm
-                                             or zentorch._C.zendnn_addmm)
+                            self.assertEqual(
+                                node.target,
+                                torch.ops.zentorch.zendnn_mm
+                                or torch.ops.zentorch.zendnn_addmm,
+                            )
 
 
 if __name__ == "__main__":

@@ -132,8 +132,8 @@ std::vector<int64_t> get_matmul_output_sizes(const at::Tensor &tensor1,
 }
 
 at::Tensor zendnn_addmm(const at::Tensor &self, const at::Tensor &mat1,
-                        const at::Tensor &mat2, const float &beta,
-                        const float &alpha, const bool &fuse_relu) {
+                        const at::Tensor &mat2, const at::Scalar &beta,
+                        const at::Scalar &alpha, const bool &fuse_relu) {
 
   LOG(INFO) << "Executing function: " << __FUNCTION__;
   // Array access is faster than .size(n)
@@ -160,8 +160,8 @@ at::Tensor zendnn_addmm(const at::Tensor &self, const at::Tensor &mat1,
                 mat1_sizes[0], "x", mat1_sizes[1], " @ ", mat2_sizes[0], "x",
                 mat2_sizes[1], " != ", self_sizes[0], "x", self_sizes[1], ")");
 
-    return zendnn_matmul_impl(mat1, mat2, const_cast<at::Tensor &>(self), beta,
-                              alpha, fuse_relu);
+    return zendnn_matmul_impl(mat1, mat2, const_cast<at::Tensor &>(self),
+                              beta.to<float>(), alpha.to<float>(), fuse_relu);
   } else {
     LOG(WARNING) << "self tensor is not 2-dimensional as self dimensions: "
                  << self.sizes();
@@ -188,13 +188,14 @@ at::Tensor zendnn_addmm(const at::Tensor &self, const at::Tensor &mat1,
     // Scalar to float
     // beta.to<float>()
 
-    return zendnn_matmul_impl(mat1, mat2, result_, beta, alpha, fuse_relu);
+    return zendnn_matmul_impl(mat1, mat2, result_, beta.to<float>(),
+                              alpha.to<float>(), fuse_relu);
   }
 }
 
 at::Tensor zendnn_baddbmm(const at::Tensor &self, const at::Tensor &batch1,
-                          const at::Tensor &batch2, const float &beta,
-                          const float &alpha) {
+                          const at::Tensor &batch2, const at::Scalar &beta,
+                          const at::Scalar &alpha) {
   LOG(INFO) << "Executing function: " << __FUNCTION__;
 
   TORCH_CHECK(
@@ -226,7 +227,7 @@ at::Tensor zendnn_baddbmm(const at::Tensor &self, const at::Tensor &batch1,
       self_sizes[1], "x", self_sizes[2], ")");
   bool fuse_relu = false;
   return zendnn_matmul_impl(batch1, batch2, const_cast<at::Tensor &>(self),
-                            beta, alpha, fuse_relu);
+                            beta.to<float>(), alpha.to<float>(), fuse_relu);
 }
 
 at::Tensor zendnn_mm(const at::Tensor &self, const at::Tensor &mat2,

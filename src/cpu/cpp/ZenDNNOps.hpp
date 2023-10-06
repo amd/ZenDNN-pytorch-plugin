@@ -15,7 +15,7 @@ namespace ZenDNNTorch {
 
 // EmbedBag
 std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor>
-_embedding_bag_zendnn_impl(
+zendnn_embedding_bag_impl(
     const at::Tensor &weight, const at::Tensor &indices,
     const at::Tensor &offsets, const bool scale_grad_by_freq, int64_t mode,
     bool sparse, const c10::optional<at::Tensor> &per_sample_weights_opt,
@@ -28,12 +28,12 @@ at::Tensor zendnn_matmul_impl(const at::Tensor &mat1, const at::Tensor &mat2,
                               const float &alpha, const bool &fuse_relu);
 
 at::Tensor zendnn_addmm(const at::Tensor &self, const at::Tensor &mat1,
-                        const at::Tensor &mat2, const float &beta,
-                        const float &alpha, const bool &fuse_relu);
+                        const at::Tensor &mat2, const at::Scalar &beta,
+                        const at::Scalar &alpha, const bool &fuse_relu);
 
 at::Tensor zendnn_baddbmm(const at::Tensor &self, const at::Tensor &batch1,
-                          const at::Tensor &batch2, const float &beta,
-                          const float &alpha);
+                          const at::Tensor &batch2, const at::Scalar &beta,
+                          const at::Scalar &alpha);
 
 at ::Tensor zendnn_mm(const at::Tensor &self, const at::Tensor &mat2,
                       const bool &fuse_relu);

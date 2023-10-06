@@ -4,7 +4,8 @@
 # ******************************************************************************
 
 import torch
-import torch_zendnn_plugin._C
+import torch_zendnn_plugin
+
 # import the custom logging module
 from ._logging import get_logger
 
@@ -21,21 +22,16 @@ def optimize(fx_graph):
     logger.info("Optimizing the fx_graph with zentorch ops.")
     # Loop through the nodes in fx_graph.graph
     for node in fx_graph.graph.nodes:
-        op_dict = {"aten::_embedding_bag":
-                   [torch_zendnn_plugin._C.embedding_bag_zendnn,
-                    "embedding_bag_zendnn"],
-                   "aten::mm":
-                   [torch_zendnn_plugin._C.zendnn_mm,
-                    "zendnn_mm"],
-                   "aten::bmm":
-                   [torch_zendnn_plugin._C.zendnn_bmm,
-                    "zendnn_bmm"],
-                   "aten::addmm":
-                   [torch_zendnn_plugin._C.zendnn_addmm,
-                    "zendnn_addmm"],
-                   "aten::baddbmm":
-                   [torch_zendnn_plugin._C.zendnn_baddbmm,
-                    "zendnn_baddbmm"]}
+        op_dict = {
+            "aten::_embedding_bag": [
+                torch.ops.zentorch.zendnn_embedding_bag,
+                "zendnn_embedding_bag",
+            ],
+            "aten::mm": [torch.ops.zentorch.zendnn_mm, "zendnn_mm"],
+            "aten::bmm": [torch.ops.zentorch.zendnn_bmm, "zendnn_bmm"],
+            "aten::addmm": [torch.ops.zentorch.zendnn_addmm, "zendnn_addmm"],
+            "aten::baddbmm": [torch.ops.zentorch.zendnn_baddbmm, "zendnn_baddbmm"],
+        }
 
         # Checking for op default implementation to be replaced.
         if (
@@ -44,8 +40,11 @@ def optimize(fx_graph):
         ):
             op_name = node.target.name()
             logger.info(
-                "Now replacing default " + op_name + " with "
-                + op_dict[op_name][1] + "!"
+                "Now replacing default "
+                + op_name
+                + " with "
+                + op_dict[op_name][1]
+                + "!"
             )
             node.target = op_dict[op_name][0]
 
@@ -67,8 +66,8 @@ def op_fusion(fx_graph):
     # Loop through the nodes in fx_graph.graph
     for node in fx_graph.graph.nodes:
         if (
-            node.target == torch_zendnn_plugin._C.zendnn_mm
-            or node.target == torch_zendnn_plugin._C.zendnn_addmm
+            node.target == torch.ops.zentorch.zendnn_mm
+            or node.target == torch.ops.zentorch.zendnn_addmm
         ):
             if len(node.users) > 1:  # Output of node is used by other nodes
                 continue
@@ -78,17 +77,18 @@ def op_fusion(fx_graph):
                 and node.next.target.name() == "aten::relu"
             ):
                 logger.info("Fusing the mm->relu or addmm->relu in fx_graph.")
-                new_kwargs = {**node.kwargs, "fuse_relu" : True}
+                new_kwargs = {**node.kwargs, "fuse_relu": True}
                 node.kwargs = new_kwargs
-                logger.info("Replacing the next node[relu] with current "
-                            "node from the graph.")
+                logger.info(
+                    "Replacing the next node[relu] with current " "node from the graph."
+                )
                 node.next.replace_all_uses_with(node)
                 logger.info("Removing the next node[relu] from the graph.")
                 fx_graph.graph.erase_node(node.next)
                 logger.info("Fused the mm->relu or addmm->relu in fx_graph.")
         if (
-            node.target == torch_zendnn_plugin._C.zendnn_mm
-            or node.target == torch_zendnn_plugin._C.zendnn_bmm
+            node.target == torch.ops.zentorch.zendnn_mm
+            or node.target == torch.ops.zentorch.zendnn_bmm
         ):
             if len(node.users) > 1:  # Output of node is used by other nodes
                 continue
@@ -102,14 +102,15 @@ def op_fusion(fx_graph):
                     if add_tensor != node:
                         new_args = (add_tensor, *node.args)
                 node.args = new_args
-                logger.info("Replacing the next node[add] with current "
-                            "node from the graph.")
+                logger.info(
+                    "Replacing the next node[add] with current " "node from the graph."
+                )
                 node.next.replace_all_uses_with(node)
                 logger.info("Removing the next node[add] from the graph.")
                 fx_graph.graph.erase_node(node.next)
-                if node.target == torch_zendnn_plugin._C.zendnn_mm :
+                if node.target == torch.ops.zentorch.zendnn_mm:
                     logger.info("Fused the mm->add to addmm in fx_graph.")
-                    node.target = torch_zendnn_plugin._C.zendnn_addmm
+                    node.target = torch.ops.zentorch.zendnn_addmm
                     # [mm->add]->relu fusion
                     if len(node.users) > 1:  # Output of node is used by other nodes
                         continue
@@ -118,17 +119,19 @@ def op_fusion(fx_graph):
                         and node.next.target.name() == "aten::relu"
                     ):
                         logger.info("Fusing the [mm->add]->relu fusion in fx_graph.")
-                        new_kwargs = {**node.kwargs, "fuse_relu" : True}
+                        new_kwargs = {**node.kwargs, "fuse_relu": True}
                         node.kwargs = new_kwargs
-                        logger.info("Replacing the next node[relu] with current "
-                                    "node from the graph.")
+                        logger.info(
+                            "Replacing the next node[relu] with current "
+                            "node from the graph."
+                        )
                         node.next.replace_all_uses_with(node)
                         logger.info("Removing the next node[relu] from the graph.")
                         fx_graph.graph.erase_node(node.next)
                         logger.info("Fused the [mm->add]->relu in fx_graph.")
                 else:
                     logger.info("Fused the bmm->add to baddbmm in fx_graph.")
-                    node.target = torch_zendnn_plugin._C.zendnn_baddbmm
+                    node.target = torch.ops.zentorch.zendnn_baddbmm
 
     logger.info("Recompiling the fx_graph with fusion changes made.")
     fx_graph.graph.set_codegen(torch.fx.graph.CodeGen())

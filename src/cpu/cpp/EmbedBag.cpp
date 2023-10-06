@@ -12,7 +12,7 @@ using namespace zendnn;
 namespace ZenDNNTorch {
 
 std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor>
-_embedding_bag_zendnn_impl(
+zendnn_embedding_bag_impl(
     const at::Tensor &weight, const at::Tensor &indices,
     const at::Tensor &offsets, const bool scale_grad_by_freq, int64_t mode,
     bool sparse, const c10::optional<at::Tensor> &per_sample_weights_opt,
