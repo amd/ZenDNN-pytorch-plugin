@@ -131,7 +131,7 @@ def main():
                 extra_compile_args=[
                     "-Werror",
                     "-DZENTORCH_VERSION_HASH=" + git_sha,
-                    "-DZENTORCH_VERSION=" + PACKAGE_VERSION
+                    "-DZENTORCH_VERSION=" + PACKAGE_VERSION,
                 ],
             )
         ],

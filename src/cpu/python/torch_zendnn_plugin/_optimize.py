@@ -4,7 +4,7 @@
 # ******************************************************************************
 
 import torch
-import torch_zendnn_plugin
+import torch_zendnn_plugin  # noqa
 
 # import the custom logging module
 from ._logging import get_logger

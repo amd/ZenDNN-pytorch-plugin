@@ -169,7 +169,6 @@ from torch.fx.experimental.proxy_tensor import make_fx
 model_fx = make_fx(model)(input)
 ```
 
-
 # 4. Logging and Profiling
 ## 4.1 ZenDNN logs
 Logging for ZenDNN is disabled by default but can be enabled by using the environment variable **ZENDNN_LOG_OPTS** before running any tests. Its behavior can be specified by setting **ZENDNN_LOG_OPTS** to a comma-delimited list of **ACTOR:DBGLVL** pairs. An example to turn on info logging is given below.
@@ -191,6 +190,8 @@ export ZENTORCH_PY_LOG_LEVEL=DEBUG
 ```
 The default level of logs is **WARNING** for both cpp and python sources but can be overridden as discussed above.
 >NOTE: The log levels are the same as those provided by the python logging module.
+
+>INFO: Since all OPs implemented in zentorch are registered with torch using the TORCH_LIBRARY() and TORCH_LIBRARY_IMPL() macros in bindings, the PyTorch profiler can be used without any modifications to measure the op level performance.
 
 # 5. Contributing
 Any contribution to zentorch can be done by following the guidelines given [here](CONTRIBUTING.md).

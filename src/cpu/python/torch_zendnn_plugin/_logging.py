@@ -15,7 +15,6 @@ def get_logger(__name__):
     """
     # define a message format
     FORMAT = "[%(levelname)s %(name)s - %(funcName)s:%(lineno)d] %(message)s"
-    # use the logging configurations from a .conf file
     logging.basicConfig(format=FORMAT)
     # make a logger for this file
     logger = logging.getLogger(__name__)
