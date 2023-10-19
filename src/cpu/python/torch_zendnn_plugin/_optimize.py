@@ -138,3 +138,55 @@ def op_fusion(fx_graph):
     fx_graph.recompile()
 
     return fx_graph
+
+
+def replace_emb_bag(fx_g):
+    embedding_bag_op_count = 0
+    list_new_args = [[], [], [], [], [], [], [], [], []]
+
+    for node in fx_g.graph.nodes:
+
+        if (isinstance(node.target, torch._ops.OpOverload)
+           and node.target.name() == "aten::_embedding_bag"):
+            len_node_args = len(node.args)
+            for i in range(len_node_args):
+                if (node.args[i] is False):
+                    list_new_args[i].append(0)
+                elif (node.args[i] is True):
+                    list_new_args[i].append(1)
+                else:
+                    list_new_args[i].append(node.args[i])
+            if (len_node_args == 7):
+                list_new_args[7].append(0)
+                list_new_args[8].append(-1)
+            if (len_node_args == 8):
+                list_new_args[8].append(-1)
+
+            if (embedding_bag_op_count == 0):
+                first_emb_node = node
+            else:
+                first_emb_node.prepend(node.args[0])  # prepend weight
+                first_emb_node.prev.prepend(node.args[1])  # prepend indices
+                first_emb_node.prev.prev.prepend(node.args[2])  # prepend offsets
+
+                total_prev_outputs_emb_bag = embedding_bag_op_count * 4
+                temp_node = node.next
+                for _ in range(4):
+                    temp_node_args = (temp_node.args[0], temp_node.args[1]
+                                      + total_prev_outputs_emb_bag)
+                    temp_node.args = temp_node_args
+                    temp_node = temp_node.next
+
+                node.replace_all_uses_with(first_emb_node)
+                fx_g.graph.erase_node(node)
+
+            embedding_bag_op_count += 1
+
+    new_args = tuple(list_new_args)
+    first_emb_node.args = new_args
+    first_emb_node.target = torch.ops.zentorch.zendnn_custom_embedding_bag_group
+
+    fx_g.graph.set_codegen(torch.fx.graph.CodeGen())
+    fx_g.recompile()
+
+    return fx_g

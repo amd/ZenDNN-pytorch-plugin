@@ -124,4 +124,29 @@ zendnn_embedding_bag_impl(
 
   return out;
 }
+
+std::vector<at::Tensor> zendnn_custom_embedding_bag_group(
+    const at::TensorList weight, const at::TensorList indices,
+    const at::TensorList offsets, const at::IntArrayRef scale_grad_by_freq,
+    at::IntArrayRef mode, at::IntArrayRef sparse,
+    const c10::List<c10::optional<at::Tensor>> &per_sample_weights_opt,
+    at::IntArrayRef include_last_offset, at::IntArrayRef padding_idx) {
+  int num_eb_ops = weight.size();
+  std::vector<at::Tensor> out_vec(num_eb_ops * 4);
+
+  for (int i = 0; i < num_eb_ops; i++) {
+    auto out = zendnn_embedding_bag_impl(
+        weight[i], indices[i], offsets[i], scale_grad_by_freq[i], mode[i],
+        sparse[i], per_sample_weights_opt[i], include_last_offset[i],
+        padding_idx[i]);
+    int temp = i * 4;
+    out_vec[temp + 0] = std::get<0>(out);
+    out_vec[temp + 1] = std::get<1>(out);
+    out_vec[temp + 2] = std::get<2>(out);
+    out_vec[temp + 3] = std::get<3>(out);
+  }
+
+  return out_vec;
+}
+
 } // namespace ZenDNNTorch

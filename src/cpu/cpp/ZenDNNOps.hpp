@@ -40,4 +40,11 @@ at ::Tensor zendnn_mm(const at::Tensor &self, const at::Tensor &mat2,
 
 at::Tensor zendnn_bmm(const at::Tensor &self, const at::Tensor &mat2);
 
+std::vector<at::Tensor> zendnn_custom_embedding_bag_group(
+    const at::TensorList weight, const at::TensorList indices,
+    const at::TensorList offsets, const at::IntArrayRef scale_grad_by_freq,
+    at::IntArrayRef mode, at::IntArrayRef sparse,
+    const c10::List<c10::optional<at::Tensor>> &per_sample_weights_opt,
+    at::IntArrayRef include_last_offset, at::IntArrayRef padding_idx);
+
 } // namespace ZenDNNTorch

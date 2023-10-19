@@ -17,6 +17,10 @@ TORCH_LIBRARY(zentorch, m) {
         "Scalar alpha=1, bool fuse_relu=False) -> Tensor");
   m.def("zendnn_baddbmm(Tensor self, Tensor mat1, Tensor mat2, *, Scalar "
         "beta=1, Scalar alpha=1) -> Tensor");
+  m.def("zendnn_custom_embedding_bag_group(Tensor[] weight, Tensor[] indices, "
+        "Tensor[] offsets, int[] scale_grad_by_freq, int[] mode, int[] "
+        "sparse, Tensor?[] per_sample_weights, int[] include_last_offset, "
+        "int[] padding_idx) -> Tensor[]");
 }
 
 TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
@@ -25,6 +29,8 @@ TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
   m.impl("zendnn_bmm", ZenDNNTorch::zendnn_bmm);
   m.impl("zendnn_addmm", ZenDNNTorch::zendnn_addmm);
   m.impl("zendnn_baddbmm", ZenDNNTorch::zendnn_baddbmm);
+  m.impl("zendnn_custom_embedding_bag_group",
+         ZenDNNTorch::zendnn_custom_embedding_bag_group);
 }
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
