@@ -11,9 +11,8 @@ Table of Contents
 - [Coding-style guidelines](#3-coding-style-guidelines)
   - [Linting mechanism](#31-linting-mechanism)
 - [Adding log messages to sources](#4-adding-log-messages-to-sources)
-- [License header check](#5-license-header-check)
-- [Unit-testing](#6-unit-testing)
-- [Git commit guidelines](#7-git-commit-guidelines)
+- [Unit-testing](#5-unit-testing)
+- [Git commit guidelines](#6-git-commit-guidelines)
 <!-- tocstop -->
 
 # 1. Making changes to zentorch
@@ -57,26 +56,13 @@ logger.info("This is an info message!")
 ```
 The log levels have been discussed [here](README.md#42-zentorch-logs).
 
-# 5. License header check
-To check for the presence of license headers, we have a comment style agnostic python script, which can be invoked as given below from the repo root.
-```bash
-python license_header_check.py
-```
-For example, the license header for a .cpp file is:
-```cpp
-/******************************************************************************
- * Copyright (c) 2023 Advanced Micro Devices, Inc.
- * All rights reserved.
- ******************************************************************************/
-```
-
-# 6. Unit-testing
+# 5. Unit-testing
 Unit tests for Python are located in a script test_zentorch.py inside the test directory. It contains tests for all ops supported by zentorch, bf16 device support check and a few other tests. The pre-requisites for running or adding new tests are the **expecttest** and **hypothesis** packages. To run the tests:
 ```bash
 python test/test_zentorch.py
 ```
 
-# 7. Git commit guidelines
+# 6. Git commit guidelines
 Don't use `git commit -m <your message>` option as you cannot compose the body of the git commit message with this, instead use `git commit -s` to add a sign-off and be more descriptive about your change.
 
 Use module names at the beginning of your commit message, an example for ZENTORCH CORE is given below:
