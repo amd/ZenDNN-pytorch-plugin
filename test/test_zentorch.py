@@ -12,7 +12,6 @@ from torch.fx.experimental.proxy_tensor import make_fx
 
 try:
     import torch_zendnn_plugin as zentorch
-
     HAS_PT_PLUGIN = True
 except ImportError:
     HAS_PT_PLUGIN = False

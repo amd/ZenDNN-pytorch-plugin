@@ -3,7 +3,5 @@
 # All rights reserved.
 # ******************************************************************************
 
-from ._optimize import optimize  # noqa
-from ._optimize import replace_emb_bag  # noqa
-from ._info import __config__  # noqa
-from ._info import __version__  # noqa
+from ._optimize import optimize, replace_emb_bag  # noqa
+from ._info import __config__, __version__  # noqa

@@ -14,9 +14,10 @@ namespace ZenDNNTorch {
 std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor>
 zendnn_embedding_bag_impl(
     const at::Tensor &weight, const at::Tensor &indices,
-    const at::Tensor &offsets, const bool scale_grad_by_freq, int64_t mode,
-    bool sparse, const c10::optional<at::Tensor> &per_sample_weights_opt,
-    bool include_last_offset, int64_t padding_idx) {
+    const at::Tensor &offsets, const bool &scale_grad_by_freq,
+    const int64_t &mode, const bool &sparse,
+    const c10::optional<at::Tensor> &per_sample_weights_opt,
+    const bool &include_last_offset, const int64_t &padding_idx) {
 
   LOG(INFO) << "Executing function: " << __FUNCTION__;
 
@@ -126,11 +127,12 @@ zendnn_embedding_bag_impl(
 }
 
 std::vector<at::Tensor> zendnn_custom_embedding_bag_group(
-    const at::TensorList weight, const at::TensorList indices,
-    const at::TensorList offsets, const at::IntArrayRef scale_grad_by_freq,
-    at::IntArrayRef mode, at::IntArrayRef sparse,
+    const at::TensorList &weight, const at::TensorList &indices,
+    const at::TensorList &offsets, const at::IntArrayRef &scale_grad_by_freq,
+    const at::IntArrayRef &mode, const at::IntArrayRef &sparse,
     const c10::List<c10::optional<at::Tensor>> &per_sample_weights_opt,
-    at::IntArrayRef include_last_offset, at::IntArrayRef padding_idx) {
+    const at::IntArrayRef &include_last_offset,
+    const at::IntArrayRef &padding_idx) {
   int num_eb_ops = weight.size();
   std::vector<at::Tensor> out_vec(num_eb_ops * 4);
 
