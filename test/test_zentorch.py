@@ -67,7 +67,7 @@ class TestZENDNNOps(TestCase):
         # mm->relu
         self.assertEqual(
             torch._C._VariableFunctions.relu(torch._C._VariableFunctions.mm(x, y)),
-            torch.ops.zentorch.zendnn_mm(x, y, fuse_relu=True),
+            torch.ops.zentorch.zendnn_mm(x, y, fuse=1),
         )
 
         # addmm
@@ -90,7 +90,7 @@ class TestZENDNNOps(TestCase):
                 torch._C._VariableFunctions.addmm(input, x, y, beta=1.5, alpha=1.7)
             ),
             torch.ops.zentorch.zendnn_addmm(
-                input, x, y, beta=1.5, alpha=1.7, fuse_relu=True
+                input, x, y, beta=1.5, alpha=1.7, fuse=1
             ),
         )
 
@@ -136,7 +136,7 @@ class TestZENDNNOps(TestCase):
         # mm->relu
         self.assertEqual(
             torch._C._VariableFunctions.relu(torch._C._VariableFunctions.mm(x, y)),
-            torch.ops.zentorch.zendnn_mm(x, y, fuse_relu=True),
+            torch.ops.zentorch.zendnn_mm(x, y, fuse=1),
             atol=1e-1,
             rtol=1e-3,
         )
@@ -165,7 +165,7 @@ class TestZENDNNOps(TestCase):
                 torch._C._VariableFunctions.addmm(input, x, y, beta=1.5, alpha=1.7)
             ),
             torch.ops.zentorch.zendnn_addmm(
-                input, x, y, beta=1.5, alpha=1.7, fuse_relu=True
+                input, x, y, beta=1.5, alpha=1.7, fuse=1
             ),
             atol=1e-1,
             rtol=1e-3,
@@ -225,10 +225,39 @@ class AddmmRelu(nn.Module):
     def forward(self, input, batch1, batch2):
         mm_res = torch.mm(batch1, batch2)
         add_res = torch.add(mm_res, input)
+        # Relu
         relu1_res = torch.relu(add_res)
         addmm_res = torch.addmm(relu1_res, batch1, batch2, beta=1.7, alpha=1.6)
-        relu2_res = torch.relu(addmm_res)
+        # inplace Relu
+        relu2_res = torch.relu_(addmm_res)
         return relu2_res
+
+
+class AddmmGeluTanh(nn.Module):
+    def __init__(self):
+        super(AddmmGeluTanh, self).__init__()
+        self.gelu = nn.GELU(approximate="tanh")
+
+    def forward(self, input, batch1, batch2):
+        mm_res = torch.mm(batch1, batch2)
+        add_res = torch.add(mm_res, input)
+        GELU1_res = self.gelu(add_res)
+        addmm_res = torch.addmm(GELU1_res, batch1, batch2)
+        GELU2_res = self.gelu(addmm_res)
+        return GELU2_res
+
+
+class AddmmGelu(nn.Module):
+    def __init__(self):
+        super(AddmmGelu, self).__init__()
+
+    def forward(self, input, batch1, batch2):
+        mm_res = torch.mm(batch1, batch2)
+        add_res = torch.add(mm_res, input)
+        GELU1_res = nn.functional.gelu(add_res, approximate="tanh")
+        addmm_res = torch.addmm(GELU1_res, batch1, batch2, beta=1.7, alpha=1.6)
+        GELU2_res = torch._C._nn.gelu_(addmm_res, approximate="none")
+        return GELU2_res
 
 
 class TestZenDNNOptimize(TestCase):
@@ -333,7 +362,6 @@ class TestZenDNNOptimize(TestCase):
                 self.assertEqual(
                     fx_g_output, fx_g_modified_output, atol=1e-1, rtol=1e-3
                 )
-
                 for node in fx_g_modified.graph.nodes:
                     if isinstance(node.target, torch._ops.OpOverload):
                         if node.target.name() in ["aten::mm", "aten::addmm"]:
@@ -342,6 +370,71 @@ class TestZenDNNOptimize(TestCase):
                                 torch.ops.zentorch.zendnn_mm
                                 or torch.ops.zentorch.zendnn_addmm,
                             )
+
+    @torch.no_grad()
+    def test_zendnn_addmm_gelu(self):
+        M = torch.randn(60, 30)
+
+        x1 = [
+            torch.randn(60, 40),
+            torch.randn(40, 60).transpose(0, 1),
+        ]
+
+        y1 = [
+            torch.randn(40, 30),
+            torch.randn(30, 40).transpose(1, 0),
+        ]
+
+        model1 = AddmmGelu().eval()
+        model2 = AddmmGeluTanh().eval()
+        model = [model1, model2]
+        for m in model:
+            for i in range(len(x1)):
+                for j in range(len(y1)):
+                    fx_g = make_fx(m)(M, x1[i], y1[j])
+
+                    fx_g_output = fx_g(M, x1[i], y1[j])
+
+                    fx_g_modified = zentorch.optimize(fx_g)
+
+                    fx_g_modified_output = fx_g_modified(M, x1[i], y1[j])
+                    self.assertEqual(
+                        fx_g_output, fx_g_modified_output)
+                    for node in fx_g_modified.graph.nodes:
+                        if isinstance(node.target, torch._ops.OpOverload):
+                            if node.target.name() in ["aten::mm", "aten::addmm"]:
+                                self.assertEqual(
+                                    node.target,
+                                    torch.ops.zentorch.zendnn_mm
+                                    or torch.ops.zentorch.zendnn_addmm,
+                                )
+
+    @torch.no_grad()
+    def test_zendnn_linear_gelu(self):
+        model1 = nn.Sequential(nn.Linear(40, 50), nn.GELU(approximate="none"))
+
+        model2 = nn.Sequential(nn.Linear(40, 50), nn.GELU(approximate="tanh"))
+
+        input = torch.randn(10, 40)
+
+        model = [model1, model2]
+
+        for m in model:
+
+            fx_g = make_fx(m)(input)
+
+            fx_g_output = fx_g(input)
+
+            fx_g_modified = zentorch.optimize(fx_g)
+
+            fx_g_modified_output = fx_g_modified(input)
+
+            self.assertEqual(fx_g_output, fx_g_modified_output)
+
+            for node in fx_g_modified.graph.nodes:
+                if isinstance(node.target, torch._ops.OpOverload):
+                    if node.target.name() in ["aten::addmm"]:
+                        self.assertEqual(node.target, torch.ops.zentorch.zendnn_addmm)
 
 
 if __name__ == "__main__":

@@ -26,18 +26,18 @@ std::string show_config();
 
 at::Tensor zendnn_matmul_impl(const at::Tensor &mat1, const at::Tensor &mat2,
                               at::Tensor &self_or_result, const float &beta,
-                              const float &alpha, const bool &fuse_relu);
+                              const float &alpha, const int64_t &fuse);
 
 at::Tensor zendnn_addmm(const at::Tensor &self, const at::Tensor &mat1,
                         const at::Tensor &mat2, const at::Scalar &beta,
-                        const at::Scalar &alpha, const bool &fuse_relu);
+                        const at::Scalar &alpha, const int64_t &fuse);
 
 at::Tensor zendnn_baddbmm(const at::Tensor &self, const at::Tensor &batch1,
                           const at::Tensor &batch2, const at::Scalar &beta,
                           const at::Scalar &alpha);
 
 at ::Tensor zendnn_mm(const at::Tensor &self, const at::Tensor &mat2,
-                      const bool &fuse_relu);
+                      const int64_t &fuse);
 
 at::Tensor zendnn_bmm(const at::Tensor &self, const at::Tensor &mat2);
 

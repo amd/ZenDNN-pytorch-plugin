@@ -11,7 +11,7 @@ using namespace zendnn;
 
 at::Tensor zendnn_matmul_impl(const at::Tensor &mat1, const at::Tensor &mat2,
                               at::Tensor &self_or_result, const float &beta,
-                              const float &alpha, const bool &fuse_relu) {
+                              const float &alpha, const int64_t &fuse) {
 
   LOG(INFO) << "Executing function: " << __FUNCTION__;
   LOG(INFO) << "mat1 dimensions: " << mat1.sizes();
@@ -93,10 +93,23 @@ at::Tensor zendnn_matmul_impl(const at::Tensor &mat1, const at::Tensor &mat2,
     LOG(INFO) << "Setting output scales with alpha = " << alpha;
     op_attr.set_output_scales(0, std::vector<float>(1, alpha));
   }
-  // sets post ops as relu
-  if (fuse_relu) {
+
+  // set the post-ops or fusion-ops;
+  // by default, fuse = 0,
+  // fuse = 1 for relu op,
+  // fuse = 2 for gelu approximate (tanh)
+  // fuse = 3 for gelu exact (erf)
+  if (fuse == 1) {
     LOG(INFO) << "Setting relu as post op";
     po.append_eltwise(1.0f, algorithm::eltwise_relu, 0.f, 0.f);
+  }
+  if (fuse == 2) {
+    LOG(INFO) << "Setting gelu as post op";
+    po.append_eltwise(1.0f, algorithm::eltwise_gelu_tanh, 1.f, 0.f);
+  }
+  if (fuse == 3) {
+    LOG(INFO) << "Setting gelu as post op";
+    po.append_eltwise(1.0f, algorithm::eltwise_gelu_erf, 1.f, 0.f);
   }
   op_attr.set_post_ops(po);
 
@@ -133,7 +146,7 @@ std::vector<int64_t> get_matmul_output_sizes(const at::Tensor &tensor1,
 
 at::Tensor zendnn_addmm(const at::Tensor &self, const at::Tensor &mat1,
                         const at::Tensor &mat2, const at::Scalar &beta,
-                        const at::Scalar &alpha, const bool &fuse_relu) {
+                        const at::Scalar &alpha, const int64_t &fuse) {
 
   LOG(INFO) << "Executing function: " << __FUNCTION__;
   // Array access is faster than .size(n)
@@ -161,7 +174,7 @@ at::Tensor zendnn_addmm(const at::Tensor &self, const at::Tensor &mat1,
                 mat2_sizes[1], " != ", self_sizes[0], "x", self_sizes[1], ")");
 
     return zendnn_matmul_impl(mat1, mat2, const_cast<at::Tensor &>(self),
-                              beta.to<float>(), alpha.to<float>(), fuse_relu);
+                              beta.to<float>(), alpha.to<float>(), fuse);
   } else {
     LOG(WARNING) << "self tensor is not 2-dimensional as self dimensions: "
                  << self.sizes();
@@ -185,11 +198,9 @@ at::Tensor zendnn_addmm(const at::Tensor &self, const at::Tensor &mat1,
         at::empty(get_matmul_output_sizes(mat1, mat2), mat1.options());
     result.copy_(self_t);
     auto result_ = result.is_contiguous() ? result : result.contiguous();
-    // Scalar to float
-    // beta.to<float>()
 
     return zendnn_matmul_impl(mat1, mat2, result_, beta.to<float>(),
-                              alpha.to<float>(), fuse_relu);
+                              alpha.to<float>(), fuse);
   }
 }
 
@@ -225,13 +236,13 @@ at::Tensor zendnn_baddbmm(const at::Tensor &self, const at::Tensor &batch1,
       "x", mat1_sizes[1], "x", mat1_sizes[2], " @ ", mat2_sizes[0], "x",
       mat2_sizes[1], "x", mat2_sizes[2], " != ", self_sizes[0], "x",
       self_sizes[1], "x", self_sizes[2], ")");
-  bool fuse_relu = false;
+  int64_t fuse = 0;
   return zendnn_matmul_impl(batch1, batch2, const_cast<at::Tensor &>(self),
-                            beta.to<float>(), alpha.to<float>(), fuse_relu);
+                            beta.to<float>(), alpha.to<float>(), fuse);
 }
 
 at::Tensor zendnn_mm(const at::Tensor &self, const at::Tensor &mat2,
-                     const bool &fuse_relu) {
+                     const int64_t &fuse) {
   LOG(INFO) << "Executing function: " << __FUNCTION__;
   TORCH_CHECK((self.dim() == 2 && mat2.dim() == 2), // aten::addmm
               "zendnn_mm:  unsupported dims for self and mat2");
@@ -245,7 +256,7 @@ at::Tensor zendnn_mm(const at::Tensor &self, const at::Tensor &mat2,
       at::empty(get_matmul_output_sizes(self, mat2), self.options());
   float beta = 0.0f;
   float alpha = 1.0f;
-  return zendnn_addmm(out, self, mat2, beta, alpha, fuse_relu);
+  return zendnn_addmm(out, self, mat2, beta, alpha, fuse);
 }
 
 at::Tensor zendnn_bmm(const at::Tensor &self, const at::Tensor &mat2) {

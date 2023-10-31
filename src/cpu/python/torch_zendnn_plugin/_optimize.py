@@ -18,26 +18,38 @@ def optimize(fx_graph):
     """
     optimize:
     takes in the fx_graph and replaces some of the native ops
-    with zendnn implementation of respective ops
+    with zendnn implementation of respective ops and fusion
+    few ops
     """
-    logger.info("Optimizing the fx_graph with zentorch ops.")
-
     # Dumping of the native graph in svg format
     save_graph(fx_graph, "native_model")
 
+    logger.info("Optimizing the fx_graph with zentorch ops.")
+
+    # replacing ops to zendnn ops
+    fx_graph = replace_with_zendnn_op(fx_graph)
+
+    optimized_graph = zendnn_op_fusion(fx_graph)
+
+    # Dumping of the optimized graph in svg format
+    save_graph(optimized_graph, "zen_optimized_model")
+
+    return optimized_graph
+
+
+def replace_with_zendnn_op(fx_graph):
+    op_dict = {
+        "aten::_embedding_bag": (
+            torch.ops.zentorch.zendnn_embedding_bag,
+            "zendnn_embedding_bag",
+        ),
+        "aten::mm": (torch.ops.zentorch.zendnn_mm, "zendnn_mm"),
+        "aten::bmm": (torch.ops.zentorch.zendnn_bmm, "zendnn_bmm"),
+        "aten::addmm": (torch.ops.zentorch.zendnn_addmm, "zendnn_addmm"),
+        "aten::baddbmm": (torch.ops.zentorch.zendnn_baddbmm, "zendnn_baddbmm"),
+    }
     # Loop through the nodes in fx_graph.graph
     for node in fx_graph.graph.nodes:
-        op_dict = {
-            "aten::_embedding_bag": [
-                torch.ops.zentorch.zendnn_embedding_bag,
-                "zendnn_embedding_bag",
-            ],
-            "aten::mm": [torch.ops.zentorch.zendnn_mm, "zendnn_mm"],
-            "aten::bmm": [torch.ops.zentorch.zendnn_bmm, "zendnn_bmm"],
-            "aten::addmm": [torch.ops.zentorch.zendnn_addmm, "zendnn_addmm"],
-            "aten::baddbmm": [torch.ops.zentorch.zendnn_baddbmm, "zendnn_baddbmm"],
-        }
-
         # Checking for op default implementation to be replaced.
         if (
             isinstance(node.target, torch._ops.OpOverload)
@@ -52,101 +64,85 @@ def optimize(fx_graph):
                 + "!"
             )
             node.target = op_dict[op_name][0]
-
-    logger.info("Recompiling the fx_graph with op replacement changes made.")
-    # Recompile the fx_graph with changes made
-    fx_graph.graph.set_codegen(torch.fx.graph.CodeGen())
-    fx_graph.recompile()
-
-    optimized_graph = op_fusion(fx_graph)
-
-    # Dumping of the optimized graph in svg format
-    save_graph(fx_graph, "zen_optimized_model")
-
-    return optimized_graph
+    return fx_graph
 
 
-def op_fusion(fx_graph):
+def set_relu_mm_fusion_kwargs(node):
+    return {**node.kwargs, "fuse": 1}
+
+
+def set_gelu_mm_fusion_kwargs(node):
+    fuse = 3
+    if bool(node.next.kwargs) and node.next.kwargs["approximate"] == "tanh":
+        fuse = 2
+    return {**node.kwargs, "fuse": fuse}
+
+
+# create dict according to fuse
+op_eltwise_pattern = {
+    "zentorch.zendnn_mm" : {
+        "aten.relu.default": set_relu_mm_fusion_kwargs,
+        "aten.relu_.default": set_relu_mm_fusion_kwargs,
+        "aten.gelu.default": set_gelu_mm_fusion_kwargs,
+        "aten.gelu_.default": set_gelu_mm_fusion_kwargs,
+    },
+    "zentorch.zendnn_addmm": {
+        "aten.relu.default": set_relu_mm_fusion_kwargs,
+        "aten.relu_.default": set_relu_mm_fusion_kwargs,
+        "aten.gelu.default": set_gelu_mm_fusion_kwargs,
+        "aten.gelu_.default": set_gelu_mm_fusion_kwargs,
+    }
+}
+# for now add is not added as post op that's why I created this pattern
+
+op_add_pattern = [
+    ("zentorch.zendnn_bmm", "aten.add.Tensor"),
+    ("zentorch.zendnn_mm", "aten.add.Tensor"),
+]
+
+
+def zendnn_op_fusion(fx_graph):
     """
-    op_fusion:
+    zendnn_op_fusion:
     takes in the fx_graph and fuses some of the native ops
     with zendnn implementation of respective op fusions
     """
-    logger.info("Fusing the zentorch ops in fx_graph.")
+    logger.info("Fusing the zentorch ops in fx graph.")
     # Loop through the nodes in fx_graph.graph
     for node in fx_graph.graph.nodes:
-        if (
-            node.target == torch.ops.zentorch.zendnn_mm
-            or node.target == torch.ops.zentorch.zendnn_addmm
-        ):
-            if len(node.users) > 1:  # Output of node is used by other nodes
-                continue
-            # mm->relu or addmm->relu fusion
-            if (
-                isinstance(node.next.target, torch._ops.OpOverload)
-                and node.next.target.name() == "aten::relu"
-            ):
-                logger.info("Fusing the mm->relu or addmm->relu in fx_graph.")
-                new_kwargs = {**node.kwargs, "fuse_relu": True}
-                node.kwargs = new_kwargs
-                logger.info(
-                    "Replacing the next node[relu] with current " "node from the graph."
-                )
-                node.next.replace_all_uses_with(node)
-                logger.info("Removing the next node[relu] from the graph.")
-                fx_graph.graph.erase_node(node.next)
-                logger.info("Fused the mm->relu or addmm->relu in fx_graph.")
-        if (
-            node.target == torch.ops.zentorch.zendnn_mm
-            or node.target == torch.ops.zentorch.zendnn_bmm
-        ):
-            if len(node.users) > 1:  # Output of node is used by other nodes
-                continue
-            # mm->add or bmm->add fusion
-            if (
-                isinstance(node.next.target, torch._ops.OpOverload)
-                and node.next.target.name() == "aten::add.Tensor"
-            ):
-                logger.info("Fusing the mm->add or bmm->add in fx_graph.")
-                for add_tensor in node.next.args:
-                    if add_tensor != node:
-                        new_args = (add_tensor, *node.args)
-                node.args = new_args
-                logger.info(
-                    "Replacing the next node[add] with current " "node from the graph."
-                )
-                node.next.replace_all_uses_with(node)
-                logger.info("Removing the next node[add] from the graph.")
-                fx_graph.graph.erase_node(node.next)
-                if node.target == torch.ops.zentorch.zendnn_mm:
-                    logger.info("Fused the mm->add to addmm in fx_graph.")
-                    node.target = torch.ops.zentorch.zendnn_addmm
-                    # [mm->add]->relu fusion
-                    if len(node.users) > 1:  # Output of node is used by other nodes
-                        continue
-                    elif (
-                        isinstance(node.next.target, torch._ops.OpOverload)
-                        and node.next.target.name() == "aten::relu"
-                    ):
-                        logger.info("Fusing the [mm->add]->relu fusion in fx_graph.")
-                        new_kwargs = {**node.kwargs, "fuse_relu": True}
-                        node.kwargs = new_kwargs
-                        logger.info(
-                            "Replacing the next node[relu] with current "
-                            "node from the graph."
-                        )
-                        node.next.replace_all_uses_with(node)
-                        logger.info("Removing the next node[relu] from the graph.")
-                        fx_graph.graph.erase_node(node.next)
-                        logger.info("Fused the [mm->add]->relu in fx_graph.")
-                else:
-                    logger.info("Fused the bmm->add to baddbmm in fx_graph.")
-                    node.target = torch.ops.zentorch.zendnn_baddbmm
+        if len(node.users) > 1:  # Output of node is used by other nodes
+            continue
+        # check the pattern for mm->add or bmm->add
+        if (str(node.target), str(node.next.target)) in op_add_pattern:
+            logger.info(
+                "Fusing the "
+                + str(node.target)[9:]
+                + "->"
+                + str(node.next.target.name())[6:]
+                + " in fx graph"
+            )
+            for add_tensor in node.next.args:
+                if add_tensor != node:
+                    # by *node.args we can append all the arguments
+                    new_args = (add_tensor, *node.args)
+            node.args = new_args
+            node.next.replace_all_uses_with(node)
+            fx_graph.graph.erase_node(node.next)
 
+            if node.target == torch.ops.zentorch.zendnn_mm:
+                node.target = torch.ops.zentorch.zendnn_addmm
+            else:
+                node.target = torch.ops.zentorch.zendnn_baddbmm
+        # check the pattern for relu/gelu
+        if str(node.target) in op_eltwise_pattern:
+            op_dict = op_eltwise_pattern[str(node.target)]
+            if str(node.next.target) in op_dict:
+                node.kwargs = op_dict[str(node.next.target)](node)
+                node.next.replace_all_uses_with(node)
+                fx_graph.graph.erase_node(node.next)
     logger.info("Recompiling the fx_graph with fusion changes made.")
     fx_graph.graph.set_codegen(torch.fx.graph.CodeGen())
     fx_graph.recompile()
-
     return fx_graph
 
 
@@ -156,8 +152,10 @@ def replace_emb_bag(fx_g):
     for node in fx_g.graph.nodes:
         # This function is intended to be used after using the optimize
         # function. So, the zendnn eb bag is being searched for replacement.
-        if (isinstance(node.target, torch._ops.OpOverloadPacket)
-           and node.target == torch.ops.zentorch.zendnn_embedding_bag):
+        if (
+            isinstance(node.target, torch._ops.OpOverloadPacket)
+            and node.target == torch.ops.zentorch.zendnn_embedding_bag
+        ):
             users = list(node.users.keys())
 
             user_node = None
@@ -178,9 +176,8 @@ def replace_emb_bag(fx_g):
                     eb_groups[common_output_node.name] = [node]
 
     for group in eb_groups:
-
         embedding_bag_op_count = 0
-        list_new_args = [[], [], [], [], [], [], [], [], []]
+        list_new_args = [9 * []]
 
         for node in eb_groups[group]:
             len_node_args = len(node.args)
@@ -189,21 +186,21 @@ def replace_emb_bag(fx_g):
             # scale_grad_by_freq, mode, sparse, per_sample_weights,
             # include_last_offset, padding_idx)
             for i in range(len_node_args):
-                if (node.args[i] is False):
+                if node.args[i] is False:
                     list_new_args[i].append(0)
-                elif (node.args[i] is True):
+                elif node.args[i] is True:
                     list_new_args[i].append(1)
                 else:
                     list_new_args[i].append(node.args[i])
             # by default make_fx passes 7 args for _embedding_bag
             # so we will have to pass deafult values for next 2 args
-            if (len_node_args == 7):
+            if len_node_args == 7:
                 list_new_args[7].append(0)
                 list_new_args[8].append(-1)
-            if (len_node_args == 8):
+            elif len_node_args == 8:
                 list_new_args[8].append(-1)
 
-            if (embedding_bag_op_count == 0):
+            if embedding_bag_op_count == 0:
                 first_emb_node = node
             else:
                 # moving all nodes which are args to current _embedding_bag
@@ -219,9 +216,11 @@ def replace_emb_bag(fx_g):
                 # assuming that tupled output of _embedding_bag is only
                 # being used by 4 getitem nodes
                 for temp_node in list(node.users.keys()):
-                    if (temp_node.target == operator.getitem):
-                        temp_node_args = (temp_node.args[0], temp_node.args[1]
-                                          + total_prev_outputs_emb_bag)
+                    if temp_node.target == operator.getitem:
+                        temp_node_args = (
+                            temp_node.args[0],
+                            temp_node.args[1] + total_prev_outputs_emb_bag,
+                        )
                         temp_node.args = temp_node_args
 
                 # Replacing the all uses of current _embedding_bag node
@@ -232,11 +231,11 @@ def replace_emb_bag(fx_g):
 
             embedding_bag_op_count += 1
 
-        if (embedding_bag_op_count > 1):
+        if embedding_bag_op_count > 1:
             first_emb_node.args = tuple(list_new_args)
             target = torch.ops.zentorch.zendnn_custom_embedding_bag_group
             first_emb_node.target = target
-        elif (embedding_bag_op_count == 1):
+        elif embedding_bag_op_count == 1:
             first_emb_node.target = torch.ops.zentorch.zendnn_embedding_bag
 
     fx_g.graph.set_codegen(torch.fx.graph.CodeGen())
