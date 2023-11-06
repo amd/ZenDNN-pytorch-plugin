@@ -4,6 +4,7 @@
 # ******************************************************************************
 
 import torch
+import operator
 
 # import the custom logging module
 from ._logging import get_logger
@@ -144,10 +145,12 @@ def replace_emb_bag(fx_g):
     list_new_args = [[], [], [], [], [], [], [], [], []]
 
     for node in fx_g.graph.nodes:
-
         if (isinstance(node.target, torch._ops.OpOverload)
            and node.target.name() == "aten::_embedding_bag"):
             len_node_args = len(node.args)
+            # _embedding_bag function prototype looks as below:
+            # _embedding_bag(weight, indices, offsets, scale_grad_by_freq,
+            # mode, sparse, per_sample_weights, include_last_offset, padding_idx)
             for i in range(len_node_args):
                 if (node.args[i] is False):
                     list_new_args[i].append(0)
@@ -155,6 +158,8 @@ def replace_emb_bag(fx_g):
                     list_new_args[i].append(1)
                 else:
                     list_new_args[i].append(node.args[i])
+            # by default make_fx passes 7 args for _embedding_bag
+            # so we will have to pass deafult values for next 2 args
             if (len_node_args == 7):
                 list_new_args[7].append(0)
                 list_new_args[8].append(-1)
@@ -164,26 +169,37 @@ def replace_emb_bag(fx_g):
             if (embedding_bag_op_count == 0):
                 first_emb_node = node
             else:
-                first_emb_node.prepend(node.args[0])  # prepend weight
-                first_emb_node.prev.prepend(node.args[1])  # prepend indices
-                first_emb_node.prev.prev.prepend(node.args[2])  # prepend offsets
+                # moving all nodes which are args to current _embedding_bag
+                # node before the first_emb_node
+                for temp_node in node.all_input_nodes[::-1]:
+                    first_emb_node.prepend(temp_node)
 
+                # output of _embedding_bag is tuple of 4 tensors but for
+                # zendnn_custom_embedding_bag_group output is single TensorList
+                # so we will change all indices for all uses of current
+                # _embedding_bag node accordingly
                 total_prev_outputs_emb_bag = embedding_bag_op_count * 4
-                temp_node = node.next
-                for _ in range(4):
-                    temp_node_args = (temp_node.args[0], temp_node.args[1]
-                                      + total_prev_outputs_emb_bag)
-                    temp_node.args = temp_node_args
-                    temp_node = temp_node.next
+                # assuming that tupled output of _embedding_bag is only
+                # being used by 4 getitem nodes
+                for temp_node in list(node.users.keys()):
+                    if (temp_node.target == operator.getitem):
+                        temp_node_args = (temp_node.args[0], temp_node.args[1]
+                                          + total_prev_outputs_emb_bag)
+                        temp_node.args = temp_node_args
 
+                # Replacing the all uses of current _embedding_bag node
+                # with first_emb_node
                 node.replace_all_uses_with(first_emb_node)
+                # Removing the current _embedding_bag node from the graph
                 fx_g.graph.erase_node(node)
 
             embedding_bag_op_count += 1
 
-    new_args = tuple(list_new_args)
-    first_emb_node.args = new_args
-    first_emb_node.target = torch.ops.zentorch.zendnn_custom_embedding_bag_group
+    if (embedding_bag_op_count > 1):
+        first_emb_node.args = tuple(list_new_args)
+        first_emb_node.target = torch.ops.zentorch.zendnn_custom_embedding_bag_group
+    elif (embedding_bag_op_count == 1):
+        first_emb_node.target = torch.ops.zentorch.zendnn_embedding_bag
 
     fx_g.graph.set_codegen(torch.fx.graph.CodeGen())
     fx_g.recompile()
