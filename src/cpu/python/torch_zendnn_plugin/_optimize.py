@@ -8,6 +8,7 @@ import operator
 
 # import the custom logging module
 from ._logging import get_logger
+from ._util import save_graph
 
 # make a logger for this file
 logger = get_logger(__name__)
@@ -20,6 +21,10 @@ def optimize(fx_graph):
     with zendnn implementation of respective ops
     """
     logger.info("Optimizing the fx_graph with zentorch ops.")
+
+    # Dumping of the native graph in svg format
+    save_graph(fx_graph, "native_model")
+
     # Loop through the nodes in fx_graph.graph
     for node in fx_graph.graph.nodes:
         op_dict = {
@@ -53,7 +58,12 @@ def optimize(fx_graph):
     fx_graph.graph.set_codegen(torch.fx.graph.CodeGen())
     fx_graph.recompile()
 
-    return op_fusion(fx_graph)
+    optimized_graph = op_fusion(fx_graph)
+
+    # Dumping of the optimized graph in svg format
+    save_graph(fx_graph, "zen_optimized_model")
+
+    return optimized_graph
 
 
 def op_fusion(fx_graph):
@@ -141,16 +151,43 @@ def op_fusion(fx_graph):
 
 
 def replace_emb_bag(fx_g):
-    embedding_bag_op_count = 0
-    list_new_args = [[], [], [], [], [], [], [], [], []]
+    eb_groups = {}
 
     for node in fx_g.graph.nodes:
-        if (isinstance(node.target, torch._ops.OpOverload)
-           and node.target.name() == "aten::_embedding_bag"):
+        # This function is intended to be used after using the optimize
+        # function. So, the zendnn eb bag is being searched for replacement.
+        if (isinstance(node.target, torch._ops.OpOverloadPacket)
+           and node.target == torch.ops.zentorch.zendnn_embedding_bag):
+            users = list(node.users.keys())
+
+            user_node = None
+            for user in users:
+                if user_node is None and len(user.users.keys()) == 1:
+                    user_node = user
+                elif user_node is not None and len(user.users.keys()) == 1:
+                    user_node = None
+                    break
+
+            if user_node is not None:
+                common_output_node = list(user_node.users.keys())[0]
+                # only if the eb bags have one output and it is common,
+                # they can be replaced
+                if common_output_node.name in eb_groups:
+                    eb_groups[common_output_node.name].append(node)
+                else:
+                    eb_groups[common_output_node.name] = [node]
+
+    for group in eb_groups:
+
+        embedding_bag_op_count = 0
+        list_new_args = [[], [], [], [], [], [], [], [], []]
+
+        for node in eb_groups[group]:
             len_node_args = len(node.args)
             # _embedding_bag function prototype looks as below:
-            # _embedding_bag(weight, indices, offsets, scale_grad_by_freq,
-            # mode, sparse, per_sample_weights, include_last_offset, padding_idx)
+            # _embedding_bag(weight, indices, offsets,
+            # scale_grad_by_freq, mode, sparse, per_sample_weights,
+            # include_last_offset, padding_idx)
             for i in range(len_node_args):
                 if (node.args[i] is False):
                     list_new_args[i].append(0)
@@ -195,13 +232,17 @@ def replace_emb_bag(fx_g):
 
             embedding_bag_op_count += 1
 
-    if (embedding_bag_op_count > 1):
-        first_emb_node.args = tuple(list_new_args)
-        first_emb_node.target = torch.ops.zentorch.zendnn_custom_embedding_bag_group
-    elif (embedding_bag_op_count == 1):
-        first_emb_node.target = torch.ops.zentorch.zendnn_embedding_bag
+        if (embedding_bag_op_count > 1):
+            first_emb_node.args = tuple(list_new_args)
+            target = torch.ops.zentorch.zendnn_custom_embedding_bag_group
+            first_emb_node.target = target
+        elif (embedding_bag_op_count == 1):
+            first_emb_node.target = torch.ops.zentorch.zendnn_embedding_bag
 
     fx_g.graph.set_codegen(torch.fx.graph.CodeGen())
     fx_g.recompile()
+
+    # Dumping of the graph with group EB op in svg format
+    save_graph(fx_g, "zen_groupEB_op_model")
 
     return fx_g

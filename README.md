@@ -18,6 +18,7 @@ Table of Contents
 - [Logging and Profiling](#4-logging-and-profiling)
   - [ZenDNN logs](#41-zendnn-logs)
   - [zentorch logs](#42-zentorch-logs)
+  - [Saving the graph](#43-saving-the-graph)
 - [Contributing](#5-contributing)
 <!-- tocstop -->
 
@@ -155,7 +156,6 @@ bash build.sh
 ```
 
 # 3. Usage
-
 ```python
 import torch_zendnn_plugin as zentorch
 model_optim = zentorch.optimize(model_fx)
@@ -192,6 +192,14 @@ The default level of logs is **WARNING** for both cpp and python sources but can
 >NOTE: The log levels are the same as those provided by the python logging module.
 
 >INFO: Since all OPs implemented in zentorch are registered with torch using the TORCH_LIBRARY() and TORCH_LIBRARY_IMPL() macros in bindings, the PyTorch profiler can be used without any modifications to measure the op level performance.
+
+
+## 4.3 Saving the graph
+Saving of the fx graphs before and after optimization in svg format can be enabled by setting the environment variable `ZENTORCH_SAVE_GRAPH` to 1.
+```bash
+export ZENTORCH_SAVE_GRAPH=1
+```
+The graphs will be saved by the names 'native_model.svg' and 'zen_optimized_model.svg', in the parent directory of the script in which the optimize function provided by the plugin is used. 
 
 # 5. Contributing
 Any contribution to zentorch can be done by following the guidelines given [here](CONTRIBUTING.md).
