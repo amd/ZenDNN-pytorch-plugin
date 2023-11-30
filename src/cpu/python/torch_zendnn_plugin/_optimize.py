@@ -177,7 +177,7 @@ def replace_emb_bag(fx_g):
 
     for group in eb_groups:
         embedding_bag_op_count = 0
-        list_new_args = [9 * []]
+        list_new_args = [[] for _ in range(9)]
 
         for node in eb_groups[group]:
             len_node_args = len(node.args)

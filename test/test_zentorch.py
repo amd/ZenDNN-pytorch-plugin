@@ -7,11 +7,11 @@ from torch.testing._internal.common_utils import TestCase, run_tests
 import torch
 import unittest
 import torch.nn as nn
-from importlib import metadata
 from torch.fx.experimental.proxy_tensor import make_fx
 
 try:
     import torch_zendnn_plugin as zentorch
+
     HAS_PT_PLUGIN = True
 except ImportError:
     HAS_PT_PLUGIN = False
@@ -89,9 +89,7 @@ class TestZENDNNOps(TestCase):
             torch._C._VariableFunctions.relu(
                 torch._C._VariableFunctions.addmm(input, x, y, beta=1.5, alpha=1.7)
             ),
-            torch.ops.zentorch.zendnn_addmm(
-                input, x, y, beta=1.5, alpha=1.7, fuse=1
-            ),
+            torch.ops.zentorch.zendnn_addmm(input, x, y, beta=1.5, alpha=1.7, fuse=1),
         )
 
         # bmm
@@ -164,9 +162,7 @@ class TestZENDNNOps(TestCase):
             torch._C._VariableFunctions.relu(
                 torch._C._VariableFunctions.addmm(input, x, y, beta=1.5, alpha=1.7)
             ),
-            torch.ops.zentorch.zendnn_addmm(
-                input, x, y, beta=1.5, alpha=1.7, fuse=1
-            ),
+            torch.ops.zentorch.zendnn_addmm(input, x, y, beta=1.5, alpha=1.7, fuse=1),
             atol=1e-1,
             rtol=1e-3,
         )
@@ -202,9 +198,48 @@ class SampleEmbeddingNN(nn.Module):
         return output
 
 
-class TestZenTorchVersion(TestCase):
-    def test_plugin_version(self):
-        self.assertTrue(zentorch.__version__, metadata.version("torch-zendnn-plugin"))
+class SampleGroupEmbeddingBag(nn.Module):
+    def __init__(self):
+        super(SampleGroupEmbeddingBag, self).__init__()
+        self.eb_bags_grp_0 = [
+            torch.nn.EmbeddingBag(5, 14, mode="sum") for _ in range(5)
+        ]
+        self.eb_bags_grp_1 = [
+            torch.nn.EmbeddingBag(5, 14, mode="sum") for _ in range(10)
+        ]
+        self.eb_bags_grp_2 = [
+            torch.nn.EmbeddingBag(5, 14, mode="sum") for _ in range(5)
+        ]
+        self.mm_0 = torch.matmul
+        self.mm_1 = torch.matmul
+        self.mm_2 = torch.matmul
+        self.mm_3 = torch.matmul
+
+    def forward(self, mm_0_a, mm_0_b, eb_input, eb_offset):
+        mm_0_output = self.mm_0(mm_0_a, mm_0_b)
+
+        eb_outputs_grp_0 = [
+            self.eb_bags_grp_0[i](eb_input, eb_offset) for i in range(5)
+        ]
+        eb_sum_0 = torch.unsqueeze(torch.sum(torch.cat(eb_outputs_grp_0), dim=0), dim=0)
+
+        mm_1_output = self.mm_1(mm_0_output, eb_sum_0)
+
+        eb_outputs_grp_1 = [
+            self.eb_bags_grp_1[i](eb_input, eb_offset) for i in range(10)
+        ]
+        eb_sum_1 = torch.unsqueeze(torch.sum(torch.cat(eb_outputs_grp_1), dim=0), dim=0)
+
+        mm_2_output = self.mm_2(eb_sum_1, mm_1_output)
+
+        eb_outputs_grp_2 = [
+            self.eb_bags_grp_2[i](eb_input, eb_offset) for i in range(5)
+        ]
+        eb_sum_2 = torch.unsqueeze(torch.sum(torch.cat(eb_outputs_grp_2), dim=0), dim=0)
+
+        mm_3_output = self.mm_3(eb_sum_2, torch.transpose(mm_2_output, 0, 1))
+
+        return mm_3_output
 
 
 class BmmAdd(nn.Module):
@@ -344,9 +379,7 @@ class TestZenDNNOptimize(TestCase):
                 model_output = model(M, x1[i], y1[j])
                 compiled_graph_out = compiled_graph(M, x1[i], y1[j])
 
-                self.assertEqual(
-                    model_output, compiled_graph_out, atol=1e-1, rtol=1e-3
-                )
+                self.assertEqual(model_output, compiled_graph_out, atol=1e-1, rtol=1e-3)
 
     @torch.no_grad()
     def test_zendnn_bmm_baddbmm(self):
@@ -409,9 +442,7 @@ class TestZenDNNOptimize(TestCase):
 
                 compiled_graph_out = compiled_graph(M, x1[i], y1[j])
 
-                self.assertEqual(
-                    model_output, compiled_graph_out, atol=1e-1, rtol=1e-3
-                )
+                self.assertEqual(model_output, compiled_graph_out, atol=1e-1, rtol=1e-3)
 
     @torch.no_grad()
     def test_zendnn_addmm_relu(self):
@@ -478,8 +509,7 @@ class TestZenDNNOptimize(TestCase):
 
                     compiled_graph_out = c_m(M, x1[i], y1[j])
 
-                    self.assertEqual(
-                        model_output, compiled_graph_out)
+                    self.assertEqual(model_output, compiled_graph_out)
 
     @torch.no_grad()
     def test_zendnn_addmm_gelu(self):
@@ -508,8 +538,7 @@ class TestZenDNNOptimize(TestCase):
                     fx_g_modified = zentorch.optimize(fx_g)
 
                     fx_g_modified_output = fx_g_modified(M, x1[i], y1[j])
-                    self.assertEqual(
-                        fx_g_output, fx_g_modified_output)
+                    self.assertEqual(fx_g_output, fx_g_modified_output)
                     for node in fx_g_modified.graph.nodes:
                         if isinstance(node.target, torch._ops.OpOverload):
                             if node.target.name() in ["aten::mm", "aten::addmm"]:
@@ -534,7 +563,6 @@ class TestZenDNNOptimize(TestCase):
         compiled_models = [compiled_model1, compiled_model2]
 
         for m, c_m in zip(model, compiled_models):
-
             model_output = m(input)
 
             compiled_graph_out = c_m(input)
@@ -552,7 +580,6 @@ class TestZenDNNOptimize(TestCase):
         model = [model1, model2]
 
         for m in model:
-
             fx_g = make_fx(m)(input)
 
             fx_g_output = fx_g(input)
@@ -567,6 +594,39 @@ class TestZenDNNOptimize(TestCase):
                 if isinstance(node.target, torch._ops.OpOverload):
                     if node.target.name() in ["aten::addmm"]:
                         self.assertEqual(node.target, torch.ops.zentorch.zendnn_addmm)
+
+    @torch.no_grad()
+    def test_group_embeddingbag(self):
+        model = SampleGroupEmbeddingBag()
+        x = {
+            "mm_0": {"a": torch.randn(14, 14), "b": torch.randn(14, 1)},
+            "eb_bags": {"input": torch.randint(0, 4, (5, 14)), "offset": None},
+            "last_input": torch.randn(14, 1),
+        }
+
+        fx_g = make_fx(model)(
+            x["mm_0"]["a"],
+            x["mm_0"]["b"],
+            x["eb_bags"]["input"],
+            x["eb_bags"]["offset"],
+        )
+        fx_g_output = fx_g(
+            x["mm_0"]["a"],
+            x["mm_0"]["b"],
+            x["eb_bags"]["input"],
+            x["eb_bags"]["offset"],
+        )
+
+        fx_g_optimized = zentorch.optimize(fx_g)
+        fx_g_optimized = zentorch._optimize.replace_emb_bag(fx_g_optimized)
+        fx_g_optimized_output = fx_g_optimized(
+            x["mm_0"]["a"],
+            x["mm_0"]["b"],
+            x["eb_bags"]["input"],
+            x["eb_bags"]["offset"],
+        )
+
+        self.assertAlmostEqual(fx_g_output.item(), fx_g_optimized_output.item())
 
 
 if __name__ == "__main__":
