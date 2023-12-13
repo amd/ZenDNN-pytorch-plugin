@@ -262,6 +262,18 @@ class AddmmGelu(nn.Module):
 
 class TestZenDNNOptimize(TestCase):
     @torch.no_grad()
+    def test_zentorch_compile_function(self):
+        model = SampleEmbeddingNN(100, 10)
+        input = torch.randint(0, 10000, (1, 10))
+
+        compiled_graph = torch.compile(model, backend="zentorch")
+
+        model_output = model(input)
+        compiled_graph_out = compiled_graph(input)
+
+        self.assertAlmostEqual(model_output.item(), compiled_graph_out.item())
+
+    @torch.no_grad()
     def test_zendnn_optimize_function(self):
         model = SampleEmbeddingNN(100, 10)
         input = torch.randint(0, 10000, (1, 10))
@@ -273,6 +285,20 @@ class TestZenDNNOptimize(TestCase):
         fx_g_modified_output = fx_g_modified(input)
 
         self.assertAlmostEqual(fx_g_output.item(), fx_g_modified_output.item())
+
+    @torch.no_grad()
+    def test_zentorch_compile_linear_relu(self):
+        model = nn.Sequential(nn.Linear(4, 5), nn.ReLU())
+
+        input = torch.randn(10, 4)
+
+        model_output = model(input)
+
+        compiled_graph = torch.compile(model, backend="zentorch")
+
+        compiled_graph_out = compiled_graph(input)
+
+        self.assertEqual(model_output, compiled_graph_out)
 
     @torch.no_grad()
     def test_zendnn_linear_relu(self):
@@ -294,6 +320,33 @@ class TestZenDNNOptimize(TestCase):
             if isinstance(node.target, torch._ops.OpOverload):
                 if node.target.name() in ["aten::addmm"]:
                     self.assertEqual(node.target, torch.ops.zentorch.zendnn_addmm)
+
+    @torch.no_grad()
+    def test_zentorch_compile_bmm_baddbmm(self):
+        M = torch.randn(60, 30, 50)
+
+        x1 = [
+            torch.randn(60, 30, 40),
+            torch.randn(60, 40, 30).transpose(1, 2),
+            torch.randn(30, 60, 40).transpose(0, 1),
+        ]
+
+        y1 = [
+            torch.randn(60, 40, 50),
+            torch.randn(60, 50, 40).transpose(1, 2),
+            torch.randn(50, 40, 60).transpose(0, 2),
+        ]
+
+        model = BmmAdd().eval()
+        compiled_graph = torch.compile(model, backend="zentorch")
+        for i in range(len(x1)):
+            for j in range(len(y1)):
+                model_output = model(M, x1[i], y1[j])
+                compiled_graph_out = compiled_graph(M, x1[i], y1[j])
+
+                self.assertEqual(
+                    model_output, compiled_graph_out, atol=1e-1, rtol=1e-3
+                )
 
     @torch.no_grad()
     def test_zendnn_bmm_baddbmm(self):
@@ -336,6 +389,31 @@ class TestZenDNNOptimize(TestCase):
                             )
 
     @torch.no_grad()
+    def test_zentorch_compile_addmm_relu(self):
+        M = torch.randn(60, 30)
+
+        x1 = [
+            torch.randn(60, 40),
+            torch.randn(40, 60).transpose(0, 1),
+        ]
+
+        y1 = [
+            torch.randn(40, 30),
+            torch.randn(30, 40).transpose(1, 0),
+        ]
+        model = AddmmRelu().eval()
+        compiled_graph = torch.compile(model, backend="zentorch")
+        for i in range(len(x1)):
+            for j in range(len(y1)):
+                model_output = model(M, x1[i], y1[j])
+
+                compiled_graph_out = compiled_graph(M, x1[i], y1[j])
+
+                self.assertEqual(
+                    model_output, compiled_graph_out, atol=1e-1, rtol=1e-3
+                )
+
+    @torch.no_grad()
     def test_zendnn_addmm_relu(self):
         M = torch.randn(60, 30)
 
@@ -370,6 +448,38 @@ class TestZenDNNOptimize(TestCase):
                                 torch.ops.zentorch.zendnn_mm
                                 or torch.ops.zentorch.zendnn_addmm,
                             )
+
+    @torch.no_grad()
+    def test_zentorch_compile_addmm_gelu(self):
+        M = torch.randn(60, 30)
+
+        x1 = [
+            torch.randn(60, 40),
+            torch.randn(40, 60).transpose(0, 1),
+        ]
+
+        y1 = [
+            torch.randn(40, 30),
+            torch.randn(30, 40).transpose(1, 0),
+        ]
+
+        model1 = AddmmGelu().eval()
+        model2 = AddmmGeluTanh().eval()
+        model = [model1, model2]
+
+        compiled_model1 = torch.compile(model1, backend="zentorch")
+        compiled_model2 = torch.compile(model2, backend="zentorch")
+        compiled_models = [compiled_model1, compiled_model2]
+
+        for m, c_m in zip(model, compiled_models):
+            for i in range(len(x1)):
+                for j in range(len(y1)):
+                    model_output = m(M, x1[i], y1[j])
+
+                    compiled_graph_out = c_m(M, x1[i], y1[j])
+
+                    self.assertEqual(
+                        model_output, compiled_graph_out)
 
     @torch.no_grad()
     def test_zendnn_addmm_gelu(self):
@@ -408,6 +518,28 @@ class TestZenDNNOptimize(TestCase):
                                     torch.ops.zentorch.zendnn_mm
                                     or torch.ops.zentorch.zendnn_addmm,
                                 )
+
+    @torch.no_grad()
+    def test_zentorch_compile_linear_gelu(self):
+        model1 = nn.Sequential(nn.Linear(40, 50), nn.GELU(approximate="none"))
+
+        model2 = nn.Sequential(nn.Linear(40, 50), nn.GELU(approximate="tanh"))
+
+        input = torch.randn(10, 40)
+
+        model = [model1, model2]
+
+        compiled_model1 = torch.compile(model1, backend="zentorch")
+        compiled_model2 = torch.compile(model2, backend="zentorch")
+        compiled_models = [compiled_model1, compiled_model2]
+
+        for m, c_m in zip(model, compiled_models):
+
+            model_output = m(input)
+
+            compiled_graph_out = c_m(input)
+
+            self.assertEqual(model_output, compiled_graph_out)
 
     @torch.no_grad()
     def test_zendnn_linear_gelu(self):

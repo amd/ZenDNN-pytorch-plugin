@@ -84,8 +84,6 @@ pip install torch_zendnn_plugin-*-linux_x86_64.whl
 ```
 >Note: Dependent packages 'numpy' and 'torch' will be installed by 'torch_zendnn_plugin' if not already present.
 
-
-
 ## 2.2. From Source
 Run the following commands:
 ```bash
@@ -161,16 +159,19 @@ bash build.sh
 
 # 3. Usage
 ```python
+#Using torch.compile
+import torch
 import torch_zendnn_plugin as zentorch
+compiled_model = torch.compile(model, backend='zentorch')
+output = compiled_model(input)
+
+#Using make_fx (Deprecated)
+from torch.fx.experimental.proxy_tensor import make_fx
+import torch_zendnn_plugin as zentorch
+# The model should be a fx graph which can be generated with model and input fed to make_fx
+model_fx = make_fx(model)(input)
 model_optim = zentorch.optimize(model_fx)
 output = model_optim(input)
-```
-
-The model should be a fx graph which can be generated with model and input fed to make_fx, sample code below:
-
-```python
-from torch.fx.experimental.proxy_tensor import make_fx
-model_fx = make_fx(model)(input)
 ```
 
 # 4. Logging and Profiling
