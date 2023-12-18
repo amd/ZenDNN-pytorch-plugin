@@ -77,10 +77,14 @@ pip uninstall torch_zendnn_plugin
 ```
 * Download the wheel file and install it using pip or conda install command.
 
+>INFO: Please find the latest Nightly wheel file [here](http://atlvjksapp02:8080/job/ZenDNN_Nightly_Build_for_PT_PLUGIN/lastSuccessfulBuild/)
+
 ```bash
 pip install torch_zendnn_plugin-*-linux_x86_64.whl
 ```
 >Note: Dependent packages 'numpy' and 'torch' will be installed by 'torch_zendnn_plugin' if not already present.
+
+
 
 ## 2.2. From Source
 Run the following commands:
