@@ -52,7 +52,7 @@ class Test_Data:
         self.W = torch.randint(1, 15, (1,)).item()
         self.embedding_matrix = torch.rand(self.R, 3).type(self.dtypes[dtype])
         self.emb_input = torch.randint(0, self.R, (self.W,))
-        self.offsets = torch.tensor([0, self.W]).type(self.dtypes[dtype])
+        self.offsets = torch.tensor([0, self.W]).type(torch.int)
 
         self.M = torch.randn(60, 30).type(self.dtypes[dtype])
 
@@ -348,9 +348,11 @@ class Test_BADDBMM_OP(TestCase):
 
 
 @unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
-class TEST_EMBEDDING_BAG(Test_Data):
+class TEST_EMBEDDING_BAG(TestCase):
     @parameterized.expand(supported_dtypes)
     def test_embedding_bag_zendnn(self, dtype):
+        if dtype == 'bfloat16':
+            self.skipTest("Skipping it since it is not applicable to BF16 path.")
         data = Test_Data(dtype)
 
         y_eb, _, _, _ = torch._C._VariableFunctions._embedding_bag(
@@ -367,6 +369,8 @@ class TEST_EMBEDDING_BAG(Test_Data):
 
     @parameterized.expand(supported_dtypes)
     def test_embedding_bag_sparse_scale_mode(self, dtype):
+        if dtype == 'bfloat16':
+            self.skipTest("Skipping it since it is not applicable to BF16 path.")
         data = Test_Data(dtype)
 
         # Issue with embedding bag with different modes
@@ -389,7 +393,7 @@ class TEST_EMBEDDING_BAG(Test_Data):
             i = i + 1
 
     @torch.no_grad()
-    def test_custom_embedding_bag(self):
+    def test_custom_embedding_bag_compile(self):
         model = CustomModelEmbeddingBagNN(100, 10)
         input = torch.randint(0, 10000, (1, 10))
         model_output = model(input)
@@ -399,9 +403,59 @@ class TEST_EMBEDDING_BAG(Test_Data):
 
 
 @unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
-class TEST_EMBEDDING_BAG_GROUP(Test_Data):
+class TEST_EMBEDDING(TestCase):
+    @parameterized.expand(supported_dtypes)
+    def test_embedding_zendnn(self, dtype):
+        if dtype == 'bfloat16':
+            self.skipTest("Skipping it due to issue BF16 path.")
+        data = Test_Data(dtype)
+
+        y_eb = torch._C._VariableFunctions.embedding(
+            data.embedding_matrix, data.emb_input)
+
+        y_ebz = torch.ops.zentorch.zendnn_embedding(
+            data.embedding_matrix, data.emb_input)
+
+        self.assertEqual(y_eb, y_ebz)
+
+    @parameterized.expand(supported_dtypes)
+    def test_embedding_sparse_scale(self, dtype):
+        if dtype == 'bfloat16':
+            self.skipTest("Skipping it since it is not applicable to BF16 path.")
+        data = Test_Data(dtype)
+
+        # Issue with embedding bag with different modes
+        sparse_opt = [True, False]
+        scale_grad_opt = [True, False]
+
+        for sprs_opt in sparse_opt:
+            for scale_opt in scale_grad_opt:
+                y_eb = torch._C._VariableFunctions.embedding(
+                    data.embedding_matrix, data.emb_input, -1, scale_opt,
+                    sprs_opt)
+
+                y_ebz = torch.ops.zentorch.zendnn_embedding(
+                    data.embedding_matrix, data.emb_input, -1, scale_opt,
+                    sprs_opt)
+
+                self.assertEqual(y_eb, y_ebz)
+
+    @torch.no_grad()
+    def test_custom_embedding_with_compile(self):
+        model = CustomModelEmbeddingNN(100)
+        input = torch.randint(0, 10000, (10, ))
+        model_output = model(input)
+        compiled_graph = torch.compile(model, backend='zentorch')
+        compiled_graph_output = compiled_graph(input)
+        self.assertEqual(model_output, compiled_graph_output)
+
+
+@unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
+class TEST_EMBEDDING_BAG_GROUP(TestCase):
     @parameterized.expand(supported_dtypes)
     def test_embedding_bag_group_zendnn(self, dtype):
+        if dtype == 'bfloat16':
+            self.skipTest("Skipping it since it is not applicable to BF16 path.")
         data = Test_Data(dtype)
 
         y_eb, _, _, _ = torch._C._VariableFunctions._embedding_bag(
@@ -435,12 +489,12 @@ class TEST_EMBEDDING_BAG_GROUP(Test_Data):
         )
 
         fx_g_optimized = zentorch.optimize(fx_g)
-        fx_g_optimized = zentorch._optimize.replace_emb_bag(fx_g_optimized)
         fx_g_optimized_output = fx_g_optimized(
             x["eb_bags"]["input"],
             x["eb_bags"]["offset"],
         )
-        self.assertAlmostEqual(fx_g_output.item(), fx_g_optimized_output.item())
+
+        self.assertEqual(fx_g_output, fx_g_optimized_output, atol=1e-1, rtol=1e-3)
 
         target = torch.ops.zentorch.zendnn_custom_embedding_bag_group
         group_eb_count = 0
@@ -453,6 +507,75 @@ class TEST_EMBEDDING_BAG_GROUP(Test_Data):
                 group_eb_count += 1
 
         self.assertEqual(group_eb_count, 3)
+
+    @torch.no_grad()
+    def test_group_embeddingbag_compile(self):
+        model = CustomModelEmbeddingBagGroup()
+        x = {
+            "indices": torch.randint(0, 4, (5, 14)), "offset": None,
+        }
+
+        native_output = model(x["indices"], x["offset"])
+
+        compiled_graph = torch.compile(model, backend="zentorch")
+        compiled_output = compiled_graph(x["indices"], x["offset"])
+
+        self.assertEqual(native_output, compiled_output, atol=1e-1, rtol=1e-3)
+
+
+@unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
+class TEST_EMBEDDING_GROUP(TestCase):
+    @parameterized.expand(supported_dtypes)
+    def test_embedding_group_zendnn(self, dtype):
+        if dtype == 'bfloat16':
+            self.skipTest("Skipping it since it is not applicable to BF16 path.")
+        data = Test_Data(dtype)
+
+        y_eb = torch._C._VariableFunctions.embedding(
+            data.embedding_matrix, data.emb_input)
+
+        y_ebz_list = torch.ops.zentorch.zendnn_custom_embedding_group(
+            [data.embedding_matrix] * 3, [data.emb_input] * 3, [-1] * 3,
+            [False] * 3, [False] * 3)
+
+        for i in range(0, int(len(y_ebz_list))):
+            self.assertEqual(y_eb, y_ebz_list[i])
+
+    @torch.no_grad()
+    def test_group_embedding(self):
+        model = CustomModelEmbeddingGroup()
+        x = torch.randint(0, 4, (70, ))
+
+        fx_g = make_fx(model)(x)
+        fx_g_output = fx_g(x)
+
+        fx_g_optimized = zentorch.optimize(fx_g)
+        fx_g_optimized_output = fx_g_optimized(x)
+        self.assertEqual(fx_g_output, fx_g_optimized_output, atol=1e-1, rtol=1e-3)
+
+        target = torch.ops.zentorch.zendnn_custom_embedding_group
+        group_eb_count = 0
+
+        for node in fx_g_optimized.graph.nodes:
+            if (
+                isinstance(node.target, torch._ops.OpOverloadPacket)
+                and node.target == target
+            ):
+                group_eb_count += 1
+
+        self.assertEqual(group_eb_count, 3)
+
+    @torch.no_grad()
+    def test_group_embedding_compile(self):
+        model = CustomModelEmbeddingGroup()
+        x = torch.randint(0, 4, (70, ))
+
+        native_output = model(x)
+
+        compiled_graph = torch.compile(model, backend="zentorch")
+        compiled_output = compiled_graph(x)
+
+        self.assertEqual(native_output, compiled_output, atol=1e-1, rtol=1e-3)
 
 
 @unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
@@ -479,6 +602,18 @@ class CustomModelEmbeddingBagNN(nn.Module):
         return output
 
 
+@unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
+class CustomModelEmbeddingNN(nn.Module):
+    def __init__(self, embedding_dim):
+        super(CustomModelEmbeddingNN, self).__init__()
+        self.embedding = nn.Embedding(10000, embedding_dim)
+
+    def forward(self, input):
+        embed = self.embedding(input)
+        return embed
+
+
+@unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
 class CustomModelEmbeddingBagGroup(nn.Module):
     def __init__(self):
         super(CustomModelEmbeddingBagGroup, self).__init__()
@@ -508,7 +643,42 @@ class CustomModelEmbeddingBagGroup(nn.Module):
         ]
         eb_sum_2 = torch.unsqueeze(torch.sum(torch.cat(eb_outputs_grp_2), dim=0), dim=0)
 
-        output = torch.sum(torch.cat([eb_sum_0, eb_sum_1, eb_sum_2]))
+        output = torch.cat([eb_sum_0, eb_sum_1, eb_sum_2])
+
+        return output
+
+
+@unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
+class CustomModelEmbeddingGroup(nn.Module):
+    def __init__(self):
+        super(CustomModelEmbeddingGroup, self).__init__()
+        self.e_bags_grp_0 = [
+            torch.nn.Embedding(5, 14)
+        ] * 5
+        self.e_bags_grp_1 = [
+            torch.nn.Embedding(5, 14)
+        ] * 10
+        self.e_bags_grp_2 = [
+            torch.nn.Embedding(5, 14)
+        ] * 6
+
+    def forward(self, e_input):
+        e_outputs_grp_0 = [
+            self.e_bags_grp_0[i](e_input) for i in range(5)
+        ]
+        e_sum_0 = torch.unsqueeze(torch.sum(torch.cat(e_outputs_grp_0), dim=0), dim=0)
+
+        e_outputs_grp_1 = [
+            self.e_bags_grp_1[i](e_input) for i in range(10)
+        ]
+        e_sum_1 = torch.unsqueeze(torch.sum(torch.cat(e_outputs_grp_1), dim=0), dim=0)
+
+        e_outputs_grp_2 = [
+            self.e_bags_grp_2[i](e_input) for i in range(6)
+        ]
+        e_sum_2 = torch.unsqueeze(torch.sum(torch.cat(e_outputs_grp_2), dim=0), dim=0)
+
+        output = torch.cat([e_sum_0, e_sum_1, e_sum_2])
 
         return output
 

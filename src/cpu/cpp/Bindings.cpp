@@ -3,6 +3,20 @@
  * All rights reserved.
  ******************************************************************************/
 
+/*
+        TORCH_LIBRARY is used for all ops which will replace ATen/prims ops in
+   fx based graph optimizations. Few guidelines for prototypes.
+                - If there is simlar op in ATen of PyTorch, please check
+   "aten/src/ATen/native/native_functions.yaml" in PyTorch repo.
+                - Our op arguments should be superset of the corresponding
+   arguments in ATen op.
+                - Our op arguments should match the arguments of corresponding
+   op in both order of the arguments and type.
+                - Our op specific arguments should be at the end of the list.
+                - All ops should have prefix "zendnn_", for example
+   zendnn_<corresponding op name>.
+*/
+
 #include "ZenDNNOps.hpp"
 
 TORCH_LIBRARY(zentorch, m) {
@@ -10,6 +24,9 @@ TORCH_LIBRARY(zentorch, m) {
         "bool scale_grad_by_freq=False, int mode=0, bool sparse=False, Tensor? "
         "per_sample_weights=None, bool include_last_offset=False, int "
         "padding_idx=-1) -> (Tensor, Tensor, Tensor, Tensor)");
+  m.def("zendnn_embedding(Tensor weight, Tensor indices, "
+        "int padding_idx=-1, bool scale_grad_by_freq=False, "
+        "bool sparse=False) -> Tensor");
 
   /*
     The fuse variable is introduced to set the post-ops or fusion-ops;
@@ -29,16 +46,22 @@ TORCH_LIBRARY(zentorch, m) {
         "Tensor[] offsets, int[] scale_grad_by_freq, int[] mode, int[] "
         "sparse, Tensor?[] per_sample_weights, int[] include_last_offset, "
         "int[] padding_idx) -> Tensor[]");
+  m.def("zendnn_custom_embedding_group(Tensor[] weight, Tensor[] indices, "
+        "int[] padding_idx, int[] scale_grad_by_freq, "
+        "int[] sparse) -> Tensor[]");
 }
 
 TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
   m.impl("zendnn_embedding_bag", ZenDNNTorch::zendnn_embedding_bag_impl);
+  m.impl("zendnn_embedding", ZenDNNTorch::zendnn_embedding_impl);
   m.impl("zendnn_mm", ZenDNNTorch::zendnn_mm);
   m.impl("zendnn_bmm", ZenDNNTorch::zendnn_bmm);
   m.impl("zendnn_addmm", ZenDNNTorch::zendnn_addmm);
   m.impl("zendnn_baddbmm", ZenDNNTorch::zendnn_baddbmm);
   m.impl("zendnn_custom_embedding_bag_group",
          ZenDNNTorch::zendnn_custom_embedding_bag_group);
+  m.impl("zendnn_custom_embedding_group",
+         ZenDNNTorch::zendnn_custom_embedding_group);
 }
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {

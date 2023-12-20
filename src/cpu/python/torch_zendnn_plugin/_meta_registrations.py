@@ -19,7 +19,9 @@ def register_meta(op_name, overload_name="default"):
             getattr(getattr(torch.ops.zentorch, op_name), overload_name), fn
         )
         return fn
+
     return wrapper
+
 
 # During graph compilation, inductor runs the operators with
 # faketensor data to get the output shapes. And it looks for
@@ -53,21 +55,12 @@ def meta_zendnn_mm(
 
 
 @register_meta("zendnn_bmm")
-def meta_zendnn_bmm(
-    input,
-    weight
-):
+def meta_zendnn_bmm(input, weight):
     return input.new_empty((input.shape[0], input.shape[1], weight.shape[-1]))
 
 
 @register_meta("zendnn_baddbmm")
-def meta_zendnn_baddbmm(
-    bias,
-    input,
-    weight,
-    alpha=1,
-    beta=1
-):
+def meta_zendnn_baddbmm(bias, input, weight, alpha=1, beta=1):
     return input.new_empty((input.shape[0], input.shape[1], weight.shape[-1]))
 
 
@@ -83,7 +76,6 @@ def meta_zendnn_embedding_bag(
     include_last_offset=False,
     padding_idx=-1,
 ):
-
     num_bags = offsets.size(0)
 
     output = weight.new_empty(num_bags, weight.size(1))
@@ -93,8 +85,72 @@ def meta_zendnn_embedding_bag(
     return output, offset2bag, bag_size, max_indices
 
 
+@register_meta("zendnn_embedding")
+def meta_zendnn_embedding(
+    weight,
+    indices,
+    padding_idx=-1,
+    scale_grad_by_freq=False,
+    sparse=False,
+):
+    dim_embedding = weight.size(1)
+    num_bags = indices.size(0)
+
+    output = weight.new_empty(num_bags, dim_embedding)
+    return output
+
+
+@register_meta("zendnn_custom_embedding_bag_group")
+def meta_zendnn_custom_embedding_bag_group(
+    weight,
+    indices,
+    offsets,
+    scale_grad_by_freq,
+    mode,
+    sparse,
+    per_sample_weights,
+    include_last_offset,
+    padding_idx
+):
+    output_list = []
+
+    for i in range(len(weight)):
+        num_bags = offsets[i].size(0)
+        output = weight[i].new_empty(num_bags, weight[i].size(1))
+        bag_size = indices[i].new_empty(offsets[i].size())
+        offset2bag = offsets[i].new_empty(0)
+        max_indices = offsets[i].new_empty(bag_size.size())
+
+        output_list.extend([output, offset2bag, bag_size, max_indices])
+
+    return output_list
+
+
+@register_meta("zendnn_custom_embedding_group")
+def meta_zendnn_custom_embedding_group(
+    weight,
+    indices,
+    padding_idx,
+    scale_grad_by_freq,
+    sparse
+):
+    output_list = []
+
+    for i in range(len(weight)):
+        dim_embedding = weight[i].size(1)
+        num_bags = indices[i].size(0)
+        output = weight[i].new_empty(num_bags, dim_embedding)
+
+        output_list.append(output)
+
+    return output_list
+
+
 make_fallback(torch.ops.zentorch.zendnn_addmm)
 make_fallback(torch.ops.zentorch.zendnn_embedding_bag)
+make_fallback(torch.ops.zentorch.zendnn_embedding)
 make_fallback(torch.ops.zentorch.zendnn_bmm)
 make_fallback(torch.ops.zentorch.zendnn_baddbmm)
 make_fallback(torch.ops.zentorch.zendnn_mm)
+make_fallback(torch.ops.zentorch.zendnn_custom_embedding_bag_group)
+make_fallback(torch.ops.zentorch.zendnn_custom_embedding_group)

@@ -7,8 +7,9 @@
 
 #define ZENDNN_EMBED_BAG_THRDS 16
 
-inline void zen_eb_tensor_check(at::Tensor weight, at::Tensor indices,
-                                at::Tensor offsets) {
+inline void zen_eb_tensor_check(const at::Tensor &weight,
+                                const at::Tensor &indices,
+                                const at::Tensor &offsets) {
   // check if all the input tensors are on cpu device
   TORCH_CHECK(weight.device().is_cpu() && indices.device().is_cpu() &&
                   offsets.device().is_cpu(),

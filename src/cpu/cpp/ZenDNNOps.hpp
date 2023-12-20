@@ -22,6 +22,12 @@ zendnn_embedding_bag_impl(
     const c10::optional<at::Tensor> &per_sample_weights_opt,
     const bool &include_last_offset, const int64_t &padding_idx);
 
+at::Tensor zendnn_embedding_impl(const at::Tensor &weight,
+                                 const at::Tensor &indices,
+                                 const int64_t &padding_idx,
+                                 const bool &scale_grad_by_freq,
+                                 const bool &sparse);
+
 std::string show_config();
 
 at::Tensor zendnn_matmul_impl(const at::Tensor &mat1, const at::Tensor &mat2,
@@ -48,5 +54,10 @@ std::vector<at::Tensor> zendnn_custom_embedding_bag_group(
     const c10::List<c10::optional<at::Tensor>> &per_sample_weights_opt,
     const at::IntArrayRef &include_last_offset,
     const at::IntArrayRef &padding_idx);
+
+std::vector<at::Tensor> zendnn_custom_embedding_group(
+    const at::TensorList &weight, const at::TensorList &indices,
+    const at::IntArrayRef &padding_idx,
+    const at::IntArrayRef &scale_grad_by_freq, const at::IntArrayRef &sparse);
 
 } // namespace ZenDNNTorch
