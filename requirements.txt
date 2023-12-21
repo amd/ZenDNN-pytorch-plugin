@@ -1,5 +1,5 @@
 cmake>=3.13.0
-expecttest
+expecttest==0.1.6
 hypothesis
 ninja
 numpy
