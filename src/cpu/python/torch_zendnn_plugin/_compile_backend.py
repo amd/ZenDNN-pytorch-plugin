@@ -7,7 +7,7 @@ import torch # noqa
 from torch._dynamo import register_backend
 from torch._inductor.compile_fx import compile_fx, compile_fx_inner
 from ._optimize import optimize
-from typing import Callable, List, Dict, Optional, Union, List
+from typing import Callable, List, Optional
 from ._logging import get_logger
 
 logger = get_logger(__name__)
@@ -35,13 +35,8 @@ def zentorch_compile_fx_inner(gm: torch.fx.GraphModule,
                             cudagraphs=cudagraphs,
                             num_fixed=num_fixed,
                             is_backward=is_backward,
-                            graph_id=graph_id,
-                            cpp_wrapper=cpp_wrapper,
-                            aot_mode=aot_mode,
-                            is_inference=is_inference,
-                            boxed_forward_device_index=boxed_forward_device_index,
-                            user_visible_outputs=user_visible_outputs,
-                            layout_opt=layout_opt)
+                            graph_id=graph_id
+                            )
 
 
 def zentorch_compile(
