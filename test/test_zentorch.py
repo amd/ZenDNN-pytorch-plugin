@@ -668,7 +668,7 @@ class TEST_EMBEDDING_BAG_GROUP(TestCase):
         data.create_data(dtype)
         if dtype == "bfloat16":
             with self.assertRaises(RuntimeError) as context:
-                torch.ops.zentorch.zendnn_custom_embedding_bag_group(
+                torch.ops.zentorch.zendnn_horizontal_embedding_bag_group(
                     [data.embedding_matrix] * 3,
                     [data.emb_input] * 3,
                     [data.offsets] * 3,
@@ -696,7 +696,7 @@ class TEST_EMBEDDING_BAG_GROUP(TestCase):
                 include_last_offset,
             )
 
-            y_ebz_list = torch.ops.zentorch.zendnn_custom_embedding_bag_group(
+            y_ebz_list = torch.ops.zentorch.zendnn_horizontal_embedding_bag_group(
                 [data.embedding_matrix] * 3,
                 [data.emb_input] * 3,
                 [data.offsets] * 3,
@@ -736,7 +736,7 @@ class TEST_EMBEDDING_BAG_GROUP(TestCase):
 
         self.assertEqual(fx_g_output, fx_g_optimized_output, atol=1e-1, rtol=1e-3)
 
-        target = torch.ops.zentorch.zendnn_custom_embedding_bag_group.default
+        target = torch.ops.zentorch.zendnn_horizontal_embedding_bag_group.default
         group_eb_count = 0
 
         for node in fx_g_optimized.graph.nodes:
@@ -779,7 +779,7 @@ class TEST_EMBEDDING_GROUP(TestCase):
         data.create_data(dtype)
         if dtype == "bfloat16":
             with self.assertRaises(RuntimeError) as context:
-                torch.ops.zentorch.zendnn_custom_embedding_group(
+                torch.ops.zentorch.zendnn_horizontal_embedding_group(
                     [data.embedding_matrix] * 3,
                     [data.emb_input] * 3,
                     [-1] * 3,
@@ -796,7 +796,7 @@ class TEST_EMBEDDING_GROUP(TestCase):
                 data.embedding_matrix, data.emb_input
             )
 
-            y_ebz_list = torch.ops.zentorch.zendnn_custom_embedding_group(
+            y_ebz_list = torch.ops.zentorch.zendnn_horizontal_embedding_group(
                 [data.embedding_matrix] * 3,
                 [data.emb_input] * 3,
                 [-1] * 3,
@@ -831,7 +831,7 @@ class TEST_EMBEDDING_GROUP(TestCase):
 
         self.assertEqual(fx_g_output, fx_g_optimized_output, atol=1e-1, rtol=1e-3)
 
-        target = torch.ops.zentorch.zendnn_custom_embedding_group.default
+        target = torch.ops.zentorch.zendnn_horizontal_embedding_group.default
         group_eb_count = 0
 
         for node in fx_g_optimized.graph.nodes:
@@ -934,12 +934,192 @@ class TEST_EMBEDDING_GROUP(TestCase):
 
 
 @unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
+class TEST_GROUP_MLP(TestCase):
+    @parameterized.expand(supported_dtypes)
+    @torch.inference_mode()
+    def test_group_mlp_model(self, dtype):
+        data = Test_Data()
+        data.create_data(dtype)
+
+        model = CustomModel_GroupMLP_Model(data.k, data.get_torch_type(dtype))
+
+        native_output = model(data.x)
+        torch._dynamo.reset()
+        compiled_graph = torch.compile(model, backend="zentorch")
+
+        compiled_output = compiled_graph(data.x)
+        self.assertEqual(native_output, compiled_output, atol=1e-1, rtol=1e-3)
+
+    @parameterized.expand(supported_dtypes)
+    @torch.inference_mode()
+    def test_group_mlp_model_relu(self, dtype):
+        data = Test_Data()
+        data.create_data(dtype)
+
+        model = CustomModel_GroupMLP_Model_Relu(data.k, data.get_torch_type(dtype))
+
+        native_output = model(data.x)
+        torch._dynamo.reset()
+        compiled_graph = torch.compile(model, backend="zentorch")
+
+        compiled_output = compiled_graph(data.x)
+        self.assertEqual(native_output, compiled_output, atol=1e-1, rtol=1e-3)
+
+    @parameterized.expand(supported_dtypes)
+    @torch.inference_mode()
+    def test_group_mlp_model_relu_gelu(self, dtype):
+        data = Test_Data()
+        data.create_data(dtype)
+
+        model = CustomModel_GroupMLP_Model_Relu_Gelu(data.k, data.get_torch_type(dtype))
+
+        native_output = model(data.x)
+        torch._dynamo.reset()
+        compiled_graph = torch.compile(model, backend="zentorch")
+
+        compiled_output = compiled_graph(data.x)
+        self.assertEqual(native_output, compiled_output, atol=1e-1, rtol=1e-3)
+
+    @parameterized.expand(supported_dtypes)
+    @torch.inference_mode()
+    def test_incorrect_dims(self, dtype):
+        data = Test_Data()
+        data.create_data(dtype)
+
+        with self.assertRaises(RuntimeError) as context:
+            torch.ops.zentorch.zendnn_addmm(data.x3d, data.x, data.x)
+            self.assertTrue(
+                "zendnn_addmm: unsupported dims for self, mat1 and mat2!"
+                in str(context.exception)
+            )
+
+        with self.assertRaises(RuntimeError) as context:
+            torch.ops.zentorch.zendnn_addmm_1dbias(data.x, data.x, data.x)
+            self.assertTrue(
+                "zendnn_addmm_1dbias: unsupported dims for self, mat1 and mat2!"
+                in str(context.exception)
+            )
+
+        with self.assertRaises(RuntimeError) as context:
+            torch.ops.zentorch.zendnn_baddbmm(data.x, data.x3d, data.x3d)
+            self.assertTrue(
+                "zendnn_baddbmm:  unsupported dims for self, batch1 and batch2!"
+                in str(context.exception)
+            )
+
+        with self.assertRaises(RuntimeError) as context:
+            torch.ops.zentorch.zendnn_mm(data.x3d, data.x3d)
+            self.assertTrue(
+                "zendnn_mm:  unsupported dims for self and mat2!"
+                in str(context.exception)
+            )
+
+        with self.assertRaises(RuntimeError) as context:
+            torch.ops.zentorch.zendnn_bmm(data.x, data.x)
+            self.assertTrue(
+                "zendnn_bmm:  unsupported dims for self and mat2!"
+                in str(context.exception)
+            )
+
+
+@unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
 class TestBF16Device(TestCase):
     @unittest.skipIf(
         not zentorch._C.is_bf16_supported(), "CPU does not support AVX512 BF16."
     )
     def test_bf16_device(self):
         self.assertTrue(zentorch._C.is_bf16_supported(), "CPU supports AVX512 BF16.")
+
+
+@unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
+class CustomModel_GroupMLP_Model(nn.Module):
+    def __init__(self, k, dtype) -> None:
+        super(CustomModel_GroupMLP_Model, self).__init__()
+        self.mlp_0 = torch.nn.Linear(k, 512, dtype=dtype)
+        self.mlp_1 = torch.nn.Linear(512, 256, dtype=dtype)
+        self.mlp_2 = torch.nn.Linear(256, 64, dtype=dtype)
+
+    def forward(self, inputs):
+        outputs = self.mlp_0(inputs)
+        outputs = self.mlp_1(outputs)
+        outputs = self.mlp_2(outputs)
+
+        return outputs
+
+
+@unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
+class CustomModel_GroupMLP_Model_Relu(nn.Module):
+    def __init__(self, k, dtype) -> None:
+        super(CustomModel_GroupMLP_Model_Relu, self).__init__()
+
+        self.post_op = torch.nn.ReLU()
+
+        self.bmlp_0 = torch.nn.Linear(k, 512, dtype=dtype)
+        self.bmlp_1 = torch.nn.Linear(512, 256, dtype=dtype)
+        self.bmlp_2 = torch.nn.Linear(256, 64, dtype=dtype)
+
+        self.intermediate_activation = torch.nn.Sigmoid()
+
+        self.tmlp_0 = torch.nn.Linear(64, 32, dtype=dtype)
+        self.tmlp_1 = torch.nn.Linear(32, 16, dtype=dtype)
+        self.tmlp_2 = torch.nn.Linear(16, 8, dtype=dtype)
+
+    def forward(self, inputs):
+        outputs = self.bmlp_0(inputs)
+        outputs = self.post_op(outputs)
+        outputs = self.bmlp_1(outputs)
+        outputs = self.post_op(outputs)
+        outputs = self.bmlp_2(outputs)
+        outputs = self.post_op(outputs)
+
+        outputs = self.intermediate_activation(outputs)
+
+        outputs = self.tmlp_0(outputs)
+        outputs = self.post_op(outputs)
+        outputs = self.tmlp_1(outputs)
+        outputs = self.post_op(outputs)
+        outputs = self.tmlp_2(outputs)
+        outputs = self.post_op(outputs)
+
+        return outputs
+
+
+@unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
+class CustomModel_GroupMLP_Model_Relu_Gelu(nn.Module):
+    def __init__(self, k, dtype) -> None:
+        super(CustomModel_GroupMLP_Model_Relu_Gelu, self).__init__()
+
+        self.post_op_1 = torch.nn.ReLU()
+        self.post_op_2 = torch.nn.GELU()
+
+        self.bmlp_0 = torch.nn.Linear(k, 512, dtype=dtype)
+        self.bmlp_1 = torch.nn.Linear(512, 256, dtype=dtype)
+        self.bmlp_2 = torch.nn.Linear(256, 64, dtype=dtype)
+
+        self.intermediate_activation = torch.nn.Sigmoid()
+
+        self.tmlp_0 = torch.nn.Linear(64, 32, dtype=dtype)
+        self.tmlp_1 = torch.nn.Linear(32, 16, dtype=dtype)
+        self.tmlp_2 = torch.nn.Linear(16, 8, dtype=dtype)
+
+    def forward(self, inputs):
+        outputs = self.bmlp_0(inputs)
+        outputs = self.post_op_1(outputs)
+        outputs = self.bmlp_1(outputs)
+        outputs = self.post_op_2(outputs)
+        outputs = self.bmlp_2(outputs)
+        outputs = self.post_op_1(outputs)
+
+        outputs = self.intermediate_activation(outputs)
+
+        outputs = self.tmlp_0(outputs)
+        outputs = self.post_op_2(outputs)
+        outputs = self.tmlp_1(outputs)
+        outputs = self.post_op_1(outputs)
+        outputs = self.tmlp_2(outputs)
+        outputs = self.post_op_2(outputs)
+
+        return outputs
 
 
 @unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")

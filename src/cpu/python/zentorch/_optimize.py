@@ -4,13 +4,16 @@
 # ******************************************************************************
 
 import torch
-import operator
-import zentorch._C # noqa
+import zentorch._C  # noqa
 
 # import the custom logging module
 from ._logging import get_logger
 from ._util import save_graph
 from ._zentorch_op_replacement import replace_with_zentorch_ops, is_bias_1d_tensor
+from ._zentorch_custom_op_replacement import (
+    emb_ops_horizontal_fusion,
+    vertical_mlp_fusion,
+)
 
 # make a logger for this file
 logger = get_logger(__name__)
@@ -31,17 +34,22 @@ def optimize(fx_graph):
 
     logger.info("Optimizing the fx_graph with zentorch ops.")
 
-    # replacing ops to zendnn ops
-    fx_graph = replace_with_zentorch_ops(fx_graph)
+    # Replacing ops to zendnn ops
+    optimized_graph = replace_with_zentorch_ops(fx_graph)
 
-    optimized_graph = zendnn_op_fusion(fx_graph)
+    # Op fusions supported by ZenDNN
+    optimized_graph = zendnn_op_fusion(optimized_graph)
 
-    groupEmbedOps_graph = emb_ops_horizontal_fusion(optimized_graph)
+    # Fusion of parallel embeddingbags
+    optimized_graph = emb_ops_horizontal_fusion(optimized_graph)
+
+    # Vertical fusion of Consecutive MLP layers
+    optimized_graph = vertical_mlp_fusion(optimized_graph)
 
     # Dumping of the optimized graph in svg format
-    save_graph(groupEmbedOps_graph, "zen_optimized_model")
+    save_graph(optimized_graph, "zen_optimized_model")
 
-    return groupEmbedOps_graph
+    return optimized_graph
 
 
 def set_relu_mm_fusion_kwargs(node):
@@ -57,13 +65,17 @@ def set_gelu_mm_fusion_kwargs(node):
 
 # create dict according to fuse
 op_eltwise_pattern = dict.fromkeys(
-    (zt_ops.zendnn_mm.default,
-     zt_ops.zendnn_addmm.default,
-     zt_ops.zendnn_addmm_1dbias.default),
-    {at_ops.relu.default: set_relu_mm_fusion_kwargs,
-     at_ops.relu_.default: set_relu_mm_fusion_kwargs,
-     at_ops.gelu.default: set_gelu_mm_fusion_kwargs,
-     at_ops.gelu_.default: set_gelu_mm_fusion_kwargs}
+    (
+        zt_ops.zendnn_mm.default,
+        zt_ops.zendnn_addmm.default,
+        zt_ops.zendnn_addmm_1dbias.default,
+    ),
+    {
+        at_ops.relu.default: set_relu_mm_fusion_kwargs,
+        at_ops.relu_.default: set_relu_mm_fusion_kwargs,
+        at_ops.gelu.default: set_gelu_mm_fusion_kwargs,
+        at_ops.gelu_.default: set_gelu_mm_fusion_kwargs,
+    },
 )
 # for now add is not added as post op that's why I created this pattern
 
@@ -120,186 +132,3 @@ def zendnn_op_fusion(fx_graph):
     fx_graph.graph.set_codegen(torch.fx.graph.CodeGen())
     fx_graph.recompile()
     return fx_graph
-
-
-def emb_ops_horizontal_fusion(fx_g):
-    logger.info("Fusing horizontal parallel ops.")
-    zentorch_embed_ops_dict = {
-        zt_ops.zendnn_embedding_bag.default :
-            zt_ops.zendnn_custom_embedding_bag_group.default,
-        zt_ops.zendnn_embedding.default :
-            zt_ops.zendnn_custom_embedding_group.default,
-    }
-    groups = {}
-
-    for node in fx_g.graph.nodes:
-        if node.target in zentorch_embed_ops_dict.keys():
-            users = list(node.users.keys())
-            user_node = None
-
-            if node.target == zt_ops.zendnn_embedding.default:
-                if len(users) == 1:
-                    user_node = users[0]
-            elif node.target == zt_ops.zendnn_embedding_bag.default:
-                for user in users:
-                    if user_node is None and len(user.users.keys()) == 1:
-                        user_node = user
-                    elif user_node is not None and len(user.users.keys()) == 1:
-                        user_node = None
-                        break
-
-            if user_node is not None:
-
-                if node.target == zt_ops.zendnn_embedding.default:
-                    common_output_node = user_node
-                    node_name = common_output_node.name
-                    if node_name in groups:
-                        if groups[node_name]["type"] == "embedding_bag":
-                            logger.info(
-                                "Cannot fuse embedding bag and embedding with \
-                                 common node. This is because of the function \
-                                 prototype difference between the \
-                                 aten.embedding and aten.embeddingbag ops and \
-                                 their corresponding zentorch group ops."
-                            )
-                            return fx_g
-                        groups[node_name]["nodes"].append(node)
-                    else:
-                        groups[node_name] = {
-                            "type": "embedding",
-                            "nodes": [node],
-                        }
-                elif node.target == zt_ops.zendnn_embedding_bag.default:
-                    common_output_node = list(user_node.users.keys())[0]
-                    node_name = common_output_node.name
-                    if node_name in groups:
-                        if groups[node_name]["type"] == "embedding":
-                            logger.info(
-                                "Cannot fuse embedding bag and embedding with \
-                                 common node. This is because of the function \
-                                 prototype difference between the \
-                                 aten.embedding and aten.embeddingbag ops and \
-                                 their corresponding zentorch group ops."
-                            )
-                            return fx_g
-                        groups[node_name]["nodes"].append(node)
-                    else:
-                        groups[node_name] = {
-                            "type": "embedding_bag",
-                            "nodes": [node],
-                        }
-
-    for group in groups:
-        if len(groups[group]["nodes"]) > 1:
-            op_count = 0
-            # embedding_bag has more parameters than embedding. So creating new
-            # args list with max of the number of parameters of both ops, which
-            # is 9. Empty lists are further removed.
-            list_new_args = [[] for _ in range(9)]
-            last_node = groups[group]["nodes"][-1]
-            traversed_nodes = set()
-
-            for node in groups[group]["nodes"]:
-                node_args_len = len(node.args)
-                for i in range(node_args_len):
-                    if node.args[i] is False:
-                        list_new_args[i].append(0)
-                    elif node.args[i] is True:
-                        list_new_args[i].append(1)
-                    else:
-                        list_new_args[i].append(node.args[i])
-                if node.target == zt_ops.zendnn_embedding.default:
-                    if node_args_len == 2:
-                        list_new_args[2].append(-1)
-                        list_new_args[3].append(0)
-                        list_new_args[4].append(0)
-                    elif node_args_len == 3:
-                        list_new_args[3].append(0)
-                        list_new_args[4].append(0)
-                    elif node_args_len == 4:
-                        list_new_args[4].append(0)
-                elif node.target == zt_ops.zendnn_embedding_bag.default:
-                    if node_args_len == 3:
-                        list_new_args[3].append(0)
-                        list_new_args[4].append(0)
-                        list_new_args[5].append(0)
-                        list_new_args[6].append(None)
-                        list_new_args[7].append(0)
-                        list_new_args[8].append(-1)
-                    elif node_args_len == 4:
-                        list_new_args[4].append(0)
-                        list_new_args[5].append(0)
-                        list_new_args[6].append(None)
-                        list_new_args[7].append(0)
-                        list_new_args[8].append(-1)
-                    elif node_args_len == 5:
-                        list_new_args[5].append(0)
-                        list_new_args[6].append(None)
-                        list_new_args[7].append(0)
-                        list_new_args[8].append(-1)
-                    elif node_args_len == 6:
-                        list_new_args[6].append(None)
-                        list_new_args[7].append(0)
-                        list_new_args[8].append(-1)
-                    elif node_args_len == 7:
-                        list_new_args[7].append(0)
-                        list_new_args[8].append(-1)
-                    elif node_args_len == 8:
-                        list_new_args[8].append(-1)
-
-                if node.target == zt_ops.zendnn_embedding_bag.default:
-                    total_prev_outputs_emb_bag = op_count * 4
-                    for temp_node in list(node.users.keys()):
-                        if (
-                            temp_node.target == operator.getitem
-                            and temp_node not in traversed_nodes
-                        ):
-                            temp_node_args = (
-                                temp_node.args[0],
-                                temp_node.args[1] + total_prev_outputs_emb_bag,
-                            )
-                            temp_node.args = temp_node_args
-                        last_node.append(temp_node)
-                        traversed_nodes.add(temp_node)
-
-                if node != last_node:
-                    node.replace_all_uses_with(last_node)
-                    fx_g.graph.erase_node(node)
-
-                op_count += 1
-
-            if op_count > 1:
-                idx = -1
-                while len(list_new_args[idx]) == 0:
-                    list_new_args.pop()
-                last_node.args = tuple(list_new_args)
-                if last_node.target in zentorch_embed_ops_dict.keys():
-                    last_node.target = zentorch_embed_ops_dict[last_node.target]
-            elif op_count == 1:
-                last_node.target = node.target
-
-            if node.target == zt_ops.zendnn_custom_embedding_group.default:
-                common_output_node = list(last_node.users.keys())[0]
-                getitem_nodes = []
-                for getitem_num in range(op_count):
-                    new_node = fx_g.graph.create_node(
-                        op="call_function",
-                        target=operator.getitem,
-                        args=(last_node, getitem_num),
-                    )
-                    last_node.append(new_node)
-                    getitem_nodes.append(new_node)
-                if len(common_output_node.args) == 2:
-                    common_output_node.args = (
-                        getitem_nodes,
-                        common_output_node.args[1],
-                    )
-                else:
-                    common_output_node.args = (getitem_nodes,)
-
-    fx_g.graph.set_codegen(torch.fx.graph.CodeGen())
-    fx_g.recompile()
-
-    save_graph(fx_g, "zen_groupOp_model")
-
-    return fx_g

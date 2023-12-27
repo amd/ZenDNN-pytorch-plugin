@@ -139,7 +139,7 @@ zendnn_embedding_bag_impl(
   return out;
 }
 
-std::vector<at::Tensor> zendnn_custom_embedding_bag_group(
+std::vector<at::Tensor> zendnn_horizontal_embedding_bag_group(
     const at::TensorList &weight, const at::TensorList &indices,
     const at::TensorList &offsets, const at::IntArrayRef &scale_grad_by_freq,
     const at::IntArrayRef &mode, const at::IntArrayRef &sparse,

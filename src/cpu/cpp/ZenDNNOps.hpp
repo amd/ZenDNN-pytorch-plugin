@@ -53,7 +53,7 @@ at ::Tensor zendnn_mm(const at::Tensor &self, const at::Tensor &mat2,
 
 at::Tensor zendnn_bmm(const at::Tensor &self, const at::Tensor &mat2);
 
-std::vector<at::Tensor> zendnn_custom_embedding_bag_group(
+std::vector<at::Tensor> zendnn_horizontal_embedding_bag_group(
     const at::TensorList &weight, const at::TensorList &indices,
     const at::TensorList &offsets, const at::IntArrayRef &scale_grad_by_freq,
     const at::IntArrayRef &mode, const at::IntArrayRef &sparse,
@@ -61,9 +61,15 @@ std::vector<at::Tensor> zendnn_custom_embedding_bag_group(
     const at::IntArrayRef &include_last_offset,
     const at::IntArrayRef &padding_idx);
 
-std::vector<at::Tensor> zendnn_custom_embedding_group(
+std::vector<at::Tensor> zendnn_horizontal_embedding_group(
     const at::TensorList &weight, const at::TensorList &indices,
     const at::IntArrayRef &padding_idx,
     const at::IntArrayRef &scale_grad_by_freq, const at::IntArrayRef &sparse);
 
+at::Tensor zendnn_vertical_mlp_group(const at::TensorList &self,
+                                     const at::Tensor &input,
+                                     const at::TensorList &weights,
+                                     const at::ArrayRef<double> &betas,
+                                     const at::ArrayRef<double> &alphas,
+                                     const at::IntArrayRef &fuse);
 } // namespace ZenDNNTorch

@@ -112,8 +112,8 @@ def meta_zendnn_embedding(
     return output
 
 
-@register_meta("zendnn_custom_embedding_bag_group")
-def meta_zendnn_custom_embedding_bag_group(
+@register_meta("zendnn_horizontal_embedding_bag_group")
+def meta_zendnn_horizontal_embedding_bag_group(
     weight,
     indices,
     offsets,
@@ -122,7 +122,7 @@ def meta_zendnn_custom_embedding_bag_group(
     sparse,
     per_sample_weights,
     include_last_offset,
-    padding_idx
+    padding_idx,
 ):
     output_list = []
 
@@ -138,13 +138,9 @@ def meta_zendnn_custom_embedding_bag_group(
     return output_list
 
 
-@register_meta("zendnn_custom_embedding_group")
-def meta_zendnn_custom_embedding_group(
-    weight,
-    indices,
-    padding_idx,
-    scale_grad_by_freq,
-    sparse
+@register_meta("zendnn_horizontal_embedding_group")
+def meta_zendnn_horizontal_embedding_group(
+    weight, indices, padding_idx, scale_grad_by_freq, sparse
 ):
     output_list = []
 
@@ -158,6 +154,20 @@ def meta_zendnn_custom_embedding_group(
     return output_list
 
 
+@register_meta("zendnn_vertical_mlp_group")
+def meta_zendnn_vertical_mlp_group(self, inputs, weight, betas, alphas, fuse):
+    # For the functionality of GroupMLP op, the outputs of one MLP will act as
+    # the input for the next MLP. That is why, overwriting the same variable
+    # instead of creating multiple variables, and finally returning an empty
+    # tensor of the final shape.
+    for idx in range(len(weight)):
+        inputs = meta_zendnn_addmm(
+            self[idx], inputs, weight[idx], betas[idx], alphas[idx], fuse[idx]
+        )
+
+    return inputs.new_empty(inputs.size())
+
+
 make_fallback(torch.ops.zentorch.zendnn_addmm)
 make_fallback(torch.ops.zentorch.zendnn_addmm_1dbias)
 make_fallback(torch.ops.zentorch.zendnn_embedding_bag)
@@ -165,5 +175,6 @@ make_fallback(torch.ops.zentorch.zendnn_embedding)
 make_fallback(torch.ops.zentorch.zendnn_bmm)
 make_fallback(torch.ops.zentorch.zendnn_baddbmm)
 make_fallback(torch.ops.zentorch.zendnn_mm)
-make_fallback(torch.ops.zentorch.zendnn_custom_embedding_bag_group)
-make_fallback(torch.ops.zentorch.zendnn_custom_embedding_group)
+make_fallback(torch.ops.zentorch.zendnn_horizontal_embedding_bag_group)
+make_fallback(torch.ops.zentorch.zendnn_horizontal_embedding_group)
+make_fallback(torch.ops.zentorch.zendnn_vertical_mlp_group)
