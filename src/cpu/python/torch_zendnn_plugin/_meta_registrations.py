@@ -45,11 +45,8 @@ def meta_zendnn_addmm(
 
 @register_meta("zendnn_mm")
 def meta_zendnn_mm(
-    bias,
     input,
     weight,
-    alpha=1,
-    beta=1,
     fuse=0,
 ):
     return input.new_empty((input.shape[0], weight.shape[-1]))
