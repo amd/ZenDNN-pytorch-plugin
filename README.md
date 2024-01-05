@@ -82,7 +82,9 @@ pip uninstall torch_zendnn_plugin
 ```bash
 pip install torch_zendnn_plugin-*-linux_x86_64.whl
 ```
->Note: Dependent packages 'numpy' and 'torch' will be installed by 'torch_zendnn_plugin' if not already present.
+>Note: 
+* Dependent packages 'numpy' and 'torch' will be installed by 'torch_zendnn_plugin' if not already present.
+* Torch Version should be greater than or equal to 2.0
 
 ## 2.2. From Source
 Run the following commands:
