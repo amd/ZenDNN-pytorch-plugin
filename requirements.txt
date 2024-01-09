@@ -1,5 +1,6 @@
 cmake>=3.13.0
 expecttest==0.1.6
+parameterized
 hypothesis
 ninja
 numpy
