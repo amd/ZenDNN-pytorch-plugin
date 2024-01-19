@@ -206,7 +206,33 @@ Saving of the fx graphs before and after optimization in svg format can be enabl
 ```bash
 export ZENTORCH_SAVE_GRAPH=1
 ```
-The graphs will be saved by the names 'native_model.svg' and 'zen_optimized_model.svg', in the parent directory of the script in which the optimize function provided by the plugin is used. 
+The graphs will be saved by the names 'native_model.svg' and 'zen_optimized_model.svg', in the parent directory of the script in which the optimize function provided by the plugin is used.
 
-# 5. Contributing
+# 5. Additional Utilities:
+
+## 5.1 Disabling Inductor:
+
+This feature is intended for use whenever fx_graphs generated from torch.compile needs to be compared with and without Inductor compilation. 
+
+disable_inductor() API takes in a boolean input to disable Inductor. Once disabled, to re-enable inductor, pass "False" to the same API.
+
+```python
+import torch
+import torch_zendnn_plugin as zentorch
+
+#To disable Torch Inductor
+zentorch.disable_inductor(True)
+compiled_model = torch.compile(model, backend='zentorch')
+output = compiled_model(input)
+
+#To re-enable Torch Inductor
+torch._dynamo.reset()
+zentorch.disable_inductor(False)
+compiled_model = torch.compile(model, backend='zentorch')
+
+```
+
+Fx graphs are sent to AOT Autograd using aot_module_simplified and thus Inductor is not used at all.
+
+# 6. Contributing
 Any contribution to zentorch can be done by following the guidelines given [here](CONTRIBUTING.md).
