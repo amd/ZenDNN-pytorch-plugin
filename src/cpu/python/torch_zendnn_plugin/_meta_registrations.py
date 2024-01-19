@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2023 Advanced Micro Devices, Inc.
+# Copyright (c) 2023-2024 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -35,6 +35,18 @@ def register_meta(op_name, overload_name="default"):
 
 @register_meta("zendnn_addmm")
 def meta_zendnn_addmm(
+    bias,
+    input,
+    weight,
+    alpha=1,
+    beta=1,
+    fuse=0,
+):
+    return input.new_empty((input.shape[0], weight.shape[-1]))
+
+
+@register_meta("zendnn_addmm_1dbias")
+def meta_zendnn_addmm_1dbias(
     bias,
     input,
     weight,
@@ -147,6 +159,7 @@ def meta_zendnn_custom_embedding_group(
 
 
 make_fallback(torch.ops.zentorch.zendnn_addmm)
+make_fallback(torch.ops.zentorch.zendnn_addmm_1dbias)
 make_fallback(torch.ops.zentorch.zendnn_embedding_bag)
 make_fallback(torch.ops.zentorch.zendnn_embedding)
 make_fallback(torch.ops.zentorch.zendnn_bmm)

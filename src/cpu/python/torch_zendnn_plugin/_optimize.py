@@ -39,6 +39,21 @@ def optimize(fx_graph):
     return groupEmbedOps_graph
 
 
+def replace_addmm_for_1d_bias(node, fx_graph):
+    is_fake_tensor = bool(node.args[0].meta)
+    # arg node in fx_graph generated through torch.compile will be fake tensor
+    if is_fake_tensor and node.args[0].meta["val"].ndim == 1:
+        # 1d bias
+        return torch.ops.zentorch.zendnn_addmm_1dbias
+    # while arg node in fx_graph generated through make_fx will not be fake tensor
+    elif not is_fake_tensor and fx_graph._parameters[node.args[0].target].ndim == 1:
+        # 1d bias
+        return torch.ops.zentorch.zendnn_addmm_1dbias
+    else:
+        # addmm(2d)
+        return torch.ops.zentorch.zendnn_addmm
+
+
 def replace_with_zendnn_op(fx_graph):
     op_dict = {
         "aten::_embedding_bag": (
@@ -66,7 +81,11 @@ def replace_with_zendnn_op(fx_graph):
                 + op_dict[op_name][1]
                 + "!"
             )
-            node.target = op_dict[op_name][0]
+
+            if str(node.target) == "aten.addmm.default" :
+                node.target = replace_addmm_for_1d_bias(node, fx_graph)
+            else:
+                node.target = op_dict[op_name][0]
     return fx_graph
 
 
@@ -90,6 +109,12 @@ op_eltwise_pattern = {
         "aten.gelu_.default": set_gelu_mm_fusion_kwargs,
     },
     "zentorch.zendnn_addmm": {
+        "aten.relu.default": set_relu_mm_fusion_kwargs,
+        "aten.relu_.default": set_relu_mm_fusion_kwargs,
+        "aten.gelu.default": set_gelu_mm_fusion_kwargs,
+        "aten.gelu_.default": set_gelu_mm_fusion_kwargs,
+    },
+    "zentorch.zendnn_addmm_1dbias": {
         "aten.relu.default": set_relu_mm_fusion_kwargs,
         "aten.relu_.default": set_relu_mm_fusion_kwargs,
         "aten.gelu.default": set_gelu_mm_fusion_kwargs,
@@ -133,7 +158,7 @@ def zendnn_op_fusion(fx_graph):
             fx_graph.graph.erase_node(node.next)
 
             if node.target == torch.ops.zentorch.zendnn_mm:
-                node.target = torch.ops.zentorch.zendnn_addmm
+                node.target = replace_addmm_for_1d_bias(node, fx_graph)
             else:
                 node.target = torch.ops.zentorch.zendnn_baddbmm
         # check the pattern for relu/gelu

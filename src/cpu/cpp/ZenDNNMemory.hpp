@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright (c) 2023 Advanced Micro Devices, Inc.
+ * Copyright (c) 2023-2024 Advanced Micro Devices, Inc.
  * All rights reserved.
  ******************************************************************************/
 
@@ -55,92 +55,64 @@ inline memory::format_tag get_default_format(const memory::dims &adims) {
 
 // create a memory descriptor from aten tensor
 inline memory::desc zen_memory_desc(const at::Tensor &atensor) {
-  // currently the only supported memory format is the default one
-  // for which we have the check below
-  if (!atensor.is_contiguous()) {
-    TORCH_CHECK(false, "ZenDNNTensor::zen_memory_desc:"
-                       " Only default contiguous format is supported!");
+  // currently supported memory formats are default contiguous
+  // and strided tensor formats, for which we have the check below
+  memory::desc mem_desc;
+  if (!atensor.is_contiguous() && atensor.layout() == c10::Layout::Strided) {
+    // Providing stride information while initializing the zen_memory_desc.
+    // Otherwise, tensor data will be read in coloumn major format.
+    mem_desc = memory::desc(atensor.sizes().vec(), get_ztype_from_aten(atensor),
+                            atensor.strides().vec());
+  } else if (atensor.is_contiguous()) {
+    // if the default contiguous format is given,
+    // then we proceed with descriptor creation
+    mem_desc = memory::desc(atensor.sizes().vec(), get_ztype_from_aten(atensor),
+                            get_default_format(atensor.sizes().vec()));
   } else {
-    // if the default format is given, then we proceed with descriptor creation
-    memory::dims zdims = {atensor.sizes().cbegin(), atensor.sizes().cend()};
-    memory::desc mem_desc = memory::desc(zdims, get_ztype_from_aten(atensor),
-                                         get_default_format(zdims));
-    return mem_desc;
+    TORCH_CHECK(false,
+                "ZenDNNTorch::zen_memory_desc: "
+                "Only default contiguous and strided formats are supported!");
   }
+  return mem_desc;
 }
 
-// below function returns memory from aten tensor
+// below function returns memory with aten tensor and mem_desc
 inline memory zen_memory(const at::Tensor &atensor,
+                         const memory::desc &mem_desc = memory::desc(),
                          const engine &aengine = utils::engine::cpu_engine()) {
-  // we create memory descriptor inside this to avoid passing it as an argument
-  memory::desc mem_desc = zen_memory_desc(atensor);
+  TORCH_CHECK(atensor.device().is_cpu(),
+              "ZenDNNTorch::zen_memory: expects CPU tensor input");
+  TORCH_CHECK(atensor.layout() == c10::Layout::Strided,
+              "ZenDNNTorch::zen_memory: expects dense tensor input");
+
+  const memory::desc &a_mem_desc =
+      mem_desc.is_zero() ? zen_memory_desc(atensor) : mem_desc;
+
   auto atype = atensor.scalar_type();
   switch (atype) {
   case c10::kByte: {
     using cpptype = decltype(c10::impl::ScalarTypeToCPPType<c10::kByte>::t);
-    return memory(mem_desc, aengine, atensor.data_ptr<cpptype>());
+    return memory(a_mem_desc, aengine, atensor.data_ptr<cpptype>());
   }
   case c10::kInt: {
     using cpptype = decltype(c10::impl::ScalarTypeToCPPType<c10::kInt>::t);
-    return memory(mem_desc, aengine, atensor.data_ptr<cpptype>());
+    return memory(a_mem_desc, aengine, atensor.data_ptr<cpptype>());
   }
   case c10::kChar: {
     using cpptype = decltype(c10::impl::ScalarTypeToCPPType<c10::kChar>::t);
-    return memory(mem_desc, aengine, atensor.data_ptr<cpptype>());
+    return memory(a_mem_desc, aengine, atensor.data_ptr<cpptype>());
   }
   case c10::kFloat: {
     using cpptype = decltype(c10::impl::ScalarTypeToCPPType<c10::kFloat>::t);
-    return memory(mem_desc, aengine, atensor.data_ptr<cpptype>());
+    return memory(a_mem_desc, aengine, atensor.data_ptr<cpptype>());
   }
   case c10::kBFloat16: {
     using cpptype = decltype(c10::impl::ScalarTypeToCPPType<c10::kBFloat16>::t);
-    return memory(mem_desc, aengine, atensor.data_ptr<cpptype>());
+    return memory(a_mem_desc, aengine, atensor.data_ptr<cpptype>());
   }
   default:
     TORCH_CHECK(false, "ZenDNNTorch::zen_memory:"
                        " Invalid data type, creating zendnn memory failed.");
-  }
-}
-
-inline memory zen_memory_view_from_dense(
-    const at::Tensor &atensor,
-    const engine &aengine = utils::engine::cpu_engine()) {
-  TORCH_CHECK(
-      atensor.device().is_cpu(),
-      "ZenDNNTorch::zen_memory_view_from_dense: expects CPU tensor input");
-  TORCH_CHECK(
-      atensor.layout() == c10::Layout::Strided,
-      "ZenDNNTorch::zen_memory_view_from_dense: expects dense tensor input");
-  TORCH_CHECK(atensor.scalar_type() == c10::ScalarType::Float ||
-                  atensor.scalar_type() == c10::ScalarType::BFloat16 ||
-                  atensor.scalar_type() == c10::ScalarType::Char ||
-                  atensor.scalar_type() == c10::ScalarType::Byte,
-              "ZenDNNTorch::zen_memory_view_from_dense: expects float or "
-              "bfloat16 or char tensor input");
-  // TODO: combining this function with ZenDNNTorch::zen_memory
-  auto atype = atensor.scalar_type();
-  // Providing stride information while initializing the zen_memory.
-  // Otherwise, tensor data will be read in coloumn major format.
-  switch (atype) {
-  case c10::kByte: {
-    return memory({atensor.sizes().vec(), get_ztype_from_aten(atensor),
-                   atensor.strides().vec()},
-                  aengine, atensor.template data_ptr<uint8_t>());
-  }
-  case c10::kChar: {
-    return memory({atensor.sizes().vec(), get_ztype_from_aten(atensor),
-                   atensor.strides().vec()},
-                  aengine, atensor.template data_ptr<int8_t>());
-  }
-  case c10::kBFloat16: {
-    return memory({atensor.sizes().vec(), get_ztype_from_aten(atensor),
-                   atensor.strides().vec()},
-                  aengine, atensor.template data_ptr<c10::BFloat16>());
-  }
-  default:
-    return memory({atensor.sizes().vec(), memory::data_type::f32,
-                   atensor.strides().vec()},
-                  aengine, atensor.template data_ptr<float>());
   }
 }
 

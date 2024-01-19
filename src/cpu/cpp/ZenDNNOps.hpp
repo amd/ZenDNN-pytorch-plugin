@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright (c) 2023 Advanced Micro Devices, Inc.
+ * Copyright (c) 2023-2024 Advanced Micro Devices, Inc.
  * All rights reserved.
  ******************************************************************************/
 
@@ -31,12 +31,18 @@ at::Tensor zendnn_embedding_impl(const at::Tensor &weight,
 std::string show_config();
 
 at::Tensor zendnn_matmul_impl(const at::Tensor &mat1, const at::Tensor &mat2,
+                              const at::Tensor &bias,
                               at::Tensor &self_or_result, const float &beta,
                               const float &alpha, const int64_t &fuse);
 
 at::Tensor zendnn_addmm(const at::Tensor &self, const at::Tensor &mat1,
                         const at::Tensor &mat2, const at::Scalar &beta,
                         const at::Scalar &alpha, const int64_t &fuse);
+
+// for 1d bias
+at::Tensor zendnn_addmm_1dbias(const at::Tensor &self, const at::Tensor &mat1,
+                               const at::Tensor &mat2, const at::Scalar &beta,
+                               const at::Scalar &alpha, const int64_t &fuse);
 
 at::Tensor zendnn_baddbmm(const at::Tensor &self, const at::Tensor &batch1,
                           const at::Tensor &batch2, const at::Scalar &beta,
