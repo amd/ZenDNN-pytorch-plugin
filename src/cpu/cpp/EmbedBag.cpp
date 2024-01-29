@@ -1,10 +1,11 @@
 /******************************************************************************
- * Copyright (c) 2023 Advanced Micro Devices, Inc.
+ * Copyright (c) 2023-2024 Advanced Micro Devices, Inc.
  * All rights reserved.
  ******************************************************************************/
 
 #include "ZenDNNMemory.hpp"
 
+#include <ATen/ParallelOpenMP.h>
 #define ZENDNN_EMBED_BAG_THRDS 16
 
 inline void zen_eb_tensor_check(const at::Tensor &weight,
@@ -164,61 +165,65 @@ std::vector<at::Tensor> zendnn_custom_embedding_bag_group(
 
   std::vector<at::Tensor> out_vec(num_eb_ops * 4);
 
-#pragma omp parallel for
-  for (int i = 0; i < num_eb_ops; i++) {
+  // If TORCH_CHECK() fails, then the pragma omp parallel for cannot be used
+  // we will use at::parallel_for from pytorch instead
+  at::parallel_for(0, num_eb_ops, 0, [&](int64_t start, int64_t end) {
+    for (auto i = start; i < end; i++) {
 
-    zen_eb_tensor_check(weight[i], indices[i], offsets[i]);
+      zen_eb_tensor_check(weight[i], indices[i], offsets[i]);
 
-    temp_indices[i] = indices[i].toType(c10::kInt).contiguous();
-    temp_offsets[i] = offsets[i].toType(c10::kInt).contiguous();
+      temp_indices[i] = indices[i].toType(c10::kInt).contiguous();
+      temp_offsets[i] = offsets[i].toType(c10::kInt).contiguous();
 
-    z_weight[i] = zen_memory(weight[i]);
-    z_indices[i] = zen_memory(temp_indices[i]);
-    z_offsets[i] = zen_memory(temp_offsets[i]);
+      z_weight[i] = zen_memory(weight[i]);
+      z_indices[i] = zen_memory(temp_indices[i]);
+      z_offsets[i] = zen_memory(temp_offsets[i]);
 
-    zen_mode_to_algo(mode[i], z_algorithm[i]);
+      zen_mode_to_algo(mode[i], z_algorithm[i]);
 
-    z_padding_idx[i] = padding_idx[i];
-    z_scale_grad_by_freq[i] = scale_grad_by_freq[i];
-    z_include_last_offset[i] = include_last_offset[i];
-    z_sparse[i] = sparse[i];
+      z_padding_idx[i] = padding_idx[i];
+      z_scale_grad_by_freq[i] = scale_grad_by_freq[i];
+      z_include_last_offset[i] = include_last_offset[i];
+      z_sparse[i] = sparse[i];
 
-    c10::MaybeOwned<at::Tensor> per_sample_weights_maybe_owned =
-        at::borrow_from_optional_tensor(per_sample_weights_opt[i]);
+      c10::MaybeOwned<at::Tensor> per_sample_weights_maybe_owned =
+          at::borrow_from_optional_tensor(per_sample_weights_opt[i]);
 
-    const at::Tensor &per_sample_weights = *per_sample_weights_maybe_owned;
-    if (per_sample_weights.defined()) {
-      z_per_sample_weights_opt[i] = zen_memory(per_sample_weights);
-      z_per_sample_weights_defined[i] = 1;
-    } else {
-      z_per_sample_weights_defined[i] = 0;
+      const at::Tensor &per_sample_weights = *per_sample_weights_maybe_owned;
+      if (per_sample_weights.defined()) {
+        z_per_sample_weights_opt[i] = zen_memory(per_sample_weights);
+        z_per_sample_weights_defined[i] = 1;
+      } else {
+        z_per_sample_weights_defined[i] = 0;
+      }
+
+      int dim_embedding = weight[i].sizes()[1];
+      int num_bags = offsets[i].sizes()[0];
+
+      output[i] = at::empty({num_bags, dim_embedding}, weight[i].options());
+      z_destination[i] = zen_memory(output[i]);
     }
-
-    int dim_embedding = weight[i].sizes()[1];
-    int num_bags = offsets[i].sizes()[0];
-
-    output[i] = at::empty({num_bags, dim_embedding}, weight[i].options());
-    z_destination[i] = zen_memory(output[i]);
-  }
+  });
 
   zendnn_custom_op::zendnn_grp_embedding_bag(
       z_weight, z_indices, z_offsets, z_scale_grad_by_freq, z_algorithm,
       z_sparse, z_per_sample_weights_opt, z_per_sample_weights_defined,
       z_include_last_offset, z_padding_idx, z_destination); // Library call
 
-#pragma omp parallel for
-  for (int i = 0; i < num_eb_ops; i++) {
-    int temp = i * 4;
-    out_vec[temp + 0] = output[i];
+  at::parallel_for(0, num_eb_ops, 0, [&](int64_t start, int64_t end) {
+    for (auto i = start; i < end; i++) {
+      int temp = i * 4;
+      out_vec[temp + 0] = output[i];
 
-    at::Tensor offset2bag = at::empty({});
-    at::Tensor bag_size = at::empty({});
-    at::Tensor max_indices = at::empty({});
+      at::Tensor offset2bag = at::empty({});
+      at::Tensor bag_size = at::empty({});
+      at::Tensor max_indices = at::empty({});
 
-    out_vec[temp + 1] = offset2bag;
-    out_vec[temp + 2] = bag_size;
-    out_vec[temp + 3] = max_indices;
-  }
+      out_vec[temp + 1] = offset2bag;
+      out_vec[temp + 2] = bag_size;
+      out_vec[temp + 3] = max_indices;
+    }
+  });
 
   return out_vec;
 }

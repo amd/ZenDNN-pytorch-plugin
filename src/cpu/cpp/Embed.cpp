@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright (c) 2023 Advanced Micro Devices, Inc.
+ * Copyright (c) 2023-2024 Advanced Micro Devices, Inc.
  * All rights reserved.
  ******************************************************************************/
 
@@ -83,26 +83,27 @@ std::vector<at::Tensor> zendnn_custom_embedding_group(
   std::vector<at::Tensor> output(num_eb_ops);
   std::vector<memory> z_destination(num_eb_ops);
 
-#pragma omp parallel for
-  for (int i = 0; i < num_eb_ops; i++) {
+  at::parallel_for(0, num_eb_ops, 0, [&](int64_t start, int64_t end) {
+    for (auto i = start; i < end; i++) {
 
-    zen_embed_tensor_check(weight[i], indices[i]);
+      zen_embed_tensor_check(weight[i], indices[i]);
 
-    temp_indices[i] = indices[i].toType(c10::kInt).contiguous();
+      temp_indices[i] = indices[i].toType(c10::kInt).contiguous();
 
-    z_weights[i] = zen_memory(weight[i]);
-    z_indices[i] = zen_memory(temp_indices[i]);
+      z_weights[i] = zen_memory(weight[i]);
+      z_indices[i] = zen_memory(temp_indices[i]);
 
-    z_padding_idx[i] = padding_idx[i];
-    z_scale_grad_by_freq[i] = scale_grad_by_freq[i];
-    z_sparse[i] = sparse[i];
+      z_padding_idx[i] = padding_idx[i];
+      z_scale_grad_by_freq[i] = scale_grad_by_freq[i];
+      z_sparse[i] = sparse[i];
 
-    int dim_embedding = weight[i].sizes()[1];
-    int num_indices = indices[i].sizes()[0];
+      int dim_embedding = weight[i].sizes()[1];
+      int num_indices = indices[i].sizes()[0];
 
-    output[i] = at::empty({num_indices, dim_embedding}, weight[i].options());
-    z_destination[i] = zen_memory(output[i]);
-  }
+      output[i] = at::empty({num_indices, dim_embedding}, weight[i].options());
+      z_destination[i] = zen_memory(output[i]);
+    }
+  });
 
   zendnn_custom_op::zendnn_grp_embedding(z_weights, z_indices, z_padding_idx,
                                          z_scale_grad_by_freq, z_sparse,
@@ -110,10 +111,11 @@ std::vector<at::Tensor> zendnn_custom_embedding_group(
 
   std::vector<at::Tensor> out_vec(num_eb_ops);
 
-#pragma omp parallel for
-  for (int i = 0; i < num_eb_ops; i++) {
-    out_vec[i] = output[i];
-  }
+  at::parallel_for(0, num_eb_ops, 0, [&](int64_t start, int64_t end) {
+    for (auto i = start; i < end; i++) {
+      out_vec[i] = output[i];
+    }
+  });
 
   return out_vec;
 }

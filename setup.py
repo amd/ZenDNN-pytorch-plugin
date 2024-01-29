@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2023 Advanced Micro Devices, Inc.
+# Copyright (c) 2023-2024 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -132,7 +132,6 @@ def main():
                     "-Werror",
                     "-DZENTORCH_VERSION_HASH=" + git_sha,
                     "-DZENTORCH_VERSION=" + PACKAGE_VERSION,
-                    "-fopenmp",
                 ],
             )
         ],
