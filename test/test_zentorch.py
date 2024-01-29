@@ -421,43 +421,45 @@ class TEST_EMBEDDING_BAG(TestCase):
     @parameterized.expand(supported_dtypes)
     def test_embedding_bag_sparse_scale_mode(self, dtype):
         data = Test_Data(dtype)
-        if dtype == "bfloat16":
-            with self.assertRaises(RuntimeError) as context:
-                torch.ops.zentorch.zendnn_embedding_bag(
-                    data.embedding_matrix,
-                    data.emb_input,
-                    data.offsets,
-                    False,
-                    0,
-                    False,
-                    None,
-                    False,
-                    -1,
-                )
-            self.assertTrue(
-                "Only fp32 type weights are supported in ZenDNN EmbeddingBag!"
-                in str(context.exception)
-            )
+        sparse_opt = [True, False]
+        scale_grad_opt = [True, False]
 
-        else:
-            sparse_opt = [True, False]
-            scale_grad_opt = [True, False]
-
-            i = 0
-            while i <= 2:
-                for sprs_opt in sparse_opt:
-                    for scale_opt in scale_grad_opt:
-                        y_eb, _, _, _ = torch._C._VariableFunctions._embedding_bag(
-                            data.embedding_matrix,
-                            data.emb_input,
-                            data.offsets,
-                            scale_opt,
-                            i,
-                            sprs_opt,
-                            None,
-                            False,
+        i = 0
+        while i <= 2:
+            for sprs_opt in sparse_opt:
+                for scale_opt in scale_grad_opt:
+                    # sparse and scale opt is not supported for mode = 'max'
+                    if i == 2 and (sprs_opt is True or scale_opt is True):
+                        continue
+                    y_eb, _, _, _ = torch._C._VariableFunctions._embedding_bag(
+                        data.embedding_matrix,
+                        data.emb_input,
+                        data.offsets,
+                        scale_opt,
+                        i,
+                        sprs_opt,
+                        None,
+                        False,
+                    )
+                    if dtype == "bfloat16":
+                        with self.assertRaises(RuntimeError) as context:
+                            torch.ops.zentorch.zendnn_embedding_bag(
+                                data.embedding_matrix,
+                                data.emb_input,
+                                data.offsets,
+                                scale_opt,
+                                i,
+                                sprs_opt,
+                                None,
+                                False,
+                                -1,
+                            )
+                        self.assertTrue(
+                            "Only fp32 type weights are supported in ZenDNN"
+                            + " EmbeddingBag!"
+                            in str(context.exception)
                         )
-
+                    else:
                         y_ebz, _, _, _ = torch.ops.zentorch.zendnn_embedding_bag(
                             data.embedding_matrix,
                             data.emb_input,
@@ -471,7 +473,7 @@ class TEST_EMBEDDING_BAG(TestCase):
                         )
 
                         self.assertEqual(y_eb, y_ebz)
-                i = i + 1
+            i = i + 1
 
     @torch.no_grad()
     def test_custom_embedding_bag_compile(self):
@@ -490,19 +492,11 @@ class TEST_EMBEDDING(TestCase):
         data = Test_Data(dtype)
         if dtype == "bfloat16":
             with self.assertRaises(RuntimeError) as context:
-                torch.ops.zentorch.zendnn_embedding_bag(
-                    data.embedding_matrix,
-                    data.emb_input,
-                    data.offsets,
-                    False,
-                    0,
-                    False,
-                    None,
-                    False,
-                    -1,
+                torch.ops.zentorch.zendnn_embedding(
+                    data.embedding_matrix, data.emb_input
                 )
             self.assertTrue(
-                "Only fp32 type weights are supported in ZenDNN EmbeddingBag!"
+                "Only fp32 type weights are supported in ZenDNN Embedding!"
                 in str(context.exception)
             )
 
@@ -520,30 +514,25 @@ class TEST_EMBEDDING(TestCase):
     @parameterized.expand(supported_dtypes)
     def test_embedding_sparse_scale(self, dtype):
         data = Test_Data(dtype)
-        if dtype == "bfloat16":
-            with self.assertRaises(RuntimeError) as context:
-                torch.ops.zentorch.zendnn_embedding_bag(
-                    data.embedding_matrix,
-                    data.emb_input,
-                    data.offsets,
-                    False,
-                    0,
-                    False,
-                    None,
-                    False,
-                    -1,
-                )
-            self.assertTrue(
-                "Only fp32 type weights are supported in ZenDNN EmbeddingBag!"
-                in str(context.exception)
-            )
+        sparse_opt = [True, False]
+        scale_grad_opt = [True, False]
 
-        else:
-            sparse_opt = [True, False]
-            scale_grad_opt = [True, False]
-
-            for sprs_opt in sparse_opt:
-                for scale_opt in scale_grad_opt:
+        for sprs_opt in sparse_opt:
+            for scale_opt in scale_grad_opt:
+                if dtype == "bfloat16":
+                    with self.assertRaises(RuntimeError) as context:
+                        torch.ops.zentorch.zendnn_embedding(
+                            data.embedding_matrix,
+                            data.emb_input,
+                            -1,
+                            scale_opt,
+                            sprs_opt,
+                        )
+                    self.assertTrue(
+                        "Only fp32 type weights are supported in ZenDNN Embedding!"
+                        in str(context.exception)
+                    )
+                else:
                     y_eb = torch._C._VariableFunctions.embedding(
                         data.embedding_matrix, data.emb_input, -1, scale_opt, sprs_opt
                     )
@@ -571,16 +560,16 @@ class TEST_EMBEDDING_BAG_GROUP(TestCase):
         data = Test_Data(dtype)
         if dtype == "bfloat16":
             with self.assertRaises(RuntimeError) as context:
-                torch.ops.zentorch.zendnn_embedding_bag(
-                    data.embedding_matrix,
-                    data.emb_input,
-                    data.offsets,
-                    False,
-                    0,
-                    False,
-                    None,
-                    False,
-                    -1,
+                torch.ops.zentorch.zendnn_custom_embedding_bag_group(
+                    [data.embedding_matrix] * 3,
+                    [data.emb_input] * 3,
+                    [data.offsets] * 3,
+                    [False] * 3,
+                    [0] * 3,
+                    [False] * 3,
+                    [None] * 3,
+                    [False] * 3,
+                    [-1] * 3,
                 )
             self.assertTrue(
                 "Only fp32 type weights are supported in ZenDNN EmbeddingBag!"
@@ -673,19 +662,15 @@ class TEST_EMBEDDING_GROUP(TestCase):
         data = Test_Data(dtype)
         if dtype == "bfloat16":
             with self.assertRaises(RuntimeError) as context:
-                torch.ops.zentorch.zendnn_embedding_bag(
-                    data.embedding_matrix,
-                    data.emb_input,
-                    data.offsets,
-                    False,
-                    0,
-                    False,
-                    None,
-                    False,
-                    -1,
+                torch.ops.zentorch.zendnn_custom_embedding_group(
+                    [data.embedding_matrix] * 3,
+                    [data.emb_input] * 3,
+                    [-1] * 3,
+                    [False] * 3,
+                    [False] * 3,
                 )
             self.assertTrue(
-                "Only fp32 type weights are supported in ZenDNN EmbeddingBag!"
+                "Only fp32 type weights are supported in ZenDNN Embedding!"
                 in str(context.exception)
             )
 
