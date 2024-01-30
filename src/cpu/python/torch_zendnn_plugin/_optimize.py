@@ -54,6 +54,27 @@ def replace_addmm_for_1d_bias(node, fx_graph):
         return torch.ops.zentorch.zendnn_addmm
 
 
+def replace_with_zendnn_embedding(node, fx_graph):
+    # Currently zendnn_embedding op only accepts 1-D inputs
+    # which is predominantly evident in RecSys models. The
+    # embedding op in Langauge models like Bert work with
+    # 2-D inputs. In such cases, we do not replace
+    # aten embedding with zendnn embedding. The replacement
+    # is taken care by getting the input shapes from the graph.
+    is_fake_tensor = bool(node.args[1].meta)
+    dims = None
+    indices_arg = node.args[1]
+    if is_fake_tensor:
+        dims = indices_arg.meta["val"].ndim
+    else:
+        dims = fx_graph._parameters[indices_arg.target].ndim
+
+    if dims == 1:
+        return True
+    else:
+        return False
+
+
 def replace_with_zendnn_op(fx_graph):
     op_dict = {
         "aten::_embedding_bag": (
@@ -82,10 +103,17 @@ def replace_with_zendnn_op(fx_graph):
                 + "!"
             )
 
-            if str(node.target) == "aten.addmm.default" :
+            if node.target == torch.ops.aten.addmm.default:
                 node.target = replace_addmm_for_1d_bias(node, fx_graph)
             else:
                 node.target = op_dict[op_name][0]
+
+            if (
+                node.target == torch.ops.aten.embedding.default
+                and replace_with_zendnn_embedding(node, fx_graph)
+            ):
+                node.target = op_dict[op_name][0]
+
     return fx_graph
 
 
@@ -179,7 +207,7 @@ def emb_ops_horizontal_fusion(fx_g):
     groups = {}
 
     for node in fx_g.graph.nodes:
-        if isinstance(node.target, torch._ops.OpOverloadPacket) and node.target in (
+        if node.target in (
             torch.ops.zentorch.zendnn_embedding_bag,
             torch.ops.zentorch.zendnn_embedding,
         ):
@@ -202,31 +230,54 @@ def emb_ops_horizontal_fusion(fx_g):
 
                 if node.target == torch.ops.zentorch.zendnn_embedding:
                     common_output_node = user_node
+                    node_name = common_output_node.name
+                    if node_name in groups:
+                        if groups[node_name]["type"] == "embedding_bag":
+                            logger.info(
+                                "Cannot fuse embedding bag and embedding with \
+                                 common node. This is because of the function \
+                                 prototype difference between the \
+                                 aten.embedding and aten.embeddingbag ops and \
+                                 their corresponding zentorch group ops."
+                            )
+                            return fx_g
+                        groups[node_name]["nodes"].append(node)
+                    else:
+                        groups[node_name] = {
+                            "type": "embedding",
+                            "nodes": [node],
+                        }
                 elif node.target == torch.ops.zentorch.zendnn_embedding_bag:
                     common_output_node = list(user_node.users.keys())[0]
-
-                if node.target == torch.ops.zentorch.zendnn_embedding:
-                    if common_output_node.name in groups:
-                        groups[common_output_node.name].append(node)
+                    node_name = common_output_node.name
+                    if node_name in groups:
+                        if groups[node_name]["type"] == "embedding":
+                            logger.info(
+                                "Cannot fuse embedding bag and embedding with \
+                                 common node. This is because of the function \
+                                 prototype difference between the \
+                                 aten.embedding and aten.embeddingbag ops and \
+                                 their corresponding zentorch group ops."
+                            )
+                            return fx_g
+                        groups[node_name]["nodes"].append(node)
                     else:
-                        groups[common_output_node.name] = [node]
-                elif node.target == torch.ops.zentorch.zendnn_embedding_bag:
-                    if common_output_node.name in groups:
-                        groups[common_output_node.name].append(node)
-                    else:
-                        groups[common_output_node.name] = [node]
+                        groups[node_name] = {
+                            "type": "embedding_bag",
+                            "nodes": [node],
+                        }
 
     for group in groups:
-        if len(groups[group]) > 1:
+        if len(groups[group]["nodes"]) > 1:
             op_count = 0
             # embedding_bag has more parameters than embedding. So creating new
             # args list with max of the number of parameters of both ops, which
             # is 9. Empty lists are further removed.
             list_new_args = [[] for _ in range(9)]
-            last_node = groups[group][-1]
+            last_node = groups[group]["nodes"][-1]
             traversed_nodes = set()
 
-            for node in groups[group]:
+            for node in groups[group]["nodes"]:
                 for i in range(len(node.args)):
                     if node.args[i] is False:
                         list_new_args[i].append(0)

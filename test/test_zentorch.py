@@ -196,9 +196,11 @@ class Test_ADDMM_OP(TestCase):
                 torch.ops.zentorch.zendnn_addmm(
                     data.input1d, data.x, data.y, alpha=1.3, beta=1.3
                 )
-                self.assertTrue("zendnn_matmul: zendnn_matmul is not supported for "
-                                "bf16 tensors when bias is defined and alpha != 1"
-                                in str(context.exception))
+                self.assertTrue(
+                    "zendnn_matmul: zendnn_matmul is not supported for "
+                    "bf16 tensors when bias is defined and alpha != 1"
+                    in str(context.exception)
+                )
         else:
             self.assertEqual(
                 torch._C._VariableFunctions.addmm(
@@ -284,7 +286,7 @@ class Test_ADDMM_OP(TestCase):
         data = Test_Data(dtype)
         self.assertEqual(
             torch._C._VariableFunctions.addmm(data.input, data.x, data.y, alpha=0.0),
-            torch.ops.zentorch.zendnn_addmm(data.input, data.x, data.y, alpha=0.0)
+            torch.ops.zentorch.zendnn_addmm(data.input, data.x, data.y, alpha=0.0),
         )
 
     @parameterized.expand(supported_dtypes)
@@ -405,15 +407,17 @@ class Test_MATMUL_IMPL_OP(TestCase):
         # mv
         self.assertEqual(
             torch.mv(data.input, data.input1d),
-            zentorch._C.zendnn_matmul_impl(data.input, data.input1d,
-                                           data.empty_bias, data.result_m)
+            zentorch._C.zendnn_matmul_impl(
+                data.input, data.input1d, data.empty_bias, data.result_m
+            ),
         )
 
         # dot
         self.assertEqual(
             torch.dot(data.input1d, data.input1d),
-            zentorch._C.zendnn_matmul_impl(data.input1d, data.input1d,
-                                           data.empty_bias, data.result_1)
+            zentorch._C.zendnn_matmul_impl(
+                data.input1d, data.input1d, data.empty_bias, data.result_1
+            ),
         )
 
 
@@ -653,27 +657,28 @@ class TEST_EMBEDDING_BAG_GROUP(TestCase):
             for i in range(0, int(len(y_ebz_list) / 4)):
                 self.assertEqual(y_eb, y_ebz_list[i * 4])
 
+    @parameterized.expand(supported_dtypes)
     @torch.no_grad()
-    def test_group_embeddingbag(self):
-        model = CustomModelEmbeddingBagGroup()
-        x = {
-            "eb_bags": {"input": torch.randint(0, 4, (5, 14)), "offset": None},
-        }
+    def test_group_embeddingbag(self, dtype):
+        test_data = Test_Data(dtype)
+        model = CustomModelEmbeddingBagGroup(test_data.R)
+        indices = test_data.emb_input
+        offsets = test_data.offsets
 
-        fx_g = make_fx(model)(
-            x["eb_bags"]["input"],
-            x["eb_bags"]["offset"],
-        )
-        fx_g_output = fx_g(
-            x["eb_bags"]["input"],
-            x["eb_bags"]["offset"],
-        )
+        fx_g = make_fx(model)(indices, offsets)
+        fx_g_output = fx_g(indices, offsets)
 
         fx_g_optimized = zentorch.optimize(fx_g)
-        fx_g_optimized_output = fx_g_optimized(
-            x["eb_bags"]["input"],
-            x["eb_bags"]["offset"],
-        )
+
+        if dtype == "bfloat16":
+            with self.assertRaises(RuntimeError) as context:
+                fx_g_optimized(indices, offsets)
+            self.assertTrue(
+                "Only fp32 type weights are supported in ZenDNN EmbeddingBag!"
+                in str(context.exception)
+            )
+
+        fx_g_optimized_output = fx_g_optimized(indices, offsets)
 
         self.assertEqual(fx_g_output, fx_g_optimized_output, atol=1e-1, rtol=1e-3)
 
@@ -689,18 +694,28 @@ class TEST_EMBEDDING_BAG_GROUP(TestCase):
 
         self.assertEqual(group_eb_count, 3)
 
+    @parameterized.expand(supported_dtypes)
     @torch.no_grad()
-    def test_group_embeddingbag_compile(self):
-        model = CustomModelEmbeddingBagGroup()
-        x = {
-            "indices": torch.randint(0, 4, (5, 14)),
-            "offset": None,
-        }
+    def test_group_embeddingbag_compile(self, dtype):
+        test_data = Test_Data(dtype)
+        model = CustomModelEmbeddingBagGroup(test_data.R)
+        indices = test_data.emb_input
+        offset = test_data.offsets
 
-        native_output = model(x["indices"], x["offset"])
+        native_output = model(indices, offset)
         torch._dynamo.reset()
+
         compiled_graph = torch.compile(model, backend="zentorch")
-        compiled_output = compiled_graph(x["indices"], x["offset"])
+
+        if dtype == "bfloat16":
+            with self.assertRaises(RuntimeError) as context:
+                compiled_graph(indices, offset)
+            self.assertTrue(
+                "Only fp32 type weights are supported in ZenDNN EmbeddingBag!"
+                in str(context.exception)
+            )
+
+        compiled_output = compiled_graph(indices, offset)
 
         self.assertEqual(native_output, compiled_output, atol=1e-1, rtol=1e-3)
 
@@ -740,16 +755,28 @@ class TEST_EMBEDDING_GROUP(TestCase):
             for i in range(0, int(len(y_ebz_list))):
                 self.assertEqual(y_eb, y_ebz_list[i])
 
+    @parameterized.expand(supported_dtypes)
     @torch.no_grad()
-    def test_group_embedding(self):
-        model = CustomModelEmbeddingGroup()
-        x = torch.randint(0, 4, (70,))
+    def test_group_embedding(self, dtype):
+        test_data = Test_Data(dtype)
+        model = CustomModelEmbeddingGroup(test_data.R)
+        x = test_data.emb_input
 
         fx_g = make_fx(model)(x)
         fx_g_output = fx_g(x)
 
         fx_g_optimized = zentorch.optimize(fx_g)
+
+        if dtype == "bfloat16":
+            with self.assertRaises(RuntimeError) as context:
+                fx_g_optimized(x)
+            self.assertTrue(
+                "Only fp32 type weights are supported in ZenDNN EmbeddingBag!"
+                in str(context.exception)
+            )
+
         fx_g_optimized_output = fx_g_optimized(x)
+
         self.assertEqual(fx_g_output, fx_g_optimized_output, atol=1e-1, rtol=1e-3)
 
         target = torch.ops.zentorch.zendnn_custom_embedding_group
@@ -764,16 +791,73 @@ class TEST_EMBEDDING_GROUP(TestCase):
 
         self.assertEqual(group_eb_count, 3)
 
+    @parameterized.expand(supported_dtypes)
     @torch.no_grad()
-    def test_group_embedding_compile(self):
-        model = CustomModelEmbeddingGroup()
-        x = torch.randint(0, 4, (70,))
+    def test_group_embedding_compile(self, dtype):
+        test_data = Test_Data(dtype)
+        model = CustomModelEmbeddingGroup(test_data.R)
+        x = test_data.emb_input
 
         native_output = model(x)
         torch._dynamo.reset()
         compiled_graph = torch.compile(model, backend="zentorch")
+
+        if dtype == "bfloat16":
+            with self.assertRaises(RuntimeError) as context:
+                compiled_graph(x)
+            self.assertTrue(
+                "Only fp32 type weights are supported in ZenDNN EmbeddingBag!"
+                in str(context.exception)
+            )
+
         compiled_output = compiled_graph(x)
 
+        self.assertEqual(native_output, compiled_output, atol=1e-1, rtol=1e-3)
+
+    @parameterized.expand(supported_dtypes)
+    @torch.no_grad()
+    def test_emb_and_embbag_common_node(self, dtype):
+        test_data = Test_Data(dtype)
+        model = CustomModel_Emb_EmbBag_Common_Node(test_data.R)
+        indices = test_data.emb_input
+        offsets = test_data.offsets
+
+        native_output = model(indices, offsets)
+        torch._dynamo.reset()
+        compiled_graph = torch.compile(model, backend="zentorch")
+
+        if dtype == "bfloat16":
+            with self.assertRaises(RuntimeError) as context:
+                compiled_graph(indices, offsets)
+            self.assertTrue(
+                "Only fp32 type weights are supported in ZenDNN EmbeddingBag!"
+                in str(context.exception)
+            )
+
+        compiled_output = compiled_graph(indices, offsets)
+        self.assertEqual(native_output, compiled_output, atol=1e-1, rtol=1e-3)
+
+    @parameterized.expand(supported_dtypes)
+    @torch.no_grad()
+    def test_emb_and_embbag_diff_node(self, dtype):
+        test_data = Test_Data(dtype)
+        model = CustomModel_Emb_EmbBag_Diff_Node(test_data.R)
+        indices = test_data.emb_input
+        offsets = test_data.offsets
+
+        native_output = model(indices, offsets)
+        torch._dynamo.reset()
+        compiled_graph = torch.compile(model, backend="zentorch")
+
+        if dtype == "bfloat16":
+            with self.assertRaises(RuntimeError) as context:
+                compiled_graph(indices, offsets)
+            self.assertTrue(
+                "Only fp32 type weights are supported in ZenDNN EmbeddingBag!"
+                in str(context.exception)
+            )
+
+        compiled_output = compiled_graph(indices, offsets)
         self.assertEqual(native_output, compiled_output, atol=1e-1, rtol=1e-3)
 
 
@@ -813,12 +897,63 @@ class CustomModelEmbeddingNN(nn.Module):
 
 
 @unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
+class CustomModel_Emb_EmbBag_Diff_Node(nn.Module):
+    def __init__(self, num_embeddings):
+        super(CustomModel_Emb_EmbBag_Diff_Node, self).__init__()
+        self.eb_bags_grp = [
+            torch.nn.EmbeddingBag(num_embeddings, 3, mode="sum"),
+            torch.nn.Embedding(num_embeddings, 3),
+            torch.nn.EmbeddingBag(num_embeddings, 3, mode="sum"),
+            torch.nn.Embedding(num_embeddings, 3),
+        ]
+
+    def forward(self, eb_input, eb_offset):
+        outputs_grp_0 = [
+            self.eb_bags_grp[0](eb_input, eb_offset),
+            self.eb_bags_grp[2](eb_input, eb_offset),
+        ]
+        outputs_grp_1 = [
+            self.eb_bags_grp[1](eb_input),
+            self.eb_bags_grp[3](eb_input),
+        ]
+
+        output_0 = torch.sum(torch.cat(outputs_grp_0), dim=0)
+        output_1 = torch.sum(torch.cat(outputs_grp_1), dim=0)
+
+        return torch.cat([output_0, output_1])
+
+
+@unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
+class CustomModel_Emb_EmbBag_Common_Node(nn.Module):
+    def __init__(self, num_embeddings):
+        super(CustomModel_Emb_EmbBag_Common_Node, self).__init__()
+        self.eb_bags_grp = [
+            torch.nn.EmbeddingBag(num_embeddings, 3, mode="sum"),
+            torch.nn.Embedding(num_embeddings, 3),
+            torch.nn.EmbeddingBag(num_embeddings, 3, mode="sum"),
+            torch.nn.Embedding(num_embeddings, 3),
+        ]
+
+    def forward(self, eb_input, eb_offset):
+        outputs_grp = [
+            self.eb_bags_grp[0](eb_input, eb_offset),
+            self.eb_bags_grp[1](eb_input),
+            self.eb_bags_grp[2](eb_input, eb_offset),
+            self.eb_bags_grp[3](eb_input),
+        ]
+
+        output = torch.sum(torch.cat(outputs_grp), dim=0)
+
+        return output
+
+
+@unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
 class CustomModelEmbeddingBagGroup(nn.Module):
-    def __init__(self):
+    def __init__(self, num_embeddings):
         super(CustomModelEmbeddingBagGroup, self).__init__()
-        self.eb_bags_grp_0 = [torch.nn.EmbeddingBag(5, 14, mode="sum")] * 5
-        self.eb_bags_grp_1 = [torch.nn.EmbeddingBag(5, 14, mode="sum")] * 10
-        self.eb_bags_grp_2 = [torch.nn.EmbeddingBag(5, 14, mode="sum")] * 6
+        self.eb_bags_grp_0 = [torch.nn.EmbeddingBag(num_embeddings, 3, mode="sum")] * 5
+        self.eb_bags_grp_1 = [torch.nn.EmbeddingBag(num_embeddings, 3, mode="sum")] * 10
+        self.eb_bags_grp_2 = [torch.nn.EmbeddingBag(num_embeddings, 3, mode="sum")] * 6
 
     def forward(self, eb_input, eb_offset):
         eb_outputs_grp_0 = [
@@ -843,11 +978,11 @@ class CustomModelEmbeddingBagGroup(nn.Module):
 
 @unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
 class CustomModelEmbeddingGroup(nn.Module):
-    def __init__(self):
+    def __init__(self, num_embeddings):
         super(CustomModelEmbeddingGroup, self).__init__()
-        self.e_bags_grp_0 = [torch.nn.Embedding(5, 14)] * 5
-        self.e_bags_grp_1 = [torch.nn.Embedding(5, 14)] * 10
-        self.e_bags_grp_2 = [torch.nn.Embedding(5, 14)] * 6
+        self.e_bags_grp_0 = [torch.nn.Embedding(num_embeddings, 3)] * 5
+        self.e_bags_grp_1 = [torch.nn.Embedding(num_embeddings, 3)] * 10
+        self.e_bags_grp_2 = [torch.nn.Embedding(num_embeddings, 3)] * 6
 
     def forward(self, e_input):
         e_outputs_grp_0 = [self.e_bags_grp_0[i](e_input) for i in range(5)]
@@ -1045,12 +1180,12 @@ class TestMMADD(TestCase):
         data = Test_Data(dtype)
         model = CustomModelMMAdd1().eval()
         for inp in data.M:
-            model_output = model(
-                inp * 0, data.x1[0] * 0, data.y1[0] * 0)
+            model_output = model(inp * 0, data.x1[0] * 0, data.y1[0] * 0)
             torch._dynamo.reset()
             compiled_graph = torch.compile(model, backend="zentorch")
             compiled_graph_output = compiled_graph(
-                inp * 0, data.x1[0] * 0, data.y1[0] * 0)
+                inp * 0, data.x1[0] * 0, data.y1[0] * 0
+            )
             self.assertEqual(model_output, compiled_graph_output)
 
     @parameterized.expand(supported_dtypes)
@@ -1059,9 +1194,7 @@ class TestMMADD(TestCase):
         data = Test_Data(dtype)
         model = CustomModelMMAdd1().eval()
         for inp in data.M:
-            model_output = model(
-                inp / 0, data.x1[0] / 0, data.y1[0] / 0
-            )
+            model_output = model(inp / 0, data.x1[0] / 0, data.y1[0] / 0)
             torch._dynamo.reset()
             compiled_graph = torch.compile(model, backend="zentorch")
             compiled_graph_output = compiled_graph(
@@ -1076,14 +1209,12 @@ class TestMMADD(TestCase):
         model = CustomModelMMAdd1().eval()
         for inp in data.M:
             model_output = model(
-                inp * float("nan"), data.x1[0] * float("nan"),
-                data.y1[0] * float("nan")
+                inp * float("nan"), data.x1[0] * float("nan"), data.y1[0] * float("nan")
             )
             torch._dynamo.reset()
             compiled_graph = torch.compile(model, backend="zentorch")
             compiled_graph_output = compiled_graph(
-                inp * float("nan"), data.x1[0] * float("nan"),
-                data.y1[0] * float("nan")
+                inp * float("nan"), data.x1[0] * float("nan"), data.y1[0] * float("nan")
             )
             self.assertEqual(model_output, compiled_graph_output)
 
@@ -1208,8 +1339,9 @@ class TestLinear_Relu(TestCase):
         for node in fx_g_modified.graph.nodes:
             if isinstance(node.target, torch._ops.OpOverload):
                 if node.target.name() in ["aten::addmm"]:
-                    self.assertEqual(node.target,
-                                     torch.ops.zentorch.zendnn_addmm_1dbias)
+                    self.assertEqual(
+                        node.target, torch.ops.zentorch.zendnn_addmm_1dbias
+                    )
 
 
 @unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")

@@ -205,10 +205,12 @@ std::vector<at::Tensor> zendnn_custom_embedding_bag_group(
     }
   });
 
+  LOG(INFO) << "GroupEmbeddingBag compute in progress...";
   zendnn_custom_op::zendnn_grp_embedding_bag(
       z_weight, z_indices, z_offsets, z_scale_grad_by_freq, z_algorithm,
       z_sparse, z_per_sample_weights_opt, z_per_sample_weights_defined,
       z_include_last_offset, z_padding_idx, z_destination); // Library call
+  LOG(INFO) << "Finished executing: " << __FUNCTION__ << "!\n";
 
   at::parallel_for(0, num_eb_ops, 0, [&](int64_t start, int64_t end) {
     for (auto i = start; i < end; i++) {
