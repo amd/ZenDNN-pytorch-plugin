@@ -54,7 +54,7 @@ def replace_addmm_for_1d_bias(node, fx_graph):
         return torch.ops.zentorch.zendnn_addmm
 
 
-def replace_with_zendnn_embedding(node, fx_graph):
+def is_aten_embedding_replaceable(node, fx_graph):
     # Currently zendnn_embedding op only accepts 1-D inputs
     # which is predominantly evident in RecSys models. The
     # embedding op in Langauge models like Bert work with
@@ -105,13 +105,10 @@ def replace_with_zendnn_op(fx_graph):
 
             if node.target == torch.ops.aten.addmm.default:
                 node.target = replace_addmm_for_1d_bias(node, fx_graph)
+            elif node.target == torch.ops.aten.embedding.default:
+                if is_aten_embedding_replaceable(node, fx_graph):
+                    node.target = op_dict[op_name][0]
             else:
-                node.target = op_dict[op_name][0]
-
-            if (
-                node.target == torch.ops.aten.embedding.default
-                and replace_with_zendnn_embedding(node, fx_graph)
-            ):
                 node.target = op_dict[op_name][0]
 
     return fx_graph
@@ -226,8 +223,6 @@ def emb_ops_horizontal_fusion(fx_g):
                         break
 
             if user_node is not None:
-                common_output_node = None
-
                 if node.target == torch.ops.zentorch.zendnn_embedding:
                     common_output_node = user_node
                     node_name = common_output_node.name

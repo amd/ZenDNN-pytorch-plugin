@@ -660,6 +660,11 @@ class TEST_EMBEDDING_BAG_GROUP(TestCase):
     @parameterized.expand(supported_dtypes)
     @torch.no_grad()
     def test_group_embeddingbag(self, dtype):
+        if dtype == "bfloat16":
+            self.skipTest("Skipping it since the test case is not applicable \
+                          in this case. Custom Model weights are in fp32 by \
+                          default unless explicitly set to bfloat16.")
+
         test_data = Test_Data(dtype)
         model = CustomModelEmbeddingBagGroup(test_data.R)
         indices = test_data.emb_input
@@ -669,14 +674,6 @@ class TEST_EMBEDDING_BAG_GROUP(TestCase):
         fx_g_output = fx_g(indices, offsets)
 
         fx_g_optimized = zentorch.optimize(fx_g)
-
-        if dtype == "bfloat16":
-            with self.assertRaises(RuntimeError) as context:
-                fx_g_optimized(indices, offsets)
-            self.assertTrue(
-                "Only fp32 type weights are supported in ZenDNN EmbeddingBag!"
-                in str(context.exception)
-            )
 
         fx_g_optimized_output = fx_g_optimized(indices, offsets)
 
@@ -697,6 +694,11 @@ class TEST_EMBEDDING_BAG_GROUP(TestCase):
     @parameterized.expand(supported_dtypes)
     @torch.no_grad()
     def test_group_embeddingbag_compile(self, dtype):
+        if dtype == "bfloat16":
+            self.skipTest("Skipping it since the test case is not applicable \
+                          in this case. Custom Model weights are in fp32 by \
+                          default unless explicitly set to bfloat16.")
+
         test_data = Test_Data(dtype)
         model = CustomModelEmbeddingBagGroup(test_data.R)
         indices = test_data.emb_input
@@ -706,14 +708,6 @@ class TEST_EMBEDDING_BAG_GROUP(TestCase):
         torch._dynamo.reset()
 
         compiled_graph = torch.compile(model, backend="zentorch")
-
-        if dtype == "bfloat16":
-            with self.assertRaises(RuntimeError) as context:
-                compiled_graph(indices, offset)
-            self.assertTrue(
-                "Only fp32 type weights are supported in ZenDNN EmbeddingBag!"
-                in str(context.exception)
-            )
 
         compiled_output = compiled_graph(indices, offset)
 
@@ -758,6 +752,11 @@ class TEST_EMBEDDING_GROUP(TestCase):
     @parameterized.expand(supported_dtypes)
     @torch.no_grad()
     def test_group_embedding(self, dtype):
+        if dtype == "bfloat16":
+            self.skipTest("Skipping it since the test case is not applicable \
+                          in this case. Custom Model weights are in fp32 by \
+                          default unless explicitly set to bfloat16.")
+
         test_data = Test_Data(dtype)
         model = CustomModelEmbeddingGroup(test_data.R)
         x = test_data.emb_input
@@ -766,14 +765,6 @@ class TEST_EMBEDDING_GROUP(TestCase):
         fx_g_output = fx_g(x)
 
         fx_g_optimized = zentorch.optimize(fx_g)
-
-        if dtype == "bfloat16":
-            with self.assertRaises(RuntimeError) as context:
-                fx_g_optimized(x)
-            self.assertTrue(
-                "Only fp32 type weights are supported in ZenDNN EmbeddingBag!"
-                in str(context.exception)
-            )
 
         fx_g_optimized_output = fx_g_optimized(x)
 
@@ -794,21 +785,19 @@ class TEST_EMBEDDING_GROUP(TestCase):
     @parameterized.expand(supported_dtypes)
     @torch.no_grad()
     def test_group_embedding_compile(self, dtype):
+        if dtype == "bfloat16":
+            self.skipTest("Skipping it since the test case is not applicable \
+                          in this case. Custom Model weights are in fp32 by \
+                          default unless explicitly set to bfloat16.")
+
         test_data = Test_Data(dtype)
         model = CustomModelEmbeddingGroup(test_data.R)
         x = test_data.emb_input
 
         native_output = model(x)
+
         torch._dynamo.reset()
         compiled_graph = torch.compile(model, backend="zentorch")
-
-        if dtype == "bfloat16":
-            with self.assertRaises(RuntimeError) as context:
-                compiled_graph(x)
-            self.assertTrue(
-                "Only fp32 type weights are supported in ZenDNN EmbeddingBag!"
-                in str(context.exception)
-            )
 
         compiled_output = compiled_graph(x)
 
@@ -817,6 +806,11 @@ class TEST_EMBEDDING_GROUP(TestCase):
     @parameterized.expand(supported_dtypes)
     @torch.no_grad()
     def test_emb_and_embbag_common_node(self, dtype):
+        if dtype == "bfloat16":
+            self.skipTest("Skipping it since the test case is not applicable \
+                          in this case. Custom Model weights are in fp32 by \
+                          default unless explicitly set to bfloat16.")
+
         test_data = Test_Data(dtype)
         model = CustomModel_Emb_EmbBag_Common_Node(test_data.R)
         indices = test_data.emb_input
@@ -826,20 +820,17 @@ class TEST_EMBEDDING_GROUP(TestCase):
         torch._dynamo.reset()
         compiled_graph = torch.compile(model, backend="zentorch")
 
-        if dtype == "bfloat16":
-            with self.assertRaises(RuntimeError) as context:
-                compiled_graph(indices, offsets)
-            self.assertTrue(
-                "Only fp32 type weights are supported in ZenDNN EmbeddingBag!"
-                in str(context.exception)
-            )
-
         compiled_output = compiled_graph(indices, offsets)
         self.assertEqual(native_output, compiled_output, atol=1e-1, rtol=1e-3)
 
     @parameterized.expand(supported_dtypes)
     @torch.no_grad()
     def test_emb_and_embbag_diff_node(self, dtype):
+        if dtype == "bfloat16":
+            self.skipTest("Skipping it since the test case is not applicable \
+                          in this case. Custom Model weights are in fp32 by \
+                          default unless explicitly set to bfloat16.")
+
         test_data = Test_Data(dtype)
         model = CustomModel_Emb_EmbBag_Diff_Node(test_data.R)
         indices = test_data.emb_input
@@ -849,15 +840,26 @@ class TEST_EMBEDDING_GROUP(TestCase):
         torch._dynamo.reset()
         compiled_graph = torch.compile(model, backend="zentorch")
 
-        if dtype == "bfloat16":
-            with self.assertRaises(RuntimeError) as context:
-                compiled_graph(indices, offsets)
-            self.assertTrue(
-                "Only fp32 type weights are supported in ZenDNN EmbeddingBag!"
-                in str(context.exception)
-            )
-
         compiled_output = compiled_graph(indices, offsets)
+        self.assertEqual(native_output, compiled_output, atol=1e-1, rtol=1e-3)
+
+    @parameterized.expand(supported_dtypes)
+    @torch.no_grad()
+    def test_embedding_2d_inputs(self, dtype):
+        if dtype == "bfloat16":
+            self.skipTest("Skipping it since the test case is not applicable \
+                          in this case. Custom Model weights are in fp32 by \
+                          default unless explicitly set to bfloat16.")
+
+        test_data = Test_Data(dtype)
+        model = CustomModel_2D_Embedding(test_data.R)
+        indices = torch.cat([torch.unsqueeze(test_data.emb_input, dim=0)] * 2)
+
+        native_output = model(indices)
+        torch._dynamo.reset()
+        compiled_graph = torch.compile(model, backend="zentorch")
+
+        compiled_output = compiled_graph(indices)
         self.assertEqual(native_output, compiled_output, atol=1e-1, rtol=1e-3)
 
 
@@ -943,6 +945,19 @@ class CustomModel_Emb_EmbBag_Common_Node(nn.Module):
         ]
 
         output = torch.sum(torch.cat(outputs_grp), dim=0)
+
+        return output
+
+
+@unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
+class CustomModel_2D_Embedding(nn.Module):
+    def __init__(self, num_embeddings):
+        super(CustomModel_2D_Embedding, self).__init__()
+        self.embedding_1 = torch.nn.Embedding(num_embeddings, 3)
+        self.embedding_2 = torch.nn.Embedding(num_embeddings, 3)
+
+    def forward(self, inputs):
+        output = self.embedding_1(inputs) + self.embedding_2(inputs)
 
         return output
 
