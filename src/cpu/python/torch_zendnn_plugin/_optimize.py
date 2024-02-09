@@ -44,14 +44,14 @@ def replace_addmm_for_1d_bias(node, fx_graph):
     # arg node in fx_graph generated through torch.compile will be fake tensor
     if is_fake_tensor and node.args[0].meta["val"].ndim == 1:
         # 1d bias
-        return torch.ops.zentorch.zendnn_addmm_1dbias
+        return torch.ops.zentorch.zendnn_addmm_1dbias.default
     # while arg node in fx_graph generated through make_fx will not be fake tensor
     elif not is_fake_tensor and fx_graph._parameters[node.args[0].target].ndim == 1:
         # 1d bias
-        return torch.ops.zentorch.zendnn_addmm_1dbias
+        return torch.ops.zentorch.zendnn_addmm_1dbias.default
     else:
         # addmm(2d)
-        return torch.ops.zentorch.zendnn_addmm
+        return torch.ops.zentorch.zendnn_addmm.default
 
 
 def is_aten_embedding_replaceable(node, fx_graph):
@@ -78,14 +78,17 @@ def is_aten_embedding_replaceable(node, fx_graph):
 def replace_with_zendnn_op(fx_graph):
     op_dict = {
         "aten::_embedding_bag": (
-            torch.ops.zentorch.zendnn_embedding_bag,
+            torch.ops.zentorch.zendnn_embedding_bag.default,
             "zendnn_embedding_bag",
         ),
-        "aten::embedding": (torch.ops.zentorch.zendnn_embedding, "zendnn_embedding"),
-        "aten::mm": (torch.ops.zentorch.zendnn_mm, "zendnn_mm"),
-        "aten::bmm": (torch.ops.zentorch.zendnn_bmm, "zendnn_bmm"),
-        "aten::addmm": (torch.ops.zentorch.zendnn_addmm, "zendnn_addmm"),
-        "aten::baddbmm": (torch.ops.zentorch.zendnn_baddbmm, "zendnn_baddbmm"),
+        "aten::embedding": (
+            torch.ops.zentorch.zendnn_embedding.default,
+            "zendnn_embedding",
+        ),
+        "aten::mm": (torch.ops.zentorch.zendnn_mm.default, "zendnn_mm"),
+        "aten::bmm": (torch.ops.zentorch.zendnn_bmm.default, "zendnn_bmm"),
+        "aten::addmm": (torch.ops.zentorch.zendnn_addmm.default, "zendnn_addmm"),
+        "aten::baddbmm": (torch.ops.zentorch.zendnn_baddbmm.default, "zendnn_baddbmm"),
     }
     # Loop through the nodes in fx_graph.graph
     for node in fx_graph.graph.nodes:
@@ -158,19 +161,19 @@ def set_gelu_mm_fusion_kwargs(node):
 
 # create dict according to fuse
 op_eltwise_pattern = {
-    "zentorch.zendnn_mm": {
+    "zentorch.zendnn_mm.default": {
         "aten.relu.default": set_relu_mm_fusion_kwargs,
         "aten.relu_.default": set_relu_mm_fusion_kwargs,
         "aten.gelu.default": set_gelu_mm_fusion_kwargs,
         "aten.gelu_.default": set_gelu_mm_fusion_kwargs,
     },
-    "zentorch.zendnn_addmm": {
+    "zentorch.zendnn_addmm.default": {
         "aten.relu.default": set_relu_mm_fusion_kwargs,
         "aten.relu_.default": set_relu_mm_fusion_kwargs,
         "aten.gelu.default": set_gelu_mm_fusion_kwargs,
         "aten.gelu_.default": set_gelu_mm_fusion_kwargs,
     },
-    "zentorch.zendnn_addmm_1dbias": {
+    "zentorch.zendnn_addmm_1dbias.default": {
         "aten.relu.default": set_relu_mm_fusion_kwargs,
         "aten.relu_.default": set_relu_mm_fusion_kwargs,
         "aten.gelu.default": set_gelu_mm_fusion_kwargs,
@@ -180,8 +183,8 @@ op_eltwise_pattern = {
 # for now add is not added as post op that's why I created this pattern
 
 op_add_pattern = [
-    ("zentorch.zendnn_bmm", "aten.add.Tensor"),
-    ("zentorch.zendnn_mm", "aten.add.Tensor"),
+    ("zentorch.zendnn_bmm.default", "aten.add.Tensor"),
+    ("zentorch.zendnn_mm.default", "aten.add.Tensor"),
 ]
 
 
@@ -213,10 +216,10 @@ def zendnn_op_fusion(fx_graph):
             node.next.replace_all_uses_with(node)
             fx_graph.graph.erase_node(node.next)
 
-            if node.target == torch.ops.zentorch.zendnn_mm:
+            if node.target == torch.ops.zentorch.zendnn_mm.default:
                 node.target = replace_addmm_for_1d_bias(node, fx_graph)
             else:
-                node.target = torch.ops.zentorch.zendnn_baddbmm
+                node.target = torch.ops.zentorch.zendnn_baddbmm.default
         # check the pattern for relu/gelu
         if str(node.target) in op_eltwise_pattern:
             op_dict = op_eltwise_pattern[str(node.target)]
@@ -224,6 +227,7 @@ def zendnn_op_fusion(fx_graph):
                 node.kwargs = op_dict[str(node.next.target)](node)
                 node.next.replace_all_uses_with(node)
                 fx_graph.graph.erase_node(node.next)
+
     logger.info("Recompiling the fx_graph with fusion changes made.")
     fx_graph.graph.set_codegen(torch.fx.graph.CodeGen())
     fx_graph.recompile()
@@ -236,16 +240,16 @@ def emb_ops_horizontal_fusion(fx_g):
 
     for node in fx_g.graph.nodes:
         if node.target in (
-            torch.ops.zentorch.zendnn_embedding_bag,
-            torch.ops.zentorch.zendnn_embedding,
+            torch.ops.zentorch.zendnn_embedding_bag.default,
+            torch.ops.zentorch.zendnn_embedding.default,
         ):
             users = list(node.users.keys())
             user_node = None
 
-            if node.target == torch.ops.zentorch.zendnn_embedding:
+            if node.target == torch.ops.zentorch.zendnn_embedding.default:
                 if len(users) == 1:
                     user_node = users[0]
-            elif node.target == torch.ops.zentorch.zendnn_embedding_bag:
+            elif node.target == torch.ops.zentorch.zendnn_embedding_bag.default:
                 for user in users:
                     if user_node is None and len(user.users.keys()) == 1:
                         user_node = user
@@ -254,7 +258,8 @@ def emb_ops_horizontal_fusion(fx_g):
                         break
 
             if user_node is not None:
-                if node.target == torch.ops.zentorch.zendnn_embedding:
+
+                if node.target == torch.ops.zentorch.zendnn_embedding.default:
                     common_output_node = user_node
                     node_name = common_output_node.name
                     if node_name in groups:
@@ -273,7 +278,7 @@ def emb_ops_horizontal_fusion(fx_g):
                             "type": "embedding",
                             "nodes": [node],
                         }
-                elif node.target == torch.ops.zentorch.zendnn_embedding_bag:
+                elif node.target == torch.ops.zentorch.zendnn_embedding_bag.default:
                     common_output_node = list(user_node.users.keys())[0]
                     node_name = common_output_node.name
                     if node_name in groups:
@@ -304,27 +309,54 @@ def emb_ops_horizontal_fusion(fx_g):
             traversed_nodes = set()
 
             for node in groups[group]["nodes"]:
-                for i in range(len(node.args)):
+                node_args_len = len(node.args)
+                for i in range(node_args_len):
                     if node.args[i] is False:
                         list_new_args[i].append(0)
                     elif node.args[i] is True:
                         list_new_args[i].append(1)
                     else:
                         list_new_args[i].append(node.args[i])
-                if len(node.args) == 2:
-                    list_new_args[2].append(-1)
-                    list_new_args[3].append(0)
-                    list_new_args[4].append(0)
-                if len(node.args) == 3:
-                    list_new_args[3].append(0)
-                    list_new_args[4].append(0)
-                if len(node.args) == 7:
-                    list_new_args[7].append(0)
-                    list_new_args[8].append(-1)
-                if len(node.args) == 8:
-                    list_new_args[8].append(-1)
+                if node.target == torch.ops.zentorch.zendnn_embedding.default:
+                    if node_args_len == 2:
+                        list_new_args[2].append(-1)
+                        list_new_args[3].append(0)
+                        list_new_args[4].append(0)
+                    elif node_args_len == 3:
+                        list_new_args[3].append(0)
+                        list_new_args[4].append(0)
+                    elif node_args_len == 4:
+                        list_new_args[4].append(0)
+                elif node.target == torch.ops.zentorch.zendnn_embedding_bag.default:
+                    if node_args_len == 3:
+                        list_new_args[3].append(0)
+                        list_new_args[4].append(0)
+                        list_new_args[5].append(0)
+                        list_new_args[6].append(None)
+                        list_new_args[7].append(0)
+                        list_new_args[8].append(-1)
+                    elif node_args_len == 4:
+                        list_new_args[4].append(0)
+                        list_new_args[5].append(0)
+                        list_new_args[6].append(None)
+                        list_new_args[7].append(0)
+                        list_new_args[8].append(-1)
+                    elif node_args_len == 5:
+                        list_new_args[5].append(0)
+                        list_new_args[6].append(None)
+                        list_new_args[7].append(0)
+                        list_new_args[8].append(-1)
+                    elif node_args_len == 6:
+                        list_new_args[6].append(None)
+                        list_new_args[7].append(0)
+                        list_new_args[8].append(-1)
+                    elif node_args_len == 7:
+                        list_new_args[7].append(0)
+                        list_new_args[8].append(-1)
+                    elif node_args_len == 8:
+                        list_new_args[8].append(-1)
 
-                if node.target == torch.ops.zentorch.zendnn_embedding_bag:
+                if node.target == torch.ops.zentorch.zendnn_embedding_bag.default:
                     total_prev_outputs_emb_bag = op_count * 4
                     for temp_node in list(node.users.keys()):
                         if (
@@ -350,21 +382,37 @@ def emb_ops_horizontal_fusion(fx_g):
                 while len(list_new_args[idx]) == 0:
                     list_new_args.pop()
                 last_node.args = tuple(list_new_args)
-                if last_node.target == torch.ops.zentorch.zendnn_embedding:
-                    last_node.target = torch.ops.zentorch.zendnn_custom_embedding_group
-                elif last_node.target == torch.ops.zentorch.zendnn_embedding_bag:
+                if last_node.target == torch.ops.zentorch.zendnn_embedding.default:
                     last_node.target = (
-                        torch.ops.zentorch.zendnn_custom_embedding_bag_group
+                        torch.ops.zentorch.zendnn_custom_embedding_group.default
+                    )
+                elif (
+                    last_node.target == torch.ops.zentorch.zendnn_embedding_bag.default
+                ):
+                    last_node.target = (
+                        torch.ops.zentorch.zendnn_custom_embedding_bag_group.default
                     )
             elif op_count == 1:
                 last_node.target = node.target
 
-            if node.target == torch.ops.zentorch.zendnn_custom_embedding_group:
+            if node.target == torch.ops.zentorch.zendnn_custom_embedding_group.default:
                 common_output_node = list(last_node.users.keys())[0]
+                getitem_nodes = []
+                for getitem_num in range(op_count):
+                    new_node = fx_g.graph.create_node(
+                        op="call_function",
+                        target=operator.getitem,
+                        args=(last_node, getitem_num),
+                    )
+                    last_node.append(new_node)
+                    getitem_nodes.append(new_node)
                 if len(common_output_node.args) == 2:
-                    common_output_node.args = (last_node, common_output_node.args[1])
+                    common_output_node.args = (
+                        getitem_nodes,
+                        common_output_node.args[1],
+                    )
                 else:
-                    common_output_node.args = (last_node,)
+                    common_output_node.args = (getitem_nodes,)
 
     fx_g.graph.set_codegen(torch.fx.graph.CodeGen())
     fx_g.recompile()

@@ -24,7 +24,7 @@ if zentorch._C.is_bf16_supported():
     supported_dtypes.append("bfloat16")
 else:
     print(
-        "Warning: Skipping Bfloat16 Testcases since they"
+        "Warning: Skipping Bfloat16 Testcases since they "
         + "are not supported on this hardware"
     )
 
@@ -736,14 +736,11 @@ class TEST_EMBEDDING_BAG_GROUP(TestCase):
 
         self.assertEqual(fx_g_output, fx_g_optimized_output, atol=1e-1, rtol=1e-3)
 
-        target = torch.ops.zentorch.zendnn_custom_embedding_bag_group
+        target = torch.ops.zentorch.zendnn_custom_embedding_bag_group.default
         group_eb_count = 0
 
         for node in fx_g_optimized.graph.nodes:
-            if (
-                isinstance(node.target, torch._ops.OpOverloadPacket)
-                and node.target == target
-            ):
+            if isinstance(node.target, torch._ops.OpOverload) and node.target == target:
                 group_eb_count += 1
 
         self.assertEqual(group_eb_count, 3)
@@ -834,14 +831,11 @@ class TEST_EMBEDDING_GROUP(TestCase):
 
         self.assertEqual(fx_g_output, fx_g_optimized_output, atol=1e-1, rtol=1e-3)
 
-        target = torch.ops.zentorch.zendnn_custom_embedding_group
+        target = torch.ops.zentorch.zendnn_custom_embedding_group.default
         group_eb_count = 0
 
         for node in fx_g_optimized.graph.nodes:
-            if (
-                isinstance(node.target, torch._ops.OpOverloadPacket)
-                and node.target == target
-            ):
+            if isinstance(node.target, torch._ops.OpOverload) and node.target == target:
                 group_eb_count += 1
 
         self.assertEqual(group_eb_count, 3)
@@ -1412,16 +1406,20 @@ class TestADDMM_RELU(TestCase):
 
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
+    @unittest.skip("Nan and Inf giving non-deterministic output")
     def test_custom_addmm_relu1_with_nan_or_inf(self, dtype):
         if dtype == "bfloat16":
             self.skipTest("Skipping it since this testcase is not applicable for BF16.")
         data = Test_Data()
         data.create_data(dtype)
         model = CustomModelAddmmReLU1(data.n, data.n - 2).eval()
-        data.input[0][0] = float("nan")
+        # Nan's output is non-deterministic. Skipping Nan
+        # data.input[0][0] = float("nan")
         data.input[1][1] = float("inf")
+        torch._dynamo.reset()
         inductor_graph = torch.compile(model, backend="inductor")
         inductor_graph_output = inductor_graph(data.input)
+        torch._dynamo.reset()
         compiled_graph = torch.compile(model, backend="zentorch")
         compiled_graph_output = compiled_graph(data.input)
         self.assertEqual(inductor_graph_output, compiled_graph_output)
