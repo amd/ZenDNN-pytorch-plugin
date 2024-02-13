@@ -95,6 +95,37 @@ def replace_with_zendnn_op(fx_graph):
             and node.target.name() in op_dict.keys()
         ):
             op_name = node.target.name()
+            # don't replace embedding bag or embedding if autocast is enabled or
+            # if the model is mixed precision as zendnn doesn't support it w/ bf16
+            if (
+                node.target == torch.ops.aten.embedding.default
+                or node.target == torch.ops.aten._embedding_bag.default
+            ):
+                # check the two conditions for embedding_bag/embedding datatypes
+                # the tensor to check is either directly accessible through
+                # parameters of fx_graph or is stored as fake in meta dict.
+                is_fake_tensor = bool(node.args[0].meta)
+                # real tensor
+                if (
+                    not is_fake_tensor
+                    and fx_graph._parameters[node.args[0].target].dtype
+                    == torch.bfloat16
+                ):
+                    logger.warning(
+                        "embedding_bag and embedding ops will not be replaced as"
+                        + " zentorch doesn't support bf16 with it yet!"
+                    )
+                    continue
+                # fake tensor
+                elif (
+                    is_fake_tensor and node.args[0].meta["val"].dtype == torch.bfloat16
+                ):
+                    logger.warning(
+                        "embedding_bag and embedding ops will not be replaced as"
+                        + " zentorch doesn't support bf16 with it yet!"
+                    )
+                    continue
+
             logger.info(
                 "Now replacing default "
                 + op_name

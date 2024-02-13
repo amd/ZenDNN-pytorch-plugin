@@ -18,88 +18,97 @@ try:
 except ImportError:
     HAS_PT_PLUGIN = False
 
-supported_dtypes = [("fp32")]
+supported_dtypes = ["float32"]
 if zentorch._C.is_bf16_supported():
-    supported_dtypes.append(("bfloat16"))
+    supported_dtypes.append("bfloat16")
 else:
     print(
-        "Warning: Skipping Bfloat16 Testcases since they \
-are not supported on this hardware"
+        "Warning: Skipping Bfloat16 Testcases since they"
+        + "are not supported on this hardware"
     )
 
 
+# when calling the torch.compile flow, we need inference_mode decorator
+# that is not needed when invoking zentorch ops directly
+
 class Test_Data:
-    def __init__(self, dtype):
-        self.dtypes = {
-            "fp32": torch.float32,
-            "bfloat16": torch.bfloat16,
-            "int": torch.int,
-        }
+
+    def create_data(self, dtype):
+        torch_type = self.get_torch_type(dtype)
         self.b = torch.randint(1, 11, (1,)).item()
         self.m = torch.randint(1, 11, (1,)).item()
         self.k = torch.randint(1, 11, (1,)).item()
         self.n = torch.randint(1, 11, (1,)).item()
 
         # m*k, k*n, m*n
-        self.x = torch.randn(self.m, self.k).type(self.dtypes[dtype])
-        self.y = torch.randn(self.k, self.n).type(self.dtypes[dtype])
+        self.x = torch.randn(self.m, self.k).type(torch_type)
+        self.y = torch.randn(self.k, self.n).type(torch_type)
 
-        self.input = torch.randn(self.m, self.n).type(self.dtypes[dtype])
-        self.input1d = torch.randn(self.n).type(self.dtypes[dtype])
+        self.input = torch.randn(self.m, self.n).type(torch_type)
+        self.input1d = torch.randn(self.n).type(torch_type)
 
-        self.empty_bias = torch.empty(0).type(self.dtypes[dtype])
-        self.result_m = torch.empty(self.m).type(self.dtypes[dtype])
-        self.result_1 = torch.empty(1).type(self.dtypes[dtype])
+        self.empty_bias = torch.empty(0).type(torch_type)
+        self.result_m = torch.empty(self.m).type(torch_type)
+        self.result_1 = torch.empty(1).type(torch_type)
 
-        self.A = torch.randn(self.m, 1).type(self.dtypes[dtype])
-        self.B = torch.randn(1, self.m).type(self.dtypes[dtype])
+        self.A = torch.randn(self.m, 1).type(torch_type)
+        self.B = torch.randn(1, self.m).type(torch_type)
 
         # b*m*k, b*k*n, b*m*n
-        self.x3d = torch.randn(self.b, self.m, self.k).type(self.dtypes[dtype])
-        self.y3d = torch.randn(self.b, self.k, self.n).type(self.dtypes[dtype])
-        self.input3d = torch.randn(self.b, self.m, self.n).type(self.dtypes[dtype])
+        self.x3d = torch.randn(self.b, self.m, self.k).type(torch_type)
+        self.y3d = torch.randn(self.b, self.k, self.n).type(torch_type)
+        self.input3d = torch.randn(self.b, self.m, self.n).type(torch_type)
 
         self.R = torch.randint(11, 20, (1,)).item()
         self.W = torch.randint(1, 15, (1,)).item()
-        self.embedding_matrix = torch.rand(self.R, 3).type(self.dtypes[dtype])
+        self.embedding_matrix = torch.rand(self.R, 3).type(torch_type)
         self.emb_input = torch.randint(0, self.R, (self.W,))
-        self.offsets = torch.tensor([0, self.W]).type(torch.int)
+        self.offsets = torch.tensor([0, self.W])
 
         self.M = [
-            torch.randn(60, 30).type(self.dtypes[dtype]),
-            torch.randn(30).type(self.dtypes[dtype]),
+            torch.randn(60, 30).type(torch_type),
+            torch.randn(30).type(torch_type),
         ]
 
         self.x1 = [
-            torch.randn(60, 40).type(self.dtypes[dtype]),
-            torch.randn(40, 60).transpose(0, 1).type(self.dtypes[dtype]),
+            torch.randn(60, 40).type(torch_type),
+            torch.randn(40, 60).transpose(0, 1).type(torch_type),
         ]
 
         self.y1 = [
-            torch.randn(40, 30).type(self.dtypes[dtype]),
-            torch.randn(30, 40).transpose(1, 0).type(self.dtypes[dtype]),
+            torch.randn(40, 30).type(torch_type),
+            torch.randn(30, 40).transpose(1, 0).type(torch_type),
         ]
 
-        self.M2 = torch.randn(60, 30, 50).type(self.dtypes[dtype])
+        self.M2 = torch.randn(60, 30, 50).type(torch_type)
 
         self.x2 = [
-            torch.randn(60, 30, 40).type(self.dtypes[dtype]),
-            torch.randn(60, 40, 30).transpose(1, 2).type(self.dtypes[dtype]),
-            torch.randn(30, 60, 40).transpose(0, 1).type(self.dtypes[dtype]),
+            torch.randn(60, 30, 40).type(torch_type),
+            torch.randn(60, 40, 30).transpose(1, 2).type(torch_type),
+            torch.randn(30, 60, 40).transpose(0, 1).type(torch_type),
         ]
 
         self.y2 = [
-            torch.randn(60, 40, 50).type(self.dtypes[dtype]),
-            torch.randn(60, 50, 40).transpose(1, 2).type(self.dtypes[dtype]),
-            torch.randn(50, 40, 60).transpose(0, 2).type(self.dtypes[dtype]),
+            torch.randn(60, 40, 50).type(torch_type),
+            torch.randn(60, 50, 40).transpose(1, 2).type(torch_type),
+            torch.randn(50, 40, 60).transpose(0, 2).type(torch_type),
         ]
+
+    def get_torch_type(self, str_type):
+        dtypes = {
+            "float32": torch.float32,
+            "bfloat16": torch.bfloat16,
+            "int": torch.int,
+        }
+        return dtypes[str_type]
 
 
 @unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
 class Test_MM_OP(TestCase):
     @parameterized.expand(supported_dtypes)
     def test_matmul_variants(self, dtype):
-        data = Test_Data(dtype)
+        data = Test_Data()
+        data.create_data(dtype)
         # mm
         self.assertEqual(
             torch._C._VariableFunctions.mm(data.x, data.y),
@@ -120,7 +129,8 @@ class Test_MM_OP(TestCase):
 
     @parameterized.expand(supported_dtypes)
     def test_mm_mismatched_dimensions(self, dtype):
-        data = Test_Data(dtype)
+        data = Test_Data()
+        data.create_data(dtype)
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zendnn_mm(
                 data.x,
@@ -134,7 +144,8 @@ class Test_MM_OP(TestCase):
 
     @parameterized.expand([("int",)])
     def test_mm_unsupported_dtype(self, dtype):
-        data = Test_Data(dtype)
+        data = Test_Data()
+        data.create_data(dtype)
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zendnn_mm(data.x, data.y)
         self.assertTrue(
@@ -144,7 +155,8 @@ class Test_MM_OP(TestCase):
 
     @parameterized.expand(supported_dtypes)
     def test_mm_relu(self, dtype):
-        data = Test_Data(dtype)
+        data = Test_Data()
+        data.create_data(dtype)
         # mm->relu
         self.assertEqual(
             torch._C._VariableFunctions.relu(
@@ -158,7 +170,8 @@ class Test_MM_OP(TestCase):
 class Test_ADDMM_OP(TestCase):
     @parameterized.expand(supported_dtypes)
     def test_addmm_variants(self, dtype):
-        data = Test_Data(dtype)
+        data = Test_Data()
+        data.create_data(dtype)
         # addmm
         self.assertEqual(
             torch._C._VariableFunctions.addmm(data.input, data.x, data.y),
@@ -213,7 +226,8 @@ class Test_ADDMM_OP(TestCase):
 
     @parameterized.expand(supported_dtypes)
     def test_addmm_mismatched_dimensions(self, dtype):
-        data = Test_Data(dtype)
+        data = Test_Data()
+        data.create_data(dtype)
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zendnn_addmm(
                 data.x,
@@ -228,9 +242,10 @@ class Test_ADDMM_OP(TestCase):
             in str(context.exception)
         )
 
-    @parameterized.expand([("int",)])
+    @parameterized.expand(["int"])
     def test_addmm_unsupported_dtype(self, dtype):
-        data = Test_Data(dtype)
+        data = Test_Data()
+        data.create_data(dtype)
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zendnn_addmm(data.x, data.x, data.x)
 
@@ -241,7 +256,8 @@ class Test_ADDMM_OP(TestCase):
 
     @parameterized.expand(supported_dtypes)
     def test_addmm_relu_with_kw(self, dtype):
-        data = Test_Data(dtype)
+        data = Test_Data()
+        data.create_data(dtype)
         # addmm->relu
         self.assertEqual(
             torch._C._VariableFunctions.relu(
@@ -283,7 +299,8 @@ class Test_ADDMM_OP(TestCase):
 
     @parameterized.expand(supported_dtypes)
     def test_addmm_with_zero_alpha(self, dtype):
-        data = Test_Data(dtype)
+        data = Test_Data()
+        data.create_data(dtype)
         self.assertEqual(
             torch._C._VariableFunctions.addmm(data.input, data.x, data.y, alpha=0.0),
             torch.ops.zentorch.zendnn_addmm(data.input, data.x, data.y, alpha=0.0),
@@ -291,7 +308,8 @@ class Test_ADDMM_OP(TestCase):
 
     @parameterized.expand(supported_dtypes)
     def test_addmm_relu_without_kw(self, dtype):
-        data = Test_Data(dtype)
+        data = Test_Data()
+        data.create_data(dtype)
         # addmm->relu
         self.assertEqual(
             torch._C._VariableFunctions.relu(
@@ -305,7 +323,8 @@ class Test_ADDMM_OP(TestCase):
 class Test_BMM_OP(TestCase):
     @parameterized.expand(supported_dtypes)
     def test_bmm_variants(self, dtype):
-        data = Test_Data(dtype)
+        data = Test_Data()
+        data.create_data(dtype)
         self.assertEqual(
             torch._C._VariableFunctions.bmm(data.x3d, data.y3d),
             torch.ops.zentorch.zendnn_bmm(data.x3d, data.y3d),
@@ -313,7 +332,8 @@ class Test_BMM_OP(TestCase):
 
     @parameterized.expand(supported_dtypes)
     def test_bmm_unsupported_dims(self, dtype):
-        data = Test_Data(dtype)
+        data = Test_Data()
+        data.create_data(dtype)
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zendnn_bmm(data.x, data.y)
 
@@ -323,7 +343,8 @@ class Test_BMM_OP(TestCase):
 
     @parameterized.expand([("int",)])
     def test_bmm_unsupported_dtype(self, dtype):
-        data = Test_Data(dtype)
+        data = Test_Data()
+        data.create_data(dtype)
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zendnn_bmm(data.x3d, data.y3d)
 
@@ -337,7 +358,8 @@ class Test_BMM_OP(TestCase):
 class Test_BADDBMM_OP(TestCase):
     @parameterized.expand(supported_dtypes)
     def test_baddbmm_variants(self, dtype):
-        data = Test_Data(dtype)
+        data = Test_Data()
+        data.create_data(dtype)
         self.assertEqual(
             torch._C._VariableFunctions.baddbmm(data.input3d, data.x3d, data.y3d),
             torch.ops.zentorch.zendnn_baddbmm(data.input3d, data.x3d, data.y3d),
@@ -345,7 +367,8 @@ class Test_BADDBMM_OP(TestCase):
 
     @parameterized.expand([("int",)])
     def test_baddbmm_unsupported_dtype(self, dtype):
-        data = Test_Data(dtype)
+        data = Test_Data()
+        data.create_data(dtype)
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zendnn_baddbmm(data.input3d, data.x3d, data.y3d)
 
@@ -356,7 +379,8 @@ class Test_BADDBMM_OP(TestCase):
 
     @parameterized.expand(supported_dtypes)
     def test_baddbmm_unsupported_dims(self, dtype):
-        data = Test_Data(dtype)
+        data = Test_Data()
+        data.create_data(dtype)
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zendnn_baddbmm(
                 data.input3d.reshape((data.b * data.m), data.n), data.x3d, data.y3d
@@ -369,7 +393,8 @@ class Test_BADDBMM_OP(TestCase):
 
     @parameterized.expand(supported_dtypes)
     def test_baddbmm_with_kw(self, dtype):
-        data = Test_Data(dtype)
+        data = Test_Data()
+        data.create_data(dtype)
         self.assertEqual(
             torch._C._VariableFunctions.baddbmm(
                 data.input3d, data.x3d, data.y3d, alpha=1.4
@@ -402,8 +427,8 @@ class Test_BADDBMM_OP(TestCase):
 class Test_MATMUL_IMPL_OP(TestCase):
     @parameterized.expand(supported_dtypes)
     def test_zendnn_matmul_impl_for_mv_and_dot(self, dtype):
-        data = Test_Data(dtype)
-
+        data = Test_Data()
+        data.create_data(dtype)
         # mv
         self.assertEqual(
             torch.mv(data.input, data.input1d),
@@ -425,7 +450,8 @@ class Test_MATMUL_IMPL_OP(TestCase):
 class TEST_EMBEDDING_BAG(TestCase):
     @parameterized.expand(supported_dtypes)
     def test_embedding_bag_zendnn(self, dtype):
-        data = Test_Data(dtype)
+        data = Test_Data()
+        data.create_data(dtype)
         if dtype == "bfloat16":
             with self.assertRaises(RuntimeError) as context:
                 torch.ops.zentorch.zendnn_embedding_bag(
@@ -472,7 +498,8 @@ class TEST_EMBEDDING_BAG(TestCase):
 
     @parameterized.expand(supported_dtypes)
     def test_embedding_bag_sparse_scale_mode(self, dtype):
-        data = Test_Data(dtype)
+        data = Test_Data()
+        data.create_data(dtype)
         sparse_opt = [True, False]
         scale_grad_opt = [True, False]
 
@@ -480,7 +507,8 @@ class TEST_EMBEDDING_BAG(TestCase):
         while i <= 2:
             for sprs_opt in sparse_opt:
                 for scale_opt in scale_grad_opt:
-                    # sparse and scale opt is not supported for mode = 'max'
+                    # max mode is not supported whenever any of the sparse_opt
+                    # or scale_grad_opt is True
                     if i == 2 and (sprs_opt is True or scale_opt is True):
                         continue
                     y_eb, _, _, _ = torch._C._VariableFunctions._embedding_bag(
@@ -527,9 +555,12 @@ class TEST_EMBEDDING_BAG(TestCase):
                         self.assertEqual(y_eb, y_ebz)
             i = i + 1
 
-    @torch.no_grad()
-    def test_custom_embedding_bag_compile(self):
-        model = CustomModelEmbeddingBagNN(100, 10)
+    @parameterized.expand(supported_dtypes)
+    @torch.inference_mode()
+    def test_custom_embedding_bag_compile(self, dtype):
+        data = Test_Data()
+        new_dtype = data.get_torch_type(dtype)
+        model = CustomModelEmbeddingBagNN(100, 10, dtype=new_dtype)
         input = torch.randint(0, 10000, (1, 10))
         model_output = model(input)
         torch._dynamo.reset()
@@ -542,7 +573,8 @@ class TEST_EMBEDDING_BAG(TestCase):
 class TEST_EMBEDDING(TestCase):
     @parameterized.expand(supported_dtypes)
     def test_embedding_zendnn(self, dtype):
-        data = Test_Data(dtype)
+        data = Test_Data()
+        data.create_data(dtype)
         if dtype == "bfloat16":
             with self.assertRaises(RuntimeError) as context:
                 torch.ops.zentorch.zendnn_embedding(
@@ -566,7 +598,8 @@ class TEST_EMBEDDING(TestCase):
 
     @parameterized.expand(supported_dtypes)
     def test_embedding_sparse_scale(self, dtype):
-        data = Test_Data(dtype)
+        data = Test_Data()
+        data.create_data(dtype)
         sparse_opt = [True, False]
         scale_grad_opt = [True, False]
 
@@ -596,9 +629,12 @@ class TEST_EMBEDDING(TestCase):
 
                     self.assertEqual(y_eb, y_ebz)
 
-    @torch.no_grad()
-    def test_custom_embedding_with_compile(self):
-        model = CustomModelEmbeddingNN(100)
+    @parameterized.expand(supported_dtypes)
+    @torch.inference_mode()
+    def test_custom_embedding_compile(self, dtype):
+        data = Test_Data()
+        new_dtype = data.get_torch_type(dtype)
+        model = CustomModelEmbeddingNN(100, dtype=new_dtype)
         input = torch.randint(0, 10000, (10,))
         model_output = model(input)
         torch._dynamo.reset()
@@ -611,7 +647,8 @@ class TEST_EMBEDDING(TestCase):
 class TEST_EMBEDDING_BAG_GROUP(TestCase):
     @parameterized.expand(supported_dtypes)
     def test_embedding_bag_group_zendnn(self, dtype):
-        data = Test_Data(dtype)
+        data = Test_Data()
+        data.create_data(dtype)
         if dtype == "bfloat16":
             with self.assertRaises(RuntimeError) as context:
                 torch.ops.zentorch.zendnn_custom_embedding_bag_group(
@@ -658,14 +695,17 @@ class TEST_EMBEDDING_BAG_GROUP(TestCase):
                 self.assertEqual(y_eb, y_ebz_list[i * 4])
 
     @parameterized.expand(supported_dtypes)
-    @torch.no_grad()
+    @torch.inference_mode()
     def test_group_embeddingbag(self, dtype):
         if dtype == "bfloat16":
-            self.skipTest("Skipping it since the test case is not applicable \
+            self.skipTest(
+                "Skipping it since the test case is not applicable \
                           in this case. Custom Model weights are in fp32 by \
-                          default unless explicitly set to bfloat16.")
+                          default unless explicitly set to bfloat16."
+            )
 
-        test_data = Test_Data(dtype)
+        test_data = Test_Data()
+        test_data.create_data(dtype)
         model = CustomModelEmbeddingBagGroup(test_data.R)
         indices = test_data.emb_input
         offsets = test_data.offsets
@@ -692,14 +732,17 @@ class TEST_EMBEDDING_BAG_GROUP(TestCase):
         self.assertEqual(group_eb_count, 3)
 
     @parameterized.expand(supported_dtypes)
-    @torch.no_grad()
+    @torch.inference_mode()
     def test_group_embeddingbag_compile(self, dtype):
         if dtype == "bfloat16":
-            self.skipTest("Skipping it since the test case is not applicable \
+            self.skipTest(
+                "Skipping it since the test case is not applicable \
                           in this case. Custom Model weights are in fp32 by \
-                          default unless explicitly set to bfloat16.")
+                          default unless explicitly set to bfloat16."
+            )
 
-        test_data = Test_Data(dtype)
+        test_data = Test_Data()
+        test_data.create_data(dtype)
         model = CustomModelEmbeddingBagGroup(test_data.R)
         indices = test_data.emb_input
         offset = test_data.offsets
@@ -718,7 +761,8 @@ class TEST_EMBEDDING_BAG_GROUP(TestCase):
 class TEST_EMBEDDING_GROUP(TestCase):
     @parameterized.expand(supported_dtypes)
     def test_embedding_group_zendnn(self, dtype):
-        data = Test_Data(dtype)
+        data = Test_Data()
+        data.create_data(dtype)
         if dtype == "bfloat16":
             with self.assertRaises(RuntimeError) as context:
                 torch.ops.zentorch.zendnn_custom_embedding_group(
@@ -750,14 +794,17 @@ class TEST_EMBEDDING_GROUP(TestCase):
                 self.assertEqual(y_eb, y_ebz_list[i])
 
     @parameterized.expand(supported_dtypes)
-    @torch.no_grad()
+    @torch.inference_mode()
     def test_group_embedding(self, dtype):
         if dtype == "bfloat16":
-            self.skipTest("Skipping it since the test case is not applicable \
+            self.skipTest(
+                "Skipping it since the test case is not applicable \
                           in this case. Custom Model weights are in fp32 by \
-                          default unless explicitly set to bfloat16.")
+                          default unless explicitly set to bfloat16."
+            )
 
-        test_data = Test_Data(dtype)
+        test_data = Test_Data()
+        test_data.create_data(dtype)
         model = CustomModelEmbeddingGroup(test_data.R)
         x = test_data.emb_input
 
@@ -783,14 +830,17 @@ class TEST_EMBEDDING_GROUP(TestCase):
         self.assertEqual(group_eb_count, 3)
 
     @parameterized.expand(supported_dtypes)
-    @torch.no_grad()
+    @torch.inference_mode()
     def test_group_embedding_compile(self, dtype):
         if dtype == "bfloat16":
-            self.skipTest("Skipping it since the test case is not applicable \
+            self.skipTest(
+                "Skipping it since the test case is not applicable \
                           in this case. Custom Model weights are in fp32 by \
-                          default unless explicitly set to bfloat16.")
+                          default unless explicitly set to bfloat16."
+            )
 
-        test_data = Test_Data(dtype)
+        test_data = Test_Data()
+        test_data.create_data(dtype)
         model = CustomModelEmbeddingGroup(test_data.R)
         x = test_data.emb_input
 
@@ -804,14 +854,17 @@ class TEST_EMBEDDING_GROUP(TestCase):
         self.assertEqual(native_output, compiled_output, atol=1e-1, rtol=1e-3)
 
     @parameterized.expand(supported_dtypes)
-    @torch.no_grad()
+    @torch.inference_mode()
     def test_emb_and_embbag_common_node(self, dtype):
         if dtype == "bfloat16":
-            self.skipTest("Skipping it since the test case is not applicable \
+            self.skipTest(
+                "Skipping it since the test case is not applicable \
                           in this case. Custom Model weights are in fp32 by \
-                          default unless explicitly set to bfloat16.")
+                          default unless explicitly set to bfloat16."
+            )
 
-        test_data = Test_Data(dtype)
+        test_data = Test_Data()
+        test_data.create_data(dtype)
         model = CustomModel_Emb_EmbBag_Common_Node(test_data.R)
         indices = test_data.emb_input
         offsets = test_data.offsets
@@ -824,14 +877,17 @@ class TEST_EMBEDDING_GROUP(TestCase):
         self.assertEqual(native_output, compiled_output, atol=1e-1, rtol=1e-3)
 
     @parameterized.expand(supported_dtypes)
-    @torch.no_grad()
+    @torch.inference_mode()
     def test_emb_and_embbag_diff_node(self, dtype):
         if dtype == "bfloat16":
-            self.skipTest("Skipping it since the test case is not applicable \
+            self.skipTest(
+                "Skipping it since the test case is not applicable \
                           in this case. Custom Model weights are in fp32 by \
-                          default unless explicitly set to bfloat16.")
+                          default unless explicitly set to bfloat16."
+            )
 
-        test_data = Test_Data(dtype)
+        test_data = Test_Data()
+        test_data.create_data(dtype)
         model = CustomModel_Emb_EmbBag_Diff_Node(test_data.R)
         indices = test_data.emb_input
         offsets = test_data.offsets
@@ -844,14 +900,17 @@ class TEST_EMBEDDING_GROUP(TestCase):
         self.assertEqual(native_output, compiled_output, atol=1e-1, rtol=1e-3)
 
     @parameterized.expand(supported_dtypes)
-    @torch.no_grad()
+    @torch.inference_mode()
     def test_embedding_2d_inputs(self, dtype):
         if dtype == "bfloat16":
-            self.skipTest("Skipping it since the test case is not applicable \
+            self.skipTest(
+                "Skipping it since the test case is not applicable \
                           in this case. Custom Model weights are in fp32 by \
-                          default unless explicitly set to bfloat16.")
+                          default unless explicitly set to bfloat16."
+            )
 
-        test_data = Test_Data(dtype)
+        test_data = Test_Data()
+        test_data.create_data(dtype)
         model = CustomModel_2D_Embedding(test_data.R)
         indices = torch.cat([torch.unsqueeze(test_data.emb_input, dim=0)] * 2)
 
@@ -874,11 +933,11 @@ class TestBF16Device(TestCase):
 
 @unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
 class CustomModelEmbeddingBagNN(nn.Module):
-    def __init__(self, embedding_dim, output_dim):
+    def __init__(self, embedding_dim, output_dim, dtype=torch.float):
         super(CustomModelEmbeddingBagNN, self).__init__()
-        self.embedding = nn.EmbeddingBag(10000, embedding_dim)
-        self.intermediate = nn.Linear(embedding_dim, output_dim)
-        self.output = nn.Linear(output_dim, 1)
+        self.embedding = nn.EmbeddingBag(10000, embedding_dim, dtype=dtype)
+        self.intermediate = nn.Linear(embedding_dim, output_dim, dtype=dtype)
+        self.output = nn.Linear(output_dim, 1, dtype=dtype)
 
     def forward(self, input):
         embed = self.embedding(input)
@@ -889,9 +948,9 @@ class CustomModelEmbeddingBagNN(nn.Module):
 
 @unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
 class CustomModelEmbeddingNN(nn.Module):
-    def __init__(self, embedding_dim):
+    def __init__(self, embedding_dim, dtype=torch.float):
         super(CustomModelEmbeddingNN, self).__init__()
-        self.embedding = nn.Embedding(10000, embedding_dim)
+        self.embedding = nn.Embedding(10000, embedding_dim, dtype=dtype)
 
     def forward(self, input):
         embed = self.embedding(input)
@@ -1121,9 +1180,10 @@ class CustomModelAddmmGelu1(nn.Module):
 @unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
 class TestMMRELU(TestCase):
     @parameterized.expand(supported_dtypes)
-    @torch.no_grad()
+    @torch.inference_mode()
     def test_mm_relu_optimize(self, dtype):
-        data = Test_Data(dtype)
+        data = Test_Data()
+        data.create_data(dtype)
         model = CustomModelMMRelu2().eval()
         for i in range(len(data.x1)):
             for j in range(len(data.y1)):
@@ -1134,9 +1194,10 @@ class TestMMRELU(TestCase):
                 self.assertEqual(model_output, compiled_graph_output)
 
     @parameterized.expand(supported_dtypes)
-    @torch.no_grad()
+    @torch.inference_mode()
     def test_zero_input_optimize(self, dtype):
-        data = Test_Data(dtype)
+        data = Test_Data()
+        data.create_data(dtype)
         model = CustomModelMMRelu2().eval()
         model_output = model(data.x1[0] * 0, data.y1[0] * 0)
         torch._dynamo.reset()
@@ -1145,9 +1206,10 @@ class TestMMRELU(TestCase):
         self.assertEqual(model_output, compiled_graph_output)
 
     @parameterized.expand(supported_dtypes)
-    @torch.no_grad()
+    @torch.inference_mode()
     def test_negative_input_optimize(self, dtype):
-        data = Test_Data(dtype)
+        data = Test_Data()
+        data.create_data(dtype)
         model = CustomModelMMRelu2().eval()
         model_output = model(data.x1[0] * -1, data.y1[0] * -1)
         torch._dynamo.reset()
@@ -1156,9 +1218,10 @@ class TestMMRELU(TestCase):
         self.assertEqual(model_output, compiled_graph_output)
 
     @parameterized.expand(supported_dtypes)
-    @torch.no_grad()
+    @torch.inference_mode()
     def test_custom_mm_relu1(self, dtype):
-        data = Test_Data(dtype)
+        data = Test_Data()
+        data.create_data(dtype)
         model = CustomModelMMReLU1(data.n, data.n - 2, data.n - 5).eval()
         if dtype == "bfloat16":
             model = model.bfloat16()
@@ -1172,9 +1235,10 @@ class TestMMRELU(TestCase):
 @unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
 class TestMMADD(TestCase):
     @parameterized.expand(supported_dtypes)
-    @torch.no_grad()
+    @torch.inference_mode()
     def test_mm_add_optimize(self, dtype):
-        data = Test_Data(dtype)
+        data = Test_Data()
+        data.create_data(dtype)
         model = CustomModelMMAdd1().eval()
         if dtype == "bfloat16":
             self.skipTest("Skipping it due to issue BF16 path.")
@@ -1190,9 +1254,10 @@ class TestMMADD(TestCase):
                     self.assertEqual(inductor_graph_output, compiled_graph_output)
 
     @parameterized.expand(supported_dtypes)
-    @torch.no_grad()
+    @torch.inference_mode()
     def test_zero_input(self, dtype):
-        data = Test_Data(dtype)
+        data = Test_Data()
+        data.create_data(dtype)
         model = CustomModelMMAdd1().eval()
         for inp in data.M:
             model_output = model(inp * 0, data.x1[0] * 0, data.y1[0] * 0)
@@ -1204,9 +1269,10 @@ class TestMMADD(TestCase):
             self.assertEqual(model_output, compiled_graph_output)
 
     @parameterized.expand(supported_dtypes)
-    @torch.no_grad()
+    @torch.inference_mode()
     def test_inf_input(self, dtype):
-        data = Test_Data(dtype)
+        data = Test_Data()
+        data.create_data(dtype)
         model = CustomModelMMAdd1().eval()
         for inp in data.M:
             model_output = model(inp / 0, data.x1[0] / 0, data.y1[0] / 0)
@@ -1218,9 +1284,10 @@ class TestMMADD(TestCase):
             self.assertEqual(model_output, compiled_graph_output)
 
     @parameterized.expand(supported_dtypes)
-    @torch.no_grad()
+    @torch.inference_mode()
     def test_nan_input(self, dtype):
-        data = Test_Data(dtype)
+        data = Test_Data()
+        data.create_data(dtype)
         model = CustomModelMMAdd1().eval()
         for inp in data.M:
             model_output = model(
@@ -1234,9 +1301,10 @@ class TestMMADD(TestCase):
             self.assertEqual(model_output, compiled_graph_output)
 
     @parameterized.expand(supported_dtypes)
-    @torch.no_grad()
+    @torch.inference_mode()
     def test_identity_input_nan(self, dtype):
-        data = Test_Data(dtype)
+        data = Test_Data()
+        data.create_data(dtype)
         if dtype == "bfloat16":
             self.skipTest("Skipping it since this testcase is not applicable for BF16.")
         model = CustomModelMMAdd1().eval()
@@ -1258,11 +1326,12 @@ class TestMMADD(TestCase):
 @unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
 class TestADDMM_GELU(TestCase):
     @parameterized.expand(supported_dtypes)
-    @torch.no_grad()
+    @torch.inference_mode()
     def test_zendnn_addmm_gelu(self, dtype):
         if dtype == "bfloat16":
             self.skipTest("Skipping it due to issue BF16 path.")
-        data = Test_Data(dtype)
+        data = Test_Data()
+        data.create_data(dtype)
         model = CustomModelAddmmGelu1().eval()
         for inp in data.M:
             for i in range(len(data.x1)):
@@ -1274,11 +1343,12 @@ class TestADDMM_GELU(TestCase):
                     self.assertEqual(model_output, compiled_graph_output)
 
     @parameterized.expand(supported_dtypes)
-    @torch.no_grad()
+    @torch.inference_mode()
     def test_zendnn_addmm_gelu_tanh(self, dtype):
         if dtype == "bfloat16":
             self.skipTest("Skipping it due to issue BF16 path.")
-        data = Test_Data(dtype)
+        data = Test_Data()
+        data.create_data(dtype)
         model = CustomModelAddmmGelu2().eval()
         for inp in data.M:
             for i in range(len(data.x1)):
@@ -1293,11 +1363,12 @@ class TestADDMM_GELU(TestCase):
 @unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
 class TestADDMM_RELU(TestCase):
     @parameterized.expand(supported_dtypes)
-    @torch.no_grad()
+    @torch.inference_mode()
     def test_zendnn_addmm_relu(self, dtype):
         if dtype == "bfloat16":
             self.skipTest("Skipping it due to issue BF16 path.")
-        data = Test_Data(dtype)
+        data = Test_Data()
+        data.create_data(dtype)
         model = CustomModelAddmmRelu2().eval()
         for inp in data.M:
             for i in range(len(data.x1)):
@@ -1309,9 +1380,10 @@ class TestADDMM_RELU(TestCase):
                     self.assertEqual(model_output, compiled_graph_output)
 
     @parameterized.expand(supported_dtypes)
-    @torch.no_grad()
+    @torch.inference_mode()
     def test_custom_addmm_relu1(self, dtype):
-        data = Test_Data(dtype)
+        data = Test_Data()
+        data.create_data(dtype)
         model = CustomModelAddmmReLU1(data.n, data.n - 2).eval()
         if dtype == "bfloat16":
             model = model.bfloat16()
@@ -1322,11 +1394,12 @@ class TestADDMM_RELU(TestCase):
         self.assertEqual(model_output, compiled_graph_output)
 
     @parameterized.expand(supported_dtypes)
-    @torch.no_grad()
+    @torch.inference_mode()
     def test_custom_addmm_relu1_with_nan_or_inf(self, dtype):
         if dtype == "bfloat16":
             self.skipTest("Skipping it since this testcase is not applicable for BF16.")
-        data = Test_Data(dtype)
+        data = Test_Data()
+        data.create_data(dtype)
         model = CustomModelAddmmReLU1(data.n, data.n - 2).eval()
         data.input[0][0] = float("nan")
         data.input[1][1] = float("inf")
@@ -1340,9 +1413,10 @@ class TestADDMM_RELU(TestCase):
 @unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
 class TestLinear_Relu(TestCase):
     @parameterized.expand(supported_dtypes)
-    @torch.no_grad()
+    @torch.inference_mode()
     def test_zendnn_linear_relu(self, dtype):
-        data = Test_Data(dtype)
+        data = Test_Data()
+        data.create_data(dtype)
         model = nn.Sequential(nn.Linear(data.n, data.m), nn.ReLU())
         if dtype == "bfloat16":
             model = model.bfloat16()
@@ -1362,9 +1436,10 @@ class TestLinear_Relu(TestCase):
 @unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
 class TestLinear_Gelu(TestCase):
     @parameterized.expand(supported_dtypes)
-    @torch.no_grad()
+    @torch.inference_mode()
     def test_zendnn_linear_gelu_tanh(self, dtype):
-        data = Test_Data(dtype)
+        data = Test_Data()
+        data.create_data(dtype)
         model = nn.Sequential(nn.Linear(data.n, data.m), nn.GELU(approximate="tanh"))
         if dtype == "bfloat16":
             model = model.bfloat16()
@@ -1375,9 +1450,10 @@ class TestLinear_Gelu(TestCase):
         self.assertEqual(model_output, compiled_graph_output)
 
     @parameterized.expand(supported_dtypes)
-    @torch.no_grad()
+    @torch.inference_mode()
     def test_zendnn_linear_gelu_none(self, dtype):
-        data = Test_Data(dtype)
+        data = Test_Data()
+        data.create_data(dtype)
         model = nn.Sequential(nn.Linear(data.n, data.m), nn.GELU(approximate="none"))
         if dtype == "bfloat16":
             model = model.bfloat16()
@@ -1391,11 +1467,12 @@ class TestLinear_Gelu(TestCase):
 @unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
 class TestBMMADD(TestCase):
     @parameterized.expand(supported_dtypes)
-    @torch.no_grad()
+    @torch.inference_mode()
     def test_zendnn_bmm_baddbmm(self, dtype):
         if dtype == "bfloat16":
             self.skipTest("Skipping it due to issue with BF16 path.")
-        data = Test_Data(dtype)
+        data = Test_Data()
+        data.create_data(dtype)
         model = CustomModelBMMAdd1().eval()
         for i in range(len(data.x2)):
             for j in range(len(data.y2)):
