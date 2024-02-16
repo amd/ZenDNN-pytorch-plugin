@@ -10,6 +10,7 @@ import torch.nn as nn
 from importlib import metadata
 from torch.fx.experimental.proxy_tensor import make_fx
 from parameterized import parameterized
+from itertools import product
 
 try:
     import torch_zendnn_plugin as zentorch
@@ -27,9 +28,14 @@ else:
         + "are not supported on this hardware"
     )
 
+include_last_offset_opt = [True, False]
+scale_grad_opt = [True, False]
+mode_opt = [0, 1, 2]
+sparse_opt = [True, False]
 
 # when calling the torch.compile flow, we need inference_mode decorator
 # that is not needed when invoking zentorch ops directly
+
 
 class Test_Data:
 
@@ -496,64 +502,64 @@ class TEST_EMBEDDING_BAG(TestCase):
 
             self.assertEqual(y_eb, y_ebz)
 
-    @parameterized.expand(supported_dtypes)
-    def test_embedding_bag_sparse_scale_mode(self, dtype):
+    @parameterized.expand(
+        product(
+            supported_dtypes,
+            mode_opt,
+            include_last_offset_opt,
+            sparse_opt,
+            scale_grad_opt,
+        )
+    )
+    def test_embedding_bag_sparse_scale_mode(
+        self, dtype, mode, include_last_offset, sprs_opt, scale_opt
+    ):
         data = Test_Data()
         data.create_data(dtype)
-        sparse_opt = [True, False]
-        scale_grad_opt = [True, False]
 
-        i = 0
-        while i <= 2:
-            for sprs_opt in sparse_opt:
-                for scale_opt in scale_grad_opt:
-                    # max mode is not supported whenever any of the sparse_opt
-                    # or scale_grad_opt is True
-                    if i == 2 and (sprs_opt is True or scale_opt is True):
-                        continue
-                    y_eb, _, _, _ = torch._C._VariableFunctions._embedding_bag(
-                        data.embedding_matrix,
-                        data.emb_input,
-                        data.offsets,
-                        scale_opt,
-                        i,
-                        sprs_opt,
-                        None,
-                        False,
-                    )
-                    if dtype == "bfloat16":
-                        with self.assertRaises(RuntimeError) as context:
-                            torch.ops.zentorch.zendnn_embedding_bag(
-                                data.embedding_matrix,
-                                data.emb_input,
-                                data.offsets,
-                                scale_opt,
-                                i,
-                                sprs_opt,
-                                None,
-                                False,
-                                -1,
-                            )
-                        self.assertTrue(
-                            "Only fp32 type weights are supported in ZenDNN"
-                            + " EmbeddingBag!"
-                            in str(context.exception)
-                        )
-                    else:
-                        y_ebz, _, _, _ = torch.ops.zentorch.zendnn_embedding_bag(
-                            data.embedding_matrix,
-                            data.emb_input,
-                            data.offsets,
-                            scale_opt,
-                            i,
-                            sprs_opt,
-                            None,
-                            False,
-                            -1,
-                        )
+        # max mode is not supported whenever any of the sparse_opt
+        # or scale_grad_opt is True
+        y_eb, _, _, _ = torch._C._VariableFunctions._embedding_bag(
+            data.embedding_matrix,
+            data.emb_input,
+            data.offsets,
+            scale_opt,
+            mode,
+            sprs_opt,
+            None,
+            include_last_offset,
+        )
+        if dtype == "bfloat16":
+            with self.assertRaises(RuntimeError) as context:
+                torch.ops.zentorch.zendnn_embedding_bag(
+                    data.embedding_matrix,
+                    data.emb_input,
+                    data.offsets,
+                    scale_opt,
+                    mode,
+                    sprs_opt,
+                    None,
+                    include_last_offset,
+                    -1,
+                )
+            self.assertTrue(
+                "Only fp32 type weights are supported in ZenDNN" + " EmbeddingBag!"
+                in str(context.exception)
+            )
+        else:
+            y_ebz, _, _, _ = torch.ops.zentorch.zendnn_embedding_bag(
+                data.embedding_matrix,
+                data.emb_input,
+                data.offsets,
+                scale_opt,
+                mode,
+                sprs_opt,
+                None,
+                include_last_offset,
+                -1,
+            )
 
-                        self.assertEqual(y_eb, y_ebz)
-            i = i + 1
+            self.assertEqual(y_eb, y_ebz)
 
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
@@ -645,8 +651,19 @@ class TEST_EMBEDDING(TestCase):
 
 @unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
 class TEST_EMBEDDING_BAG_GROUP(TestCase):
-    @parameterized.expand(supported_dtypes)
-    def test_embedding_bag_group_zendnn(self, dtype):
+
+    @parameterized.expand(
+        product(
+            supported_dtypes,
+            mode_opt,
+            include_last_offset_opt,
+            sparse_opt,
+            scale_grad_opt,
+        )
+    )
+    def test_embedding_bag_group_zendnn(
+        self, dtype, mode, include_last_offset, sprs_opt, scale_opt
+    ):
         data = Test_Data()
         data.create_data(dtype)
         if dtype == "bfloat16":
@@ -655,11 +672,11 @@ class TEST_EMBEDDING_BAG_GROUP(TestCase):
                     [data.embedding_matrix] * 3,
                     [data.emb_input] * 3,
                     [data.offsets] * 3,
-                    [False] * 3,
-                    [0] * 3,
-                    [False] * 3,
+                    [scale_opt] * 3,
+                    [mode] * 3,
+                    [sprs_opt] * 3,
                     [None] * 3,
-                    [False] * 3,
+                    [include_last_offset] * 3,
                     [-1] * 3,
                 )
             self.assertTrue(
@@ -672,22 +689,22 @@ class TEST_EMBEDDING_BAG_GROUP(TestCase):
                 data.embedding_matrix,
                 data.emb_input,
                 data.offsets,
-                False,
-                0,
-                False,
+                scale_opt,
+                mode,
+                sprs_opt,
                 None,
-                False,
+                include_last_offset,
             )
 
             y_ebz_list = torch.ops.zentorch.zendnn_custom_embedding_bag_group(
                 [data.embedding_matrix] * 3,
                 [data.emb_input] * 3,
                 [data.offsets] * 3,
-                [False] * 3,
-                [0] * 3,
-                [False] * 3,
+                [scale_opt] * 3,
+                [mode] * 3,
+                [sprs_opt] * 3,
                 [None] * 3,
-                [False] * 3,
+                [include_last_offset] * 3,
                 [-1] * 3,
             )
 

@@ -81,7 +81,9 @@ zendnn_embedding_bag_impl(
 
   int dim_embedding = weight.sizes()[1];
   int num_bags = coffsets.sizes()[0];
-
+  if (include_last_offset == true) {
+    num_bags -= 1;
+  }
   LOG(INFO) << "Embedding matrix dimensions: " << weight.sizes()[0] << "x"
             << dim_embedding;
   LOG(INFO) << "Number of embedding bags: " << num_bags;
@@ -199,7 +201,9 @@ std::vector<at::Tensor> zendnn_custom_embedding_bag_group(
 
       int dim_embedding = weight[i].sizes()[1];
       int num_bags = offsets[i].sizes()[0];
-
+      if (include_last_offset[i] == 1) {
+        num_bags -= 1;
+      }
       output[i] = at::empty({num_bags, dim_embedding}, weight[i].options());
       z_destination[i] = zen_memory(output[i]);
     }
