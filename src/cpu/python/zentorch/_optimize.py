@@ -39,35 +39,15 @@ def optimize(fx_graph):
     return groupEmbedOps_graph
 
 
-def replace_addmm_for_1d_bias(node, fx_graph):
-    is_fake_tensor = bool(node.args[0].meta)
-    # arg node in fx_graph generated through torch.compile will be fake tensor
-    if is_fake_tensor and node.args[0].meta["val"].ndim == 1:
-        # 1d bias
-        return torch.ops.zentorch.zendnn_addmm_1dbias.default
-    # while arg node in fx_graph generated through make_fx will not be fake tensor
-    elif not is_fake_tensor and fx_graph._parameters[node.args[0].target].ndim == 1:
-        # 1d bias
-        return torch.ops.zentorch.zendnn_addmm_1dbias.default
-    else:
-        # addmm(2d)
-        return torch.ops.zentorch.zendnn_addmm.default
+def is_arg_1d_tensor(fx_graph, node, arg_index):
+    is_fake_tensor = bool(node.args[arg_index].meta)
 
-
-def is_aten_embedding_replaceable(node, fx_graph):
-    # Currently zendnn_embedding op only accepts 1-D inputs
-    # which is predominantly evident in RecSys models. The
-    # embedding op in Langauge models like Bert work with
-    # 2-D inputs. In such cases, we do not replace
-    # aten embedding with zendnn embedding. The replacement
-    # is taken care by getting the input shapes from the graph.
-    is_fake_tensor = bool(node.args[1].meta)
-    dims = None
-    indices_arg = node.args[1]
     if is_fake_tensor:
-        dims = indices_arg.meta["val"].ndim
+        # arg node in fx_graph generated through torch.compile will be fake tensor
+        dims = node.args[arg_index].meta["val"].ndim
     else:
-        dims = fx_graph._parameters[indices_arg.target].ndim
+        # while arg node in fx_graph generated through make_fx will not be fake tensor
+        dims = fx_graph._parameters[node.args[arg_index].target].ndim
 
     if dims == 1:
         return True
@@ -75,22 +55,84 @@ def is_aten_embedding_replaceable(node, fx_graph):
         return False
 
 
+# checks the two conditions for arg nodes datatypes
+# the tensor to check is either directly accessible through
+# parameters of fx_graph or is stored as fake in meta dict.
+def is_arg_dtype_bfloat16(fx_graph, node, arg_index):
+    is_fake_tensor = bool(node.args[arg_index].meta)
+
+    if is_fake_tensor:
+        # arg node in fx_graph generated through torch.compile will be fake tensor
+        arg_dtype = node.args[arg_index].meta["val"].dtype
+    else:
+        # while arg node in fx_graph generated through make_fx will not be fake tensor
+        arg_dtype = fx_graph._parameters[node.args[arg_index].target].dtype
+
+    if arg_dtype == torch.bfloat16:
+        return True
+    else:
+        return False
+
+
+def is_embedding_bag_op_replacable(fx_graph, node):
+    if is_arg_dtype_bfloat16(fx_graph, node, 0):
+        logger.warning(
+            "embedding_bag op will not be replaced as"
+            + " zentorch doesn't support bf16 with it yet!"
+        )
+        # don't replace embedding bag if autocast is enabled or if the model
+        # is mixed precision as zendnn doesn't support it w/ bf16
+        return False
+    else:
+        return True
+
+
+def is_embedding_op_replacable(fx_graph, node):
+    if is_arg_dtype_bfloat16(fx_graph, node, 0):
+        logger.warning(
+            "embedding op will not be replaced as"
+            + " zentorch doesn't support bf16 with it yet!"
+        )
+        # don't replace embedding if autocast is enabled or if the model
+        # is mixed precision as zendnn doesn't support it w/ bf16
+        return False
+    else:
+        # Currently zendnn_embedding op only accepts 1-D inputs
+        # which is predominantly evident in RecSys models. The
+        # embedding op in Langauge models like Bert work with
+        # 2-D inputs. In such cases, we do not replace
+        # aten embedding with zendnn embedding. The replacement
+        # is taken care by getting the input shapes from the graph.
+        # returns true if inputs to embedding are 1-D
+        return is_arg_1d_tensor(fx_graph, node, 1)
+
+
+def is_bias_1d_tensor(fx_graph, node):
+    # checks if self/bias tensor is 1-d or not
+    # returns true if 1d bias tensor
+    return is_arg_1d_tensor(fx_graph, node, 0)
+
+
 def replace_with_zendnn_op(fx_graph):
     op_dict = {
         "aten::_embedding_bag": (
             torch.ops.zentorch.zendnn_embedding_bag.default,
-            "zendnn_embedding_bag",
+            "zendnn_embedding_bag", is_embedding_bag_op_replacable,
         ),
         "aten::embedding": (
             torch.ops.zentorch.zendnn_embedding.default,
-            "zendnn_embedding",
+            "zendnn_embedding", is_embedding_op_replacable,
         ),
-        "aten::mm": (torch.ops.zentorch.zendnn_mm.default, "zendnn_mm"),
-        "aten::bmm": (torch.ops.zentorch.zendnn_bmm.default, "zendnn_bmm"),
-        "aten::addmm": (torch.ops.zentorch.zendnn_addmm.default, "zendnn_addmm"),
-        "aten::baddbmm": (torch.ops.zentorch.zendnn_baddbmm.default, "zendnn_baddbmm"),
+        "aten::mm": (torch.ops.zentorch.zendnn_mm.default, "zendnn_mm", None),
+        "aten::bmm": (torch.ops.zentorch.zendnn_bmm.default, "zendnn_bmm", None),
+        "aten::addmm": (torch.ops.zentorch.zendnn_addmm.default, "zendnn_addmm", None),
+        "aten::baddbmm": (
+            torch.ops.zentorch.zendnn_baddbmm.default,
+            "zendnn_baddbmm", None,
+        ),
     }
     # Loop through the nodes in fx_graph.graph
+    # Replacing aten ops with respective zendnn ops
     for node in fx_graph.graph.nodes:
         # Checking for op default implementation to be replaced.
         if (
@@ -98,52 +140,39 @@ def replace_with_zendnn_op(fx_graph):
             and node.target.name() in op_dict.keys()
         ):
             op_name = node.target.name()
-            # don't replace embedding bag or embedding if autocast is enabled or
-            # if the model is mixed precision as zendnn doesn't support it w/ bf16
-            if (
-                node.target == torch.ops.aten.embedding.default
-                or node.target == torch.ops.aten._embedding_bag.default
-            ):
-                # check the two conditions for embedding_bag/embedding datatypes
-                # the tensor to check is either directly accessible through
-                # parameters of fx_graph or is stored as fake in meta dict.
-                is_fake_tensor = bool(node.args[0].meta)
-                # real tensor
-                if (
-                    not is_fake_tensor
-                    and fx_graph._parameters[node.args[0].target].dtype
-                    == torch.bfloat16
-                ):
-                    logger.warning(
-                        "embedding_bag and embedding ops will not be replaced as"
-                        + " zentorch doesn't support bf16 with it yet!"
-                    )
-                    continue
-                # fake tensor
-                elif (
-                    is_fake_tensor and node.args[0].meta["val"].dtype == torch.bfloat16
-                ):
-                    logger.warning(
-                        "embedding_bag and embedding ops will not be replaced as"
-                        + " zentorch doesn't support bf16 with it yet!"
-                    )
-                    continue
 
-            logger.info(
-                "Now replacing default "
-                + op_name
-                + " with "
-                + op_dict[op_name][1]
-                + "!"
-            )
-
-            if node.target == torch.ops.aten.addmm.default:
-                node.target = replace_addmm_for_1d_bias(node, fx_graph)
-            elif node.target == torch.ops.aten.embedding.default:
-                if is_aten_embedding_replaceable(node, fx_graph):
+            if op_dict[op_name][2] is not None:
+                if op_dict[op_name][2](fx_graph, node):
+                    logger.info(
+                        "Now replacing default "
+                        + op_name
+                        + " with "
+                        + op_dict[op_name][1]
+                        + "!"
+                    )
                     node.target = op_dict[op_name][0]
+                else:
+                    logger.info(
+                        "Not able to replace default "
+                        + op_name
+                        + " with "
+                        + op_dict[op_name][1]
+                        + " due to non-fulfilment of the condition."
+                    )
             else:
+                logger.info(
+                    "Now replacing default "
+                    + op_name
+                    + " with "
+                    + op_dict[op_name][1]
+                    + "!"
+                )
                 node.target = op_dict[op_name][0]
+
+            # currently only zendnn_addmm is the conditional zendnn op
+            if node.target == torch.ops.zentorch.zendnn_addmm.default:
+                if is_bias_1d_tensor(fx_graph, node):
+                    node.target = torch.ops.zentorch.zendnn_addmm_1dbias.default
 
     return fx_graph
 
@@ -217,7 +246,10 @@ def zendnn_op_fusion(fx_graph):
             fx_graph.graph.erase_node(node.next)
 
             if node.target == torch.ops.zentorch.zendnn_mm.default:
-                node.target = replace_addmm_for_1d_bias(node, fx_graph)
+                if is_bias_1d_tensor(fx_graph, node):
+                    node.target = torch.ops.zentorch.zendnn_addmm_1dbias.default
+                else:
+                    node.target = torch.ops.zentorch.zendnn_addmm.default
             else:
                 node.target = torch.ops.zentorch.zendnn_baddbmm.default
         # check the pattern for relu/gelu
