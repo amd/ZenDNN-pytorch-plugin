@@ -1531,7 +1531,9 @@ class TestADDMM_GELU(TestCase):
                     torch._dynamo.reset()
                     compiled_graph = torch.compile(model, backend="zentorch")
                     compiled_graph_output = compiled_graph(inp, data.x1[i], data.y1[j])
-                    self.assertEqual(model_output, compiled_graph_output)
+                    self.assertEqual(
+                        model_output, compiled_graph_output
+                    )
 
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
@@ -1548,7 +1550,9 @@ class TestADDMM_GELU(TestCase):
                     torch._dynamo.reset()
                     compiled_graph = torch.compile(model, backend="zentorch")
                     compiled_graph_output = compiled_graph(inp, data.x1[i], data.y1[j])
-                    self.assertEqual(model_output, compiled_graph_output)
+                    self.assertEqual(
+                        model_output, compiled_graph_output
+                    )
 
 
 @unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")

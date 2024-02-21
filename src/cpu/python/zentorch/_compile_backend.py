@@ -3,7 +3,7 @@
 # All rights reserved.
 # ******************************************************************************
 
-import torch # noqa
+import torch  # noqa
 from torch._dynamo import register_backend
 from torch._inductor.compile_fx import compile_fx, compile_fx_inner
 from ._optimize import optimize
@@ -11,35 +11,48 @@ from typing import Callable, List, Optional
 from ._logging import get_logger
 from torch._functorch.aot_autograd import aot_module_simplified
 
+# from torch._decomp import remove_decompositions
+# from torch._inductor.decomposition import decompositions
+
+try:
+    from torch._decomp import remove_decompositions
+    from torch._inductor.decomposition import decompositions
+
+    REMOVE_DECOMP = True
+except ImportError:
+    REMOVE_DECOMP = False
 disable_inductor_flag = False
 
 logger = get_logger(__name__)
 
 
-def zentorch_compile_fx_inner(gm: torch.fx.GraphModule,
-                              example_inputs: List[torch.Tensor],
-                              cudagraphs=None,
-                              num_fixed: int = 0,
-                              is_backward: bool = False,
-                              graph_id: Optional[int] = None,
-                              cpp_wrapper: bool = False,
-                              aot_mode: bool = False,
-                              is_inference: bool = False,
-                              boxed_forward_device_index=None,
-                              user_visible_outputs=frozenset(),
-                              layout_opt: Optional[bool] = None):
+def zentorch_compile_fx_inner(
+    gm: torch.fx.GraphModule,
+    example_inputs: List[torch.Tensor],
+    cudagraphs=None,
+    num_fixed: int = 0,
+    is_backward: bool = False,
+    graph_id: Optional[int] = None,
+    cpp_wrapper: bool = False,
+    aot_mode: bool = False,
+    is_inference: bool = False,
+    boxed_forward_device_index=None,
+    user_visible_outputs=frozenset(),
+    layout_opt: Optional[bool] = None,
+):
     logger.info("Optimizing the model with zentorch ops.")
     # ZenDNN Optimized Implemention starts here###
     zen_gm = optimize(gm)
     # ZenDNN Optimized Implemention ends here###
-
     logger.info("Model is passed to compile_fx_inner.")
-    return compile_fx_inner(zen_gm, example_inputs,
-                            cudagraphs=cudagraphs,
-                            num_fixed=num_fixed,
-                            is_backward=is_backward,
-                            graph_id=graph_id
-                            )
+    return compile_fx_inner(
+        zen_gm,
+        example_inputs,
+        cudagraphs=cudagraphs,
+        num_fixed=num_fixed,
+        is_backward=is_backward,
+        graph_id=graph_id,
+    )
 
 
 def zentorch_compile(
@@ -63,6 +76,7 @@ def zentorch_compile(
 # Compared to using compilefx from inductor (w/o compile_fx_inner),
 # aot_module_simplfified provides better performance as well.
 
+
 def zentorch_compiler_noinductor(gm, sample_inputs):
 
     def zentorch_compiler_noinductor_impl(gm, sample_inputs):
@@ -73,18 +87,22 @@ def zentorch_compiler_noinductor(gm, sample_inputs):
 
     # Invoke AOTAutograd
     return aot_module_simplified(
-        gm,
-        sample_inputs,
-        fw_compiler=zentorch_compiler_noinductor_impl
+        gm, sample_inputs, fw_compiler=zentorch_compiler_noinductor_impl
     )
 
 
 @register_backend
 def zentorch(model, inputs):
-
-    if (disable_inductor_flag):
-        logger.info("Inductor Compilation has been disabled."
-                    + "FX Graph is sent to aot_module_simplified")
+    if REMOVE_DECOMP:
+        remove_decompositions(
+            decompositions,
+            [torch.ops.aten.gelu_, torch.ops.aten.gelu],
+        )
+    if disable_inductor_flag:
+        logger.info(
+            "Inductor Compilation has been disabled."
+            + "FX Graph is sent to aot_module_simplified"
+        )
         return zentorch_compiler_noinductor(model, inputs)
     else:
         return zentorch_compile(model, inputs)
@@ -95,8 +113,8 @@ def zentorch(model, inputs):
 # needs to be compared with and without Inductor compilation.
 # fx graphs are sent to AOT Autograd using aot_module_simplified.
 
-def disable_inductor(disabled: bool):
 
+def disable_inductor(disabled: bool):
     """
     Parameters:
     disabled - True will disable inductor. False will re-enable it.
