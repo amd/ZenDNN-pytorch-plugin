@@ -171,17 +171,21 @@ at::Tensor zendnn_matmul_impl(const at::Tensor &mat1, const at::Tensor &mat2,
   // fuse = 1 for relu op,
   // fuse = 2 for gelu approximate (tanh)
   // fuse = 3 for gelu exact (erf)
-  if (fuse == 1) {
+  switch (fuse) {
+  case 1:
     LOG(INFO) << "Setting relu as post op";
     po.append_eltwise(1.0f, algorithm::eltwise_relu, 0.f, 0.f);
-  }
-  if (fuse == 2) {
+    break;
+  case 2:
     LOG(INFO) << "Setting gelu_tanh as post op";
     po.append_eltwise(1.0f, algorithm::eltwise_gelu_tanh, 1.f, 0.f);
-  }
-  if (fuse == 3) {
+    break;
+  case 3:
     LOG(INFO) << "Setting gelu_erf as post op";
     po.append_eltwise(1.0f, algorithm::eltwise_gelu_erf, 1.f, 0.f);
+    break;
+  default:
+    break;
   }
   op_attr.set_post_ops(po);
 

@@ -1368,6 +1368,22 @@ class CustomModelAddmmGelu1(nn.Module):
         return GELU2_res
 
 
+class CustomModelMM_View_Unary_OP(nn.Module):
+    def __init__(self):
+        super(CustomModelMM_View_Unary_OP, self).__init__()
+        self.gelu = nn.GELU(approximate="tanh")
+        self.gelu2 = nn.GELU()
+
+    def forward(self, input, batch1, batch2):
+        mm_res = torch.mm(batch1, batch2)
+        add_res = torch.add(mm_res, input)
+        add_res.view(-1, 4)
+        GELU1_res = self.gelu(add_res)
+        addmm_res = torch.addmm(GELU1_res, batch1, batch2)
+        GELU2_res = self.gelu2(addmm_res)
+        return GELU2_res
+
+
 @unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
 class TestMMRELU(TestCase):
     @parameterized.expand(supported_dtypes)
@@ -1543,6 +1559,25 @@ class TestADDMM_GELU(TestCase):
         data = Test_Data()
         data.create_data(dtype)
         model = CustomModelAddmmGelu2().eval()
+        for inp in data.M:
+            for i in range(len(data.x1)):
+                for j in range(len(data.y1)):
+                    model_output = model(inp, data.x1[i], data.y1[j])
+                    torch._dynamo.reset()
+                    compiled_graph = torch.compile(model, backend="zentorch")
+                    compiled_graph_output = compiled_graph(inp, data.x1[i], data.y1[j])
+                    self.assertEqual(
+                        model_output, compiled_graph_output
+                    )
+
+    @parameterized.expand(supported_dtypes)
+    @torch.inference_mode()
+    def test_zendnn_addmm_view_gelu(self, dtype):
+        if dtype == "bfloat16":
+            self.skipTest("Skipping it due to issue BF16 path.")
+        data = Test_Data()
+        data.create_data(dtype)
+        model = CustomModelMM_View_Unary_OP().eval()
         for inp in data.M:
             for i in range(len(data.x1)):
                 for j in range(len(data.y1)):

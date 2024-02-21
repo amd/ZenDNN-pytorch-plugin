@@ -52,10 +52,12 @@ def optimize(fx_graph):
     return optimized_graph
 
 
+# use to fuse relu
 def set_relu_mm_fusion_kwargs(node):
     return {**node.kwargs, "fuse": 1}
 
 
+# use to fuse gelu erf & tanh
 def set_gelu_mm_fusion_kwargs(node):
     fuse = 3
     if bool(node.next.kwargs) and node.next.kwargs["approximate"] == "tanh":
@@ -64,7 +66,7 @@ def set_gelu_mm_fusion_kwargs(node):
 
 
 # create dict according to fuse
-op_eltwise_pattern = dict.fromkeys(
+eltwise_patterns = dict.fromkeys(
     (
         zt_ops.zendnn_mm.default,
         zt_ops.zendnn_addmm.default,
@@ -77,12 +79,15 @@ op_eltwise_pattern = dict.fromkeys(
         at_ops.gelu_.default: set_gelu_mm_fusion_kwargs,
     },
 )
-# for now add is not added as post op that's why I created this pattern
 
-op_add_pattern = [
+# for now add is not added as post op that's why I created this pattern
+add_pattern = [
     (zt_ops.zendnn_bmm.default, at_ops.add.Tensor),
     (zt_ops.zendnn_mm.default, at_ops.add.Tensor),
 ]
+
+# list of benign operators
+benign_op = [at_ops.clone.default, at_ops.view.default]
 
 
 def zendnn_op_fusion(fx_graph):
@@ -97,7 +102,7 @@ def zendnn_op_fusion(fx_graph):
         if len(node.users) > 1:  # Output of node is used by other nodes
             continue
         # check the pattern for mm->add or bmm->add
-        if (node.target, node.next.target) in op_add_pattern:
+        if (node.target, node.next.target) in add_pattern:
             logger.info(
                 "Fusing the "
                 + str(node.target)
@@ -120,13 +125,27 @@ def zendnn_op_fusion(fx_graph):
                     node.target = zt_ops.zendnn_addmm.default
             else:
                 node.target = zt_ops.zendnn_baddbmm.default
-        # check the pattern for relu/gelu
-        if node.target in op_eltwise_pattern:
-            eltwise_op_dict = op_eltwise_pattern[node.target]
-            if node.next.target in eltwise_op_dict:
-                node.kwargs = eltwise_op_dict[node.next.target](node)
-                node.next.replace_all_uses_with(node)
-                fx_graph.graph.erase_node(node.next)
+        if node.target in eltwise_patterns:
+            # create a sub-dict from pattern dict
+            if len(node.users) > 1:  # Output of node is used by other nodes
+                continue
+            op_dict = eltwise_patterns[node.target]
+            op_list = [node]
+            # store the user of node in next_node
+            next_node = list(node.users.keys())[0]
+            # checking for benign op
+            while next_node.target in benign_op:
+                if len(next_node.users) > 1:  # Output of node is used by other nodes
+                    break
+                # store benign op in list
+                op_list.append(next_node)
+                # store user of next_node
+                next_node = list(next_node.users.keys())[0]
+            if next_node.target in op_dict:
+                # call the function for eltwise ops
+                node.kwargs = op_dict[next_node.target](op_list[-1])
+                next_node.replace_all_uses_with(op_list[-1])
+                fx_graph.graph.erase_node(next_node)
 
     logger.info("Recompiling the fx_graph with fusion changes made.")
     fx_graph.graph.set_codegen(torch.fx.graph.CodeGen())
