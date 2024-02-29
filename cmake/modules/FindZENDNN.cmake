@@ -1,5 +1,5 @@
 #******************************************************************************
-# Copyright (c) 2023 Advanced Micro Devices, Inc.
+# Copyright (c) 2023-2024 Advanced Micro Devices, Inc.
 # All rights reserved.
 #******************************************************************************
 
@@ -25,7 +25,7 @@ get_filename_component(PLUGIN_PARENT_DIR ${CMAKE_CURRENT_SOURCE_DIR} DIRECTORY)
 IF("$ENV{ZENDNN_PT_USE_LOCAL_BLIS}" EQUAL 0)
     FetchContent_Declare(blis
     GIT_REPOSITORY https://github.com/amd/blis.git
-    GIT_TAG 4.1
+    GIT_TAG 4.2
     SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/blis"
     )
     FetchContent_GetProperties(blis)
