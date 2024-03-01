@@ -14,6 +14,7 @@ from ._zentorch_custom_op_replacement import (
     emb_ops_horizontal_fusion,
     vertical_mlp_fusion,
     horizontal_mlp_fusion,
+    eb_group_mlp_group_fusion
 )
 
 # make a logger for this file
@@ -49,6 +50,9 @@ def optimize(fx_graph):
 
     # Fusion of parallel MLP layers
     optimized_graph = horizontal_mlp_fusion(optimized_graph)
+
+    # Horizontal fusion of parallel Group EB op and Group MLP op
+    optimized_graph = eb_group_mlp_group_fusion(optimized_graph)
 
     # Dumping of the optimized graph in svg format
     save_graph(optimized_graph, "zen_optimized_model")

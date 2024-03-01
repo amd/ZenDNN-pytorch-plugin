@@ -4,22 +4,8 @@
  ******************************************************************************/
 
 #include "ZenDNNMemory.hpp"
+#include "ZenTorchUtils.hpp"
 #define ZENDNN_EMBED_THRDS 16
-
-inline void zen_embed_tensor_check(const at::Tensor &weight,
-                                   const at::Tensor &indices) {
-  // check if all the input tensors are on cpu device
-  TORCH_CHECK(weight.device().is_cpu() && indices.device().is_cpu(),
-              "ZenDNN Embedding expects CPU tensor inputs!");
-  // check if all the input tensors are dense format
-  TORCH_CHECK((weight.layout() == c10::Layout::Strided) &&
-                  (indices.layout() == c10::Layout::Strided),
-              "ZenDNN Embedding expects dense tensor inputs!");
-  // check the weight type for embedding, only supported is fp32 for now
-  // (works ONLY for dtype=torch.float32)
-  TORCH_CHECK(weight.scalar_type() == c10::kFloat,
-              "Only fp32 type weights are supported in ZenDNN Embedding!");
-}
 
 using namespace zendnn;
 
@@ -30,7 +16,8 @@ at::Tensor zendnn_embedding_impl(const at::Tensor &weight,
                                  const bool &scale_grad_by_freq,
                                  const bool &sparse) {
 
-  LOG(INFO) << "Executing function: " << __FUNCTION__;
+  LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
+            << "Executing function: " << __FUNCTION__;
 
   zen_embed_tensor_check(weight, indices);
 
@@ -70,6 +57,8 @@ std::vector<at::Tensor> zendnn_horizontal_embedding_group(
     const at::IntArrayRef &padding_idx,
     const at::IntArrayRef &scale_grad_by_freq, const at::IntArrayRef &sparse) {
 
+  LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
+            << "Executing function: " << __FUNCTION__;
   int num_eb_ops = weight.size();
 
   std::vector<memory> z_weights(num_eb_ops);

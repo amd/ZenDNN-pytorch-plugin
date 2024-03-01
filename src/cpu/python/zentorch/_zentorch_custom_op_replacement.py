@@ -17,7 +17,7 @@ zt_ops = torch.ops.zentorch
 
 
 def emb_ops_horizontal_fusion(fx_g):
-    logger.info("Fusing horizontal parallel ops.")
+    logger.info("Fusing horizontal parallel embedding ops.")
     zentorch_embed_ops_dict = {
         zt_ops.zendnn_embedding_bag.default:
             zt_ops.zendnn_horizontal_embedding_bag_group.default,
@@ -49,12 +49,12 @@ def emb_ops_horizontal_fusion(fx_g):
                     node_name = common_output_node.name
                     if node_name in groups:
                         if groups[node_name]["type"] == "embedding_bag":
-                            logger.info(
-                                "Cannot fuse embedding bag and embedding with \
-                                 common node. This is because of the function \
-                                 prototype difference between the \
-                                 aten.embedding and aten.embeddingbag ops and \
-                                 their corresponding zentorch group ops."
+                            logger.warning(
+                                "Cannot fuse embedding bag and embedding with "
+                                + "common node. This is because of the function "
+                                + "prototype difference between the "
+                                + "aten.embedding and aten.embeddingbag ops and "
+                                + "their corresponding zentorch group ops!"
                             )
                             return fx_g
                         groups[node_name]["nodes"].append(node)
@@ -68,12 +68,12 @@ def emb_ops_horizontal_fusion(fx_g):
                     node_name = common_output_node.name
                     if node_name in groups:
                         if groups[node_name]["type"] == "embedding":
-                            logger.info(
-                                "Cannot fuse embedding bag and embedding with \
-                                 common node. This is because of the function \
-                                 prototype difference between the \
-                                 aten.embedding and aten.embeddingbag ops and \
-                                 their corresponding zentorch group ops."
+                            logger.warning(
+                                "Cannot fuse embedding bag and embedding with "
+                                + "common node. This is because of the function "
+                                + "prototype difference between the "
+                                + "aten.embedding and aten.embeddingbag ops and "
+                                + "their corresponding zentorch group ops."
                             )
                             return fx_g
                         groups[node_name]["nodes"].append(node)
@@ -213,6 +213,8 @@ def vertical_mlp_fusion(fx_graph):
 
         return None
 
+    logger.info("Fusing vertical contiguous addmm ops.")
+
     for node in fx_graph.graph.nodes:
         if node.target == at_ops.detach.default:
             fx_graph.graph.erase_node(node)
@@ -264,9 +266,9 @@ def vertical_mlp_fusion(fx_graph):
                 # placeholder is not a valid sequence of Linear layers in the
                 # model.
                 if arg.op != "placeholder":
-                    logger.info(
-                        "GroupMLP fusion not possible with the current \
-                            sequence of addmm layers"
+                    logger.warning(
+                        "GroupMLP fusion not possible with the current "
+                        + "sequence of addmm layers"
                     )
                     continue_status = True
                     break
@@ -412,3 +414,150 @@ def horizontal_mlp_fusion(fx_g):
     fx_g.graph.set_codegen(torch.fx.graph.CodeGen())
     fx_g.recompile()
     return fx_g
+
+
+def eb_group_mlp_group_fusion(fx_graph):
+
+    logger.info(
+        "Fusing the horizontally fused EmbeddingBag op and the"
+        + " vertically fused MLP op"
+    )
+
+    # This function makes changes on the graph after the Horizontal
+    # EmbeddingBag Fusion and Vertical MLP fusion is introduced in the graph.
+    # This fusion merges the horizontally fused EmbeddingBag op and the
+    # vertically fused MLP op into one single op to achieve better compute
+    # distribution.
+
+    # The above mentioned fusion happens only when the horizontally fused
+    # EmbeddingBag op and the vertically fused MLP op have a common concat node
+    concat_nodes = []
+    for node in fx_graph.graph.nodes:
+        if node.target == torch.ops.aten.cat.default:
+            concat_nodes.append(node)
+
+    # Return the index of the required_node in the fx_graph. Since the fx_graph
+    # is a doubly linked list, the index of the required_node in a graph makes
+    # sense.
+    def get_node_index_in_graph(required_node, fx_graph):
+        for idx, node in enumerate(fx_graph.graph.nodes):
+            if node == required_node:
+                return idx
+
+    # EmbeddingBag has four outputs, each of which are get_item nodes in the
+    # graph. Group EmbedddingBag considers these get_items from various
+    # EmbeddingBags with common output of these get_items being the concate
+    # node. So, any get_item nodes that have output as concate node and input
+    # as EmbeddingBag, will be merged into one Group EmbedddingBag. So, one
+    # concate node cannot have more than one Group EmbedddingBag as the input.
+
+    group_idx = 0
+    for node in concat_nodes:
+        group_mlp_op, group_eb_op = None, None
+        node_input_loop_break = False
+        for node_input in node.all_input_nodes:
+            # Checking if the one of the inputs to the concate node is
+            # vertically fused MLP op. If there are multiple vertically fused
+            # MLP ops that are inputs to the interaction node, the last one
+            # will be fused with the horizontally fused EmbeddingBag op
+            if node_input.target == zt_ops.zendnn_vertical_mlp_group.default:
+                group_mlp_op = node_input
+
+            # Here we strictly checking that every get_item node has the
+            # horizontally fused EmbeddingBag op as the input. If that is not
+            # the case, the fusion does not take place and the control goes to
+            # the next interaction node.
+            elif node_input.target == operator.getitem:
+                for getitem_input in node_input.all_input_nodes:
+                    condition = (
+                        getitem_input.target
+                        == zt_ops.zendnn_horizontal_embedding_bag_group.default
+                    )
+                    if condition:
+                        group_eb_op = getitem_input
+                    else:
+                        node_input_loop_break = True
+                        break
+
+            # Here we have a very strict check, that is concate node under
+            # consideration must mandatorily have only horizontally fused
+            # EmbeddingBag ops and the vertically fused MLP ops as inputs
+            # else we proceed to the next interaction node
+            else:
+                break
+
+            # If even one of the get_item nodes have a different input than
+            # horizontally fused EmbeddingBag op, we proceed to the next
+            # interaction node
+            if node_input_loop_break:
+                logger.warning(
+                    "Fusion of horizontally fused EmbeddingBag op and"
+                    + " the vertically fused MLP op into one single op is"
+                    + f" not possible at the current concate node: {node}!"
+                )
+                group_mlp_op, group_eb_op = None, None
+                break
+
+        if group_eb_op and group_mlp_op:
+            fused_op_args = []
+
+            group_mlp_op_idx = get_node_index_in_graph(group_mlp_op, fx_graph)
+            group_eb_op_idx = get_node_index_in_graph(group_eb_op, fx_graph)
+
+            start_node = group_mlp_op
+            end_node = group_eb_op
+            curr_node = start_node.next
+
+            # The update of the target always happens to the vertically fused
+            # MLP op. So, whenever horizontally fused EmbeddingBag op comes
+            # before vertically fused MLP op, we need to prepend the arguments
+            # of horizontally fused EmbeddingBag op with respect to the
+            # before vertically fused MLP op
+            if group_mlp_op_idx < group_eb_op_idx:
+                while curr_node != end_node:
+                    group_mlp_op.prepend(curr_node)
+                    curr_node = curr_node.next
+
+            for arg in group_eb_op.args:
+                fused_op_args.append(arg)
+            for arg in group_mlp_op.args:
+                fused_op_args.append(arg)
+            group_mlp_op.args = tuple(fused_op_args)
+            new_node = None
+
+            group_mlp_op.target = torch.ops.zentorch.zendnn_fused_eb_mlp.default
+
+            if group_idx:
+                group_mlp_op.name = f"fused_eb_mlp_{group_idx}"
+            else:
+                group_mlp_op.name = "fused_eb_mlp"
+            group_idx += 1
+
+            # Replacing the output of original vertical Group MLP op to a
+            # new get_item node. To avoid nested replacement of Group MLP op
+            # inside the arguments of the get_item, we are assigning the
+            # arguments after the replacement of the Group MLP op with the
+            # new node.
+            new_node = fx_graph.graph.create_node(
+                op="call_function",
+                target=operator.getitem,
+                args=(),
+            )
+            group_mlp_op.append(new_node)
+            group_mlp_op.replace_all_uses_with(new_node)
+            new_node.args = (group_mlp_op, (len(fused_op_args[0]) * 4))
+
+            for user in list(group_eb_op.users.keys()):
+                group_mlp_op.append(user)
+
+            # Since we are fusing the horizontally fused EmbeddingBag op with
+            # vertically fused MLP op, and the target of the latter is always
+            # changed, we replace all the former's uses with the latter and
+            # erase the former.
+            group_eb_op.replace_all_uses_with(group_mlp_op)
+            fx_graph.graph.erase_node(group_eb_op)
+
+    fx_graph.graph.set_codegen(torch.fx.graph.CodeGen())
+    fx_graph.recompile()
+
+    return fx_graph

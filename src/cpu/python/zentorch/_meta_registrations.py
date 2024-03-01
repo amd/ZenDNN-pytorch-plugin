@@ -181,6 +181,46 @@ def meta_zendnn_attn_horizontal_mlp_group(
     return output_list
 
 
+@register_meta("zendnn_fused_eb_mlp")
+def meta_zendnn_fused_eb_mlp(
+    eb_weight,
+    eb_indices,
+    eb_offsets,
+    eb_scale_grad_by_freq,
+    eb_mode,
+    eb_sparse,
+    eb_per_sample_weights_opt,
+    eb_include_last_offset,
+    eb_padding_idx,
+    mlp_self,
+    mlp_inputs,
+    mlp_weight,
+    mlp_betas,
+    mlp_alphas,
+    mlp_fuse,
+):
+
+    output = meta_zendnn_horizontal_embedding_bag_group(
+        eb_weight,
+        eb_indices,
+        eb_offsets,
+        eb_scale_grad_by_freq,
+        eb_mode,
+        eb_sparse,
+        eb_per_sample_weights_opt,
+        eb_include_last_offset,
+        eb_padding_idx,
+    )
+
+    output.append(
+        meta_zendnn_vertical_mlp_group(
+            mlp_self, mlp_inputs, mlp_weight, mlp_betas, mlp_alphas, mlp_fuse
+        )
+    )
+
+    return output
+
+
 make_fallback(torch.ops.zentorch.zendnn_addmm)
 make_fallback(torch.ops.zentorch.zendnn_addmm_1dbias)
 make_fallback(torch.ops.zentorch.zendnn_embedding_bag)
@@ -192,3 +232,4 @@ make_fallback(torch.ops.zentorch.zendnn_horizontal_embedding_bag_group)
 make_fallback(torch.ops.zentorch.zendnn_horizontal_embedding_group)
 make_fallback(torch.ops.zentorch.zendnn_vertical_mlp_group)
 make_fallback(torch.ops.zentorch.zendnn_attn_horizontal_mlp_group)
+make_fallback(torch.ops.zentorch.zendnn_fused_eb_mlp)

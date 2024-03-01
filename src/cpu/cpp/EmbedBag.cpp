@@ -4,44 +4,9 @@
  ******************************************************************************/
 
 #include "ZenDNNMemory.hpp"
-
+#include "ZenTorchUtils.hpp"
 #include <ATen/ParallelOpenMP.h>
 #define ZENDNN_EMBED_BAG_THRDS 16
-
-inline void zen_eb_tensor_check(const at::Tensor &weight,
-                                const at::Tensor &indices,
-                                const at::Tensor &offsets) {
-  // check if all the input tensors are on cpu device
-  TORCH_CHECK(weight.device().is_cpu() && indices.device().is_cpu() &&
-                  offsets.device().is_cpu(),
-              "ZenDNN EmbeddingBag expects CPU tensor inputs!");
-  // check if all the input tensors are dense format
-  TORCH_CHECK((weight.layout() == c10::Layout::Strided) &&
-                  (indices.layout() == c10::Layout::Strided) &&
-                  (offsets.layout() == c10::Layout::Strided),
-              "ZenDNN EmbeddingBag expects dense tensor inputs!");
-  // check the weight type for embedding bag, only supported is fp32 for now
-  // (works ONLY for dtype=torch.float32)
-  TORCH_CHECK(weight.scalar_type() == c10::kFloat,
-              "Only fp32 type weights are supported in ZenDNN EmbeddingBag!");
-}
-
-inline void zen_mode_to_algo(const int64_t &mode, algorithm &z_algorithm) {
-  switch (mode) {
-  case 0:
-    z_algorithm = algorithm::embedding_bag_sum;
-    break;
-  case 1:
-    z_algorithm = algorithm::embedding_bag_mean;
-    break;
-  case 2:
-    z_algorithm = algorithm::embedding_bag_max;
-    break;
-  default:
-    z_algorithm = algorithm::embedding_bag_sum;
-    break;
-  }
-}
 
 using namespace zendnn;
 
@@ -55,7 +20,8 @@ zendnn_embedding_bag_impl(
     const c10::optional<at::Tensor> &per_sample_weights_opt,
     const bool &include_last_offset, const int64_t &padding_idx) {
 
-  LOG(INFO) << "Executing function: " << __FUNCTION__;
+  LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
+            << "Executing function: " << __FUNCTION__;
 
   zen_eb_tensor_check(weight, indices, offsets);
 
@@ -147,6 +113,9 @@ std::vector<at::Tensor> zendnn_horizontal_embedding_bag_group(
     const at::IntArrayRef &include_last_offset,
     const at::IntArrayRef &padding_idx) {
 
+  LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
+            << "Executing function: " << __FUNCTION__;
+
   int num_eb_ops = weight.size();
 
   std::vector<memory> z_weight(num_eb_ops);
@@ -214,7 +183,6 @@ std::vector<at::Tensor> zendnn_horizontal_embedding_bag_group(
       z_weight, z_indices, z_offsets, z_scale_grad_by_freq, z_algorithm,
       z_sparse, z_per_sample_weights_opt, z_per_sample_weights_defined,
       z_include_last_offset, z_padding_idx, z_destination); // Library call
-  LOG(INFO) << "Finished executing: " << __FUNCTION__ << "!\n";
 
   at::parallel_for(0, num_eb_ops, 0, [&](int64_t start, int64_t end) {
     for (auto i = start; i < end; i++) {
@@ -230,6 +198,8 @@ std::vector<at::Tensor> zendnn_horizontal_embedding_bag_group(
       out_vec[temp + 3] = max_indices;
     }
   });
+
+  LOG(INFO) << "Finished executing: " << __FUNCTION__ << "!\n";
 
   return out_vec;
 }

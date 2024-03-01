@@ -7,6 +7,7 @@ import torch
 
 # import the custom logging module
 from ._logging import get_logger
+
 # make a logger for this file
 logger = get_logger(__name__)
 
@@ -79,7 +80,15 @@ def is_embedding_op_replacable(fx_graph, node):
         # aten embedding with zendnn embedding. The replacement
         # is taken care by getting the input shapes from the graph.
         # returns true if inputs to embedding are 1-D
-        return is_arg_1d_tensor(fx_graph, node, 1)
+
+        if is_arg_1d_tensor(fx_graph, node, 1):
+            return True
+
+        logger.warning(
+            "embedding op will not be replaced as"
+            + " zentorch supports only 1-dimensional inputs to the op!"
+        )
+        return False
 
 
 def is_bias_1d_tensor(fx_graph, node):
@@ -91,16 +100,19 @@ def is_bias_1d_tensor(fx_graph, node):
 def replace_with_zentorch_ops(fx_graph):
     op_dict = {
         at_ops._embedding_bag.default: (
-            zt_ops.zendnn_embedding_bag.default, is_embedding_bag_op_replacable,
+            zt_ops.zendnn_embedding_bag.default,
+            is_embedding_bag_op_replacable,
         ),
         at_ops.embedding.default: (
-            zt_ops.zendnn_embedding.default, is_embedding_op_replacable,
+            zt_ops.zendnn_embedding.default,
+            is_embedding_op_replacable,
         ),
         at_ops.mm.default: (zt_ops.zendnn_mm.default, None),
         at_ops.bmm.default: (zt_ops.zendnn_bmm.default, None),
         at_ops.addmm.default: (zt_ops.zendnn_addmm.default, None),
         at_ops.baddbmm.default: (
-            zt_ops.zendnn_baddbmm.default, None,
+            zt_ops.zendnn_baddbmm.default,
+            None,
         ),
     }
     # Loop through the nodes in fx_graph.graph

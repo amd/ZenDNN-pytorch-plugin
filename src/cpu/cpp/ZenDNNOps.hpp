@@ -78,4 +78,16 @@ std::vector<at::Tensor> zendnn_attn_horizontal_mlp_group(
     const at::TensorList &weights, const at::ArrayRef<double> &betas,
     const at::ArrayRef<double> &alphas, const at::IntArrayRef &fuse,
     const at::IntArrayRef &is_zendnnmm);
+
+std::vector<at::Tensor> zendnn_fused_eb_mlp(
+    const at::TensorList &eb_weight, const at::TensorList &eb_indices,
+    const at::TensorList &eb_offsets,
+    const at::IntArrayRef &eb_scale_grad_by_freq,
+    const at::IntArrayRef &eb_mode, const at::IntArrayRef &eb_sparse,
+    const c10::List<c10::optional<at::Tensor>> &eb_per_sample_weights_opt,
+    const at::IntArrayRef &eb_include_last_offset,
+    const at::IntArrayRef &eb_padding_idx, const at::TensorList &mlp_self,
+    const at::Tensor &mlp_inputs, const at::TensorList &mlp_weight,
+    const at::ArrayRef<double> &mlp_betas,
+    const at::ArrayRef<double> &mlp_alphas, const at::IntArrayRef &mlp_fuse);
 } // namespace ZenDNNTorch

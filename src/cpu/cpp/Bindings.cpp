@@ -59,6 +59,13 @@ TORCH_LIBRARY(zentorch, m) {
         "Tensor[] weights, "
         "float[] betas, float[] alphas, int[] fuse, int[] is_zendnnmm) -> "
         "Tensor[]");
+  m.def(
+      "zendnn_fused_eb_mlp(Tensor[] eb_weight, Tensor[] eb_indices, "
+      "Tensor[] eb_offsets, int[] eb_scale_grad_by_freq, int[] eb_mode, int[] "
+      "eb_sparse, Tensor?[] eb_per_sample_weights, "
+      "int[] eb_include_last_offset, int[] eb_padding_idx, Tensor[] mlp_self, "
+      "Tensor mlp_inputs, Tensor[] mlp_weight, float[] mlp_betas, "
+      "float[] mlp_alphas, int[] mlp_fuse) -> Tensor[]");
 }
 
 TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
@@ -76,6 +83,7 @@ TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
   m.impl("zendnn_vertical_mlp_group", ZenDNNTorch::zendnn_vertical_mlp_group);
   m.impl("zendnn_attn_horizontal_mlp_group",
          ZenDNNTorch::zendnn_attn_horizontal_mlp_group);
+  m.impl("zendnn_fused_eb_mlp", ZenDNNTorch::zendnn_fused_eb_mlp);
 }
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {

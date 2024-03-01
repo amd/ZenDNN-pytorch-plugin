@@ -217,8 +217,8 @@ class Test_ADDMM_OP(TestCase):
                 )
                 self.assertTrue(
                     "zendnn_matmul: zendnn_matmul is not supported for "
-                    "bf16 tensors when bias is defined and alpha != 1"
-                    in str(context.exception)
+                    "bf16 tensors when bias is defined and alpha is not equal "
+                    "to 1" in str(context.exception)
                 )
         else:
             self.assertEqual(
@@ -1109,6 +1109,93 @@ class TEST_GROUP_MLP(TestCase):
                 in str(context.exception)
             )
 
+    @torch.inference_mode()
+    def test_bf16_alpha_not_1(self):
+        data = Test_Data()
+        data.create_data("bfloat16")
+
+        with self.assertRaises(RuntimeError) as context:
+            torch.ops.zentorch.zendnn_addmm(data.input1d, data.x, data.y, alpha=1.7)
+            self.assertTrue(
+                "zendnn_matmul: zendnn_matmul is not supported for bf16 \
+                tensors when bias is defined and alpha is not equal to 1"
+                in str(context.exception)
+            )
+
+
+@unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
+class TEST_GROUP_EB_MLP(TestCase):
+    @parameterized.expand(supported_dtypes)
+    @torch.inference_mode()
+    def test_group_eb_mlp_model(self, dtype):
+        if dtype == "bfloat16":
+            self.skipTest(
+                "Skipping it since the test case is not applicable \
+                          in this case. Custom Model weights are in fp32 by \
+                          default unless explicitly set to bfloat16."
+            )
+
+        data = Test_Data()
+        data.create_data(dtype)
+
+        indices = data.emb_input
+        offsets = data.offsets
+
+        model = CustomModel_Group_EB_MLP_Model(data.R, data.k)
+
+        native_output = model(indices, offsets, data.x)
+        torch._dynamo.reset()
+        compiled_graph = torch.compile(model, backend="zentorch")
+
+        compiled_output = compiled_graph(indices, offsets, data.x)
+        self.assertEqual(native_output, compiled_output, atol=1e-1, rtol=1e-3)
+
+    @parameterized.expand(supported_dtypes)
+    @torch.inference_mode()
+    def test_group_mlp_eb_model(self, dtype):
+        if dtype == "bfloat16":
+            self.skipTest(
+                "Skipping it since the test case is not applicable \
+                          in this case. Custom Model weights are in fp32 by \
+                          default unless explicitly set to bfloat16."
+            )
+
+        data = Test_Data()
+        data.create_data(dtype)
+
+        indices = data.emb_input
+        offsets = data.offsets
+
+        model = CustomModel_Group_MLP_EB_Model(data.R, data.k)
+
+        native_output = model(indices, offsets, data.x)
+        torch._dynamo.reset()
+        compiled_graph = torch.compile(model, backend="zentorch")
+
+        compiled_output = compiled_graph(indices, offsets, data.x)
+        self.assertEqual(native_output, compiled_output, atol=1e-1, rtol=1e-3)
+
+    @parameterized.expand(supported_dtypes)
+    @torch.inference_mode()
+    def test_group_eb_mlp_model_multiple_models(self, dtype):
+        if dtype == "bfloat16":
+            self.skipTest(
+                "Skipping it since the test case is not applicable \
+                          in this case. Custom Model weights are in fp32 by \
+                          default unless explicitly set to bfloat16."
+            )
+
+        eb_inputs = torch.randint(0, 3, (2, 1))
+        mlp_inputs = torch.randn(2, 2)
+
+        model = CustomModel_Group_EB_MLP_Model_multiple_groups()
+        native_output = model(eb_inputs, mlp_inputs)
+        torch._dynamo.reset()
+        compiled_model = torch.compile(model, backend="zentorch")
+        compiled_output = compiled_model(eb_inputs, mlp_inputs)
+
+        self.assertEqual(native_output, compiled_output, atol=1e-1, rtol=1e-3)
+
 
 @unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
 class TestBF16Device(TestCase):
@@ -1117,6 +1204,100 @@ class TestBF16Device(TestCase):
     )
     def test_bf16_device(self):
         self.assertTrue(zentorch._C.is_bf16_supported(), "CPU supports AVX512 BF16.")
+
+
+@unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
+class CustomModel_Group_EB_MLP_Model(nn.Module):
+    def __init__(self, num_embeddings, k):
+        super(CustomModel_Group_EB_MLP_Model, self).__init__()
+        self.eb_bags_grp = [torch.nn.EmbeddingBag(num_embeddings, 3)] * 3
+        self.mlp_0 = torch.nn.Linear(k, 12)
+        self.mlp_1 = torch.nn.Linear(12, 6)
+        self.mlp_2 = torch.nn.Linear(6, 3)
+
+    def forward(self, eb_input, eb_offset, mlp_input):
+        eb_grp_outputs = [self.eb_bags_grp[i](eb_input, eb_offset) for i in range(3)]
+        mlp_output = self.mlp_0(mlp_input)
+        mlp_output = self.mlp_1(mlp_output)
+        mlp_output = self.mlp_2(mlp_output)
+
+        outputs = eb_grp_outputs + [mlp_output]
+        outputs = torch.cat(outputs, dim=1)
+
+        return outputs
+
+
+@unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
+class CustomModel_Group_MLP_EB_Model(nn.Module):
+    def __init__(self, num_embeddings, k):
+        super(CustomModel_Group_MLP_EB_Model, self).__init__()
+        self.eb_bags_grp = [torch.nn.EmbeddingBag(num_embeddings, 3)] * 3
+        self.mlp_0 = torch.nn.Linear(k, 12)
+        self.mlp_1 = torch.nn.Linear(12, 6)
+        self.mlp_2 = torch.nn.Linear(6, 3)
+
+    def forward(self, eb_input, eb_offset, mlp_input):
+        mlp_output = self.mlp_0(mlp_input)
+        mlp_output = self.mlp_1(mlp_output)
+        mlp_output = self.mlp_2(mlp_output)
+
+        eb_grp_outputs = [self.eb_bags_grp[i](eb_input, eb_offset) for i in range(3)]
+
+        outputs = eb_grp_outputs + [mlp_output]
+        outputs = torch.cat(outputs, dim=1)
+
+        return outputs
+
+
+class CustomModel_Group_EB_MLP_Model_multiple_groups(torch.nn.Module):
+    def __init__(self):
+        super(CustomModel_Group_EB_MLP_Model_multiple_groups, self).__init__()
+        # Common Nodes
+        self.relu = torch.nn.ReLU()
+        self.sigmoid = torch.nn.Sigmoid()
+
+        self.eb_bags = [torch.nn.EmbeddingBag(3, 3, mode="sum") for _ in range(2)]
+
+        self.bmlp_0 = torch.nn.Linear(2, 4)
+        self.bmlp_1 = torch.nn.Linear(4, 4)
+        self.bmlp_2 = torch.nn.Linear(4, 3)
+
+        self.tmlp_0 = torch.nn.Linear(12, 4)
+        self.tmlp_1 = torch.nn.Linear(4, 2)
+        self.tmlp_2 = torch.nn.Linear(2, 2)
+        self.tmlp_3 = torch.nn.Linear(2, 1)
+
+    def forward(self, eb_inputs, mlp_inputs):
+
+        outputs = []
+
+        for _ in range(3):
+            eb_outputs = [eb_op(eb_inputs, None) for eb_op in self.eb_bags]
+
+            mlp_outputs = self.bmlp_0(mlp_inputs)
+            mlp_outputs = self.relu(mlp_outputs)
+            mlp_outputs = self.bmlp_1(mlp_outputs)
+            mlp_outputs = self.relu(mlp_outputs)
+            mlp_outputs = self.bmlp_2(mlp_outputs)
+            mlp_outputs = self.relu(mlp_outputs)
+
+            interaction_input = eb_outputs + [mlp_outputs]
+            interaction_output = torch.concat(interaction_input, dim=1)
+
+            tmlp_input = torch.concat([mlp_outputs, interaction_output], dim=1)
+
+            tmlp_outputs = self.tmlp_0(tmlp_input)
+            tmlp_outputs = self.relu(tmlp_outputs)
+            tmlp_outputs = self.tmlp_1(tmlp_outputs)
+            tmlp_outputs = self.relu(tmlp_outputs)
+            tmlp_outputs = self.tmlp_2(tmlp_outputs)
+            tmlp_outputs = self.relu(tmlp_outputs)
+            tmlp_outputs = self.tmlp_3(tmlp_outputs)
+            tmlp_outputs = self.sigmoid(tmlp_outputs)
+
+            outputs.append(tmlp_outputs)
+
+        return torch.sum(torch.concat(outputs, dim=1))
 
 
 @unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
@@ -1665,9 +1846,7 @@ class TestADDMM_GELU(TestCase):
                     torch._dynamo.reset()
                     compiled_graph = torch.compile(model, backend="zentorch")
                     compiled_graph_output = compiled_graph(inp, data.x1[i], data.y1[j])
-                    self.assertEqual(
-                        model_output, compiled_graph_output
-                    )
+                    self.assertEqual(model_output, compiled_graph_output)
 
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
@@ -1684,9 +1863,7 @@ class TestADDMM_GELU(TestCase):
                     torch._dynamo.reset()
                     compiled_graph = torch.compile(model, backend="zentorch")
                     compiled_graph_output = compiled_graph(inp, data.x1[i], data.y1[j])
-                    self.assertEqual(
-                        model_output, compiled_graph_output
-                    )
+                    self.assertEqual(model_output, compiled_graph_output)
 
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
@@ -1703,9 +1880,7 @@ class TestADDMM_GELU(TestCase):
                     torch._dynamo.reset()
                     compiled_graph = torch.compile(model, backend="zentorch")
                     compiled_graph_output = compiled_graph(inp, data.x1[i], data.y1[j])
-                    self.assertEqual(
-                        model_output, compiled_graph_output
-                    )
+                    self.assertEqual(model_output, compiled_graph_output)
 
 
 @unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
