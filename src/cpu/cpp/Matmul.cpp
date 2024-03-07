@@ -101,7 +101,14 @@ at::Tensor zendnn_matmul_impl(const at::Tensor &mat1, const at::Tensor &mat2,
 
     LOG(INFO) << "bias is defined and bias dimensions: " << bias.sizes();
 
-    beta_bias = (beta == 1.0f) ? bias : bias.mul(beta);
+    // BR_GEMM kernel execution is as alpha * (mat1 @ mat2 + bias)
+    // but addmm is executed as alpha * (mat1 @ mat2) + beta * bias
+
+    // so alpha * (mat1 @ mat2 + (beta / alpha) * bias) is equivalent
+    // to alpha * (mat1 @ mat2) + beta * bias
+    const float modified_beta =
+        (alpha == 1.0f || alpha == 0) ? beta : beta / alpha;
+    beta_bias = (modified_beta == 1.0f) ? bias : bias.mul(modified_beta);
 
     // creating bias zen_memory with predefined memory::desc
     // as bias is 1d we need to define format_tag as 'ab'

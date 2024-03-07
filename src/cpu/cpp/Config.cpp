@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright (c) 2023 Advanced Micro Devices, Inc.
+ * Copyright (c) 2023-2024 Advanced Micro Devices, Inc.
  * All rights reserved.
  ******************************************************************************/
 
@@ -34,14 +34,10 @@ std::string show_config() {
   ss << "  - C++ Version: " << __cplusplus << "\n";
 #endif
   ss << "Third_party libraries:\n";
-  ss << "  - "
-     << "AMD " << bli_info_get_version_str() << " ( Git Hash "
-     << BLIS_VERSION_HASH << " )"
-     << "\n";
-  ss << "  - "
-     << "AMD ZENDNN v" << get_zendnn_version() << " ( Git Hash "
-     << ZENDNN_LIB_VERSION_HASH << " )"
-     << "\n";
+  ss << "  - " << "AMD " << bli_info_get_version_str() << " ( Git Hash "
+     << BLIS_VERSION_HASH << " )" << "\n";
+  ss << "  - " << "AMD ZENDNN v" << get_zendnn_version() << " ( Git Hash "
+     << ZENDNN_LIB_VERSION_HASH << " )" << "\n";
 
   return ss.str();
 }
