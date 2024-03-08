@@ -25,7 +25,7 @@ std::string get_zendnn_version() {
 std::string show_config() {
   std::ostringstream ss;
   ss << "Plugin Version: " << TO_STRING(ZENTORCH_VERSION) << "\n";
-  ss << "torch_zendnn_plugin built with:\n";
+  ss << "zentorch built with:\n";
   ss << "  - Commit-id: " << TO_STRING(ZENTORCH_VERSION_HASH) << "\n";
 #if defined(__GNUC__)
   ss << "  - GCC Version: " << __GNUC__ << "." << __GNUC_MINOR__ << "\n";

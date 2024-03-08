@@ -1,4 +1,4 @@
-Copyright &copy; 2023 Advanced Micro Devices, Inc. All rights reserved.
+Copyright &copy; 2023-2024 Advanced Micro Devices, Inc. All rights reserved.
 
 This file details the technical contributions made to zentorch. If you are interested in contributing to zentorch, please read through this!
 
@@ -94,7 +94,7 @@ Following are guidelines to consider when creating and registering a new op.
 >  - Add a corresponding unit test for the new op created in ZenDNN_PyTorch_Plugin/test/test_zentorch.py being in line with the other tests. For additional details refer to [Unit-testing](#6-unit-testing)
 
 ## 3.4. Registration of fake tensor functions
-The op also must be registered in the ZenDNN_PyTorch_Plugin/src/cpu/python/torch_zendnn_plugin/_meta_registrations.py with the decorator @register_meta("{op_name}"). This registration has the function protoype and the corresponding output is returned with the appropriate shapes. This registration happens in pythonic way.
+The op also must be registered in the ZenDNN_PyTorch_Plugin/src/cpu/python/zentorch/_meta_registrations.py with the decorator @register_meta("{op_name}"). This registration has the function protoype and the corresponding output is returned with the appropriate shapes. This registration happens in pythonic way.
 ```python
 @register_meta("{zendnn_op}")
 def meta_zendnn_op(

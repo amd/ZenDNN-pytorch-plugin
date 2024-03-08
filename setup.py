@@ -72,11 +72,11 @@ def subproc_communicate(cmd):
 
 
 #   ZenTorch_BUILD_VERSION
-#     specify the version of torch_zendnn_plugin, rather than the hard-coded version
+#     specify the version of zentorch, rather than the hard-coded version
 #     in this file; used when we're building binaries for distribution
 
 # Define env values
-PACKAGE_NAME = "torch_zendnn_plugin"
+PACKAGE_NAME = "zentorch"
 PACKAGE_VERSION = "0.1.0"
 
 
@@ -100,7 +100,7 @@ include_dirs = [
     os.path.join(project_root_dir, "third_party/blis/include/amdzen"),
 ]
 
-torch_zendnn_plugin_build_version = os.getenv("ZenTorch_BUILD_VERSION", PACKAGE_VERSION)
+zentorch_build_version = os.getenv("ZenTorch_BUILD_VERSION", PACKAGE_VERSION)
 git_sha = get_commit_hash(project_root_dir)
 wheel_file_dependencies = ["numpy", "torch"]
 
@@ -112,7 +112,7 @@ with open(os.path.join(project_root_dir, "README.md"), encoding="utf-8") as f:
 def main():
     setup(
         name=PACKAGE_NAME,
-        version=torch_zendnn_plugin_build_version,
+        version=zentorch_build_version,
         description="ZenDNN plugin for PyTorch*",
         long_description=long_description,
         long_description_content_type="text/markdown",

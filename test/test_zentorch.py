@@ -13,7 +13,7 @@ from parameterized import parameterized
 from itertools import product
 
 try:
-    import torch_zendnn_plugin as zentorch
+    import zentorch
 
     HAS_PT_PLUGIN = True
 except ImportError:
@@ -1087,7 +1087,7 @@ class CustomModelEmbeddingGroup(nn.Module):
 @unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
 class TestZenTorchVersion(TestCase):
     def test_plugin_version(self):
-        self.assertTrue(zentorch.__version__, metadata.version("torch-zendnn-plugin"))
+        self.assertTrue(zentorch.__version__, metadata.version("zentorch"))
 
 
 class CustomModelBMMAdd1(nn.Module):

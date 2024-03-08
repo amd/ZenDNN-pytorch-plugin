@@ -1,4 +1,4 @@
-Copyright &copy; 2023 Advanced Micro Devices, Inc. All rights reserved.
+Copyright &copy; 2023-2024 Advanced Micro Devices, Inc. All rights reserved.
 
 zentorch: A PyTorch Add-on for AMD CPUs
 =============
@@ -73,17 +73,17 @@ Zentorch can be installed using binary wheel file or can be built from source it
 * Create conda or python environment and activate it.
 * Uninstall any existing plugin installations.
 ```bash
-pip uninstall torch_zendnn_plugin
+pip uninstall zentorch
 ```
 * Download the wheel file and install it using pip or conda install command.
 
 >INFO: Please find the latest Nightly wheel file [here](http://atlvjksapp02:8080/job/ZenDNN_Nightly_Build_for_PT_PLUGIN/lastSuccessfulBuild/)
 
 ```bash
-pip install torch_zendnn_plugin-*-linux_x86_64.whl
+pip install zentorch-*-linux_x86_64.whl
 ```
 >Note: 
-* Dependent packages 'numpy' and 'torch' will be installed by 'torch_zendnn_plugin' if not already present.
+* Dependent packages 'numpy' and 'torch' will be installed by 'zentorch' if not already present.
 * Torch Version should be greater than or equal to 2.0
 
 ## 2.2. From Source
@@ -163,13 +163,13 @@ bash build.sh
 ```python
 #Using torch.compile
 import torch
-import torch_zendnn_plugin as zentorch
+import zentorch
 compiled_model = torch.compile(model, backend='zentorch')
 output = compiled_model(input)
 
 #Using make_fx (Deprecated)
 from torch.fx.experimental.proxy_tensor import make_fx
-import torch_zendnn_plugin as zentorch
+import zentorch
 # The model should be a fx graph which can be generated with model and input fed to make_fx
 model_fx = make_fx(model)(input)
 model_optim = zentorch.optimize(model_fx)
@@ -218,7 +218,7 @@ disable_inductor() API takes in a boolean input to disable Inductor. Once disabl
 
 ```python
 import torch
-import torch_zendnn_plugin as zentorch
+import zentorch
 
 #To disable Torch Inductor
 zentorch.disable_inductor(True)
