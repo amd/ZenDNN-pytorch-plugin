@@ -55,6 +55,10 @@ TORCH_LIBRARY(zentorch, m) {
   m.def("zendnn_vertical_mlp_group(Tensor[] self, Tensor inputs, "
         "Tensor[] weight, float[] betas, float[] alphas, "
         "int[] fuse) -> Tensor");
+  m.def("zendnn_attn_horizontal_mlp_group(Tensor[] self, Tensor[] inputs, "
+        "Tensor[] weights, "
+        "float[] betas, float[] alphas, int[] fuse, int[] is_zendnnmm) -> "
+        "Tensor[]");
 }
 
 TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
@@ -70,6 +74,8 @@ TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
   m.impl("zendnn_horizontal_embedding_group",
          ZenDNNTorch::zendnn_horizontal_embedding_group);
   m.impl("zendnn_vertical_mlp_group", ZenDNNTorch::zendnn_vertical_mlp_group);
+  m.impl("zendnn_attn_horizontal_mlp_group",
+         ZenDNNTorch::zendnn_attn_horizontal_mlp_group);
 }
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {

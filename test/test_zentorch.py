@@ -934,6 +934,94 @@ class TEST_EMBEDDING_GROUP(TestCase):
 
 
 @unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
+class TEST_HORIZONTAL_MLP(TestCase):
+    @parameterized.expand(supported_dtypes)
+    @torch.inference_mode()
+    def test_horizontal_mlp(self, dtype):
+        data = Test_Data()
+        data.create_data(dtype)
+        model = Custom_Horizontal_GroupMLP_Model(data.get_torch_type(dtype))
+
+        for i in range(len(data.x2)):
+            for j in range(len(data.y2)):
+                native_output = model(data.x2[i], data.y2[j])
+                torch._dynamo.reset()
+                compiled_graph = torch.compile(model, backend="zentorch")
+
+                compiled_output = compiled_graph(data.x2[i], data.y2[j])
+                self.assertEqual(native_output, compiled_output, atol=1e-1, rtol=1e-3)
+
+    @parameterized.expand(supported_dtypes)
+    def test_horizontal_mlp_unsupported_dims_1(self, dtype):
+        data = Test_Data()
+        data.create_data(dtype)
+        with self.assertRaises(RuntimeError) as context:
+            torch.ops.zentorch.zendnn_attn_horizontal_mlp_group(
+                [data.x1[0]] * 3,
+                [data.y1[0]] * 3,
+                [data.y1[0]] * 3,
+                [0.0] * 3,
+                [1.0] * 3,
+                [0] * 3,
+                [1],
+            )
+        self.assertTrue(
+            "zendnn_addmm: unsupported dims for self, mat1 and mat2"
+            in str(context.exception)
+        )
+
+    @parameterized.expand(supported_dtypes)
+    def test_horizontal_mlp_unsupported_dims_2(self, dtype):
+        data = Test_Data()
+        data.create_data(dtype)
+        with self.assertRaises(RuntimeError) as context:
+            torch.ops.zentorch.zendnn_attn_horizontal_mlp_group(
+                [data.y2[0]] * 3,
+                [data.y2[0]] * 3,
+                [data.y2[0]] * 3,
+                [0.0] * 3,
+                [1.0] * 3,
+                [0] * 3,
+                [1],
+            )
+        self.assertTrue(
+            "zendnn_addmm:  unsupported dims for self, mat1 and mat2"
+            in str(context.exception)
+        )
+
+    @parameterized.expand(supported_dtypes)
+    def test_horizontal_mlp_input_shape_compatibility(self, dtype):
+        data = Test_Data()
+        data.create_data(dtype)
+        with self.assertRaises(RuntimeError) as context:
+            torch.ops.zentorch.zendnn_attn_horizontal_mlp_group(
+                [data.M[1]] * 3,
+                [data.y1[0]] * 3,
+                [data.y1[0]] * 3,
+                [0.0] * 3,
+                [1.0] * 3,
+                [0] * 3,
+                [1],
+            )
+        self.assertTrue(
+            "input shape is incompatible with matrix multiplication "
+            in str(context.exception)
+        )
+
+    @torch.inference_mode()
+    def test_bf16_alpha_not_1(self):
+        data = Test_Data()
+        data.create_data("bfloat16")
+        with self.assertRaises(RuntimeError) as context:
+            torch.ops.zentorch.zendnn_addmm(data.input1d, data.x, data.y, alpha=1.7)
+            self.assertTrue(
+                "zendnn_matmul: zendnn_matmul is not supported for bf16 \
+                tensors when bias is defined and alpha is not equal to 1"
+                in str(context.exception)
+            )
+
+
+@unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
 class TEST_GROUP_MLP(TestCase):
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
@@ -1029,6 +1117,36 @@ class TestBF16Device(TestCase):
     )
     def test_bf16_device(self):
         self.assertTrue(zentorch._C.is_bf16_supported(), "CPU supports AVX512 BF16.")
+
+
+@unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
+class Custom_Horizontal_GroupMLP_Model(nn.Module):
+    def __init__(self, dtype):
+        super(Custom_Horizontal_GroupMLP_Model, self).__init__()
+        self.linear1 = nn.Linear(60, 50, dtype=dtype)
+        self.linear2 = nn.Linear(50, 60, dtype=dtype)
+        self.linear3 = nn.Linear(60, 50, dtype=dtype)
+
+    def forward(self, batch1, batch2):
+        bmm_output = torch.bmm(batch1, batch2)
+        # add_output = torch.add(bmm_output, input)
+
+        # Perform three separate view operations
+        view1 = bmm_output.view(-1, 60)
+        view2 = bmm_output.view(-1, 50)
+        view3 = bmm_output.view(-1, 60)
+
+        # Pass through linear layers
+        linear1_output = self.linear1(view1)
+        linear2_output = self.linear2(view2)
+        linear3_output = self.linear3(view3)
+
+        view4 = linear1_output.view(-1, 50)
+        view5 = linear2_output.view(-1, 50)
+        view6 = linear3_output.view(-1, 50)
+        output = torch.cat((view4, view5, view6),)
+
+        return output
 
 
 @unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")

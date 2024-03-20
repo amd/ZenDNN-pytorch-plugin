@@ -72,4 +72,10 @@ at::Tensor zendnn_vertical_mlp_group(const at::TensorList &self,
                                      const at::ArrayRef<double> &betas,
                                      const at::ArrayRef<double> &alphas,
                                      const at::IntArrayRef &fuse);
+
+std::vector<at::Tensor> zendnn_attn_horizontal_mlp_group(
+    const at::TensorList &self, const at::TensorList &inputs,
+    const at::TensorList &weights, const at::ArrayRef<double> &betas,
+    const at::ArrayRef<double> &alphas, const at::IntArrayRef &fuse,
+    const at::IntArrayRef &is_zendnnmm);
 } // namespace ZenDNNTorch

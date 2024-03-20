@@ -551,4 +551,167 @@ at::Tensor zendnn_vertical_mlp_group(const at::TensorList &self,
   return self_or_result_vector[num_ops - 1];
 }
 
+std::vector<at::Tensor> zendnn_matmul_group_impl(
+    const at::TensorList &self_vector, const at::TensorList &inputs,
+    const at::TensorList &weights, const at::ArrayRef<double> &betas,
+    const at::ArrayRef<double> &alphas, const at::IntArrayRef &fuse) {
+  int num_ops = inputs.size();
+  std::vector<at::Tensor> output(num_ops);
+  std::vector<at::Tensor> bias_vector(num_ops);
+  std::vector<at::Tensor> self_or_result_vector(num_ops);
+  std::vector<bool> bias_defined_vector(num_ops);
+  std::vector<int64_t> fuse_vector(num_ops);
+  std::vector<memory> z_mat1_vector(num_ops);
+  std::vector<memory> z_mat2_vector(num_ops);
+  std::vector<memory> z_bias_vector(num_ops);
+  std::vector<memory> z_result_vector(num_ops);
+  std::vector<float> alphas_vector(num_ops);
+  std::vector<float> betas_vector(num_ops);
+  std::vector<memory> z_input(num_ops);
+
+  for (int i = 0; i < num_ops; i++) {
+    alphas_vector[i] = static_cast<float>(alphas[i]);
+    betas_vector[i] = static_cast<float>(betas[i]);
+    if (self_vector[i].sizes() ==
+        c10::IntArrayRef(get_matmul_output_sizes(inputs[i], weights[i]))) {
+      TORCH_CHECK((self_vector[i].dim() == 2 && inputs[i].dim() == 2 &&
+                   weights[i].dim() == 2), // aten::addmm
+                  "zendnn_addmm:  unsupported dims for self, mat1 and mat2");
+      const at::Tensor empty_bias; // dummy empty bias
+      bias_vector[i] = empty_bias;
+      self_or_result_vector[i] = self_vector[i];
+    } else {
+      TORCH_CHECK((self_vector[i].dim() == 1 && inputs[i].dim() == 2 &&
+                   weights[i].dim() == 2), // aten::addmm
+                  "zendnn_addmm: unsupported dims for self, mat1 and mat2");
+      // Array access is faster than .size(n)
+      const auto mat1_sizes = inputs[i].sizes();
+      const auto mat2_sizes = weights[i].sizes();
+      const auto self_sizes = self_vector[i].sizes();
+      TORCH_CHECK(
+          self_sizes[0] == mat2_sizes[1] && mat1_sizes[1] == mat2_sizes[0],
+          "input shape is incompatible with matrix multiplication (",
+          mat1_sizes[0], "x", mat1_sizes[1], " @ ", mat2_sizes[0], "x",
+          mat2_sizes[1], " != ", mat1_sizes[0], "x", self_sizes[0], ")");
+
+      at::Tensor result = at::empty(
+          get_matmul_output_sizes(inputs[i], weights[i]), inputs[i].options());
+      bias_vector[i] = self_vector[i];
+      self_or_result_vector[i] = result;
+    }
+    check_valid_sizes(inputs[i], weights[i]);
+    if (inputs[i].scalar_type() == c10::ScalarType::BFloat16 ||
+        weights[i].scalar_type() == c10::ScalarType::BFloat16) {
+      TORCH_CHECK(
+          utils::zendnn_bf16_device_check(),
+          "zendnn_matmul: zendnn_matmul bf16 path needs the cpu support "
+          "avx512bf16");
+    }
+
+    std::vector<at::Tensor> tensor_vector(3);
+    tensor_vector[0] = inputs[i];
+    tensor_vector[1] = weights[i];
+    tensor_vector[2] = self_or_result_vector[i];
+    check_scalar_type(tensor_vector);
+    const at::Tensor &input_unsqueezed =
+        inputs[i].dim() == 1 ? inputs[i].unsqueeze(0) : inputs[i];
+    const at::Tensor &weight_unsqueezed =
+        weights[i].dim() == 1 ? weights[i].unsqueeze(1) : weights[i];
+    at::Tensor &self_or_result_unsqueezed =
+        self_or_result_vector[i].dim() == 1
+            ? self_or_result_vector[i].unsqueeze_(1)
+            : self_or_result_vector[i];
+    // zendnn is only optimized for contiguous or transposed
+    // (transpose last 2 dim if 3-D tensor) format now
+    // Will remove this "contiguous" after zendnn have fully supported
+    at::Tensor mat1_ = is_zendnn_optimized_format(input_unsqueezed)
+                           ? input_unsqueezed
+                           : input_unsqueezed.contiguous();
+    at::Tensor mat2_ = is_zendnn_optimized_format(weight_unsqueezed)
+                           ? weight_unsqueezed
+                           : weight_unsqueezed.contiguous();
+    // convert the aten tensors to zendnn memory
+
+    z_input[i] = zen_memory(mat1_);
+    z_mat2_vector[i] = zen_memory(mat2_);
+    z_result_vector[i] = zen_memory(self_or_result_unsqueezed);
+    // "addmm", "baddbmm" in pytorch allow bias to be 2-D or 3-D tensor
+    // but zendnn matmul primitive only support bias be 1-D tensors
+    // to address their differences, we use zendnn post ops to perform a fused
+    // "add" after matrix multiplication is over
+    bias_defined_vector[i] = bias_vector[i].numel();
+    at::Tensor beta_bias;
+    if (bias_defined_vector[i] && bias_vector[i].dim() == 1 &&
+        (inputs[i].dim() == 2 && weights[i].dim() == 2)) {
+      if (bias_vector[i].scalar_type() == c10::ScalarType::BFloat16) {
+        TORCH_CHECK(
+            utils::zendnn_bf16_device_check(),
+            "zendnn_matmul: zendnn_matmul bf16 path needs the cpu support "
+            "avx512bf16");
+      }
+      std::vector<at::Tensor> tensor_vector(1);
+      tensor_vector[0] = bias_vector[i];
+      check_scalar_type(tensor_vector);
+      LOG(INFO) << "bias is defined and bias dimensions: "
+                << bias_vector[i].sizes();
+      const float modified_beta =
+          (alphas_vector[i] == 1.0f || alphas_vector[i] == 0)
+              ? betas_vector[i]
+              : betas_vector[i] / alphas_vector[i];
+      beta_bias = (modified_beta == 1.0f) ? bias_vector[i]
+                                          : bias_vector[i].mul(modified_beta);
+      // creating bias zen_memory with predefined memory::desc
+      // as bias is 1d we need to define format_tag as 'ab'
+      // to represent bias memory as 2d for bias_desc creation
+      const memory::format_tag &bias_tag = memory::format_tag::ab;
+      const memory::desc &bias_desc = memory::desc(
+          {{1, beta_bias.size(0)}, get_ztype_from_aten(beta_bias), bias_tag});
+      z_bias_vector[i] = zen_memory(beta_bias, bias_desc);
+    }
+    if (betas[i] != 0.0f && !bias_defined_vector[i]) {
+      // sets post_ops as add or sum
+      LOG(INFO) << "Setting add or sum as post op";
+    }
+    if (alphas[i] != 1.0f) {
+      if (bias_defined_vector[i]) {
+        // TODO: add support for alpha when bias is defined
+        TORCH_CHECK(!(inputs[i].scalar_type() == c10::ScalarType::BFloat16 ||
+                      weights[i].scalar_type() == c10::ScalarType::BFloat16),
+                    "zendnn_matmul: zendnn_matmul is not supported for bf16 "
+                    "tensors when bias is defined and alpha != 1");
+      }
+      LOG(INFO) << "Setting output scales with alpha = " << alphas[i];
+    }
+    fuse_vector[i] = fuse[i];
+  }
+  LOG(INFO) << "Horizontal GroupMatMul compute in progress...";
+  zendnn_custom_op::zendnn_grp_mlp(
+      z_input, z_mat2_vector, z_bias_vector, alphas_vector, betas_vector,
+      bias_defined_vector, fuse_vector, z_result_vector);
+  LOG(INFO) << "Horizontal GroupMatMul compute complete...";
+  return self_or_result_vector;
+}
+
+std::vector<at::Tensor> zendnn_attn_horizontal_mlp_group(
+    const at::TensorList &self, const at::TensorList &inputs,
+    const at::TensorList &weights, const at::ArrayRef<double> &betas,
+    const at::ArrayRef<double> &alphas, const at::IntArrayRef &fuse,
+    const at::IntArrayRef &is_zendnnmm) {
+  // self = alpha * inputs * weights.t + beta * self
+  LOG(INFO) << "In zendnn_attention_horizontal_matmul_group_mlp...\n";
+  int num_ops = inputs.size();
+  std::vector<at::Tensor> self_vector(num_ops);
+
+  LOG(INFO) << "Executing function: " << __FUNCTION__;
+  for (int i = 0; i < num_ops; i++) {
+
+    if (is_zendnnmm[i] == 1)
+      self_vector[i] = at::empty(get_matmul_output_sizes(inputs[i], weights[i]),
+                                 inputs[i].options());
+    else
+      self_vector[i] = self[i];
+  }
+  return zendnn_matmul_group_impl(self_vector, inputs, weights, betas, alphas,
+                                  fuse);
+}
 } // namespace ZenDNNTorch

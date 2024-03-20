@@ -168,6 +168,19 @@ def meta_zendnn_vertical_mlp_group(self, inputs, weight, betas, alphas, fuse):
     return inputs.new_empty(inputs.size())
 
 
+@register_meta("zendnn_attn_horizontal_mlp_group")
+def meta_zendnn_attn_horizontal_mlp_group(
+    self, inputs, weights, betas, alphas, fuse, is_zendnnmm
+):
+    output_list = []
+    for idx in range(len(inputs)):
+        output = meta_zendnn_addmm(
+            self[idx], inputs[idx], weights[idx], betas[idx], alphas[idx], fuse[idx]
+        )
+        output_list.append(output)
+    return output_list
+
+
 make_fallback(torch.ops.zentorch.zendnn_addmm)
 make_fallback(torch.ops.zentorch.zendnn_addmm_1dbias)
 make_fallback(torch.ops.zentorch.zendnn_embedding_bag)
@@ -178,3 +191,4 @@ make_fallback(torch.ops.zentorch.zendnn_mm)
 make_fallback(torch.ops.zentorch.zendnn_horizontal_embedding_bag_group)
 make_fallback(torch.ops.zentorch.zendnn_horizontal_embedding_group)
 make_fallback(torch.ops.zentorch.zendnn_vertical_mlp_group)
+make_fallback(torch.ops.zentorch.zendnn_attn_horizontal_mlp_group)

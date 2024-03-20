@@ -299,3 +299,116 @@ def vertical_mlp_fusion(fx_graph):
     fx_graph.recompile()
 
     return fx_graph
+
+
+def horizontal_mlp_fusion(fx_g):
+    # Fusing parallel matmuls in attention block which constitute
+    # key query value pair for LLM's.
+    logger.info("Fusing horizontal Matmul ops.")
+    groups = {}
+    for node in fx_g.graph.nodes:
+        node_name = node.name
+        # Pattern check begins with finding the common node
+        # for the horizontal matmul pattern
+        if len(node.users) >= 3:
+            for user in node.users.keys():
+                # Skipping if there are no users present or if the user is a return node
+                if not bool(user.users.keys()):
+                    continue
+                user_node = list(user.users.keys())[0]
+                # Append addmm/mm nodes to group
+                if user_node.target == torch.ops.zentorch.zendnn_addmm_1dbias.default:
+                    groups.setdefault(node_name, {"nodes": []})["nodes"].append(
+                        user_node
+                    )
+                    groups[node_name].update(
+                        {"beta": (1.0, -4), "alpha": (1.0, -3), "fuse": (0, -2)}
+                    )
+                elif user_node.target == torch.ops.zentorch.zendnn_mm.default:
+                    groups.setdefault(node_name, {"nodes": []})["nodes"].append(
+                        user_node
+                    )
+                    groups[node_name].update(
+                        {"beta": (0.0, -4), "alpha": (1.0, -3), "fuse": (0, -2)}
+                    )
+
+    # Perform fusion and optimization
+    for group in groups.values():
+        # Check for attention block matmuls
+        # Validate if all K,Q,V are of same target value
+        target_values = [(group["nodes"][i]).target for i in range(len(group["nodes"]))]
+        # Checking only for K,Q,V pair hence hardcoded to 3
+        if len(group["nodes"]) == 3 and len(set(target_values)) == 1:
+            group_op_args = [[] for _ in range(7)]
+            first_node = group["nodes"][0]
+            # Check if node is zendnn_addmm or zendnn_mm.
+            # zendnn_mm has only 2 arguments, whereas zendnn_addmm has 3.
+            # create an empty node to replicate the arg structure of addmm.
+            if len(first_node.args) == 2:
+                # take arbitrary shape value for the empty_node being created
+                # from the previous node. HF LLMs have view as the previous node.
+                empty_shape = [list(first_node.args[0].args[1])]
+                empty_node_args = tuple(empty_shape)
+                empty_node = fx_g.graph.create_node(
+                    op="call_function",
+                    target=torch.ops.aten.empty.memory_format,
+                    args=(empty_node_args),
+                )
+                first_node.prepend(empty_node)
+            # Prepare argument list for the fused op
+            for node in group["nodes"]:
+                if len(node.args) == 2:
+                    group_op_args[0].append(empty_node)
+                for i, arg in enumerate(node.args):
+                    if len(node.args) == 2:
+                        group_op_args[i + 1].append(arg)
+                    else:
+                        group_op_args[i].append(arg)
+                    if arg.target in (
+                        torch.ops.aten.view.default,
+                        torch.ops.aten.permute.default,
+                    ):
+                        first_node.prepend(arg)
+                # iterate through kwargs to append node's value, if present in graph,
+                # else append the default value
+                for kwarg in ["fuse", "alpha", "beta"]:
+                    if group[kwarg] in node.kwargs:
+                        group_op_args[group[kwarg][1]].append(node.kwargs[kwarg])
+                    else:
+                        group_op_args[group[kwarg][1]].append(group[kwarg][0])
+                # Adding flag to recognise zendnn_mm or zendnn_addmm to make
+                # appropriate changes in op definition.
+                if first_node.target == torch.ops.zentorch.zendnn_addmm_1dbias.default:
+                    group_op_args[6].append(0)
+                elif first_node.target == torch.ops.zentorch.zendnn_mm.default:
+                    group_op_args[6].append(1)
+            # Create zendnn_attn_horizontal_mlp_group node
+            group_node = fx_g.graph.create_node(
+                op="call_function",
+                target=torch.ops.zentorch.zendnn_attn_horizontal_mlp_group.default,
+                args=tuple(group_op_args),
+            )
+            first_node.prepend(group_node)
+
+            # Creating getitem nodes to parse the output vector.
+            getitem_nodes = []
+            for getitem_num in range(3):
+                new_node = fx_g.graph.create_node(
+                    op="call_function",
+                    target=operator.getitem,
+                    args=(group_node, getitem_num),
+                )
+                group_node.append(new_node)  # FX API
+                getitem_nodes.append(new_node)  # LIST API
+
+            for i, node in enumerate(group["nodes"]):
+                node.replace_all_uses_with(getitem_nodes[i])
+                fx_g.graph.erase_node(node)
+        else:
+            logger.info(
+                "Horizontal Group fusion not possible with the current \
+                            combination of addmm/mm layers"
+            )
+    fx_g.graph.set_codegen(torch.fx.graph.CodeGen())
+    fx_g.recompile()
+    return fx_g
