@@ -101,6 +101,12 @@ def zendnn_op_fusion(fx_graph):
     for node in fx_graph.graph.nodes:
         if len(node.users) > 1:  # Output of node is used by other nodes
             continue
+        if node.target == at_ops.clone.default and len(node.kwargs) == 0:
+            node.replace_all_uses_with(node.prev)
+            fx_graph.graph.erase_node(node)
+    for node in fx_graph.graph.nodes:
+        if len(node.users) > 1:  # Output of node is used by other nodes
+            continue
         # check the pattern for mm->add or bmm->add
         if (node.target, node.next.target) in add_pattern:
             logger.info(
