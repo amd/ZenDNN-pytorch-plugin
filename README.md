@@ -46,11 +46,11 @@ The following ops are integrated as of now:
 
 The static libraries for ZenDNN, AOCL BLIS and the cpp Extension modules that bind the ZenDNN operators with Python are built using `setup.py` script.
 
-#### 1.2.3.1. CMake Based Build: ZenDNN and AOCL BLIS
-CMake downloads the ZenDNN and AOCL BLIS during configure stage. It generates a config.h with GIT hashes of ZenDNN and AOCL BLIS. It builds both ZenDNN and AOCL BLIS as static libraries.
+#### 1.2.3.1. CMake Based Build: ZenDNN , AOCL BLIS and FBGEMM
+CMake downloads the ZenDNN , AOCL BLIS and FBGEMM during configure stage. It generates a config.h with GIT hashes of ZenDNN , AOCL BLIS and FBGEMM. It builds ZenDNN , AOCL BLIS and FBGEMM as static libraries.
 
 #### 1.2.3.2. Packaging into a Wheel File
-The CPP code, being an extension module, is built through CppExtension. It takes static libraries of the ZenDNN and AOCL BLIS static libraries. `setup.py` also adds in various attributes to the plugin for debugging and providing additional information.
+The CPP code, being an extension module, is built through CppExtension. It takes static libraries of the ZenDNN , AOCL BLIS and FBGEMM libraries. `setup.py` also adds in various attributes to the plugin for debugging and providing additional information.
 
 
 #### 1.2.3.3. build.sh
@@ -64,6 +64,7 @@ Wheel file can be generated solely through the `setup.py` script, without the ne
 Plugin uses following libraries for its functionality.
   * [ZenDNN](https://github.com/amd/ZenDNN)
   * [AOCL BLIS](https://github.com/amd/blis)
+  * [FBGEMM](https://github.com/pytorch/FBGEMM)
 
 # 2. Installation
 
@@ -95,7 +96,7 @@ cd ZenDNN_PyTorch_Plugin/
 
 ### 2.2.1. Preparing third party repositories
 
-Build setup downloads AOCL BLIS and ZenDNN repos into `third_party` folder. It can alternatively use local copies of ZenDNN and AOCL BLIS. This is very useful for day to day development scenarios, where developer may be interested in using recent version of repositories. Build setup will switch between local and remote copies of ZenDNN and AOCL BLIS with environmental variables `ZENDNN_PT_USE_LOCAL_ZENDNN` and `ZENDNN_PT_USE_LOCAL_BLIS` respectively. To use local copies of ZenDNN or AOCL BLIS, set `ZENDNN_PT_USE_LOCAL_ZENDNN` or `ZENDNN_PT_USE_LOCAL_BLIS` to 1 respectively. The source repositories should be downloaded/cloned in the directory where plugin is cloned for local setting. Folder structure may look like below.
+Build setup downloads AOCL BLIS and ZenDNN repos into `third_party` folder. It can alternatively use local copies of ZenDNN and AOCL BLIS. This is very useful for day to day development scenarios, where developer may be interested in using recent version of repositories. Build setup will switch between local and remote copies of ZenDNN , AOCL BLIS and FBGEMM with environmental variables `ZENDNN_PT_USE_LOCAL_ZENDNN` , `ZENDNN_PT_USE_LOCAL_BLIS` and `ZENDNN_PT_USE_LOCAL_FBGEMM` respectively. To use local copies of ZenDNN , AOCL BLIS or FBGEMM, set `ZENDNN_PT_USE_LOCAL_ZENDNN` , `ZENDNN_PT_USE_LOCAL_BLIS` or `ZENDNN_PT_USE_LOCAL_FBGEMM` to 1 respectively. The source repositories should be downloaded/cloned in the directory where plugin is cloned for local setting. Folder structure may look like below.
 
 ```
 <parent folder>
@@ -104,16 +105,20 @@ Build setup downloads AOCL BLIS and ZenDNN repos into `third_party` folder. It c
     |
     |------><ZenDNN repo>
     |
+    |------><FBGEMM repo>
+    |
     |------><ZenDNN_PyTorch_Plugin>
 ```
 >NOTE:
-> 1. The recommended values of `ZENDNN_PT_USE_LOCAL_ZENDNN` and `ZENDNN_PT_USE_LOCAL_BLIS` are 1 and 0 respectively. Default values are the same as recommended values.
+> 1. The recommended values of `ZENDNN_PT_USE_LOCAL_ZENDNN` , `ZENDNN_PT_USE_LOCAL_BLIS` and `ZENDNN_PT_USE_LOCAL_FBGEMM` are 1 , 0 and 0 respectively. Default values are the same as recommended values.
 >```bash
 >export ZENDNN_PT_USE_LOCAL_ZENDNN=1
 >export ZENDNN_PT_USE_LOCAL_BLIS=0
+>export ZENDNN_PT_USE_LOCAL_FBGEMM=0
 >```
 > 2. ZenDNN repository can be cloned using command<br> `git clone "ssh://gerritgit/amd/ec/ZenDNN"`
 > 3. AOCL BLIS can be cloned using command<br> `git clone "ssh://gerritgit/cpulibraries/er/blis"`
+> 4. FBGEMM can be cloned using command<br> `git clone https://github.com/pytorch/FBGEMM.git`
 
 ### 2.2.2. Linux build
 #### 2.2.2.1. Create conda environment for the build

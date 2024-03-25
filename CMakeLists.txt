@@ -35,4 +35,4 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 # Link against ZenDNN and AOCL BLIS
-target_link_libraries(zentorch INTERFACE ${ZENDNN_LIBRARIES} ${BLIS_LIBRARIES})
+target_link_libraries(zentorch INTERFACE ${ZENDNN_LIBRARIES} ${BLIS_LIBRARIES} ${FBGEMM_LIBRARIES})

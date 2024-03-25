@@ -24,6 +24,8 @@ class CustomBuildExtension(BuildExtension):
             os.environ["ZENDNN_PT_USE_LOCAL_BLIS"] = "0"
         if "ZENDNN_PT_USE_LOCAL_ZENDNN" not in os.environ:
             os.environ["ZENDNN_PT_USE_LOCAL_ZENDNN"] = "1"
+        if "ZENDNN_PT_USE_LOCAL_FBGEMM" not in os.environ:
+            os.environ["ZENDNN_PT_USE_LOCAL_FBGEMM"] = "0"
 
         if os.path.exists(self.build_temp):
             shutil.rmtree(self.build_temp)
@@ -55,6 +57,8 @@ class CustomBuildExtension(BuildExtension):
         extra_objects = [
             os.path.join(project_root_dir, self.build_temp, "lib/libamdZenDNN.a"),
             os.path.join(project_root_dir, self.build_temp, "lib/libblis-mt.a"),
+            os.path.join(project_root_dir, self.build_temp, "lib/libfbgemm.a"),
+            os.path.join(project_root_dir, self.build_temp, "lib/libasmjit.a"),
         ]
 
         extension.extra_objects.extend(extra_objects)
@@ -97,6 +101,7 @@ project_root_dir = os.path.abspath(os.path.dirname(__file__))
 sources = glob.glob(os.path.join(project_root_dir, "src/cpu/cpp/*.cpp"))
 include_dirs = [
     os.path.join(project_root_dir, "third_party/ZenDNN/inc"),
+    os.path.join(project_root_dir, "third_party/FBGEMM/include"),
     os.path.join(project_root_dir, "third_party/blis/include/amdzen"),
 ]
 

@@ -38,6 +38,8 @@ std::string show_config() {
      << BLIS_VERSION_HASH << " )" << "\n";
   ss << "  - " << "AMD ZENDNN v" << get_zendnn_version() << " ( Git Hash "
      << ZENDNN_LIB_VERSION_HASH << " )" << "\n";
+  ss << "  - " << "FBGEMM " << FBGEMM_VERSION_TAG << " ( Git Hash "
+     << FBGEMM_VERSION_HASH << " )" << "\n";
 
   return ss.str();
 }

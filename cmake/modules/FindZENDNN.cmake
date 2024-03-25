@@ -14,6 +14,7 @@ ELSE()
   SET(BUILD_FLAG 1)
 ENDIF(CMAKE_BUILD_TYPE STREQUAL "Debug")
 
+find_package(Git)
 
 # Download/Copy ZenDNN and AOCL BLIS
 ###############################################################################
@@ -43,7 +44,6 @@ ELSE()
 ENDIF()
 
 # To get BLIS Git Hash
-find_package(Git)
 if(GIT_FOUND)
     execute_process(COMMAND ${GIT_EXECUTABLE} -c log.showSignature=false log --no-abbrev-commit --oneline -1 --format=%H
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/third_party/blis
@@ -55,6 +55,65 @@ endif()
 if(NOT GIT_FOUND OR RESULT)
     set(BLIS_VERSION_HASH "N/A")
 endif()
+
+# Download/Copy FBGEMM
+###############################################################################
+
+IF("$ENV{ZENDNN_PT_USE_LOCAL_FBGEMM}" EQUAL 0)
+    FetchContent_Declare(FBGEMM
+    GIT_REPOSITORY https://github.com/pytorch/FBGEMM.git
+    GIT_TAG v0.6.0
+    SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/FBGEMM"
+    )
+    FetchContent_GetProperties(FBGEMM)
+    if(NOT FBGEMM_POPULATED)
+        FetchContent_Populate(FBGEMM)
+    endif()
+    if(GIT_FOUND)
+        message(STATUS "Submodule update")
+        execute_process(COMMAND ${GIT_EXECUTABLE} submodule sync
+                        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+                        RESULT_VARIABLE GIT_SUBMOD_RESULT)
+        execute_process(COMMAND ${GIT_EXECUTABLE} submodule update --init --recursive
+                        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+                        RESULT_VARIABLE GIT_SUBMOD_RESULT)
+        if(NOT GIT_SUBMOD_RESULT EQUAL "0")
+            message(FATAL_ERROR "git submodule update --init --recursive failed with ${GIT_SUBMOD_RESULT}, please checkout submodules")
+        endif()
+    else(NOT GIT_FOUND )
+        message(FATAL_ERROR "The submodules were not downloaded!")
+    endif()
+ELSE()
+    IF(NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/third_party/FBGEMM)
+        IF(EXISTS ${PLUGIN_PARENT_DIR}/FBGEMM)
+            file(COPY ${PLUGIN_PARENT_DIR}/FBGEMM DESTINATION "${CMAKE_CURRENT_SOURCE_DIR}/third_party")
+        ELSE()
+            message( FATAL_ERROR "Copying of fbgemm library from local failed, CMake will exit." )
+        ENDIF()
+    ENDIF()
+ENDIF()
+
+# To get FBGEMM Git Hash and Git Tag
+if(GIT_FOUND)
+    execute_process(COMMAND ${GIT_EXECUTABLE} describe --tags --abbrev=0
+            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/third_party/FBGEMM
+        RESULT_VARIABLE RESULT
+        OUTPUT_VARIABLE FBGEMM_VERSION_TAG
+        OUTPUT_STRIP_TRAILING_WHITESPACE)
+    execute_process(COMMAND ${GIT_EXECUTABLE} -c log.showSignature=false log --no-abbrev-commit --oneline -1 --format=%H
+            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/third_party/FBGEMM
+        RESULT_VARIABLE RESULT
+        OUTPUT_VARIABLE FBGEMM_VERSION_HASH
+        OUTPUT_STRIP_TRAILING_WHITESPACE)
+endif()
+
+if(NOT GIT_FOUND OR RESULT)
+        set(FBGEMM_VERSION_HASH "N/A")
+endif()
+
+
+# Download/Copy ZENDNN
+###############################################################################
 
 IF("$ENV{ZENDNN_PT_USE_LOCAL_ZENDNN}" EQUAL 0)
     FetchContent_Declare(ZenDNN
@@ -123,6 +182,39 @@ MARK_AS_ADVANCED(
         blis-mt
 )
 
+# Build FBGEMM
+###############################################################################
+add_custom_target(libfbgemm ALL
+    DEPENDS
+        ${CMAKE_CURRENT_BINARY_DIR}/lib/libfbgemm.a
+)
+
+add_custom_command(
+    OUTPUT
+       ${CMAKE_CURRENT_BINARY_DIR}/lib/libfbgemm.a
+   WORKING_DIRECTORY
+       ${CMAKE_CURRENT_SOURCE_DIR}/third_party/FBGEMM
+   COMMAND
+       mkdir build && cd build && cmake -DFBGEMM_LIBRARY_TYPE=static -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DPYTHON_EXECUTABLE=/usr/bin/python .. && make -j VERBOSE=1
+   COMMAND
+       mkdir -p ${CMAKE_CURRENT_BINARY_DIR}/fbgemm_build && cp -r include/ build/* ${CMAKE_CURRENT_BINARY_DIR}/fbgemm_build
+   COMMAND
+   cp ${CMAKE_CURRENT_BINARY_DIR}/fbgemm_build/libfbgemm.a ${CMAKE_CURRENT_BINARY_DIR}/lib/ && cp ${CMAKE_CURRENT_BINARY_DIR}/fbgemm_build/asmjit/libasmjit.a ${CMAKE_CURRENT_BINARY_DIR}/lib/
+)
+
+SET(FBGEMM_INCLUDE_DIR
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/FBGEMM/include
+)
+
+LIST(APPEND FBGEMM_LIBRARIES ${CMAKE_CURRENT_BINARY_DIR}/lib/libfbgemm.a)
+
+MARK_AS_ADVANCED(
+        FBGEMM_INCLUDE_DIR
+        FBGEMM_LIBRARIES
+        fbgemm
+)
+
+
 
 file(GLOB zendnn_src_common_cpp "${CMAKE_CURRENT_SOURCE_DIR}/third_party/ZenDNN/src/common/*.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/third_party/ZenDNN/src/cpu/*.cpp"
 "${CMAKE_CURRENT_SOURCE_DIR}/third_party/ZenDNN/src/cpu/gemm/*.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/third_party/ZenDNN/src/cpu/gemm/f32/*.cpp"
@@ -152,7 +244,7 @@ add_custom_command(
     WORKING_DIRECTORY
         ${CMAKE_CURRENT_SOURCE_DIR}/third_party/ZenDNN
     COMMAND
-       make -j ZENDNN_BLIS_PATH=${CMAKE_CURRENT_BINARY_DIR}/blis_gcc_build AOCC=0  BLIS_API=1 ARCHIVE=1 RELEASE=${BUILD_FLAG}
+    make -j ZENDNN_BLIS_PATH=${CMAKE_CURRENT_BINARY_DIR}/blis_gcc_build AOCC=0  BLIS_API=1 FBGEMM_INSTALL_PATH=${CMAKE_CURRENT_SOURCE_DIR}/third_party/FBGEMM FBGEMM_ENABLE=1 ARCHIVE=1 RELEASE=${BUILD_FLAG} 
     COMMAND
         cp _out/lib/libamdZenDNN.a ${CMAKE_CURRENT_BINARY_DIR}/lib/
     DEPENDS
@@ -161,7 +253,7 @@ add_custom_command(
          make clean
 )
 
-add_dependencies(libamdZenDNN libamdblis)
+add_dependencies(libamdZenDNN libamdblis libfbgemm)
 
 SET(ZENDNN_INCLUDE_SEARCH_PATHS
   /usr/include
