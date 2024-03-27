@@ -6,6 +6,7 @@
 from torch.testing._internal.common_utils import TestCase, run_tests
 import torch
 import unittest
+import copy
 import torch.nn as nn
 from importlib import metadata
 from torch.fx.experimental.proxy_tensor import make_fx
@@ -14,10 +15,9 @@ from itertools import product
 
 try:
     import zentorch
-
-    HAS_PT_PLUGIN = True
+    HAS_ZENTORCH = True
 except ImportError:
-    HAS_PT_PLUGIN = False
+    HAS_ZENTORCH = False
 
 supported_dtypes = ["float32"]
 if zentorch._C.is_bf16_supported():
@@ -109,7 +109,7 @@ class Test_Data:
         return dtypes[str_type]
 
 
-@unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class Test_MM_OP(TestCase):
     @parameterized.expand(supported_dtypes)
     def test_matmul_variants(self, dtype):
@@ -172,7 +172,7 @@ class Test_MM_OP(TestCase):
         )
 
 
-@unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class Test_ADDMM_OP(TestCase):
     @parameterized.expand(supported_dtypes)
     def test_addmm_variants(self, dtype):
@@ -325,7 +325,7 @@ class Test_ADDMM_OP(TestCase):
         )
 
 
-@unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class Test_BMM_OP(TestCase):
     @parameterized.expand(supported_dtypes)
     def test_bmm_variants(self, dtype):
@@ -360,7 +360,7 @@ class Test_BMM_OP(TestCase):
         )
 
 
-@unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class Test_BADDBMM_OP(TestCase):
     @parameterized.expand(supported_dtypes)
     def test_baddbmm_variants(self, dtype):
@@ -429,7 +429,7 @@ class Test_BADDBMM_OP(TestCase):
         )
 
 
-@unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class Test_MATMUL_IMPL_OP(TestCase):
     @parameterized.expand(supported_dtypes)
     def test_zendnn_matmul_impl_for_mv_and_dot(self, dtype):
@@ -452,7 +452,7 @@ class Test_MATMUL_IMPL_OP(TestCase):
         )
 
 
-@unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class TEST_EMBEDDING_BAG(TestCase):
     @parameterized.expand(supported_dtypes)
     def test_embedding_bag_zendnn(self, dtype):
@@ -575,7 +575,7 @@ class TEST_EMBEDDING_BAG(TestCase):
         self.assertAlmostEqual(model_output.item(), compiled_graph_output.item())
 
 
-@unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class TEST_EMBEDDING(TestCase):
     @parameterized.expand(supported_dtypes)
     def test_embedding_zendnn(self, dtype):
@@ -649,7 +649,7 @@ class TEST_EMBEDDING(TestCase):
         self.assertEqual(model_output, compiled_graph_output)
 
 
-@unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class TEST_EMBEDDING_BAG_GROUP(TestCase):
 
     @parameterized.expand(
@@ -771,7 +771,7 @@ class TEST_EMBEDDING_BAG_GROUP(TestCase):
         self.assertEqual(native_output, compiled_output, atol=1e-1, rtol=1e-3)
 
 
-@unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class TEST_EMBEDDING_GROUP(TestCase):
     @parameterized.expand(supported_dtypes)
     def test_embedding_group_zendnn(self, dtype):
@@ -933,7 +933,7 @@ class TEST_EMBEDDING_GROUP(TestCase):
         self.assertEqual(native_output, compiled_output, atol=1e-1, rtol=1e-3)
 
 
-@unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class TEST_HORIZONTAL_MLP(TestCase):
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
@@ -1021,7 +1021,7 @@ class TEST_HORIZONTAL_MLP(TestCase):
             )
 
 
-@unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class TEST_GROUP_MLP(TestCase):
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
@@ -1123,7 +1123,7 @@ class TEST_GROUP_MLP(TestCase):
             )
 
 
-@unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class TEST_GROUP_EB_MLP(TestCase):
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
@@ -1197,7 +1197,7 @@ class TEST_GROUP_EB_MLP(TestCase):
         self.assertEqual(native_output, compiled_output, atol=1e-1, rtol=1e-3)
 
 
-@unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class TestBF16Device(TestCase):
     @unittest.skipIf(
         not zentorch._C.is_bf16_supported(), "CPU does not support AVX512 BF16."
@@ -1206,7 +1206,7 @@ class TestBF16Device(TestCase):
         self.assertTrue(zentorch._C.is_bf16_supported(), "CPU supports AVX512 BF16.")
 
 
-@unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class CustomModel_Group_EB_MLP_Model(nn.Module):
     def __init__(self, num_embeddings, k):
         super(CustomModel_Group_EB_MLP_Model, self).__init__()
@@ -1227,7 +1227,7 @@ class CustomModel_Group_EB_MLP_Model(nn.Module):
         return outputs
 
 
-@unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class CustomModel_Group_MLP_EB_Model(nn.Module):
     def __init__(self, num_embeddings, k):
         super(CustomModel_Group_MLP_EB_Model, self).__init__()
@@ -1300,7 +1300,7 @@ class CustomModel_Group_EB_MLP_Model_multiple_groups(torch.nn.Module):
         return torch.sum(torch.concat(outputs, dim=1))
 
 
-@unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class Custom_Horizontal_GroupMLP_Model(nn.Module):
     def __init__(self, dtype):
         super(Custom_Horizontal_GroupMLP_Model, self).__init__()
@@ -1330,7 +1330,7 @@ class Custom_Horizontal_GroupMLP_Model(nn.Module):
         return output
 
 
-@unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class CustomModel_GroupMLP_Model(nn.Module):
     def __init__(self, k, dtype) -> None:
         super(CustomModel_GroupMLP_Model, self).__init__()
@@ -1346,7 +1346,7 @@ class CustomModel_GroupMLP_Model(nn.Module):
         return outputs
 
 
-@unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class CustomModel_GroupMLP_Model_Relu(nn.Module):
     def __init__(self, k, dtype) -> None:
         super(CustomModel_GroupMLP_Model_Relu, self).__init__()
@@ -1383,7 +1383,7 @@ class CustomModel_GroupMLP_Model_Relu(nn.Module):
         return outputs
 
 
-@unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class CustomModel_GroupMLP_Model_Relu_Gelu(nn.Module):
     def __init__(self, k, dtype) -> None:
         super(CustomModel_GroupMLP_Model_Relu_Gelu, self).__init__()
@@ -1421,7 +1421,7 @@ class CustomModel_GroupMLP_Model_Relu_Gelu(nn.Module):
         return outputs
 
 
-@unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class CustomModelEmbeddingBagNN(nn.Module):
     def __init__(self, embedding_dim, output_dim, dtype=torch.float):
         super(CustomModelEmbeddingBagNN, self).__init__()
@@ -1436,7 +1436,7 @@ class CustomModelEmbeddingBagNN(nn.Module):
         return output
 
 
-@unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class CustomModelEmbeddingNN(nn.Module):
     def __init__(self, embedding_dim, dtype=torch.float):
         super(CustomModelEmbeddingNN, self).__init__()
@@ -1447,7 +1447,7 @@ class CustomModelEmbeddingNN(nn.Module):
         return embed
 
 
-@unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class CustomModel_Emb_EmbBag_Diff_Node(nn.Module):
     def __init__(self, num_embeddings):
         super(CustomModel_Emb_EmbBag_Diff_Node, self).__init__()
@@ -1474,7 +1474,7 @@ class CustomModel_Emb_EmbBag_Diff_Node(nn.Module):
         return torch.cat([output_0, output_1])
 
 
-@unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class CustomModel_Emb_EmbBag_Common_Node(nn.Module):
     def __init__(self, num_embeddings):
         super(CustomModel_Emb_EmbBag_Common_Node, self).__init__()
@@ -1498,7 +1498,7 @@ class CustomModel_Emb_EmbBag_Common_Node(nn.Module):
         return output
 
 
-@unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class CustomModel_2D_Embedding(nn.Module):
     def __init__(self, num_embeddings):
         super(CustomModel_2D_Embedding, self).__init__()
@@ -1511,7 +1511,7 @@ class CustomModel_2D_Embedding(nn.Module):
         return output
 
 
-@unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class CustomModelEmbeddingBagGroup(nn.Module):
     def __init__(self, num_embeddings):
         super(CustomModelEmbeddingBagGroup, self).__init__()
@@ -1540,7 +1540,7 @@ class CustomModelEmbeddingBagGroup(nn.Module):
         return output
 
 
-@unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class CustomModelEmbeddingGroup(nn.Module):
     def __init__(self, num_embeddings):
         super(CustomModelEmbeddingGroup, self).__init__()
@@ -1563,9 +1563,9 @@ class CustomModelEmbeddingGroup(nn.Module):
         return output
 
 
-@unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class TestZenTorchVersion(TestCase):
-    def test_plugin_version(self):
+    def test_zentorch_version(self):
         self.assertTrue(zentorch.__version__, metadata.version("zentorch"))
 
 
@@ -1683,7 +1683,7 @@ class CustomModelMM_View_Unary_OP(nn.Module):
         return GELU2_res
 
 
-@unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class TestMMRELU(TestCase):
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
@@ -1738,7 +1738,7 @@ class TestMMRELU(TestCase):
         self.assertEqual(model_output, compiled_graph_output)
 
 
-@unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class TestMMADD(TestCase):
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
@@ -1752,12 +1752,13 @@ class TestMMADD(TestCase):
             for i in range(len(data.x1)):
                 for j in range(len(data.y1)):
                     torch._dynamo.reset()
+                    zentorch_model = copy.deepcopy(model)
                     inductor_graph = torch.compile(model, backend="inductor")
                     inductor_graph_output = inductor_graph(inp, data.x1[i], data.y1[j])
                     torch._dynamo.reset()
-                    compiled_graph = torch.compile(model, backend="zentorch")
-                    compiled_graph_output = compiled_graph(inp, data.x1[i], data.y1[j])
-                    self.assertEqual(inductor_graph_output, compiled_graph_output)
+                    zentorch_graph = torch.compile(zentorch_model, backend="zentorch")
+                    zentorch_graph_output = zentorch_graph(inp, data.x1[i], data.y1[j])
+                    self.assertEqual(inductor_graph_output, zentorch_graph_output)
 
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
@@ -1829,7 +1830,7 @@ class TestMMADD(TestCase):
         self.assertEqual(model_output, compiled_graph_output)
 
 
-@unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class TestADDMM_GELU(TestCase):
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
@@ -1883,7 +1884,7 @@ class TestADDMM_GELU(TestCase):
                     self.assertEqual(model_output, compiled_graph_output)
 
 
-@unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class TestADDMM_RELU(TestCase):
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
@@ -1929,15 +1930,16 @@ class TestADDMM_RELU(TestCase):
         # data.input[0][0] = float("nan")
         data.input[1][1] = float("inf")
         torch._dynamo.reset()
+        zentorch_model = copy.deepcopy(model)
         inductor_graph = torch.compile(model, backend="inductor")
         inductor_graph_output = inductor_graph(data.input)
         torch._dynamo.reset()
-        compiled_graph = torch.compile(model, backend="zentorch")
-        compiled_graph_output = compiled_graph(data.input)
-        self.assertEqual(inductor_graph_output, compiled_graph_output)
+        zentorch_graph = torch.compile(zentorch_model, backend="zentorch")
+        zentorch_graph_output = zentorch_graph(data.input)
+        self.assertEqual(inductor_graph_output, zentorch_graph_output)
 
 
-@unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class TestLinear_Relu(TestCase):
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
@@ -1960,7 +1962,7 @@ class TestLinear_Relu(TestCase):
                     )
 
 
-@unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class TestLinear_Gelu(TestCase):
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
@@ -1991,7 +1993,7 @@ class TestLinear_Gelu(TestCase):
         self.assertEqual(model_output, compiled_graph_output)
 
 
-@unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class TestBMMADD(TestCase):
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()

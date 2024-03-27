@@ -13,9 +13,9 @@ from torchvision import models
 from transformers import BertModel, BertTokenizer
 try:
     import zentorch
-    HAS_PT_PLUGIN = True
+    HAS_ZENTORCH = True
 except ImportError:
-    HAS_PT_PLUGIN = False
+    HAS_ZENTORCH = False
 
 supported_dtypes = [("float32")]
 if zentorch._C.is_bf16_supported():
@@ -33,25 +33,25 @@ class Test_Data:
         }
         batch_size = random.randint(1, 100)
         self.input3d = torch.randn(batch_size, 3, 224, 224).type(self.dtypes[dtype])
-        input_text = "This is a sample input sentence for testing bert model"
+        input_text = "This is a sample input sentence for testing Bert Model."
         tokenizer = BertTokenizer.from_pretrained(model_name)
         input_ids = tokenizer.encode(input_text, add_special_tokens=True)
         self.input_tensor = torch.tensor(input_ids).unsqueeze(0)
 
 
-@unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class Test_CNN_Models(TestCase):
     @parameterized.expand(supported_dtypes)
     def test_resnet18(self, dtype):
         data = Test_Data(dtype)
         model = models.__dict__['resnet18'](pretrained=True).eval()
-        torch._dynamo.reset()
         inductor_model = copy.deepcopy(model)
-        zentorch_graph = torch.compile(model, backend='zentorch')
+        torch._dynamo.reset()
+        zentorch_graph = torch.compile(model, backend='zentorch', dynamic=False)
         torch._dynamo.reset()
         inductor_graph = torch.compile(inductor_model, backend='inductor')
 
-        with torch.inference_mode():
+        with torch.no_grad():
             if dtype == 'bfloat16':
                 with torch.cpu.amp.autocast():
                     zentorch_graph_output = zentorch_graph(data.input3d)
@@ -63,7 +63,7 @@ class Test_CNN_Models(TestCase):
         self.assertEqual(inductor_graph_output, zentorch_graph_output)
 
 
-@unittest.skipIf(not HAS_PT_PLUGIN, "PT PLUGIN is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class Test_Bert_Models(TestCase):
     @parameterized.expand(supported_dtypes)
     def test_bert_base(self, dtype):
@@ -75,7 +75,7 @@ class Test_Bert_Models(TestCase):
         torch._dynamo.reset()
         inductor_graph = torch.compile(inductor_model, backend='inductor')
 
-        with torch.inference_mode():
+        with torch.no_grad():
             if dtype == 'bfloat16':
                 with torch.cpu.amp.autocast():
                     zentorch_graph_output = zentorch_graph(data.input_tensor)
