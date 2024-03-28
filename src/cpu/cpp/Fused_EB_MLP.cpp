@@ -3,6 +3,7 @@
  * All rights reserved.
  ******************************************************************************/
 
+#include "ZenTorchMatmulUtils.hpp"
 #include "ZenTorchMemory.hpp"
 #include "ZenTorchUtils.hpp"
 #include <ATen/ParallelOpenMP.h>
@@ -94,6 +95,7 @@ std::vector<at::Tensor> zendnn_fused_eb_mlp(
   std::vector<at::Tensor> self_or_result_vector(num_ops);
   std::vector<bool> bias_defined_vector(num_ops);
   std::vector<int64_t> fuse_vector(num_ops);
+  std::vector<memory> z_mat1_vector(num_ops);
   std::vector<memory> z_mat2_vector(num_ops);
   std::vector<memory> z_bias_vector(num_ops);
   std::vector<memory> z_result_vector(num_ops);
@@ -158,105 +160,17 @@ std::vector<at::Tensor> zendnn_fused_eb_mlp(
       self_or_result_vector[i] = result;
     }
 
-    check_valid_sizes(mlp_input, mlp_weights[i]);
+    at::Tensor self_or_result_unsqueezed, mat1_, mat2_, beta_bias;
 
-    if (mlp_input.scalar_type() == c10::ScalarType::BFloat16 ||
-        mlp_weights[i].scalar_type() == c10::ScalarType::BFloat16) {
-      TORCH_CHECK(
-          utils::zendnn_bf16_device_check(),
-          "zendnn_matmul: zendnn_matmul bf16 path needs the cpu support "
-          "avx512bf16");
-    }
-
-    std::vector<at::Tensor> tensor_vector(3);
-    tensor_vector[0] = mlp_input;
-    tensor_vector[1] = mlp_weights[i];
-    tensor_vector[2] = self_or_result_vector[i];
-
-    check_scalar_type(tensor_vector);
-
-    // ZenDNN does not support 1-D tensors. So, whenever the tensots are of
-    // 1 dimension, they are unsqueezed on the required dimension to make them
-    // into 2-D dimensional tensors.
-    const at::Tensor &input_unsqueezed =
-        mlp_input.dim() == 1 ? mlp_input.unsqueeze(0) : mlp_input;
-    const at::Tensor &weight_unsqueezed = mlp_weights[i].dim() == 1
-                                              ? mlp_weights[i].unsqueeze(1)
-                                              : mlp_weights[i];
-    at::Tensor &self_or_result_unsqueezed =
-        self_or_result_vector[i].dim() == 1
-            ? self_or_result_vector[i].unsqueeze_(1)
-            : self_or_result_vector[i];
-
-    // zendnn is only optimized for contiguous or transposed
-    // (transpose last 2 dim if 3-D tensor) format now
-    // Will remove this "contiguous" after zendnn have fully supported
-    at::Tensor mat1_ = is_zendnn_optimized_format(input_unsqueezed)
-                           ? input_unsqueezed
-                           : input_unsqueezed.contiguous();
-    at::Tensor mat2_ = is_zendnn_optimized_format(weight_unsqueezed)
-                           ? weight_unsqueezed
-                           : weight_unsqueezed.contiguous();
-
-    // convert the aten tensors to zendnn memory
-    if (i == 0) {
-      z_input = zen_memory(mat1_);
-    }
-
-    // Populating the z_mat2_vector with the zendnn memory of mat2_
-    z_mat2_vector[i] = zen_memory(mat2_);
-    // Populating the z_result_vector with the zendnn memory of
-    // self_or_result_unsqueezed
-    z_result_vector[i] = zen_memory(self_or_result_unsqueezed);
-
-    // "addmm", "baddbmm" in pytorch allow bias to be 2-D or 3-D tensor
-    // but zendnn matmul primitive only support bias be 1-D tensors
-    // to address their differences, we use zendnn post ops to perform a fused
-    // "add" after matrix multiplication is over
+    std::tie(self_or_result_unsqueezed, mat1_, mat2_, beta_bias) =
+        matmul_tensors_to_memory(
+            mlp_input, mlp_weights[i], self_or_result_vector[i], bias_vector[i],
+            beta_bias, z_mat1_vector[i], z_mat2_vector[i], z_bias_vector[i],
+            z_result_vector[i], betas_vector[i], alphas_vector[i]);
 
     // Populating the bias_defined_vector with the bool equivalent values based
     // on the number of elements in the bias.
     bias_defined_vector[i] = bias_vector[i].numel();
-
-    at::Tensor beta_bias;
-    if (bias_defined_vector[i] && bias_vector[i].dim() == 1 &&
-        (mlp_input.dim() == 2 && mlp_weights[i].dim() == 2)) {
-      if (bias_vector[i].scalar_type() == c10::ScalarType::BFloat16) {
-        TORCH_CHECK(
-            utils::zendnn_bf16_device_check(),
-            "zendnn_matmul: zendnn_matmul bf16 path needs the cpu support "
-            "avx512bf16");
-      }
-
-      std::vector<at::Tensor> tensor_vector(1);
-      tensor_vector[0] = bias_vector[i];
-
-      check_scalar_type(tensor_vector);
-
-      LOG(INFO) << "bias is defined for zendnn_fused_eb_mlp and bias "
-                   "dimensions: "
-                << bias_vector[i].sizes();
-
-      // BR_GEMM kernel execution is as alpha * (mat1 @ mat2 + bias)
-      // but addmm is executed as alpha * (mat1 @ mat2) + beta * bias
-
-      // so alpha * (mat1 @ mat2 + (beta / alpha) * bias) is equivalent
-      // to alpha * (mat1 @ mat2) + beta * bias
-      const float modified_beta =
-          (alphas_vector[i] == 1.0f || alphas_vector[i] == 0)
-              ? betas_vector[i]
-              : betas_vector[i] / alphas_vector[i];
-      beta_bias = (modified_beta == 1.0f) ? bias_vector[i]
-                                          : bias_vector[i].mul(modified_beta);
-
-      // creating bias zen_memory with predefined memory::desc
-      // as bias is 1d we need to define format_tag as 'ab'
-      // to represent bias memory as 2d for bias_desc creation
-      const memory::format_tag &bias_tag = memory::format_tag::ab;
-      const memory::desc &bias_desc = memory::desc(
-          {{1, beta_bias.size(0)}, get_ztype_from_aten(beta_bias), bias_tag});
-      z_bias_vector[i] = zen_memory(beta_bias, bias_desc);
-    }
 
     if (alphas_vector[i] != 1.0f) {
       if (bias_defined_vector[i]) {
@@ -273,7 +187,11 @@ std::vector<at::Tensor> zendnn_fused_eb_mlp(
     fuse_vector[i] = mlp_fuse[i];
   }
 
-  std::vector<memory> z_input_vector = {z_input};
+  // The current optimization uses Group EmbeddingBag and Group MLP ops under
+  // the hood. So, we just need the first value of z_mat1_vector, as it is the
+  // input to the Group MLP op. So, creating a vector with the first element of
+  // z_mat1_vector.
+  std::vector<memory> z_input_vector = {z_mat1_vector[0]};
 
   LOG(INFO) << "GroupEB and GroupMatMul compute in progress...";
   zendnn_custom_op::zendnn_grp_ebag_mlp(
