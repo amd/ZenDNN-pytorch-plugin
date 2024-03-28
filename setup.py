@@ -81,7 +81,7 @@ def subproc_communicate(cmd):
 
 # Define env values
 PACKAGE_NAME = "zentorch"
-PACKAGE_VERSION = "0.1.0"
+PACKAGE_VERSION = "4.2.0"
 
 
 def get_commit_hash(base_dir):
