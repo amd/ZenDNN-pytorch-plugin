@@ -3,13 +3,13 @@
  * All rights reserved.
  ******************************************************************************/
 
-#include "ZenDNNMemory.hpp"
+#include "ZenTorchMemory.hpp"
 #include "ZenTorchUtils.hpp"
 #define ZENDNN_EMBED_THRDS 16
 
 using namespace zendnn;
 
-namespace ZenDNNTorch {
+namespace zentorch {
 at::Tensor zendnn_embedding_impl(const at::Tensor &weight,
                                  const at::Tensor &indices,
                                  const int64_t &padding_idx,
@@ -101,4 +101,4 @@ std::vector<at::Tensor> zendnn_horizontal_embedding_group(
 
   return output;
 }
-} // namespace ZenDNNTorch
+} // namespace zentorch

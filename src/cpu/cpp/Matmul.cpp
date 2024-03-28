@@ -3,10 +3,10 @@
  * All rights reserved.
  ******************************************************************************/
 
-#include "ZenDNNMemory.hpp"
+#include "ZenTorchMemory.hpp"
 #include "ZenTorchUtils.hpp"
 
-namespace ZenDNNTorch {
+namespace zentorch {
 
 using namespace zendnn;
 
@@ -688,4 +688,4 @@ std::vector<at::Tensor> zendnn_attn_horizontal_mlp_group(
   return zendnn_matmul_group_impl(self_vector, inputs, weights, betas, alphas,
                                   fuse);
 }
-} // namespace ZenDNNTorch
+} // namespace zentorch

@@ -10,7 +10,7 @@
 
 using namespace zendnn;
 
-namespace ZenDNNTorch {
+namespace zentorch {
 
 // this infers the zendnn datatype from aten tensor
 inline auto get_ztype_from_aten(const at::Tensor &atensor) {
@@ -28,7 +28,7 @@ inline auto get_ztype_from_aten(const at::Tensor &atensor) {
   case c10::kBFloat16:
     return ZenDType::bf16;
   default:
-    TORCH_CHECK(false, "ZenDNNTorch::get_ztype_from_aten:"
+    TORCH_CHECK(false, "zentorch::get_ztype_from_aten:"
                        " Unsupported data type.");
   }
 }
@@ -70,7 +70,7 @@ inline memory::desc zen_memory_desc(const at::Tensor &atensor) {
                             get_default_format(atensor.sizes().vec()));
   } else {
     TORCH_CHECK(false,
-                "ZenDNNTorch::zen_memory_desc: "
+                "zentorch::zen_memory_desc: "
                 "Only default contiguous and strided formats are supported!");
   }
   return mem_desc;
@@ -81,9 +81,9 @@ inline memory zen_memory(const at::Tensor &atensor,
                          const memory::desc &mem_desc = memory::desc(),
                          const engine &aengine = utils::engine::cpu_engine()) {
   TORCH_CHECK(atensor.device().is_cpu(),
-              "ZenDNNTorch::zen_memory: expects CPU tensor input");
+              "zentorch::zen_memory: expects CPU tensor input");
   TORCH_CHECK(atensor.layout() == c10::Layout::Strided,
-              "ZenDNNTorch::zen_memory: expects dense tensor input");
+              "zentorch::zen_memory: expects dense tensor input");
 
   const memory::desc &a_mem_desc =
       mem_desc.is_zero() ? zen_memory_desc(atensor) : mem_desc;
@@ -111,9 +111,9 @@ inline memory zen_memory(const at::Tensor &atensor,
     return memory(a_mem_desc, aengine, atensor.data_ptr<cpptype>());
   }
   default:
-    TORCH_CHECK(false, "ZenDNNTorch::zen_memory:"
+    TORCH_CHECK(false, "zentorch::zen_memory:"
                        " Invalid data type, creating zendnn memory failed.");
   }
 }
 
-} // namespace ZenDNNTorch
+} // namespace zentorch

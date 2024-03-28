@@ -3,7 +3,7 @@
  * All rights reserved.
  ******************************************************************************/
 
-// Declarations for ZenDNNOps (EmbedBag etc.)
+// Declarations for ZenTorchOps (EmbedBag etc.)
 
 #pragma once
 
@@ -11,7 +11,7 @@
 // needs to be included only once in library.
 #include "ZenDNNSingletons.hpp"
 
-namespace ZenDNNTorch {
+namespace zentorch {
 
 // EmbedBag
 std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor>
@@ -90,4 +90,4 @@ std::vector<at::Tensor> zendnn_fused_eb_mlp(
     const at::Tensor &mlp_inputs, const at::TensorList &mlp_weight,
     const at::ArrayRef<double> &mlp_betas,
     const at::ArrayRef<double> &mlp_alphas, const at::IntArrayRef &mlp_fuse);
-} // namespace ZenDNNTorch
+} // namespace zentorch

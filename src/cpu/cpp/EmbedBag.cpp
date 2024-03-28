@@ -3,14 +3,14 @@
  * All rights reserved.
  ******************************************************************************/
 
-#include "ZenDNNMemory.hpp"
+#include "ZenTorchMemory.hpp"
 #include "ZenTorchUtils.hpp"
 #include <ATen/ParallelOpenMP.h>
 #define ZENDNN_EMBED_BAG_THRDS 16
 
 using namespace zendnn;
 
-namespace ZenDNNTorch {
+namespace zentorch {
 
 std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor>
 zendnn_embedding_bag_impl(
@@ -204,4 +204,4 @@ std::vector<at::Tensor> zendnn_horizontal_embedding_bag_group(
   return out_vec;
 }
 
-} // namespace ZenDNNTorch
+} // namespace zentorch

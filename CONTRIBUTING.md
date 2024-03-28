@@ -10,7 +10,7 @@ Table of Contents
 - [Codebase structure](#2-codebase-structure)
 - [Adding a custom Op via Plugin](#3-adding-a-custom-op-via-plugin)
   - [Implementation of the function for custom op](#31-implementation-of-the-function-for-custom-op)
-  - [Declaration in ZenDNNOps.hpp](#32-declaration-in-zendnnopshpp)
+  - [Declaration in ZenTorchOps.hpp](#32-declaration-in-zentorchopshpp)
   - [Registration of the op with TORCH_LIBRARY and TORCH_LIBRARY_IMPL](#33-registration-of-the-op-with-torch_library-and-torch_library_impl)
   - [Registration of fake tensor functions](#34-registration-of-fake-tensor-functions)
   - [General Guidelines](#35-general-guidelines)
@@ -49,8 +49,8 @@ return_type zendnn_op_impl(const at::Tensor &tensor_parameter,
 
 }
 ```
-## 3.2. Declaration in ZenDNNOps.hpp
-The corresponding C++ function protoype must also be added in the file ZenDNN_PyTorch_Plugin/src/cpu/cpp/ZenDNNOps.hpp. This must be the ZenDNNTorch namespace.
+## 3.2. Declaration in ZenTorchOps.hpp
+The corresponding C++ function protoype must also be added in the file ZenDNN_PyTorch_Plugin/src/cpu/cpp/ZenTorchOps.hpp. This must be the zentorch namespace.
 ```cpp
   return_type zendnn_op_impl(const at::Tensor &tensor_parameter,
                              const bool &boolean_parameter,
@@ -75,7 +75,7 @@ The new op implementation must be registered with the corresponding name intende
 Register the implementation corresponding the above op with TORCH_LIBRARY_IMPL as follows.
 ```cpp
   TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
-    m.impl("zendnn_op", ZenDNNTorch::zendnn_op_impl);
+    m.impl("zendnn_op", zentorch::zendnn_op_impl);
 
     /*
     other ops

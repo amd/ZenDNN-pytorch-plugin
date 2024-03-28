@@ -3,14 +3,14 @@
  * All rights reserved.
  ******************************************************************************/
 
-#include "ZenDNNMemory.hpp"
+#include "ZenTorchMemory.hpp"
 #include "ZenTorchUtils.hpp"
 #include <ATen/ParallelOpenMP.h>
 #define ZENDNN_EMBED_BAG_THRDS 16
 
 using namespace zendnn;
 
-namespace ZenDNNTorch {
+namespace zentorch {
 std::vector<at::Tensor> zendnn_fused_eb_mlp(
     const at::TensorList &eb_weight, const at::TensorList &eb_indices,
     const at::TensorList &eb_offsets,
@@ -305,4 +305,4 @@ std::vector<at::Tensor> zendnn_fused_eb_mlp(
   return out_vec;
 }
 
-} // namespace ZenDNNTorch
+} // namespace zentorch

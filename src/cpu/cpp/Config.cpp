@@ -10,7 +10,7 @@
 
 #include <sstream>
 
-namespace ZenDNNTorch {
+namespace zentorch {
 
 #define TO_STRING2(x) #x
 #define TO_STRING(x) TO_STRING2(x)
@@ -24,7 +24,7 @@ std::string get_zendnn_version() {
 
 std::string show_config() {
   std::ostringstream ss;
-  ss << "Plugin Version: " << TO_STRING(ZENTORCH_VERSION) << "\n";
+  ss << "zentorch Version: " << TO_STRING(ZENTORCH_VERSION) << "\n";
   ss << "zentorch built with:\n";
   ss << "  - Commit-id: " << TO_STRING(ZENTORCH_VERSION_HASH) << "\n";
 #if defined(__GNUC__)
@@ -44,4 +44,4 @@ std::string show_config() {
   return ss.str();
 }
 
-} // namespace ZenDNNTorch
+} // namespace zentorch

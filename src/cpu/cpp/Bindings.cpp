@@ -17,7 +17,7 @@
    zendnn_<corresponding op name>.
 */
 
-#include "ZenDNNOps.hpp"
+#include "ZenTorchOps.hpp"
 
 TORCH_LIBRARY(zentorch, m) {
   m.def("zendnn_embedding_bag(Tensor weight, Tensor indices, Tensor offsets, "
@@ -69,29 +69,29 @@ TORCH_LIBRARY(zentorch, m) {
 }
 
 TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
-  m.impl("zendnn_embedding_bag", ZenDNNTorch::zendnn_embedding_bag_impl);
-  m.impl("zendnn_embedding", ZenDNNTorch::zendnn_embedding_impl);
-  m.impl("zendnn_mm", ZenDNNTorch::zendnn_mm);
-  m.impl("zendnn_bmm", ZenDNNTorch::zendnn_bmm);
-  m.impl("zendnn_addmm", ZenDNNTorch::zendnn_addmm);
-  m.impl("zendnn_addmm_1dbias", ZenDNNTorch::zendnn_addmm_1dbias);
-  m.impl("zendnn_baddbmm", ZenDNNTorch::zendnn_baddbmm);
+  m.impl("zendnn_embedding_bag", zentorch::zendnn_embedding_bag_impl);
+  m.impl("zendnn_embedding", zentorch::zendnn_embedding_impl);
+  m.impl("zendnn_mm", zentorch::zendnn_mm);
+  m.impl("zendnn_bmm", zentorch::zendnn_bmm);
+  m.impl("zendnn_addmm", zentorch::zendnn_addmm);
+  m.impl("zendnn_addmm_1dbias", zentorch::zendnn_addmm_1dbias);
+  m.impl("zendnn_baddbmm", zentorch::zendnn_baddbmm);
   m.impl("zendnn_horizontal_embedding_bag_group",
-         ZenDNNTorch::zendnn_horizontal_embedding_bag_group);
+         zentorch::zendnn_horizontal_embedding_bag_group);
   m.impl("zendnn_horizontal_embedding_group",
-         ZenDNNTorch::zendnn_horizontal_embedding_group);
-  m.impl("zendnn_vertical_mlp_group", ZenDNNTorch::zendnn_vertical_mlp_group);
+         zentorch::zendnn_horizontal_embedding_group);
+  m.impl("zendnn_vertical_mlp_group", zentorch::zendnn_vertical_mlp_group);
   m.impl("zendnn_attn_horizontal_mlp_group",
-         ZenDNNTorch::zendnn_attn_horizontal_mlp_group);
-  m.impl("zendnn_fused_eb_mlp", ZenDNNTorch::zendnn_fused_eb_mlp);
+         zentorch::zendnn_attn_horizontal_mlp_group);
+  m.impl("zendnn_fused_eb_mlp", zentorch::zendnn_fused_eb_mlp);
 }
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
-  m.def("show_config", ZenDNNTorch::show_config);
+  m.def("show_config", zentorch::show_config);
 
   m.def("is_bf16_supported", zendnn::utils::zendnn_bf16_device_check);
 
-  m.def("zendnn_matmul_impl", ZenDNNTorch::zendnn_matmul_impl, py::arg("mat1"),
+  m.def("zendnn_matmul_impl", zentorch::zendnn_matmul_impl, py::arg("mat1"),
         py::arg("mat2"), py::arg("bias"), py::arg("self_or_result"),
         py::arg("beta") = 0.0f, py::arg("alpha") = 1.0f, py::arg("fuse") = 0);
 }
