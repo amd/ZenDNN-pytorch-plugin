@@ -1,14 +1,14 @@
 Copyright &copy; 2023-2024 Advanced Micro Devices, Inc. All rights reserved.
 
-This file details the technical contributions made to zentorch. If you are interested in contributing to zentorch, please read through this!
+This file details the technical contributions made to _zentorch_. If you are interested in contributing to _zentorch_, please read through this!
 
 Table of Contents
 ============
 
 <!-- toc -->
-- [Making changes to zentorch](#1-making-changes-to-zentorch)
+- [Making changes to _zentorch_](#1-making-changes-to-zentorch)
 - [Codebase structure](#2-codebase-structure)
-- [Adding a custom Op via Plugin](#3-adding-a-custom-op-via-plugin)
+- [Adding a custom Op via _zentorch_](#3-adding-a-custom-op-via-zentorch)
   - [Implementation of the function for custom op](#31-implementation-of-the-function-for-custom-op)
   - [Declaration in ZenTorchOps.hpp](#32-declaration-in-zentorchopshpp)
   - [Registration of the op with TORCH_LIBRARY and TORCH_LIBRARY_IMPL](#33-registration-of-the-op-with-torch_library-and-torch_library_impl)
@@ -21,20 +21,20 @@ Table of Contents
 - [Git commit guidelines](#7-git-commit-guidelines)
 <!-- tocstop -->
 
-# 1. Making changes to zentorch
-You will have to install zentorch from [source](README.md#from-source) to start contributing. You should run the [linting checks](#linting-mechanism), [license header check](#license-header-check) and [unit-tests](#unit-testing) before creating a PR. Once you have the changes ready, create a PR and follow the instructions given under the section [Git commit guidelines](#git-commit-guidelines).
+# 1. Making changes to _zentorch_
+You will have to install _zentorch_ from [source](README.md#from-source) to start contributing. You should run the [linting checks](#linting-mechanism), [license header check](#license-header-check) and [unit-tests](#unit-testing) before creating a PR. Once you have the changes ready, create a PR and follow the instructions given under the section [Git commit guidelines](#git-commit-guidelines).
 
 # 2. Codebase structure
 * [cmake](cmake) - Downloads and builds AOCL BLIS and ZenDNN in [third_party](third_party) directory. For more details refer to [FindZENDNN.cmake](cmake/modules/FindZENDNN.cmake).
-* [src](src/cpu) - Contains python and cpp sources for zentorch.
+* [src](src/cpu) - Contains python and cpp sources for _zentorch_.
 * [linter](linter) - Shell script for linting is present in this directory.
-* [test](test) - Python based unit-tests for zentorch functionality.
+* [test](test) - Python based unit-tests for _zentorch_ functionality.
 * [setup.py](setup.py) - Wheel file build script using setuptools.
 * [build.sh](build.sh) - Lightweight shell script for building, using [setup.py](setup.py).
 * [license_header_check.py](license_header_check.py) - Checks for the presence of AMD copyright header.
 
-# 3. Adding a custom Op via Plugin
-An op at cpp level in plugin acts as wrapper/bridge between torch data structures and their respective APIs and similarly between zendnn data structures and the corresponding APIs. Whenever we need to add a new op we need to follow the steps given below.
+# 3. Adding a custom Op via _zentorch_
+An op at cpp level in _zentorch_ acts as wrapper/bridge between torch data structures and their respective APIs and similarly between zendnn data structures and the corresponding APIs. Whenever we need to add a new op we need to follow the steps given below.
 ## 3.1. Implementation of the function for custom op
 The actual implementation of the op can be written in any existing cpp files corresponding to the op or a new cpp file dedicated to the new op.
 ```cpp
@@ -50,7 +50,7 @@ return_type zendnn_op_impl(const at::Tensor &tensor_parameter,
 }
 ```
 ## 3.2. Declaration in ZenTorchOps.hpp
-The corresponding C++ function protoype must also be added in the file ZenDNN_PyTorch_Plugin/src/cpu/cpp/ZenTorchOps.hpp. This must be the zentorch namespace.
+The corresponding C++ function protoype must also be added in the file `src/cpu/cpp/ZenTorchOps.hpp`. This must be inside the `zentorch` namespace.
 ```cpp
   return_type zendnn_op_impl(const at::Tensor &tensor_parameter,
                              const bool &boolean_parameter,
@@ -58,8 +58,8 @@ The corresponding C++ function protoype must also be added in the file ZenDNN_Py
                              ...);
 ```
 ## 3.3. Registration of the op with TORCH_LIBRARY and TORCH_LIBRARY_IMPL
-Whenever we need to add a new op we need to add the prototype of the new op function as an entry to TORCH_LIBRARY in ZenDNN_PyTorch_Plugin/src/cpu/cpp/Bindings.cpp.
-The new op implementation must be registered with the corresponding name intended to be used from the python framework, as follows. The function prototype should follow aten/src/ATen/native/README.md in PyTorch repo.
+Whenever we need to add a new op we need to add the prototype of the new op function as an entry to TORCH_LIBRARY in `src/cpu/cpp/Bindings.cpp`.
+The new op implementation must be registered with the corresponding name intended to be used from the python framework, as follows. The function prototype should follow `aten/src/ATen/native/README.md` in PyTorch repo.
 ```cpp
   TORCH_LIBRARY(zentorch, m) {
     m.def("zendnn_op(Tensor tensor_parameter, "
@@ -82,7 +82,7 @@ Register the implementation corresponding the above op with TORCH_LIBRARY_IMPL a
     */
 }
 ```
-Here the "zendnn_op" will be available on the python side via torch.ops.zentorch.zendnn_op. The zendnn_op_impl must be present in any existing cpp files corresponding to the op or a new cpp file.
+Here the "zendnn_op" will be available on the python side via `torch.ops.zentorch.zendnn_op`. The zendnn_op_impl must be present in any existing cpp files corresponding to the op or a new cpp file.
 
 >Note:
 Following are guidelines to consider when creating and registering a new op.
@@ -91,10 +91,10 @@ Following are guidelines to consider when creating and registering a new op.
 >  - Our op arguments should match the arguments of corresponding op in both order of the arguments and type.
 >  - Our op specific arguments should be at the end of the list.
 >  - All ops should have prefix "zendnn_", for example zendnn_op.
->  - Add a corresponding unit test for the new op created in ZenDNN_PyTorch_Plugin/test/test_zentorch.py being in line with the other tests. For additional details refer to [Unit-testing](#6-unit-testing)
+>  - Add a corresponding unit test for the new op created in `test/test_zentorch.py` being in line with the other tests. For additional details refer to [Unit-testing](#6-unit-testing)
 
 ## 3.4. Registration of fake tensor functions
-The op also must be registered in the ZenDNN_PyTorch_Plugin/src/cpu/python/zentorch/_meta_registrations.py with the decorator @register_meta("{op_name}"). This registration has the function protoype and the corresponding output is returned with the appropriate shapes. This registration happens in pythonic way.
+The op also must be registered in the `src/cpu/python/zentorch/_meta_registrations.py` with the decorator @register_meta("{op_name}"). This registration has the function protoype and the corresponding output is returned with the appropriate shapes. This registration happens in pythonic way.
 ```python
 @register_meta("{zendnn_op}")
 def meta_zendnn_op(
@@ -111,7 +111,7 @@ make_fallback(torch.ops.zentorch.zendnn_op)
 ```
 
 # 4. Coding-style guidelines
-zentorch follows the **PEP-8** guidelines for Python and the **LLVM** style for C/C++ code. [Linting mechanism](#linting-mechanism) section below gives further details.
+_zentorch_ follows the **PEP-8** guidelines for Python and the **LLVM** style for C/C++ code. [Linting mechanism](#linting-mechanism) section below gives further details.
 
 ## 4.1. Linting mechanism
 You can perform a code-check on all Python and CPP files by running the following command from repo root.
@@ -125,7 +125,7 @@ This will install all the prerequisites and then perform code check; the script 
 # 5. Adding log messages to sources
 It is a good practice to add logging messages along with the changes you make.
 
-For CPP source files, zentorch supports the LOG() macro. An example to put an error message is given below:
+For CPP source files, _zentorch_ supports the LOG() macro. An example to put an error message is given below:
 ```cpp
 LOG(ERROR) << "This is an error message!";
 ```
@@ -140,7 +140,7 @@ logger.info("This is an info message!")
 The log levels have been discussed [here](README.md#42-zentorch-logs).
 
 # 6. Unit-testing
-Unit tests for Python are located in a script test_zentorch.py inside the test directory. It contains tests for all ops supported by zentorch, bf16 device support check and a few other tests. The pre-requisites for running or adding new tests are the **expecttest** and **hypothesis** packages. To run the tests:
+Unit tests for Python are located in a script `test_zentorch.py` inside the test directory. It contains tests for all ops supported by _zentorch_, bf16 device support check and a few other tests. The pre-requisites for running or adding new tests are the **expecttest** and **hypothesis** packages. To run the tests:
 ```bash
 python test/test_zentorch.py
 ```
