@@ -1,6 +1,5 @@
 build/
 dist/
-third_party/ZenDNN/
-third_party/blis/
+third_party/
 *.egg-info/
 src/cpu/cpp/Config.hpp
