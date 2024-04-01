@@ -31,6 +31,14 @@ class CustomBuildExtension(BuildExtension):
             shutil.rmtree(self.build_temp)
         os.makedirs(self.build_temp, exist_ok=True)
 
+        rc, out, err = subproc_communicate("which python")
+        if rc == 0:
+            out = out.split("\n")[0]
+            os.environ["PYTHON_PATH"] = out.strip()
+        else:
+            print("Issue with getting the python path")
+            exit(1)
+
         build_type = "Debug" if os.getenv("DEBUG", 0) == "1" else "Release"
         working_dir = os.path.abspath(os.path.dirname(__file__))
         cmake_cmd = [
