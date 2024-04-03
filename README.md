@@ -1,6 +1,6 @@
 Copyright &copy; 2023-2024 Advanced Micro Devices, Inc. All rights reserved.
 
-_zentorch_: A PyTorch Add-on for AMD CPUs
+_zentorch_: A PyTorch Add-on for AMD EPYC&trade; CPUs
 =============
 
 Table of Contents
@@ -15,26 +15,30 @@ Table of Contents
   - [From Binaries](#21-from-binaries)
   - [From Source](#22-from-source)
 - [Usage](#3-usage)
-- [Logging and Profiling](#4-logging-and-profiling)
+- [Logging, Profiling and Debugging](#4-logging-profiling-and-debugging)
   - [ZenDNN logs](#41-zendnn-logs)
   - [_zentorch_ logs](#42-zentorch-logs)
   - [Saving the graph](#43-saving-the-graph)
-- [Contributing](#5-contributing)
+  - [Support for `TORCH_COMPILE_DEBUG`](#44-support-for-torch_compile_debug)
+- [Additional Utilities](#5-additional-utilities)
+  - [Disabling Inductor](#51-disabling-inductor)
+  - [_zentorch_ attributes](#52-zentorch-attributes)
+- [Contributing](#6-contributing)
 <!-- tocstop -->
 
 # 1. About _zentorch_
 
 ## 1.1. Overview
-_zentorch_ enables ZenDNN library on top of PyTorch. The _zentorch_ enables inference optimizations for deep learning workloads on AMD CPUs. It uses ZenDNN for accelerating basic deep learning ops. ZenDNN is a library which enables performance improvements on AMD CPU architectures. Find the repo for more details [here](https://github.com/amd/ZenDNN). _zentorch_ further accelerates the performance by adding more optimizations at graph(model) level using multiple passes on torch.fx graph. All _zentorch_ optimizations can be enabled with a call to optimize function on models.
+_zentorch_ enables ZenDNN library on top of PyTorch. The _zentorch_ enables inference optimizations for deep learning workloads on AMD EPYC&trade; CPUs. It uses ZenDNN for accelerating basic deep learning ops. ZenDNN is a library which enables performance improvements on AMD EPYC&trade; CPU architectures. Find the repo for more details [here](https://github.com/amd/ZenDNN). _zentorch_ further accelerates the performance by adding more optimizations at graph(model) level using multiple passes on torch.fx graph. All _zentorch_ optimizations can be enabled by a call to `torch.compile` with _zentorch_ as the backend.
 
 ## 1.2. Structure
 _zentorch_ consists of three parts. They are
 - ZenDNN Integration Code
-- Optimize Function
+- _zentorch_ backend
 - Build System
 
 ### 1.2.1. ZenDNN Integration Code
-ZenDNN is integrated into _zentorch_ using CPP code which interfaces ATen API to ZenDNN's API. This code exports torch compatible API similar to ATen IR of PyTorch. The exported API is made avaiable for usage from python code using PYBIND11 library. PYBIND11 is a header only library. Integration code is linked and compiled into _zentorch_ using CppExtension provided by PyTorch.
+ZenDNN is integrated into _zentorch_ using CPP code which interfaces ATen API to ZenDNN's API. This code exports torch compatible API similar to ATen IR of PyTorch. The exported API is made avaiable for usage from python code using TORCH_LIBRARY and TORCH_LIBRARY_IMPL. Integration code is linked and compiled into _zentorch_ using CppExtension provided by PyTorch.
 
 The following ops are integrated as of now:
 - Embedding bag op
@@ -42,8 +46,8 @@ The following ops are integrated as of now:
 - Matmul ops
 - Custom Fusion ops
 
-### 1.2.2. Optimize Function
-`optimize` is a Python function that acts as an interface to leverage CPU related optimizations of the _zentorch_. It takes in the FX based graph in ATen IR and adds on all optimizations of ZenDNN and produces FX based graph as output.
+### 1.2.2. _zentorch_ backend
+`torch.compile` provides the support for custom backends. By leveraging this we have registered our custom _zentorch_ backend. `torch.compile` with _zentorch_ as backend enables us to intergate CPU related optimizations through `optimize` after the AOTAutograd.  `optimize` is a Python function that acts as an interface to leverage CPU related optimizations of the _zentorch_. It takes in the FX based graph in ATen IR and adds on all optimizations of ZenDNN and produces FX based graph as output.
 
 ### 1.2.3. Build System
 
@@ -173,14 +177,15 @@ bash build.sh
 python setup.py clean --all
 ```
 # 3. Usage
+General Usage
 ```python
-#Using torch.compile
+# Using torch.compile with 'zentorch' as backend
 import torch
 import zentorch
 compiled_model = torch.compile(model, backend='zentorch')
 output = compiled_model(input)
 
-#Using make_fx (Deprecated)
+# Using make_fx (Deprecated)
 from torch.fx.experimental.proxy_tensor import make_fx
 import zentorch
 # The model should be a fx graph which can be generated with model and input fed to make_fx
@@ -189,7 +194,54 @@ model_optim = zentorch.optimize(model_fx)
 output = model_optim(input)
 ```
 
-# 4. Logging and Profiling
+>Note: If same model is optimized with `torch.compile` for multiple backends within single script, it is recommended to use `torch._dynamo.reset()` before calling the `torch.compile` on that model.
+
+>Note: _zentorch_ is able to do the zentorch op replacements in both non-inference and inference modes. But some of the _zentorch_ optimizations are only supported for the inference mode, so it is recommended to use `torch.no_grad()` if you are running the model for inference only.
+
+For torchvision CNN models, set `dynamic=False` when calling for `torch.compile` as below:
+```python
+with torch.no_grad():
+  model = torch.compile(model, backend='zentorch', dynamic=False)
+
+  output = model(input)
+```
+
+For hugging face NLP models, optimize them as below:
+```python
+with torch.no_grad():
+  model = torch.compile(model, backend='zentorch')
+
+  output = model(input)
+```
+
+For hugging face LLM models, optimize them as below:
+1. If output is generated through a call to direct `model`, optimize it as below:
+```python
+with torch.no_grad():
+  model = torch.compile(model, backend='zentorch')
+
+  output = model(input)
+```
+
+2. If output is generated through a call to `model.forward`, optimize it as below:
+```python
+with torch.no_grad():
+  model.forward = torch.compile(model.forward, backend='zentorch')
+
+  output = model.forward(input)
+```
+
+3. If output is generated through a call to `model.generate`, optimize it as below:
+    - Optimize the `model.forward` with torch.compile instead of `model.generate`.
+    - But still generate the output through a call to `model.generate`.
+```python
+with torch.no_grad():
+  model.forward = torch.compile(model.forward, backend='zentorch')
+
+  output = model.generate(input)
+```
+
+# 4. Logging, Profiling and Debugging
 ## 4.1 ZenDNN logs
 Logging for ZenDNN is disabled by default but can be enabled by using the environment variable **ZENDNN_LOG_OPTS** before running any tests. Its behavior can be specified by setting **ZENDNN_LOG_OPTS** to a comma-delimited list of **ACTOR:DBGLVL** pairs. An example to turn on info logging is given below.
 ```bash
@@ -221,11 +273,19 @@ export ZENTORCH_SAVE_GRAPH=1
 ```
 The graphs will be saved by the names 'native_model.svg' and 'zen_optimized_model.svg', in the parent directory of the script in which the optimize function provided by the _zentorch_ is used.
 
+## 4.4 Support for `TORCH_COMPILE_DEBUG`
+PyTorch offers a debugging toolbox that comprises a built-in stats and trace function. This functionality facilitates the display of the time spent by each compilation phase, output code, output graph visualization, and IR dump. `TORCH_COMPILE_DEBUG` invokes this debugging tool that allows for better problem-solving while troubleshooting the internal issues of TorchDynamo and TorchInductor. This functionality works for the models optimized using _zentorch_, so it can be leveraged to debug these models as well. To enable this functionality, users can either set the environment variable `TORCH_COMPILE_DEBUG=1` or specify the environment variable with the runnable file (e.g., test.py) as input.
+```bash
+# test.py contains model optimized by torch.compile with 'zentorch' as backend
+TORCH_COMPILE_DEBUG=1 python test.py
+```
+For more information about TORCH_COMPILE_DEBUG refer to the official PyTorch documentaion available.
+
 # 5. Additional Utilities:
 
 ## 5.1 Disabling Inductor:
 
-This feature is intended for use whenever fx_graphs generated from torch.compile needs to be compared with and without Inductor compilation. 
+This feature is intended for use whenever fx_graphs generated from torch.compile needs to be compared with and without Inductor compilation.
 
 disable_inductor() API takes in a boolean input to disable Inductor. Once disabled, to re-enable inductor, pass "False" to the same API.
 
@@ -233,12 +293,12 @@ disable_inductor() API takes in a boolean input to disable Inductor. Once disabl
 import torch
 import zentorch
 
-#To disable Torch Inductor
+# To disable Torch Inductor
 zentorch.disable_inductor(True)
 compiled_model = torch.compile(model, backend='zentorch')
 output = compiled_model(input)
 
-#To re-enable Torch Inductor
+# To re-enable Torch Inductor
 torch._dynamo.reset()
 zentorch.disable_inductor(False)
 compiled_model = torch.compile(model, backend='zentorch')
@@ -246,6 +306,18 @@ compiled_model = torch.compile(model, backend='zentorch')
 ```
 
 Fx graphs are sent to AOT Autograd using aot_module_simplified and thus Inductor is not used at all.
+
+## 5.2 _zentorch_ attributes:
+To check the version of _zentorch_ use the following command:
+
+```bash
+python -c 'import zentorch; print(zentorch.__version__)'
+```
+
+To check the build config of _zentorch_ use the following command:
+```bash
+python -c 'import zentorch; print(*zentorch.__config__.split("\n"), sep="\n")'
+```
 
 # 6. Contributing
 Any contribution to _zentorch_ can be done by following the guidelines given [here](CONTRIBUTING.md).
