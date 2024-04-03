@@ -168,7 +168,10 @@ conda install pytorch cpuonly -c pytorch
 ```bash
 bash build.sh
 ```
-
+#### 2.2.3.3. Build Cleanup
+```bash
+python setup.py clean --all
+```
 # 3. Usage
 ```python
 #Using torch.compile
