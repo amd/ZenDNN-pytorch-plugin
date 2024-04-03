@@ -5,3 +5,4 @@ hypothesis
 ninja
 numpy
 setuptools>=50.0
+setupext_janitor
