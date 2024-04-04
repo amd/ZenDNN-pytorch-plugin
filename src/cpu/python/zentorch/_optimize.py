@@ -110,7 +110,7 @@ def zendnn_op_fusion(fx_graph):
         if len(node.users) > 1:  # Output of node is used by other nodes
             continue
         if node.target == at_ops.clone.default and len(node.kwargs) == 0:
-            node.replace_all_uses_with(node.prev)
+            node.replace_all_uses_with(node.args[0])
             fx_graph.graph.erase_node(node)
     for node in fx_graph.graph.nodes:
         if len(node.users) > 1:  # Output of node is used by other nodes
