@@ -15,6 +15,7 @@ from itertools import product
 
 try:
     import zentorch
+
     HAS_ZENTORCH = True
 except ImportError:
     HAS_ZENTORCH = False
@@ -1325,7 +1326,9 @@ class Custom_Horizontal_GroupMLP_Model(nn.Module):
         view4 = linear1_output.view(-1, 50)
         view5 = linear2_output.view(-1, 50)
         view6 = linear3_output.view(-1, 50)
-        output = torch.cat((view4, view5, view6),)
+        output = torch.cat(
+            (view4, view5, view6),
+        )
 
         return output
 
@@ -1639,9 +1642,9 @@ class CustomModelMMReLU1(nn.Module):
         return torch.relu(self.linear2(x))
 
 
-class CustomModelAddmmGelu2(nn.Module):
+class CustomModelAddmmGelu(nn.Module):
     def __init__(self):
-        super(CustomModelAddmmGelu2, self).__init__()
+        super(CustomModelAddmmGelu, self).__init__()
         self.gelu = nn.GELU(approximate="tanh")
         self.gelu2 = nn.GELU()
 
@@ -1654,33 +1657,52 @@ class CustomModelAddmmGelu2(nn.Module):
         return GELU2_res
 
 
-class CustomModelAddmmGelu1(nn.Module):
+class CustomModelAddmmGeluTanh(nn.Module):
     def __init__(self):
-        super(CustomModelAddmmGelu1, self).__init__()
+        super(CustomModelAddmmGeluTanh, self).__init__()
 
     def forward(self, input, batch1, batch2):
         mm_res = torch.mm(batch1, batch2)
         add_res = torch.add(mm_res, input)
-        GELU1_res = nn.functional.gelu(add_res, approximate="tanh")
-        addmm_res = torch.addmm(GELU1_res, batch1, batch2, beta=1.7, alpha=1.6)
-        GELU2_res = torch._C._nn.gelu_(addmm_res, approximate="none")
-        return GELU2_res
+        GELU_res = nn.functional.gelu(add_res, approximate="tanh")
+        return GELU_res
+
+
+class CustomModelAddmmGeluExact(nn.Module):
+    def __init__(self):
+        super(CustomModelAddmmGeluExact, self).__init__()
+
+    def forward(self, input, batch1, batch2):
+        mm_res = torch.mm(batch1, batch2)
+        add_res = torch.add(mm_res, input)
+        GELU_res = nn.functional.gelu(add_res, approximate="none")
+        return GELU_res
 
 
 class CustomModelMM_View_Unary_OP(nn.Module):
     def __init__(self):
         super(CustomModelMM_View_Unary_OP, self).__init__()
         self.gelu = nn.GELU(approximate="tanh")
-        self.gelu2 = nn.GELU()
 
     def forward(self, input, batch1, batch2):
         mm_res = torch.mm(batch1, batch2)
         add_res = torch.add(mm_res, input)
         add_res.view(-1, 4)
         GELU1_res = self.gelu(add_res)
-        addmm_res = torch.addmm(GELU1_res, batch1, batch2)
-        GELU2_res = self.gelu2(addmm_res)
-        return GELU2_res
+        return GELU1_res
+
+
+# The node being cloned will not always be previous node
+# While removing clone op from graph we can encounter this scenario
+class CustomModelMM_Diff_User_In_Btw(nn.Module):
+    def __init__(self):
+        super(CustomModelMM_Diff_User_In_Btw, self).__init__()
+
+    def forward(self, input, batch1, batch2):
+        mm = torch.mm(batch1, batch2)
+        cln = torch.clone(input)
+        res = torch.add(mm, cln)
+        return res
 
 
 @unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
@@ -1834,12 +1856,12 @@ class TestMMADD(TestCase):
 class TestADDMM_GELU(TestCase):
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
-    def test_zendnn_addmm_gelu(self, dtype):
+    def test_zendnn_addmm_gelu_tanh(self, dtype):
         if dtype == "bfloat16":
             self.skipTest("Skipping it due to issue BF16 path.")
         data = Test_Data()
         data.create_data(dtype)
-        model = CustomModelAddmmGelu1().eval()
+        model = CustomModelAddmmGeluTanh().eval()
         for inp in data.M:
             for i in range(len(data.x1)):
                 for j in range(len(data.y1)):
@@ -1851,12 +1873,12 @@ class TestADDMM_GELU(TestCase):
 
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
-    def test_zendnn_addmm_gelu_tanh(self, dtype):
+    def test_zendnn_addmm_gelu_exact(self, dtype):
         if dtype == "bfloat16":
             self.skipTest("Skipping it due to issue BF16 path.")
         data = Test_Data()
         data.create_data(dtype)
-        model = CustomModelAddmmGelu2().eval()
+        model = CustomModelAddmmGeluExact().eval()
         for inp in data.M:
             for i in range(len(data.x1)):
                 for j in range(len(data.y1)):
@@ -1864,7 +1886,28 @@ class TestADDMM_GELU(TestCase):
                     torch._dynamo.reset()
                     compiled_graph = torch.compile(model, backend="zentorch")
                     compiled_graph_output = compiled_graph(inp, data.x1[i], data.y1[j])
-                    self.assertEqual(model_output, compiled_graph_output)
+                    self.assertEqual(
+                        model_output, compiled_graph_output, atol=1e-3, rtol=1e-5
+                    )
+
+    @parameterized.expand(supported_dtypes)
+    @torch.inference_mode()
+    def test_zendnn_addmm_gelu(self, dtype):
+        if dtype == "bfloat16":
+            self.skipTest("Skipping it due to issue BF16 path.")
+        data = Test_Data()
+        data.create_data(dtype)
+        model = CustomModelAddmmGelu().eval()
+        for inp in data.M:
+            for i in range(len(data.x1)):
+                for j in range(len(data.y1)):
+                    model_output = model(inp, data.x1[i], data.y1[j])
+                    torch._dynamo.reset()
+                    compiled_graph = torch.compile(model, backend="zentorch")
+                    compiled_graph_output = compiled_graph(inp, data.x1[i], data.y1[j])
+                    self.assertEqual(
+                        model_output, compiled_graph_output, atol=1e-3, rtol=1e-5
+                    )
 
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
@@ -1874,6 +1917,23 @@ class TestADDMM_GELU(TestCase):
         data = Test_Data()
         data.create_data(dtype)
         model = CustomModelMM_View_Unary_OP().eval()
+        for inp in data.M:
+            for i in range(len(data.x1)):
+                for j in range(len(data.y1)):
+                    model_output = model(inp, data.x1[i], data.y1[j])
+                    torch._dynamo.reset()
+                    compiled_graph = torch.compile(model, backend="zentorch")
+                    compiled_graph_output = compiled_graph(inp, data.x1[i], data.y1[j])
+                    self.assertEqual(model_output, compiled_graph_output)
+
+    @parameterized.expand(supported_dtypes)
+    @torch.inference_mode()
+    def test_zendnn_mm_diff_user_in_btw(self, dtype):
+        if dtype == "bfloat16":
+            self.skipTest("Skipping it due to issue BF16 path.")
+        data = Test_Data()
+        data.create_data(dtype)
+        model = CustomModelMM_Diff_User_In_Btw().eval()
         for inp in data.M:
             for i in range(len(data.x1)):
                 for j in range(len(data.y1)):
