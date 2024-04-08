@@ -544,7 +544,7 @@ class TEST_EMBEDDING_BAG(TestCase):
                     -1,
                 )
             self.assertTrue(
-                "Only fp32 type weights are supported in ZenDNN" + " EmbeddingBag!"
+                "Only fp32 type weights are supported in ZenDNN EmbeddingBag!"
                 in str(context.exception)
             )
         else:
@@ -717,9 +717,8 @@ class TEST_EMBEDDING_BAG_GROUP(TestCase):
     def test_group_embeddingbag(self, dtype):
         if dtype == "bfloat16":
             self.skipTest(
-                "Skipping it since the test case is not applicable \
-                          in this case. Custom Model weights are in fp32 by \
-                          default unless explicitly set to bfloat16."
+                "Skipping test case since only fp32 type weights are supported \
+                in ZenDNN EmbeddingBag!"
             )
 
         test_data = Test_Data()
@@ -735,7 +734,7 @@ class TEST_EMBEDDING_BAG_GROUP(TestCase):
 
         fx_g_optimized_output = fx_g_optimized(indices, offsets)
 
-        self.assertEqual(fx_g_output, fx_g_optimized_output, atol=1e-1, rtol=1e-3)
+        self.assertEqual(fx_g_output, fx_g_optimized_output)
 
         target = torch.ops.zentorch.zendnn_horizontal_embedding_bag_group.default
         group_eb_count = 0
@@ -751,9 +750,8 @@ class TEST_EMBEDDING_BAG_GROUP(TestCase):
     def test_group_embeddingbag_compile(self, dtype):
         if dtype == "bfloat16":
             self.skipTest(
-                "Skipping it since the test case is not applicable \
-                          in this case. Custom Model weights are in fp32 by \
-                          default unless explicitly set to bfloat16."
+                "Skipping test case since only fp32 type weights are supported \
+                in ZenDNN EmbeddingBag!"
             )
 
         test_data = Test_Data()
@@ -769,7 +767,7 @@ class TEST_EMBEDDING_BAG_GROUP(TestCase):
 
         compiled_output = compiled_graph(indices, offset)
 
-        self.assertEqual(native_output, compiled_output, atol=1e-1, rtol=1e-3)
+        self.assertEqual(native_output, compiled_output)
 
 
 @unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
@@ -813,9 +811,8 @@ class TEST_EMBEDDING_GROUP(TestCase):
     def test_group_embedding(self, dtype):
         if dtype == "bfloat16":
             self.skipTest(
-                "Skipping it since the test case is not applicable \
-                          in this case. Custom Model weights are in fp32 by \
-                          default unless explicitly set to bfloat16."
+                "Skipping test case since only fp32 type weights are supported \
+                in ZenDNN Embedding!"
             )
 
         test_data = Test_Data()
@@ -830,7 +827,7 @@ class TEST_EMBEDDING_GROUP(TestCase):
 
         fx_g_optimized_output = fx_g_optimized(x)
 
-        self.assertEqual(fx_g_output, fx_g_optimized_output, atol=1e-1, rtol=1e-3)
+        self.assertEqual(fx_g_output, fx_g_optimized_output)
 
         target = torch.ops.zentorch.zendnn_horizontal_embedding_group.default
         group_eb_count = 0
@@ -846,9 +843,8 @@ class TEST_EMBEDDING_GROUP(TestCase):
     def test_group_embedding_compile(self, dtype):
         if dtype == "bfloat16":
             self.skipTest(
-                "Skipping it since the test case is not applicable \
-                          in this case. Custom Model weights are in fp32 by \
-                          default unless explicitly set to bfloat16."
+                "Skipping test case since only fp32 type weights are supported \
+                in ZenDNN Embedding!"
             )
 
         test_data = Test_Data()
@@ -863,16 +859,15 @@ class TEST_EMBEDDING_GROUP(TestCase):
 
         compiled_output = compiled_graph(x)
 
-        self.assertEqual(native_output, compiled_output, atol=1e-1, rtol=1e-3)
+        self.assertEqual(native_output, compiled_output)
 
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
     def test_emb_and_embbag_common_node(self, dtype):
         if dtype == "bfloat16":
             self.skipTest(
-                "Skipping it since the test case is not applicable \
-                          in this case. Custom Model weights are in fp32 by \
-                          default unless explicitly set to bfloat16."
+                "Skipping test case since only fp32 type weights are supported \
+                in ZenDNN Embedding and EmbeddingBag!"
             )
 
         test_data = Test_Data()
@@ -886,16 +881,15 @@ class TEST_EMBEDDING_GROUP(TestCase):
         compiled_graph = torch.compile(model, backend="zentorch")
 
         compiled_output = compiled_graph(indices, offsets)
-        self.assertEqual(native_output, compiled_output, atol=1e-1, rtol=1e-3)
+        self.assertEqual(native_output, compiled_output)
 
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
     def test_emb_and_embbag_diff_node(self, dtype):
         if dtype == "bfloat16":
             self.skipTest(
-                "Skipping it since the test case is not applicable \
-                          in this case. Custom Model weights are in fp32 by \
-                          default unless explicitly set to bfloat16."
+                "Skipping test case since only fp32 type weights are supported \
+                in ZenDNN Embedding and EmbeddingBag!"
             )
 
         test_data = Test_Data()
@@ -909,16 +903,15 @@ class TEST_EMBEDDING_GROUP(TestCase):
         compiled_graph = torch.compile(model, backend="zentorch")
 
         compiled_output = compiled_graph(indices, offsets)
-        self.assertEqual(native_output, compiled_output, atol=1e-1, rtol=1e-3)
+        self.assertEqual(native_output, compiled_output)
 
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
     def test_embedding_2d_inputs(self, dtype):
         if dtype == "bfloat16":
             self.skipTest(
-                "Skipping it since the test case is not applicable \
-                          in this case. Custom Model weights are in fp32 by \
-                          default unless explicitly set to bfloat16."
+                "Skipping test case since only fp32 type weights are supported \
+                in ZenDNN Embedding!"
             )
 
         test_data = Test_Data()
@@ -931,7 +924,7 @@ class TEST_EMBEDDING_GROUP(TestCase):
         compiled_graph = torch.compile(model, backend="zentorch")
 
         compiled_output = compiled_graph(indices)
-        self.assertEqual(native_output, compiled_output, atol=1e-1, rtol=1e-3)
+        self.assertEqual(native_output, compiled_output)
 
 
 @unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
@@ -950,7 +943,7 @@ class TEST_HORIZONTAL_MLP(TestCase):
                 compiled_graph = torch.compile(model, backend="zentorch")
 
                 compiled_output = compiled_graph(data.x2[i], data.y2[j])
-                self.assertEqual(native_output, compiled_output, atol=1e-1, rtol=1e-3)
+                self.assertEqual(native_output, compiled_output)
 
     @parameterized.expand(supported_dtypes)
     def test_horizontal_mlp_unsupported_dims_1(self, dtype):
@@ -1037,7 +1030,7 @@ class TEST_GROUP_MLP(TestCase):
         compiled_graph = torch.compile(model, backend="zentorch")
 
         compiled_output = compiled_graph(data.x)
-        self.assertEqual(native_output, compiled_output, atol=1e-1, rtol=1e-3)
+        self.assertEqual(native_output, compiled_output)
 
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
@@ -1052,7 +1045,7 @@ class TEST_GROUP_MLP(TestCase):
         compiled_graph = torch.compile(model, backend="zentorch")
 
         compiled_output = compiled_graph(data.x)
-        self.assertEqual(native_output, compiled_output, atol=1e-1, rtol=1e-3)
+        self.assertEqual(native_output, compiled_output)
 
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
@@ -1067,7 +1060,7 @@ class TEST_GROUP_MLP(TestCase):
         compiled_graph = torch.compile(model, backend="zentorch")
 
         compiled_output = compiled_graph(data.x)
-        self.assertEqual(native_output, compiled_output, atol=1e-1, rtol=1e-3)
+        self.assertEqual(native_output, compiled_output)
 
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
@@ -1131,9 +1124,8 @@ class TEST_GROUP_EB_MLP(TestCase):
     def test_group_eb_mlp_model(self, dtype):
         if dtype == "bfloat16":
             self.skipTest(
-                "Skipping it since the test case is not applicable \
-                          in this case. Custom Model weights are in fp32 by \
-                          default unless explicitly set to bfloat16."
+                "Skipping test case since only fp32 type weights are supported \
+                in ZenDNN EmbeddingBag!"
             )
 
         data = Test_Data()
@@ -1149,16 +1141,15 @@ class TEST_GROUP_EB_MLP(TestCase):
         compiled_graph = torch.compile(model, backend="zentorch")
 
         compiled_output = compiled_graph(indices, offsets, data.x)
-        self.assertEqual(native_output, compiled_output, atol=1e-1, rtol=1e-3)
+        self.assertEqual(native_output, compiled_output)
 
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
     def test_group_mlp_eb_model(self, dtype):
         if dtype == "bfloat16":
             self.skipTest(
-                "Skipping it since the test case is not applicable \
-                          in this case. Custom Model weights are in fp32 by \
-                          default unless explicitly set to bfloat16."
+                "Skipping test case since only fp32 type weights are supported \
+                in ZenDNN EmbeddingBag!"
             )
 
         data = Test_Data()
@@ -1174,16 +1165,15 @@ class TEST_GROUP_EB_MLP(TestCase):
         compiled_graph = torch.compile(model, backend="zentorch")
 
         compiled_output = compiled_graph(indices, offsets, data.x)
-        self.assertEqual(native_output, compiled_output, atol=1e-1, rtol=1e-3)
+        self.assertEqual(native_output, compiled_output)
 
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
-    def test_group_eb_mlp_model_multiple_models(self, dtype):
+    def test_group_eb_mlp_model_multiple_groups(self, dtype):
         if dtype == "bfloat16":
             self.skipTest(
-                "Skipping it since the test case is not applicable \
-                          in this case. Custom Model weights are in fp32 by \
-                          default unless explicitly set to bfloat16."
+                "Skipping test case since only fp32 type weights are supported \
+                in ZenDNN EmbeddingBag!"
             )
 
         eb_inputs = torch.randint(0, 3, (2, 1))
@@ -1195,7 +1185,61 @@ class TEST_GROUP_EB_MLP(TestCase):
         compiled_model = torch.compile(model, backend="zentorch")
         compiled_output = compiled_model(eb_inputs, mlp_inputs)
 
-        self.assertEqual(native_output, compiled_output, atol=1e-1, rtol=1e-3)
+        self.assertEqual(native_output, compiled_output)
+
+
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
+# Testing revealed one of the corner cases where the common output node can
+# have heterogeneous nodes like embedding1, embedding2, sum1, sum2, embedding3.
+# To test the above scenario, the following testcases are added.
+# Both the group ops are being tested here, with the heterogeneous op being sum
+class TEST_GROUP_EMBED_OPS_WITH_SUM_OPS(TestCase):
+    @parameterized.expand(supported_dtypes)
+    @torch.inference_mode()
+    def test_group_eb_with_sum(self, dtype):
+        if dtype == "bfloat16":
+            self.skipTest(
+                "Skipping test case since only fp32 type weights are supported \
+                in ZenDNN Embedding!"
+            )
+
+        data = Test_Data()
+        data.create_data(dtype)
+
+        indices = data.emb_input
+        offsets = data.offsets
+
+        model = CustomModel_EmbeddingBag_Sum_nodes(data.R)
+
+        native_output = model(indices, offsets)
+        torch._dynamo.reset()
+        compiled_graph = torch.compile(model, backend="zentorch")
+
+        compiled_output = compiled_graph(indices, offsets)
+        self.assertEqual(native_output, compiled_output)
+
+    @parameterized.expand(supported_dtypes)
+    @torch.inference_mode()
+    def test_group_embedding_with_sum(self, dtype):
+        if dtype == "bfloat16":
+            self.skipTest(
+                "Skipping test case since only fp32 type weights are supported \
+                in ZenDNN EmbeddingBag!"
+            )
+
+        data = Test_Data()
+        data.create_data(dtype)
+
+        indices = data.emb_input
+
+        model = CustomModel_Embedding_Sum_nodes(data.R)
+
+        native_output = model(indices)
+        torch._dynamo.reset()
+        compiled_graph = torch.compile(model, backend="zentorch")
+
+        compiled_output = compiled_graph(indices)
+        self.assertEqual(native_output, compiled_output)
 
 
 @unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
@@ -1497,6 +1541,42 @@ class CustomModel_Emb_EmbBag_Common_Node(nn.Module):
         ]
 
         output = torch.sum(torch.cat(outputs_grp), dim=0)
+
+        return output
+
+
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
+class CustomModel_Embedding_Sum_nodes(nn.Module):
+    def __init__(self, num_embeddings):
+        super(CustomModel_Embedding_Sum_nodes, self).__init__()
+        self.emebdding_grp = [torch.nn.Embedding(num_embeddings, 3) for _ in range(10)]
+
+    def forward(self, inputs):
+        outputs_grp = [op(inputs) for op in self.emebdding_grp]
+
+        outputs_grp[3] = torch.sum(outputs_grp[3], dim=1, keepdim=True)
+        outputs_grp[5] = torch.sum(outputs_grp[3], dim=1, keepdim=True)
+
+        output = torch.sum(torch.cat(outputs_grp, dim=1), dim=0)
+
+        return output
+
+
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
+class CustomModel_EmbeddingBag_Sum_nodes(nn.Module):
+    def __init__(self, num_embeddings):
+        super(CustomModel_EmbeddingBag_Sum_nodes, self).__init__()
+        self.eb_bags_grp = [
+            torch.nn.EmbeddingBag(num_embeddings, 3, mode="sum") for _ in range(10)
+        ]
+
+    def forward(self, eb_input, eb_offset):
+        outputs_grp = [op(eb_input, eb_offset) for op in self.eb_bags_grp]
+
+        outputs_grp[5] = torch.sum(outputs_grp[5], dim=1, keepdim=True)
+        outputs_grp[6] = torch.sum(outputs_grp[6], dim=1, keepdim=True)
+
+        output = torch.sum(torch.cat(outputs_grp, dim=1), dim=0)
 
         return output
 
@@ -1886,9 +1966,7 @@ class TestADDMM_GELU(TestCase):
                     torch._dynamo.reset()
                     compiled_graph = torch.compile(model, backend="zentorch")
                     compiled_graph_output = compiled_graph(inp, data.x1[i], data.y1[j])
-                    self.assertEqual(
-                        model_output, compiled_graph_output, atol=1e-3, rtol=1e-5
-                    )
+                    self.assertEqual(model_output, compiled_graph_output)
 
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
@@ -1905,9 +1983,7 @@ class TestADDMM_GELU(TestCase):
                     torch._dynamo.reset()
                     compiled_graph = torch.compile(model, backend="zentorch")
                     compiled_graph_output = compiled_graph(inp, data.x1[i], data.y1[j])
-                    self.assertEqual(
-                        model_output, compiled_graph_output, atol=1e-3, rtol=1e-5
-                    )
+                    self.assertEqual(model_output, compiled_graph_output)
 
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
@@ -2070,7 +2146,7 @@ class TestBMMADD(TestCase):
                 compiled_graph = torch.compile(model, backend="zentorch")
                 compiled_graph_output = compiled_graph(data.M2, data.x2[i], data.y2[j])
                 self.assertEqual(
-                    model_output, compiled_graph_output, atol=1e-1, rtol=1e-3
+                    model_output, compiled_graph_output, atol=1e-5, rtol=1e-3
                 )
 
 

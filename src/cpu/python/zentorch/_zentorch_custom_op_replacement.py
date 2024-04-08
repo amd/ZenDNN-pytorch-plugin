@@ -60,6 +60,7 @@ def emb_ops_horizontal_fusion(fx_g):
                         groups[node_name]["nodes"].append(node)
                     else:
                         groups[node_name] = {
+                            "common_output_node_target": common_output_node.target,
                             "type": "embedding",
                             "nodes": [node],
                         }
@@ -79,6 +80,7 @@ def emb_ops_horizontal_fusion(fx_g):
                         groups[node_name]["nodes"].append(node)
                     else:
                         groups[node_name] = {
+                            "common_output_node_target": common_output_node.target,
                             "type": "embedding_bag",
                             "nodes": [node],
                         }
@@ -112,7 +114,10 @@ def emb_ops_horizontal_fusion(fx_g):
         return list_new_args
 
     for group in groups:
-        if len(groups[group]["nodes"]) > 1:
+        #  strict checks for common output node to be concat node
+        if (len(groups[group]["nodes"]) > 1) and (
+            groups[group]["common_output_node_target"]
+        ) == at_ops.cat.default:
             op_count = 0
             # embedding_bag has more parameters than embedding. So creating new
             # args list with max of the number of parameters of both ops, which
@@ -173,22 +178,41 @@ def emb_ops_horizontal_fusion(fx_g):
 
             if node.target == zt_ops.zendnn_horizontal_embedding_group.default:
                 common_output_node = list(last_node.users.keys())[0]
-                getitem_nodes = []
-                for getitem_num in range(op_count):
-                    new_node = fx_g.graph.create_node(
-                        op="call_function",
-                        target=operator.getitem,
-                        args=(last_node, getitem_num),
-                    )
-                    last_node.append(new_node)
-                    getitem_nodes.append(new_node)
-                if len(common_output_node.args) == 2:
-                    common_output_node.args = (
-                        getitem_nodes,
-                        common_output_node.args[1],
-                    )
-                else:
-                    common_output_node.args = (getitem_nodes,)
+                nodes_list = []
+
+                idx = 0
+                # Since the common output node will always be a cat node, the
+                # first argument in the cat node is always a list of tensors
+                # that are supposed to be concatenated and the second argument
+                # is an integer denoting the dimension across which the
+                # concatenation must happen. So, the following for loop which
+                # is iterating over the common_output_node.args[0] is valid.
+                for arg_node in common_output_node.args[0]:
+                    # Since replacement of all occurences of all embedding ops
+                    # with the last embedding op takes place and the target is
+                    # updated, the condition looks for the target equal to the
+                    # zendnn_horizontal_embedding_group, rather than
+                    # zendnn_embedding.
+                    if (
+                        arg_node.target
+                        == zt_ops.zendnn_horizontal_embedding_group.default
+                    ):
+                        new_node = fx_g.graph.create_node(
+                            op="call_function",
+                            target=operator.getitem,
+                            args=(last_node, idx),
+                        )
+                        last_node.append(new_node)
+                        nodes_list.append(new_node)
+                        idx += 1
+                    else:
+                        nodes_list.append(arg_node)
+
+                # Here, the creation of the new args happens and only the first
+                # argument is changed (which is the list of input nodes).
+                new_args = list(common_output_node.args)
+                new_args[0] = nodes_list
+                common_output_node.args = tuple(new_args)
 
     fx_g.graph.set_codegen(torch.fx.graph.CodeGen())
     fx_g.recompile()
