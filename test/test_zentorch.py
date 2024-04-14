@@ -946,6 +946,23 @@ class TEST_HORIZONTAL_MLP(TestCase):
                 self.assertEqual(native_output, compiled_output)
 
     @parameterized.expand(supported_dtypes)
+    @torch.inference_mode()
+    def test_horizontal_mlp_multi_user(self, dtype):
+        data = Test_Data()
+        data.create_data(dtype)
+        model = Custom_Horizontal_GroupMLP_multi_user_Model(
+            -1, data.get_torch_type(dtype)
+        )
+        for i in range(len(data.x2)):
+            for j in range(len(data.y2)):
+                native_output = model(data.x2[i], data.y2[j])
+                torch._dynamo.reset()
+                compiled_graph = torch.compile(model, backend="zentorch")
+
+                compiled_output = compiled_graph(data.x2[i], data.y2[j])
+                self.assertEqual(native_output, compiled_output)
+
+    @parameterized.expand(supported_dtypes)
     def test_horizontal_mlp_unsupported_dims_1(self, dtype):
         data = Test_Data()
         data.create_data(dtype)
@@ -1373,6 +1390,36 @@ class Custom_Horizontal_GroupMLP_Model(nn.Module):
         output = torch.cat(
             (view4, view5, view6),
         )
+
+        return output
+
+
+@unittest.skipIf(not HAS_ZENTORCH, "PT PLUGIN is not installed")
+class Custom_Horizontal_GroupMLP_multi_user_Model(nn.Module):
+    def __init__(self, arg_1, dtype):
+        super(Custom_Horizontal_GroupMLP_multi_user_Model, self).__init__()
+        self.linear1 = nn.Linear(60, 50, dtype=dtype)
+        self.linear2 = nn.Linear(50, 60, dtype=dtype)
+        self.linear3 = nn.Linear(60, 50, dtype=dtype)
+        self.arg1 = arg_1
+
+    def forward(self, batch1, batch2):
+        bmm_output = torch.bmm(batch1, batch2)
+
+        # Perform three separate view operations
+        view1 = bmm_output.view(self.arg1, 60)
+        view2 = bmm_output.view(self.arg1, 50)
+        view3 = bmm_output.view(self.arg1, 60)
+
+        # Pass through linear layers
+        linear1_output = self.linear1(view1)
+        linear2_output = self.linear2(view2)
+        linear3_output = self.linear3(view3)
+
+        view4 = linear1_output.view(-1, 50)
+        view5 = linear2_output.view(-1, 50)
+        view6 = linear3_output.view(-1, 50)
+        output = torch.cat((view4, view5, view6),)
 
         return output
 
