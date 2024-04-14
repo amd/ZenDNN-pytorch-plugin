@@ -332,6 +332,7 @@ def horizontal_mlp_fusion(fx_g):
     # key query value pair for LLM's.
     logger.info("Fusing horizontal Matmul ops.")
     groups = {}
+    user_node_list = []
     for node in fx_g.graph.nodes:
         node_name = node.name
         # Pattern check begins with finding the common node
@@ -343,20 +344,29 @@ def horizontal_mlp_fusion(fx_g):
                     continue
                 user_node = list(user.users.keys())[0]
                 # Append addmm/mm nodes to group
-                if user_node.target == torch.ops.zentorch.zendnn_addmm_1dbias.default:
+                # Check if addmm/mm is unique to the dictionary
+                if (
+                    user_node.target == torch.ops.zentorch.zendnn_addmm_1dbias.default
+                    and user_node not in user_node_list
+                ):
                     groups.setdefault(node_name, {"nodes": []})["nodes"].append(
                         user_node
                     )
                     groups[node_name].update(
                         {"beta": (1.0, -4), "alpha": (1.0, -3), "fuse": (0, -2)}
                     )
-                elif user_node.target == torch.ops.zentorch.zendnn_mm.default:
+                    user_node_list.append(user_node)
+                elif (
+                    user_node.target == torch.ops.zentorch.zendnn_mm.default
+                    and user_node not in user_node_list
+                ):
                     groups.setdefault(node_name, {"nodes": []})["nodes"].append(
                         user_node
                     )
                     groups[node_name].update(
                         {"beta": (0.0, -4), "alpha": (1.0, -3), "fuse": (0, -2)}
                     )
+                    user_node_list.append(user_node)
 
     # Perform fusion and optimization
     for group in groups.values():
