@@ -3,9 +3,9 @@
  * All rights reserved.
  ******************************************************************************/
 
+#include "ZenTorchEmbedUtils.hpp"
 #include "ZenTorchMatmulUtils.hpp"
 #include "ZenTorchMemory.hpp"
-#include "ZenTorchUtils.hpp"
 #include <ATen/ParallelOpenMP.h>
 #define ZENDNN_EMBED_BAG_THRDS 16
 
@@ -51,40 +51,26 @@ std::vector<at::Tensor> zendnn_fused_eb_mlp(
   at::parallel_for(0, num_eb_ops, 0, [&](int64_t start, int64_t end) {
     for (auto i = start; i < end; i++) {
 
-      zen_eb_tensor_check(eb_weight[i], eb_indices[i], eb_offsets[i]);
+      at::Tensor per_sample_weights;
 
-      temp_indices[i] = eb_indices[i].toType(c10::kInt).contiguous();
-      temp_offsets[i] = eb_offsets[i].toType(c10::kInt).contiguous();
-
-      z_weight[i] = zen_memory(eb_weight[i]);
-      z_indices[i] = zen_memory(temp_indices[i]);
-      z_offsets[i] = zen_memory(temp_offsets[i]);
-
-      zen_mode_to_algo(eb_mode[i], z_algorithm[i]);
+      std::tie(temp_indices[i], temp_offsets[i], per_sample_weights,
+               output[i]) =
+          eb_tensors_to_memory(
+              eb_weight[i], eb_indices[i], eb_offsets[i],
+              eb_per_sample_weights_opt[i], eb_mode[i], output[i], z_weight[i],
+              z_indices[i], z_offsets[i], z_per_sample_weights_opt[i],
+              z_algorithm[i], z_destination[i], eb_include_last_offset[i]);
 
       z_padding_idx[i] = eb_padding_idx[i];
       z_scale_grad_by_freq[i] = eb_scale_grad_by_freq[i];
       z_include_last_offset[i] = eb_include_last_offset[i];
       z_sparse[i] = eb_sparse[i];
 
-      c10::MaybeOwned<at::Tensor> per_sample_weights_maybe_owned =
-          at::borrow_from_optional_tensor(eb_per_sample_weights_opt[i]);
-
-      const at::Tensor &per_sample_weights = *per_sample_weights_maybe_owned;
       if (per_sample_weights.defined()) {
-        z_per_sample_weights_opt[i] = zen_memory(per_sample_weights);
         z_per_sample_weights_defined[i] = 1;
       } else {
         z_per_sample_weights_defined[i] = 0;
       }
-
-      int dim_embedding = eb_weight[i].sizes()[1];
-      int num_bags = eb_offsets[i].sizes()[0];
-      if (eb_include_last_offset[i] == 1) {
-        num_bags -= 1;
-      }
-      output[i] = at::empty({num_bags, dim_embedding}, eb_weight[i].options());
-      z_destination[i] = zen_memory(output[i]);
     }
   });
 

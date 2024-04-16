@@ -3,8 +3,8 @@
  * All rights reserved.
  ******************************************************************************/
 
+#include "ZenTorchEmbedUtils.hpp"
 #include "ZenTorchMemory.hpp"
-#include "ZenTorchUtils.hpp"
 #include <ATen/ParallelOpenMP.h>
 #define ZENDNN_EMBED_BAG_THRDS 16
 
@@ -23,48 +23,20 @@ zendnn_embedding_bag_impl(
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
 
-  zen_eb_tensor_check(weight, indices, offsets);
-
-  c10::MaybeOwned<at::Tensor> per_sample_weights_maybe_owned =
-      at::borrow_from_optional_tensor(per_sample_weights_opt);
-  const at::Tensor &per_sample_weights = *per_sample_weights_maybe_owned;
-
-  at::Tensor cindices = indices.toType(c10::kInt).contiguous();
-  at::Tensor coffsets = offsets.toType(c10::kInt).contiguous();
-
-  at::Tensor offset2bag = at::empty({});
-  at::Tensor bag_size = at::empty({});
-  at::Tensor max_indices = at::empty({});
-
-  // creating ZenDNN memory using aten tensors
-  memory z_weight = zen_memory(weight);
-  memory z_indices = zen_memory(cindices);
-  memory z_offsets = zen_memory(coffsets);
-
-  // figure out the mode
+  at::Tensor cindices, coffsets, per_sample_weights, output;
+  memory z_weight, z_indices, z_offsets, z_weights, z_dst;
   algorithm z_algorithm;
-  zen_mode_to_algo(mode, z_algorithm);
 
-  int dim_embedding = weight.sizes()[1];
-  int num_bags = coffsets.sizes()[0];
-  if (include_last_offset == true) {
-    num_bags -= 1;
-  }
-  LOG(INFO) << "Embedding matrix dimensions: " << weight.sizes()[0] << "x"
-            << dim_embedding;
-  LOG(INFO) << "Number of embedding bags: " << num_bags;
-
-  // at::empty instead of at::zero is more efficient
-  at::Tensor output = at::empty({num_bags, dim_embedding}, weight.options());
-
-  memory z_dst = zen_memory(output);
+  std::tie(cindices, coffsets, per_sample_weights, output) =
+      eb_tensors_to_memory(weight, indices, offsets, per_sample_weights_opt,
+                           mode, output, z_weight, z_indices, z_offsets,
+                           z_weights, z_algorithm, z_dst, include_last_offset);
 
   embedding_bag::desc pdesc;
   embedding_bag::primitive_desc pd;
 
   if (per_sample_weights.defined()) {
     LOG(INFO) << "Using the per-sample weights tensor!";
-    memory z_weights = zen_memory(per_sample_weights);
     // declare embedding bag primitive
     pdesc = embedding_bag::desc(
         prop_kind::forward_inference, z_algorithm, ZENDNN_EMBED_BAG_THRDS,
@@ -95,6 +67,10 @@ zendnn_embedding_bag_impl(
                                {ZENDNN_ARG_SRC_2, z_offsets},
                                {ZENDNN_ARG_DST, z_dst}});
   }
+
+  at::Tensor offset2bag = at::empty({});
+  at::Tensor bag_size = at::empty({});
+  at::Tensor max_indices = at::empty({});
 
   std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor> out;
   out = std::make_tuple(std::move(output), std::move(offset2bag),
@@ -141,40 +117,26 @@ std::vector<at::Tensor> zendnn_horizontal_embedding_bag_group(
   at::parallel_for(0, num_eb_ops, 0, [&](int64_t start, int64_t end) {
     for (auto i = start; i < end; i++) {
 
-      zen_eb_tensor_check(weight[i], indices[i], offsets[i]);
+      at::Tensor per_sample_weights;
 
-      temp_indices[i] = indices[i].toType(c10::kInt).contiguous();
-      temp_offsets[i] = offsets[i].toType(c10::kInt).contiguous();
-
-      z_weight[i] = zen_memory(weight[i]);
-      z_indices[i] = zen_memory(temp_indices[i]);
-      z_offsets[i] = zen_memory(temp_offsets[i]);
-
-      zen_mode_to_algo(mode[i], z_algorithm[i]);
+      std::tie(temp_indices[i], temp_offsets[i], per_sample_weights,
+               output[i]) =
+          eb_tensors_to_memory(weight[i], indices[i], offsets[i],
+                               per_sample_weights_opt[i], mode[i], output[i],
+                               z_weight[i], z_indices[i], z_offsets[i],
+                               z_per_sample_weights_opt[i], z_algorithm[i],
+                               z_destination[i], include_last_offset[i]);
 
       z_padding_idx[i] = padding_idx[i];
       z_scale_grad_by_freq[i] = scale_grad_by_freq[i];
       z_include_last_offset[i] = include_last_offset[i];
       z_sparse[i] = sparse[i];
 
-      c10::MaybeOwned<at::Tensor> per_sample_weights_maybe_owned =
-          at::borrow_from_optional_tensor(per_sample_weights_opt[i]);
-
-      const at::Tensor &per_sample_weights = *per_sample_weights_maybe_owned;
       if (per_sample_weights.defined()) {
-        z_per_sample_weights_opt[i] = zen_memory(per_sample_weights);
         z_per_sample_weights_defined[i] = 1;
       } else {
         z_per_sample_weights_defined[i] = 0;
       }
-
-      int dim_embedding = weight[i].sizes()[1];
-      int num_bags = offsets[i].sizes()[0];
-      if (include_last_offset[i] == 1) {
-        num_bags -= 1;
-      }
-      output[i] = at::empty({num_bags, dim_embedding}, weight[i].options());
-      z_destination[i] = zen_memory(output[i]);
     }
   });
 

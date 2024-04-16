@@ -5,7 +5,6 @@
 
 #include "ZenTorchMatmulUtils.hpp"
 #include "ZenTorchMemory.hpp"
-#include "ZenTorchUtils.hpp"
 
 namespace zentorch {
 
