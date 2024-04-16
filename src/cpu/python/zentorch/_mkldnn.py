@@ -90,6 +90,11 @@ class ConvUnary2d(nn.Conv2d):
             self.attr, self.scalars, self.algorithm = unary_modules_map[
                 unary.__class__
             ](unary)
+        # support amp inside mkldnn_conv
+        if torch.is_autocast_cpu_enabled():
+            self.weight = torch.nn.Parameter(self.weight.bfloat16())
+            if self.bias is not None:
+                self.bias = torch.nn.Parameter(self.bias.bfloat16())
         self.weight = torch.nn.Parameter(
             torch._C._nn.mkldnn_reorder_conv2d_weight(
                 self.weight.to_mkldnn(),
@@ -132,6 +137,8 @@ class ConvUnary2d(nn.Conv2d):
         )
 
     def forward(self, input):
+        if torch.is_autocast_cpu_enabled():
+            input = input.bfloat16()
         return self._conv_forward(input, self.weight, self.bias)
 
 
@@ -164,6 +171,10 @@ class ConvBinary2d(nn.Conv2d):
         self.unary_attr = None
         self.unary_scalars = []
         self.unary_algorithm = None
+        if torch.is_autocast_cpu_enabled():
+            self.weight = torch.nn.Parameter(self.weight.bfloat16())
+            if self.bias is not None:
+                self.bias = torch.nn.Parameter(self.bias.bfloat16())
         self.weight = torch.nn.Parameter(
             torch._C._nn.mkldnn_reorder_conv2d_weight(
                 self.weight.to_mkldnn(),
@@ -217,6 +228,8 @@ class ConvBinary2d(nn.Conv2d):
         )
 
     def forward(self, input, other):
+        if torch.is_autocast_cpu_enabled():
+            input = input.bfloat16()
         return self._conv_forward(input, other, self.weight, self.bias)
 
 
@@ -248,6 +261,10 @@ class ConvTransposeUnary2d(nn.ConvTranspose2d):
         self.attr, self.scalars, self.algorithm = (
             unary_modules_map[unary.__class__](unary) if unary else ("none", [], "")
         )
+        if torch.is_autocast_cpu_enabled():
+            self.weight = torch.nn.Parameter(self.weight.bfloat16())
+            if self.bias is not None:
+                self.bias = torch.nn.Parameter(self.bias.bfloat16())
         packed_weight = torch.ops.mkldnn._reorder_convolution_transpose_weight(
             self.weight.to_mkldnn(),
             self.padding,
@@ -294,6 +311,8 @@ class ConvTransposeUnary2d(nn.ConvTranspose2d):
         )
 
     def forward(self, input):
+        if torch.is_autocast_cpu_enabled():
+            input = input.bfloat16()
         return self._conv_transpose_forward(input, self.weight, self.bias)
 
 
@@ -368,6 +387,32 @@ def fake_mode_from_tensors(inputs: List[Any]):
     return fake_mode
 
 
+def replace_conv(gm):
+    modules = dict(gm.named_modules())
+    for node in gm.graph.nodes:
+        if node.target in modules and type(modules[node.target]) in [nn.Conv2d]:
+            computation_node = modules[node.target]
+
+            if computation_node.training:
+                continue
+            if isinstance(
+                computation_node.padding, str
+            ):
+                continue
+            if is_group_depthwise_conv_transpose(computation_node):
+                continue
+            computation_node_input_size = (
+                node.args[0].meta.get("tensor_meta").shape
+            )
+            fused_module = fused_conv_unary_eval(
+                computation_node, None, computation_node_input_size
+            )
+            replace_node_module(node, modules, fused_module)
+    gm.graph.lint()
+    gm.recompile()
+    return gm
+
+
 def mkldnn_fuse_fx(gm: torch.fx.GraphModule, example_inputs):
     is_cpu = all(
         example_input.device == torch.device("cpu")
@@ -390,6 +435,11 @@ def mkldnn_fuse_fx(gm: torch.fx.GraphModule, example_inputs):
     gm = fuse_unary(gm)
     if config.cpp.weight_prepack:
         gm = pack_module(gm)
+
+    # Replacing leftover native convolutions into mkldnn convolutions.
+    # fuse unary looks for patterns (conv+relu), hence convs that are not
+    # followed by unary nodes will be left over.
+    replace_conv(gm)
     return gm
 
 
