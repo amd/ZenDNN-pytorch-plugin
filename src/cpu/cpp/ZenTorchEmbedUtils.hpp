@@ -118,4 +118,33 @@ eb_tensors_to_memory(const at::Tensor &weight, const at::Tensor &indices,
 
   return out;
 }
+
+// Same as the previous function in terms of operation, just works with two
+// tensors instead of four.
+inline std::tuple<at::Tensor, at::Tensor>
+embed_tensors_to_memory(const at::Tensor &weight, const at::Tensor &indices,
+                        memory &z_weight, memory &z_indices, memory &z_dst) {
+  zen_embed_tensor_check(weight, indices);
+
+  at::Tensor cindices = indices.toType(c10::kInt).contiguous();
+
+  int dim_embedding = weight.sizes()[1];
+  int num_indices = cindices.sizes()[0];
+
+  LOG(INFO) << "Embedding matrix dimensions: " << weight.sizes()[0] << "x"
+            << dim_embedding;
+  LOG(INFO) << "Number of indices: " << num_indices;
+
+  // at::empty instead of at::zero is more efficient
+  at::Tensor output = at::empty({num_indices, dim_embedding}, weight.options());
+
+  z_weight = zen_memory(weight);
+  z_indices = zen_memory(cindices);
+  z_dst = zen_memory(output);
+
+  std::tuple<at::Tensor, at::Tensor> out;
+  out = std::make_tuple(std::move(cindices), std::move(output));
+
+  return out;
+}
 } // namespace zentorch
