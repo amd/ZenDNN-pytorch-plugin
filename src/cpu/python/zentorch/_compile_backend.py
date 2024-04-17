@@ -31,8 +31,6 @@ try:
 except ImportError:
     from torch._inductor.overrides import fuse_conv_bn, remove_identity
 
-# from torch._decomp import remove_decompositions
-# from torch._inductor.decomposition import decompositions
 
 try:
     from torch._decomp import remove_decompositions

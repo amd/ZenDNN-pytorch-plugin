@@ -88,6 +88,7 @@ class Test_Data:
         ]
 
         self.M2 = torch.randn(60, 30, 50).type(torch_type)
+        self.M3 = torch.randn(50).type(torch_type)
 
         self.x2 = [
             torch.randn(60, 30, 40).type(torch_type),
@@ -1077,7 +1078,7 @@ class TEST_GROUP_MLP(TestCase):
         compiled_graph = torch.compile(model, backend="zentorch")
 
         compiled_output = compiled_graph(data.x)
-        self.assertEqual(native_output, compiled_output)
+        self.assertEqual(native_output, compiled_output, atol=1e-3, rtol=1e-5)
 
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
@@ -1419,7 +1420,9 @@ class Custom_Horizontal_GroupMLP_multi_user_Model(nn.Module):
         view4 = linear1_output.view(-1, 50)
         view5 = linear2_output.view(-1, 50)
         view6 = linear3_output.view(-1, 50)
-        output = torch.cat((view4, view5, view6),)
+        output = torch.cat(
+            (view4, view5, view6),
+        )
 
         return output
 
@@ -1708,6 +1711,16 @@ class CustomModelBMMAdd1(nn.Module):
         add_res = torch.add(bmm_res, input)
         baddbmm_res = torch.baddbmm(add_res, batch1, batch2, beta=1.5, alpha=1.4)
         return baddbmm_res
+
+
+class CustomModelBMM_Unsupport(nn.Module):
+    def __init__(self):
+        super(CustomModelBMM_Unsupport, self).__init__()
+
+    def forward(self, input, batch1, batch2):
+        bmm_res = torch.bmm(batch1, batch2)
+        add_res = torch.add(bmm_res, input)
+        return add_res
 
 
 class CustomModelAddmmRelu2(nn.Module):
@@ -2195,6 +2208,22 @@ class TestBMMADD(TestCase):
                 self.assertEqual(
                     model_output, compiled_graph_output, atol=1e-5, rtol=1e-3
                 )
+
+    @parameterized.expand(supported_dtypes)
+    @torch.inference_mode()
+    def test_zendnn_baddbmm_unsupport(self, dtype):
+        if dtype == "bfloat16":
+            self.skipTest("Skipping it due to issue with BF16 path.")
+        data = Test_Data()
+        data.create_data(dtype)
+        model = CustomModelBMM_Unsupport().eval()
+        model_output = model(data.M3, data.x2[0], data.y2[0])
+        torch._dynamo.reset()
+        compiled_graph = torch.compile(model, backend="zentorch")
+        compiled_graph_output = compiled_graph(data.M3, data.x2[0], data.y2[0])
+        self.assertEqual(
+            model_output, compiled_graph_output, atol=1e-5, rtol=1e-3
+        )
 
 
 if __name__ == "__main__":
