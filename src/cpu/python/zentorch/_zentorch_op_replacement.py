@@ -15,16 +15,23 @@ at_ops = torch.ops.aten
 zt_ops = torch.ops.zentorch
 
 
-def is_arg_1d_tensor(fx_graph, node, arg_index):
+def numdims_tensor(fx_graph, node, arg_index):
     is_fake_tensor = bool(node.args[arg_index].meta)
 
     if is_fake_tensor:
         # arg node in fx_graph generated through torch.compile will be fake tensor
-        dims = node.args[arg_index].meta["val"].ndim
+        return node.args[arg_index].meta["val"].ndim
     else:
         # while arg node in fx_graph generated through make_fx will not be fake tensor
-        dims = fx_graph._parameters[node.args[arg_index].target].ndim
+        return fx_graph._parameters[node.args[arg_index].target].ndim
 
+
+def is_baddbmm_replacable(fx_graph, node):
+    return all(numdims_tensor(fx_graph, node, i) == 3 for i in range(0, 3))
+
+
+def is_arg_1d_tensor(fx_graph, node, arg_index):
+    dims = numdims_tensor(fx_graph, node, arg_index)
     if dims == 1:
         return True
     else:
@@ -112,7 +119,7 @@ def replace_with_zentorch_ops(fx_graph):
         at_ops.addmm.default: (zt_ops.zendnn_addmm.default, None),
         at_ops.baddbmm.default: (
             zt_ops.zendnn_baddbmm.default,
-            None,
+            is_baddbmm_replacable,
         ),
     }
     # Loop through the nodes in fx_graph.graph

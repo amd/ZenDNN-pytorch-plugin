@@ -9,12 +9,16 @@ import zentorch._C  # noqa
 # import the custom logging module
 from ._logging import get_logger
 from ._util import save_graph
-from ._zentorch_op_replacement import replace_with_zentorch_ops, is_bias_1d_tensor
+from ._zentorch_op_replacement import (
+    replace_with_zentorch_ops,
+    is_bias_1d_tensor,
+    numdims_tensor,
+)
 from ._zentorch_custom_op_replacement import (
     emb_ops_horizontal_fusion,
     vertical_mlp_fusion,
     horizontal_mlp_fusion,
-    eb_group_mlp_group_fusion
+    eb_group_mlp_group_fusion,
 )
 
 # make a logger for this file
@@ -124,21 +128,41 @@ def zendnn_op_fusion(fx_graph):
                 + str(node.next.target)
                 + " in fx graph"
             )
-            for add_tensor in node.next.args:
-                if add_tensor != node:
-                    # by *node.args we can append all the arguments
-                    new_args = (add_tensor, *node.args)
-            node.args = new_args
-            node.next.replace_all_uses_with(node)
-            fx_graph.graph.erase_node(node.next)
+            # fuse bmm and add only if dims of bmm and add is same
+            should_add_be_fused = (
+                all(
+                    numdims_tensor(fx_graph, tensor, dim) == 3
+                    for tensor, dim in (
+                        (node, 0),
+                        (node, 1),
+                        (node.next, 0),
+                        (node.next, 1),
+                    )
+                )
+                if node.target == zt_ops.zendnn_bmm.default
+                else False
+            )
+            if should_add_be_fused:
+                for add_tensor in node.next.args:
+                    if add_tensor != node:
+                        # by *node.args we can append all the arguments
+                        new_args = (add_tensor, *node.args)
+                node.args = new_args
+                node.next.replace_all_uses_with(node)
+                fx_graph.graph.erase_node(node.next)
 
-            if node.target == zt_ops.zendnn_mm.default:
-                if is_bias_1d_tensor(fx_graph, node):
-                    node.target = zt_ops.zendnn_addmm_1dbias.default
+                if node.target == zt_ops.zendnn_mm.default:
+                    if is_bias_1d_tensor(fx_graph, node):
+                        node.target = zt_ops.zendnn_addmm_1dbias.default
+                    else:
+                        node.target = zt_ops.zendnn_addmm.default
                 else:
-                    node.target = zt_ops.zendnn_addmm.default
+                    node.target = zt_ops.zendnn_baddbmm.default
             else:
-                node.target = zt_ops.zendnn_baddbmm.default
+                logger.warning(
+                    "baddbdmm in zentorch doesnt support"
+                    + "non 3 dimentional tesnsors as of now"
+                )
         if node.target in eltwise_patterns:
             # create a sub-dict from pattern dict
             if len(node.users) > 1:  # Output of node is used by other nodes
