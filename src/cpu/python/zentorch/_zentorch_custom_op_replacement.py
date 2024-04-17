@@ -20,9 +20,9 @@ def emb_ops_horizontal_fusion(fx_g):
     logger.info("Fusing horizontal parallel embedding ops.")
     zentorch_embed_ops_dict = {
         zt_ops.zendnn_embedding_bag.default:
-            zt_ops.zendnn_horizontal_embedding_bag_group.default,
+        zt_ops.zendnn_horizontal_embedding_bag_group.default,
         zt_ops.zendnn_embedding.default:
-            zt_ops.zendnn_horizontal_embedding_group.default,
+        zt_ops.zendnn_horizontal_embedding_group.default,
     }
     groups = {}
 
@@ -343,6 +343,23 @@ def horizontal_mlp_fusion(fx_g):
                 if not bool(user.users.keys()):
                     continue
                 user_node = list(user.users.keys())[0]
+                # Skipping fusion if args of view are not placeholders or constants.
+                #
+                view_arg_check = False
+                if user.target == torch.ops.aten.view.default:
+                    for node_arg in user.args[1]:
+                        if (
+                            type(node_arg) is torch.fx.node.Node
+                            and node_arg.op != "placeholder"
+                        ):
+                            view_arg_check = True
+                            logger.warning(
+                                "GroupMLP fusion not possible with the current "
+                                + "arg list of view node as args of view are not "
+                                + "constants or placeholders."
+                            )
+                if view_arg_check:
+                    continue
                 # Append addmm/mm nodes to group
                 # Check if addmm/mm is unique to the dictionary
                 if (

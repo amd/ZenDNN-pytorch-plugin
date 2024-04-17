@@ -72,7 +72,10 @@ def set_relu_mm_fusion_kwargs(node):
 # use to fuse gelu erf & tanh
 def set_gelu_mm_fusion_kwargs(node):
     fuse = 3
-    if bool(node.next.kwargs) and node.next.kwargs["approximate"] == "tanh":
+    if (
+        bool(list(node.users.keys())[0].kwargs)
+        and list(node.users.keys())[0].kwargs["approximate"] == "tanh"
+    ):
         fuse = 2
     return {**node.kwargs, "fuse": fuse}
 
@@ -93,10 +96,8 @@ eltwise_patterns = dict.fromkeys(
 )
 
 # for now add is not added as post op that's why I created this pattern
-add_pattern = [
-    (zt_ops.zendnn_bmm.default, at_ops.add.Tensor),
-    (zt_ops.zendnn_mm.default, at_ops.add.Tensor),
-]
+add_pattern = (zt_ops.zendnn_bmm.default, zt_ops.zendnn_mm.default)
+
 
 # list of benign operators
 benign_op = [at_ops.clone.default, at_ops.view.default]
@@ -120,49 +121,57 @@ def zendnn_op_fusion(fx_graph):
         if len(node.users) > 1:  # Output of node is used by other nodes
             continue
         # check the pattern for mm->add or bmm->add
-        if (node.target, node.next.target) in add_pattern:
-            logger.info(
-                "Fusing the "
-                + str(node.target)
-                + "->"
-                + str(node.next.target)
-                + " in fx graph"
-            )
-            # fuse bmm and add only if dims of bmm and add is same
-            should_add_be_fused = (
-                all(
-                    numdims_tensor(fx_graph, tensor, dim) == 3
-                    for tensor, dim in (
-                        (node, 0),
-                        (node, 1),
-                        (node.next, 0),
-                        (node.next, 1),
-                    )
-                )
-                if node.target == zt_ops.zendnn_bmm.default
-                else False
-            )
-            if should_add_be_fused:
-                for add_tensor in node.next.args:
-                    if add_tensor != node:
-                        # by *node.args we can append all the arguments
-                        new_args = (add_tensor, *node.args)
-                node.args = new_args
-                node.next.replace_all_uses_with(node)
-                fx_graph.graph.erase_node(node.next)
+        # TODO Support add fusion when add is farther from matmul node
+        # TODO Unit Tests to be added for the farther case
+        # TODO Add a negative Unit test for the farther case
+        if node.target in add_pattern:
 
-                if node.target == zt_ops.zendnn_mm.default:
-                    if is_bias_1d_tensor(fx_graph, node):
-                        node.target = zt_ops.zendnn_addmm_1dbias.default
-                    else:
-                        node.target = zt_ops.zendnn_addmm.default
-                else:
-                    node.target = zt_ops.zendnn_baddbmm.default
-            else:
-                logger.warning(
-                    "baddbdmm in zentorch doesnt support"
-                    + "non 3 dimentional tesnsors as of now"
+            node_next = list(node.users.keys())[0]
+
+            if node_next.target == at_ops.add.Tensor and node_next == node.next:
+                logger.info(
+                    "Fusing the "
+                    + str(node.target)
+                    + "->"
+                    + str(node_next.target)
+                    + " in fx graph"
                 )
+
+                # fuse bmm and add only if dims of bmm and add is same
+                should_add_be_fused = (
+                    all(
+                        numdims_tensor(fx_graph, tensor, dim) == 3
+                        for tensor, dim in (
+                            (node, 0),
+                            (node, 1),
+                            (node_next, 0),
+                            (node_next, 1),
+                        )
+                    )
+                    if node.target == zt_ops.zendnn_bmm.default
+                    else False
+                )
+                if should_add_be_fused:
+                    for add_tensor in node_next.args:
+                        if add_tensor != node:
+                            # by *node.args we can append all the arguments
+                            new_args = (add_tensor, *node.args)
+                    node.args = new_args
+                    node_next.replace_all_uses_with(node)
+                    fx_graph.graph.erase_node(node_next)
+
+                    if node.target == zt_ops.zendnn_mm.default:
+                        if is_bias_1d_tensor(fx_graph, node):
+                            node.target = zt_ops.zendnn_addmm_1dbias.default
+                        else:
+                            node.target = zt_ops.zendnn_addmm.default
+                    else:
+                        node.target = zt_ops.zendnn_baddbmm.default
+                else:
+                    logger.warning(
+                        "baddbdmm in zentorch doesnt support"
+                        + "non 3 dimentional tesnsors as of now"
+                    )
         if node.target in eltwise_patterns:
             # create a sub-dict from pattern dict
             if len(node.users) > 1:  # Output of node is used by other nodes
