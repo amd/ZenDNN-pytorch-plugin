@@ -1,6 +1,6 @@
 Copyright &copy; 2023-2024 Advanced Micro Devices, Inc. All rights reserved.
 
-_zentorch_: A PyTorch Add-on for AMD EPYC&trade; CPUs
+_zentorch_: A PyTorch extension for AMD EPYC&trade; CPUs.
 =============
 
 Table of Contents
@@ -23,13 +23,29 @@ Table of Contents
 - [Additional Utilities](#5-additional-utilities)
   - [Disabling Inductor](#51-disabling-inductor)
   - [_zentorch_ attributes](#52-zentorch-attributes)
-- [Contributing](#6-contributing)
 <!-- tocstop -->
 
 # 1. About _zentorch_
 
 ## 1.1. Overview
-_zentorch_ enables ZenDNN library on top of PyTorch. The _zentorch_ enables inference optimizations for deep learning workloads on AMD EPYC&trade; CPUs. It uses ZenDNN for accelerating basic deep learning ops. ZenDNN is a library which enables performance improvements on AMD EPYC&trade; CPU architectures. Find the repo for more details [here](https://github.com/amd/ZenDNN). _zentorch_ further accelerates the performance by adding more optimizations at graph(model) level using multiple passes on torch.fx graph. All _zentorch_ optimizations can be enabled by a call to `torch.compile` with _zentorch_ as the backend.
+
+**EARLY ACCESS:** The ZenDNN PyTorch* Plugin (zentorch) extends PyTorch* with an innovative upgrade that's set to revolutionize performance on AMD hardware.
+
+As of version 4.2, AMD is unveiling a game-changing upgrade to ZenDNN, introducing a cutting-edge plug-in mechanism and an enhanced architecture under the hood. This isn't just about extensions; ZenDNN's aggressive AMD-specific optimizations operate at every level. It delves into comprehensive graph optimizations, including pattern identification, graph reordering, and seeking opportunities for graph fusions. At the operator level, ZenDNN boasts enhancements with microkernels, mempool optimizations, and efficient multi-threading on the large number of AMD EPYC cores. Microkernel optimizations further exploit all possible low-level math libraries, including AOCL BLIS.
+
+The result? Enhanced performance with respect to baseline PyTorch*. zentorch leverages torch.compile, the latest PyTorch enhancement for accelerated performance. torch.compile makes PyTorch code run faster by JIT-compiling PyTorch code into optimized kernels, all while requiring minimal code changes and unlocking unprecedented speed and efficiency.
+
+The _zentorch_ extension to PyTorch enables inference optimizations for deep learning workloads on AMD EPYC&trade; CPUs. It uses  the ZenDNN library, which contains deep learning operators tailored for high performance on AMD EPYC&trade; CPUs. Multiple passes of graph level optimizations run on the torch.fx graph provide further performance acceleration. All _zentorch_ optimizations can be enabled by a call to torch.compile with zentorch as the backend.
+
+The ZenDNN PyTorch plugin is compatible with PyTorch version 2.1.2.
+
+## Support
+
+Please note that zentorch is currently in “Early Access” mode. We welcome feedback, suggestions, and bug reports. Should you have any of the these, please contact us on zendnn.maintainers@amd.com
+
+## License
+
+zentorch is licensed under [Apache-2.0, MIT, BSD-3-Clause](LICENSE).
 
 ## 1.2. Structure
 _zentorch_ consists of three parts. They are
@@ -46,8 +62,8 @@ The following ops are integrated as of now:
 - Matmul ops
 - Custom Fusion ops
 
-### 1.2.2. _zentorch_ backend
-`torch.compile` provides the support for custom backends. By leveraging this we have registered our custom _zentorch_ backend. `torch.compile` with _zentorch_ as backend enables us to intergate CPU related optimizations through `optimize` after the AOTAutograd.  `optimize` is a Python function that acts as an interface to leverage CPU related optimizations of the _zentorch_. It takes in the FX based graph in ATen IR and adds on all optimizations of ZenDNN and produces FX based graph as output.
+### 1.2.2. The _zentorch_ custom backend to torch.compile
+We have registered a custom backend to torch.compile called _zentorch_. This backend integrates ZenDNN optimizations after AOTAutograd through a function called optimize. This function operates on the FX based graph at the ATEN IR to produce an optimized FX based graph as the output.
 
 ### 1.2.3. Build System
 
@@ -318,6 +334,3 @@ To check the build config of _zentorch_ use the following command:
 ```bash
 python -c 'import zentorch; print(*zentorch.__config__.split("\n"), sep="\n")'
 ```
-
-# 6. Contributing
-Any contribution to _zentorch_ can be done by following the guidelines given [here](CONTRIBUTING.md).
