@@ -170,8 +170,8 @@ def zendnn_op_fusion(fx_graph):
                         node.target = zt_ops.zendnn_baddbmm.default
                 else:
                     logger.warning(
-                        "baddbdmm in zentorch doesnt support"
-                        + "non 3 dimentional tesnsors as of now"
+                        "baddbdmm in zentorch doesnt support "
+                        + "non 3 dimentional tensors as of now"
                     )
         if node.target in eltwise_patterns:
             # create a sub-dict from pattern dict
