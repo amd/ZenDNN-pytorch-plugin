@@ -118,7 +118,7 @@ git_sha = get_commit_hash(project_root_dir)
 wheel_file_dependencies = ["numpy", "torch"]
 
 long_description = ""
-with open(os.path.join(project_root_dir, "README.md"), encoding="utf-8") as f:
+with open(os.path.join(project_root_dir, "DESCRIPTION.md"), encoding="utf-8") as f:
     long_description = f.read()
 
 
@@ -126,7 +126,7 @@ def main():
     setup(
         name=PACKAGE_NAME,
         version=zentorch_build_version,
-        description="ZenDNN plugin for PyTorch*",
+        description="zentorch : A PyTorch* extension for AMD EPYC CPUs.",
         long_description=long_description,
         long_description_content_type="text/markdown",
         author_email="",
