@@ -15,14 +15,15 @@ Table of Contents
   - [From Binaries](#21-from-binaries)
   - [From Source](#22-from-source)
 - [Usage](#3-usage)
-- [Logging, Profiling and Debugging](#4-logging-profiling-and-debugging)
+- [Logging and Debugging](#4-logging-and-debugging)
   - [ZenDNN logs](#41-zendnn-logs)
   - [_zentorch_ logs](#42-zentorch-logs)
   - [Saving the graph](#43-saving-the-graph)
   - [Support for `TORCH_COMPILE_DEBUG`](#44-support-for-torch_compile_debug)
-- [Additional Utilities](#5-additional-utilities)
-  - [Disabling Inductor](#51-disabling-inductor)
-  - [_zentorch_ attributes](#52-zentorch-attributes)
+- [Performance tuning and Benchmarking](#5-performance-tuning-and-benchmarking)
+- [Additional Utilities](#6-additional-utilities)
+  - [Disabling Inductor](#61-disabling-inductor)
+  - [_zentorch_ attributes](#62-zentorch-attributes)
 <!-- tocstop -->
 
 # 1. About _zentorch_
@@ -257,7 +258,7 @@ with torch.no_grad():
   output = model.generate(input)
 ```
 
-# 4. Logging, Profiling and Debugging
+# 4. Logging and Debugging
 ## 4.1 ZenDNN logs
 Logging for ZenDNN is disabled by default but can be enabled by using the environment variable **ZENDNN_LOG_OPTS** before running any tests. Its behavior can be specified by setting **ZENDNN_LOG_OPTS** to a comma-delimited list of **ACTOR:DBGLVL** pairs. An example to turn on info logging is given below.
 ```bash
@@ -297,9 +298,12 @@ TORCH_COMPILE_DEBUG=1 python test.py
 ```
 For more information about TORCH_COMPILE_DEBUG refer to the official PyTorch documentaion available.
 
-# 5. Additional Utilities:
+# 5. Performance tuning and Benchmarking
+zentorch v4.2.0 is supported with ZenDNN v4.2. Please see the **Tuning Guidelines** section of ZenDNN User Guide for performance tuning. ZenDNN User Guide can be downloaded from [here](https://developer.amd.com/zendnn)
 
-## 5.1 Disabling Inductor:
+# 6. Additional Utilities:
+
+## 6.1 Disabling Inductor:
 
 This feature is intended for use whenever fx_graphs generated from torch.compile needs to be compared with and without Inductor compilation.
 
@@ -323,7 +327,7 @@ compiled_model = torch.compile(model, backend='zentorch')
 
 Fx graphs are sent to AOT Autograd using aot_module_simplified and thus Inductor is not used at all.
 
-## 5.2 _zentorch_ attributes:
+## 6.2 _zentorch_ attributes:
 To check the version of _zentorch_ use the following command:
 
 ```bash

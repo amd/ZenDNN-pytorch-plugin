@@ -1,6 +1,9 @@
 # ******************************************************************************
 # Modifications Copyright (c) 2024 Advanced Micro Devices, Inc.
 # All rights reserved.
+#
+# Was sourced from
+# https://github.com/pytorch/pytorch/blob/release/2.0/torch/_inductor/mkldnn.py
 # ******************************************************************************
 
 import copy
