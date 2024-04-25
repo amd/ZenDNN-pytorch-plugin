@@ -14,10 +14,10 @@ from ._zentorch_op_replacement import (
     is_bias_1d_tensor,
     numdims_tensor,
 )
+# TODO: Add support for horizontal_mlp_fusion
 from ._zentorch_custom_op_replacement import (
     emb_ops_horizontal_fusion,
     vertical_mlp_fusion,
-    horizontal_mlp_fusion,
     eb_group_mlp_group_fusion,
 )
 
@@ -53,7 +53,8 @@ def optimize(fx_graph):
     optimized_graph = vertical_mlp_fusion(optimized_graph)
 
     # Fusion of parallel MLP layers
-    optimized_graph = horizontal_mlp_fusion(optimized_graph)
+    # TODO: Add Addtional Support for Horizontal Fusion
+    # optimized_graph = horizontal_mlp_fusion(optimized_graph)
 
     # Horizontal fusion of parallel Group EB op and Group MLP op
     optimized_graph = eb_group_mlp_group_fusion(optimized_graph)
