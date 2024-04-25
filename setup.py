@@ -129,12 +129,13 @@ def main():
         description="zentorch : A PyTorch* extension for AMD EPYC CPUs.",
         long_description=long_description,
         long_description_content_type="text/markdown",
-        author_email="",
-        author="",
+        author_email="zendnn.maintainers@amd.com",
+        author="AMD",
         # URL needs to be updates once the plugin is open sourced
-        url="",
+        url="https://developer.amd.com/zendnn",
         # license needs to be added when the source code gets the license
-        license="",
+        license="MIT",
+        keywords='pytorch tensor machine learning plugin ZenDNN AMD',
         install_requires=wheel_file_dependencies,
         ext_modules=[
             CppExtension(
