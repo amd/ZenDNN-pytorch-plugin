@@ -12,4 +12,4 @@ Please note that zentorch is currently in “Early Access” mode. We welcome fe
 
 ## License
 
-zentorch is licensed under [Apache-2.0, MIT, BSD-3-Clause](https://github.com/amd/ZenDNN-pytorch-plugin/blob/main/LICENSE).
+AMD copyrighted code in ZenDNN is subject to the [Apache-2.0, MIT, or BSD-3-Clause](https://github.com/amd/ZenDNN-pytorch-plugin/blob/main/LICENSE) licenses; consult the source code file headers for the applicable license.  Third party copyrighted code in ZenDNN is subject to the licenses set forth in the source code file headers of such code.
