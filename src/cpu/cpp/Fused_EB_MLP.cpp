@@ -22,7 +22,8 @@ std::vector<at::Tensor> zentorch_fused_eb_mlp(
     const at::IntArrayRef &eb_padding_idx, const at::TensorList &mlp_self,
     const at::Tensor &first_mlp_input, const at::TensorList &mlp_weights,
     const at::ArrayRef<double> &mlp_betas,
-    const at::ArrayRef<double> &mlp_alphas, const at::IntArrayRef &mlp_fuse) {
+    const at::ArrayRef<double> &mlp_alphas, const at::IntArrayRef &mlp_fuse,
+    std::string zentorch_op_name) {
 
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
@@ -185,7 +186,8 @@ std::vector<at::Tensor> zentorch_fused_eb_mlp(
       z_sparse, z_per_sample_weights_opt, z_per_sample_weights_defined,
       z_include_last_offset, z_padding_idx, z_destination, z_input_vector,
       z_mat2_vector, z_bias_vector, alphas_vector, betas_vector,
-      bias_defined_vector, fuse_vector, z_result_vector);
+      bias_defined_vector, fuse_vector, z_result_vector,
+      zentorch_op_name.c_str());
 
   at::parallel_for(0, num_eb_ops, 0, [&](int64_t start, int64_t end) {
     for (auto i = start; i < end; i++) {

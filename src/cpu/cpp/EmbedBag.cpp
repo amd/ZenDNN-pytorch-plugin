@@ -18,7 +18,8 @@ zentorch_embedding_bag_impl(
     const at::Tensor &offsets, const bool &scale_grad_by_freq,
     const int64_t &mode, const bool &sparse,
     const c10::optional<at::Tensor> &per_sample_weights_opt,
-    const bool &include_last_offset, const int64_t &padding_idx) {
+    const bool &include_last_offset, const int64_t &padding_idx,
+    std::string zentorch_op_name) {
 
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
@@ -35,6 +36,9 @@ zentorch_embedding_bag_impl(
   embedding_bag::desc pdesc;
   embedding_bag::primitive_desc pd;
 
+  zendnn::primitive_attr op_attr;
+  op_attr.set_plugin_op_name(zentorch_op_name);
+
   if (per_sample_weights.defined()) {
     LOG(INFO) << "Using the per-sample weights tensor!";
     // declare embedding bag primitive
@@ -43,7 +47,8 @@ zentorch_embedding_bag_impl(
         z_weight.get_desc(), z_indices.get_desc(), z_offsets.get_desc(),
         z_weights.get_desc(), z_dst.get_desc(), padding_idx);
 
-    pd = embedding_bag::primitive_desc(pdesc, utils::engine::cpu_engine());
+    pd = embedding_bag::primitive_desc(pdesc, op_attr,
+                                       utils::engine::cpu_engine());
     LOG(INFO) << "EmbeddingBag compute in progress...";
     embedding_bag(pd).execute(utils::stream::default_stream(),
                               {{ZENDNN_ARG_SRC_0, z_weight},
@@ -59,7 +64,8 @@ zentorch_embedding_bag_impl(
                                 z_indices.get_desc(), z_offsets.get_desc(),
                                 z_dst.get_desc(), padding_idx);
 
-    pd = embedding_bag::primitive_desc(pdesc, utils::engine::cpu_engine());
+    pd = embedding_bag::primitive_desc(pdesc, op_attr,
+                                       utils::engine::cpu_engine());
     LOG(INFO) << "EmbeddingBag compute in progress...";
     embedding_bag(pd).execute(utils::stream::default_stream(),
                               {{ZENDNN_ARG_SRC_0, z_weight},
@@ -87,7 +93,7 @@ std::vector<at::Tensor> zentorch_horizontal_embedding_bag_group(
     const at::IntArrayRef &mode, const at::IntArrayRef &sparse,
     const c10::List<c10::optional<at::Tensor>> &per_sample_weights_opt,
     const at::IntArrayRef &include_last_offset,
-    const at::IntArrayRef &padding_idx) {
+    const at::IntArrayRef &padding_idx, std::string zentorch_op_name) {
 
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
@@ -144,7 +150,8 @@ std::vector<at::Tensor> zentorch_horizontal_embedding_bag_group(
   zendnn_custom_op::zendnn_grp_embedding_bag(
       z_weight, z_indices, z_offsets, z_scale_grad_by_freq, z_algorithm,
       z_sparse, z_per_sample_weights_opt, z_per_sample_weights_defined,
-      z_include_last_offset, z_padding_idx, z_destination); // Library call
+      z_include_last_offset, z_padding_idx, z_destination,
+      zentorch_op_name.c_str()); // Library call
 
   at::parallel_for(0, num_eb_ops, 0, [&](int64_t start, int64_t end) {
     for (auto i = start; i < end; i++) {

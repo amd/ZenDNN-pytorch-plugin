@@ -14,8 +14,8 @@ at::Tensor zentorch_embedding_impl(const at::Tensor &weight,
                                    const at::Tensor &indices,
                                    const int64_t &padding_idx,
                                    const bool &scale_grad_by_freq,
-                                   const bool &sparse) {
-
+                                   const bool &sparse,
+                                   std::string zentorch_op_name) {
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
 
@@ -28,9 +28,9 @@ at::Tensor zentorch_embedding_impl(const at::Tensor &weight,
   // So, the manipulations on the embeddingbag op are taken care by the
   // ZenDNN library and the ZenDNN library call is made from the plugin side.
   LOG(INFO) << "Embedding compute in progress...";
-  zendnn_custom_op::zendnn_embedding(z_weight, z_indices,
-                                     static_cast<int32_t>(padding_idx),
-                                     scale_grad_by_freq, sparse, z_dst);
+  zendnn_custom_op::zendnn_embedding(
+      z_weight, z_indices, static_cast<int32_t>(padding_idx),
+      scale_grad_by_freq, sparse, z_dst, zentorch_op_name.c_str());
 
   LOG(INFO) << "Finished executing: " << __FUNCTION__ << "!\n";
 
@@ -40,7 +40,8 @@ at::Tensor zentorch_embedding_impl(const at::Tensor &weight,
 std::vector<at::Tensor> zentorch_horizontal_embedding_group(
     const at::TensorList &weight, const at::TensorList &indices,
     const at::IntArrayRef &padding_idx,
-    const at::IntArrayRef &scale_grad_by_freq, const at::IntArrayRef &sparse) {
+    const at::IntArrayRef &scale_grad_by_freq, const at::IntArrayRef &sparse,
+    std::string zentorch_op_name) {
 
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
@@ -69,9 +70,9 @@ std::vector<at::Tensor> zentorch_horizontal_embedding_group(
   });
 
   LOG(INFO) << "GroupEmbedding compute in progress...";
-  zendnn_custom_op::zendnn_grp_embedding(z_weights, z_indices, z_padding_idx,
-                                         z_scale_grad_by_freq, z_sparse,
-                                         z_destination);
+  zendnn_custom_op::zendnn_grp_embedding(
+      z_weights, z_indices, z_padding_idx, z_scale_grad_by_freq, z_sparse,
+      z_destination, zentorch_op_name.c_str());
   LOG(INFO) << "Finished executing: " << __FUNCTION__ << "!\n";
 
   return output;

@@ -13,7 +13,8 @@ using namespace zendnn;
 at::Tensor zentorch_matmul_impl(const at::Tensor &mat1, const at::Tensor &mat2,
                                 const at::Tensor &bias,
                                 at::Tensor &self_or_result, const float &beta,
-                                const float &alpha, const int64_t &fuse) {
+                                const float &alpha, const int64_t &fuse,
+                                std::string zentorch_op_name) {
 
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
@@ -82,6 +83,8 @@ at::Tensor zentorch_matmul_impl(const at::Tensor &mat1, const at::Tensor &mat2,
   }
   op_attr.set_post_ops(po);
 
+  op_attr.set_plugin_op_name(zentorch_op_name);
+
   matmul::desc pdesc =
       bias_defined ? matmul::desc(z_mat1.get_desc(), z_mat2.get_desc(),
                                   z_bias.get_desc(), z_result.get_desc())
@@ -90,7 +93,6 @@ at::Tensor zentorch_matmul_impl(const at::Tensor &mat1, const at::Tensor &mat2,
 
   matmul::primitive_desc pd =
       matmul::primitive_desc(pdesc, op_attr, utils::engine::cpu_engine());
-
   std::unordered_map<int, memory> execute_args =
       bias_defined
           ? std::unordered_map<int, memory>({{ZENDNN_ARG_SRC, z_mat1},
@@ -126,7 +128,7 @@ std::vector<at::Tensor> zentorch_matmul_group_impl(
     std::vector<at::Tensor> &self_vector, std::vector<at::Tensor> &inputs,
     const at::TensorList &weights, const at::ArrayRef<double> &betas,
     const at::ArrayRef<double> &alphas, const at::IntArrayRef &fuse,
-    const bool &is_horizontal) {
+    const bool &is_horizontal, std::string zentorch_op_name) {
   int num_ops = inputs.size();
   std::vector<at::Tensor> output(num_ops);
   std::vector<at::Tensor> bias_vector(num_ops);
@@ -210,20 +212,20 @@ std::vector<at::Tensor> zentorch_matmul_group_impl(
   if (is_horizontal) {
 
     LOG(INFO) << "Horizontal GroupMatMul compute in progress...";
-
-    zendnn_custom_op::zendnn_grp_mlp(
-        z_mat1_vector, z_mat2_vector, z_bias_vector, alphas_vector,
-        betas_vector, bias_defined_vector, fuse_vector, z_result_vector);
+    zendnn_custom_op::zendnn_grp_mlp(z_mat1_vector, z_mat2_vector,
+                                     z_bias_vector, alphas_vector, betas_vector,
+                                     bias_defined_vector, fuse_vector,
+                                     z_result_vector, zentorch_op_name.c_str());
 
     LOG(INFO) << "Horizontal GroupMatMul compute complete...";
   } else {
     LOG(INFO) << "Vertical GroupMatMul compute in progress...";
 
     std::vector z_input = {z_mat1_vector[0]};
-
-    zendnn_custom_op::zendnn_grp_mlp(
-        z_input, z_mat2_vector, z_bias_vector, alphas_vector, betas_vector,
-        bias_defined_vector, fuse_vector, z_result_vector);
+    zendnn_custom_op::zendnn_grp_mlp(z_input, z_mat2_vector, z_bias_vector,
+                                     alphas_vector, betas_vector,
+                                     bias_defined_vector, fuse_vector,
+                                     z_result_vector, zentorch_op_name.c_str());
 
     LOG(INFO) << "Vertical GroupMatMul compute complete...";
   }
@@ -235,7 +237,8 @@ std::vector<at::Tensor> zentorch_matmul_group_impl(
 template <int fuse = 0>
 at::Tensor zentorch_addmm_1dbias(const at::Tensor &self, const at::Tensor &mat1,
                                  const at::Tensor &mat2, const at::Scalar &beta,
-                                 const at::Scalar &alpha) {
+                                 const at::Scalar &alpha,
+                                 std::string zentorch_op_name) {
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
 
@@ -259,13 +262,14 @@ at::Tensor zentorch_addmm_1dbias(const at::Tensor &self, const at::Tensor &mat1,
   LOG(INFO) << "Entering zentorch_matmul_impl from " << __FUNCTION__ << "!\n";
 
   return zentorch_matmul_impl(mat1, mat2, self, result, beta.to<float>(),
-                              alpha.to<float>(), fuse);
+                              alpha.to<float>(), fuse, zentorch_op_name);
 }
 
 template <int fuse = 0>
 at::Tensor zentorch_addmm(const at::Tensor &self, const at::Tensor &mat1,
                           const at::Tensor &mat2, const at::Scalar &beta,
-                          const at::Scalar &alpha) {
+                          const at::Scalar &alpha,
+                          std::string zentorch_op_name) {
 
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
@@ -285,23 +289,24 @@ at::Tensor zentorch_addmm(const at::Tensor &self, const at::Tensor &mat1,
 
     LOG(INFO) << "Entering zentorch_matmul_impl from " << __FUNCTION__ << "!\n";
 
-    return zentorch_matmul_impl(mat1, mat2, empty_bias,
-                                const_cast<at::Tensor &>(self),
-                                beta.to<float>(), alpha.to<float>(), fuse);
+    return zentorch_matmul_impl(
+        mat1, mat2, empty_bias, const_cast<at::Tensor &>(self),
+        beta.to<float>(), alpha.to<float>(), fuse, zentorch_op_name);
   } else {
     TORCH_CHECK(
         (self.dim() == 1 && mat1.dim() == 2 && mat2.dim() == 2), // aten::addmm
         "zentorch_addmm: unsupported dims for self, mat1 and mat2");
 
-    LOG(INFO) << "Entering zentorch_addmm_1dbias from " << __FUNCTION__
-              << "!\n";
-    return zentorch_addmm_1dbias<fuse>(self, mat1, mat2, beta, alpha);
+    LOG(INFO) << "Entering zendnn_addmm_1dbias from " << __FUNCTION__ << "!\n";
+    return zentorch_addmm_1dbias<fuse>(self, mat1, mat2, beta, alpha,
+                                       zentorch_op_name);
   }
 }
 
 at::Tensor zentorch_baddbmm(const at::Tensor &self, const at::Tensor &batch1,
                             const at::Tensor &batch2, const at::Scalar &beta,
-                            const at::Scalar &alpha) {
+                            const at::Scalar &alpha,
+                            std::string zentorch_op_name) {
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
 
@@ -331,12 +336,13 @@ at::Tensor zentorch_baddbmm(const at::Tensor &self, const at::Tensor &batch1,
 
   return zentorch_matmul_impl(batch1, batch2, empty_bias,
                               const_cast<at::Tensor &>(self), beta.to<float>(),
-                              alpha.to<float>(), fuse);
+                              alpha.to<float>(), fuse, zentorch_op_name);
 }
 
 // zentorch_mm function does not broadcast
 template <int fuse = 0>
-at::Tensor zentorch_mm(const at::Tensor &self, const at::Tensor &mat2) {
+at::Tensor zentorch_mm(const at::Tensor &self, const at::Tensor &mat2,
+                       std::string zentorch_op_name) {
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
   TORCH_CHECK((self.dim() == 2 && mat2.dim() == 2), // aten::mm
@@ -349,11 +355,12 @@ at::Tensor zentorch_mm(const at::Tensor &self, const at::Tensor &mat2) {
 
   LOG(INFO) << "Entering zentorch_addmm from " << __FUNCTION__ << "!\n";
 
-  return zentorch_addmm<fuse>(out, self, mat2, beta, alpha);
+  return zentorch_addmm<fuse>(out, self, mat2, beta, alpha, zentorch_op_name);
 }
 
-// zentorch_bmm function does not broadcast
-at::Tensor zentorch_bmm(const at::Tensor &self, const at::Tensor &mat2) {
+// zendnn_bmm function does not broadcast
+at::Tensor zentorch_bmm(const at::Tensor &self, const at::Tensor &mat2,
+                        std::string zentorch_op_name) {
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
   TORCH_CHECK((self.dim() == 3 && mat2.dim() == 3), // aten::bmm
@@ -366,7 +373,7 @@ at::Tensor zentorch_bmm(const at::Tensor &self, const at::Tensor &mat2) {
 
   LOG(INFO) << "Entering zentorch_baddbmm from " << __FUNCTION__ << "!\n";
 
-  return zentorch_baddbmm(out, self, mat2, beta, alpha);
+  return zentorch_baddbmm(out, self, mat2, beta, alpha, zentorch_op_name);
 }
 
 at::Tensor zentorch_vertical_mlp_group(const at::TensorList &self,
@@ -374,7 +381,8 @@ at::Tensor zentorch_vertical_mlp_group(const at::TensorList &self,
                                        const at::TensorList &weights,
                                        const at::ArrayRef<double> &betas,
                                        const at::ArrayRef<double> &alphas,
-                                       const at::IntArrayRef &fuse) {
+                                       const at::IntArrayRef &fuse,
+                                       std::string zentorch_op_name) {
 
   // self = alpha * input * weights + beta * self
 
@@ -398,8 +406,9 @@ at::Tensor zentorch_vertical_mlp_group(const at::TensorList &self,
     self_vector[i] = self[i];
   }
 
-  output_vector = zentorch_matmul_group_impl(self_vector, input_vector, weights,
-                                             betas, alphas, fuse, false);
+  output_vector =
+      zentorch_matmul_group_impl(self_vector, input_vector, weights, betas,
+                                 alphas, fuse, false, zentorch_op_name);
 
   return output_vector[num_ops - 1];
 }
@@ -408,7 +417,7 @@ std::vector<at::Tensor> zentorch_attn_horizontal_mlp_group(
     const at::TensorList &self, const at::TensorList &inputs,
     const at::TensorList &weights, const at::ArrayRef<double> &betas,
     const at::ArrayRef<double> &alphas, const at::IntArrayRef &fuse,
-    const at::IntArrayRef &is_zentorch_mm) {
+    const at::IntArrayRef &is_zentorch_mm, std::string zentorch_op_name) {
   // self = alpha * inputs * weights.t + beta * self
   LOG(INFO) << "In zentorch_attention_horizontal_matmul_group_mlp...\n";
   int num_ops = inputs.size();
@@ -425,21 +434,25 @@ std::vector<at::Tensor> zentorch_attn_horizontal_mlp_group(
       self_vector[i] = self[i];
   }
   return zentorch_matmul_group_impl(self_vector, input_vector, weights, betas,
-                                    alphas, fuse, true);
+                                    alphas, fuse, true, zentorch_op_name);
 }
 
 // Template instantiations.
 // The "mm" instantiations, in-turn instantiate "addmm" and "addmm_1dbias".
 // No post-op.
 template at::Tensor zentorch_mm<0>(const at::Tensor &self,
-                                   const at::Tensor &mat2);
+                                   const at::Tensor &mat2,
+                                   std::string zentorch_op_name);
 // ReLU.
 template at::Tensor zentorch_mm<1>(const at::Tensor &self,
-                                   const at::Tensor &mat2);
+                                   const at::Tensor &mat2,
+                                   std::string zentorch_op_name);
 // GELU Tanh.
 template at::Tensor zentorch_mm<2>(const at::Tensor &self,
-                                   const at::Tensor &mat2);
+                                   const at::Tensor &mat2,
+                                   std::string zentorch_op_name);
 // GELU Erf.
 template at::Tensor zentorch_mm<3>(const at::Tensor &self,
-                                   const at::Tensor &mat2);
+                                   const at::Tensor &mat2,
+                                   std::string zentorch_op_name);
 } // namespace zentorch
