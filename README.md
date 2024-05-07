@@ -100,14 +100,35 @@ _zentorch_ can be installed using binary wheel file or can be built from source 
 ```bash
 pip uninstall zentorch
 ```
-* Download the wheel file and install it using pip or conda install command.
+* Install Pytorch v2.1.2
+```bash
+conda install pytorch==2.1.2 cpuonly -c pytorch
+```
+* Use one of two methods to install zentorch:
 
->INFO: Please find the latest Nightly wheel file [here](http://atlvjksapp02:8080/job/ZenDNN_Nightly_Build_for_PT_PLUGIN/lastSuccessfulBuild/)
+Using pip utility
+```bash
+pip install zentorch==4.2.0
+```
+or
+
+Using the release package.
+
+> Download the package from AMD developer portal.
+
+> Run the following commands to unzip the package and install the binary.
 
 ```bash
-pip install zentorch-*-linux_x86_64.whl
+unzip ZENTORCH_v4.2.0_Python_v3.8.zip
+cd ZENTORCH_v4.2.0_Python_v3.8/
+pip install zentorch-4.2.0-cp38-cp38-manylinux2014_x86_64.whl
 ```
->Note: 
+>Note:
+* While importing zentorch, if you get an undefined symbol error such as:
+ImportError: <anaconda_install_path>/envs/<your-env>/lib/python3.x/site-packages/
+zentorch/_C.cpython-3x-x86_64-linux-gnu.so : undefined symbol: <some string>,
+it could be due to version differences with PyTorch. Verify that you are using PyTorch version
+2.1.2 only.
 * Dependent packages 'numpy' and 'torch' will be installed by '_zentorch_' if not already present.
 * Torch Version should be greater than or equal to 2.0
 
@@ -153,12 +174,12 @@ conda activate pt-zentorch
 #### 2.2.2.2. You can install torch using 'conda' or 'pip'
 ```bash
 # Pip command
-pip install torch --index-url https://download.pytorch.org/whl/cpu
+pip install torch==2.1.2 --index-url https://download.pytorch.org/whl/cpu
 ```
 or
 ```bash
 # Conda command
-conda install pytorch cpuonly -c pytorch
+conda install pytorch==2.1.2 cpuonly -c pytorch
 ```
 
 >Note: The CPU version of torch/pytorch only supports CPU version of torchvision.
@@ -169,27 +190,7 @@ conda install pytorch cpuonly -c pytorch
 ```bash
 bash build.sh
 ```
-
-### 2.2.3. manylinux build
-'manylinux_setup' script allows you to create a docker container, you need to install conda and proceed the build process
-
-```bash
-sudo bash manylinux_setup.sh
-export SCRIPT_TYPE=many_linux
-```
-
-#### 2.2.3.1. Create conda environment for the build
-```bash
-conda create -n pt-zentorch python=3.8
-conda activate pt-zentorch
-conda install pytorch cpuonly -c pytorch
-```
-#### 2.2.3.2. To build & install the _zentorch_
->Note: To build in debug mode 'export DEBUG=1'
-```bash
-bash build.sh
-```
-#### 2.2.3.3. Build Cleanup
+#### 2.2.2.4. Build Cleanup
 ```bash
 python setup.py clean --all
 ```
@@ -200,51 +201,40 @@ General Usage
 import torch
 import zentorch
 compiled_model = torch.compile(model, backend='zentorch')
-output = compiled_model(input)
-
-# Using make_fx (Deprecated)
-from torch.fx.experimental.proxy_tensor import make_fx
-import zentorch
-# The model should be a fx graph which can be generated with model and input fed to make_fx
-model_fx = make_fx(model)(input)
-model_optim = zentorch.optimize(model_fx)
-output = model_optim(input)
+with torch.no_grad():
+    output = compiled_model(input)
 ```
 
 >Note: If same model is optimized with `torch.compile` for multiple backends within single script, it is recommended to use `torch._dynamo.reset()` before calling the `torch.compile` on that model.
 
 >Note: _zentorch_ is able to do the zentorch op replacements in both non-inference and inference modes. But some of the _zentorch_ optimizations are only supported for the inference mode, so it is recommended to use `torch.no_grad()` if you are running the model for inference only.
 
-For torchvision CNN models, set `dynamic=False` when calling for `torch.compile` as below:
+For CNN models, set `dynamic=False` when calling for `torch.compile` as below:
 ```python
+model = torch.compile(model, backend='zentorch', dynamic=False)
 with torch.no_grad():
-  model = torch.compile(model, backend='zentorch', dynamic=False)
-
   output = model(input)
 ```
 
 For hugging face NLP models, optimize them as below:
 ```python
+model = torch.compile(model, backend='zentorch')
 with torch.no_grad():
-  model = torch.compile(model, backend='zentorch')
-
   output = model(input)
 ```
 
 For hugging face LLM models, optimize them as below:
 1. If output is generated through a call to direct `model`, optimize it as below:
 ```python
+model = torch.compile(model, backend='zentorch')
 with torch.no_grad():
-  model = torch.compile(model, backend='zentorch')
-
   output = model(input)
 ```
 
 2. If output is generated through a call to `model.forward`, optimize it as below:
 ```python
+model.forward = torch.compile(model.forward, backend='zentorch')
 with torch.no_grad():
-  model.forward = torch.compile(model.forward, backend='zentorch')
-
   output = model.forward(input)
 ```
 
@@ -252,9 +242,8 @@ with torch.no_grad():
     - Optimize the `model.forward` with torch.compile instead of `model.generate`.
     - But still generate the output through a call to `model.generate`.
 ```python
+model.forward = torch.compile(model.forward, backend='zentorch')
 with torch.no_grad():
-  model.forward = torch.compile(model.forward, backend='zentorch')
-
   output = model.generate(input)
 ```
 
