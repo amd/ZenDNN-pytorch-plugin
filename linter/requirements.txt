@@ -1,5 +1,5 @@
 black>=23.7.0
-clang-format>=16.0.6
+clang-format==18.1.4
 flake8>=6.1.0
 flake8-bugbear>=23.3.23
 flake8-comprehensions>=3.12.0
