@@ -34,12 +34,18 @@ std::string show_config() {
   ss << "  - C++ Version: " << __cplusplus << "\n";
 #endif
   ss << "Third_party libraries:\n";
-  ss << "  - " << "AMD " << bli_info_get_version_str() << " ( Git Hash "
-     << BLIS_VERSION_HASH << " )" << "\n";
-  ss << "  - " << "AMD ZENDNN v" << get_zendnn_version() << " ( Git Hash "
-     << ZENDNN_LIB_VERSION_HASH << " )" << "\n";
-  ss << "  - " << "FBGEMM " << FBGEMM_VERSION_TAG << " ( Git Hash "
-     << FBGEMM_VERSION_HASH << " )" << "\n";
+  ss << "  - "
+     << "AMD " << bli_info_get_version_str() << " ( Git Hash "
+     << BLIS_VERSION_HASH << " )"
+     << "\n";
+  ss << "  - "
+     << "AMD ZENDNN v" << get_zendnn_version() << " ( Git Hash "
+     << ZENDNN_LIB_VERSION_HASH << " )"
+     << "\n";
+  ss << "  - "
+     << "FBGEMM " << FBGEMM_VERSION_TAG << " ( Git Hash " << FBGEMM_VERSION_HASH
+     << " )"
+     << "\n";
 
   return ss.str();
 }
