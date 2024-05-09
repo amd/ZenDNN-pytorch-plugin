@@ -41,7 +41,7 @@ sparse_opt = [True, False]
 # Checking _dynamo.reset is compatible with pytorch version
 def reset_dynamo():
     if TorchVersion(torch.__version__) < '2.3':
-        return torch._dynamo.reset()
+        torch._dynamo.reset()
 
 
 class Test_Data:

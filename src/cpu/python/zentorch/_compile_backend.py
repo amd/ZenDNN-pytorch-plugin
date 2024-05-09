@@ -10,34 +10,34 @@ from ._optimize import optimize
 from typing import Callable, List, Optional
 from ._logging import get_logger
 from torch._functorch.aot_autograd import aot_module_simplified
+from torch.torch_version import TorchVersion
+torch_version = TorchVersion(torch.__version__)
 '''
 Pytorch 2.0 has mkldnn_fuse_fx but 2.1 and above Pytorch deprecated \
 mkldnn_fuse_fx function. So we are using try catch here. We are \
 making use of Pytorch 2.0 mkldnn_fuse_fx which has additional \
 conv+add+relu fusion but in Pytorch 2.1 and above this fusion is done \
 in Post Grad pass which is why we are using existing mkldnn_fuse_fx \
-function instead of generic function mkldnn_fuse_fx for 2.0
-'''
-try:
-    from torch._inductor.mkldnn import mkldnn_fuse_fx
-except ImportError:
-    from ._mkldnn import mkldnn_fuse_fx
-'''
+function instead of generic function mkldnn_fuse_fx for 2.0.
 We are making use of existing pytorch functions fuse_conv_bn, remove_identity \
 Pytorch 2.0 and (2.1 and above) has integrated these changes at different places
 '''
-try:
-    from torch._inductor.fx_passes.pre_grad import fuse_conv_bn, remove_identity
-except ImportError:
+if torch_version < '2.1':
+    from torch._inductor.mkldnn import mkldnn_fuse_fx
     from torch._inductor.overrides import fuse_conv_bn, remove_identity
+else:
+    from ._mkldnn import mkldnn_fuse_fx
+    from torch._inductor.fx_passes.pre_grad import fuse_conv_bn, remove_identity
 
-
-try:
+# Make use of existing decompositions functions if Torch version >= 2.1
+# Torch version less than 2.1 doesn't support removal of decompositions
+if torch_version < '2.1':
+    REMOVE_DECOMP = False
+else:
     from torch._decomp import remove_decompositions
     from torch._inductor.decomposition import decompositions
     REMOVE_DECOMP = True
-except ImportError:
-    REMOVE_DECOMP = False
+
 disable_inductor_flag = False
 
 logger = get_logger(__name__)
@@ -82,10 +82,10 @@ def zentorch_compile(
     # but it got deprecated in Pytorch2.1 and above. Pytorch 2.1 introduced
     # automatic_dynamic_shapes which will do the same task as dynamic_shapes
 
-    try:
-        dynamic = torch._dynamo.config.automatic_dynamic_shapes
-    except AttributeError:
+    if torch_version < '2.1':
         dynamic = torch._dynamo.config.dynamic_shapes
+    else:
+        dynamic = torch._dynamo.config.automatic_dynamic_shapes
 
     if not torch.is_grad_enabled():
         gm = remove_identity(gm)
