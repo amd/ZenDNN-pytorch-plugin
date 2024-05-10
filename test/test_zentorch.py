@@ -12,7 +12,7 @@ from importlib import metadata
 from torch.fx.experimental.proxy_tensor import make_fx
 from parameterized import parameterized
 from itertools import product
-
+from torch.torch_version import TorchVersion
 try:
     import zentorch
 
@@ -36,6 +36,12 @@ sparse_opt = [True, False]
 
 # when calling the torch.compile flow, we need inference_mode decorator
 # that is not needed when invoking zentorch ops directly
+
+
+# Checking _dynamo.reset is compatible with pytorch version
+def reset_dynamo():
+    if TorchVersion(torch.__version__) < '2.3':
+        return torch._dynamo.reset()
 
 
 class Test_Data:
@@ -571,7 +577,7 @@ class TEST_EMBEDDING_BAG(TestCase):
         model = CustomModelEmbeddingBagNN(100, 10, dtype=new_dtype)
         input = torch.randint(0, 10000, (1, 10))
         model_output = model(input)
-        torch._dynamo.reset()
+        reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
         compiled_graph_output = compiled_graph(input)
         self.assertAlmostEqual(model_output.item(), compiled_graph_output.item())
@@ -645,7 +651,7 @@ class TEST_EMBEDDING(TestCase):
         model = CustomModelEmbeddingNN(100, dtype=new_dtype)
         input = torch.randint(0, 10000, (10,))
         model_output = model(input)
-        torch._dynamo.reset()
+        reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
         compiled_graph_output = compiled_graph(input)
         self.assertEqual(model_output, compiled_graph_output)
@@ -762,7 +768,7 @@ class TEST_EMBEDDING_BAG_GROUP(TestCase):
         offset = test_data.offsets
 
         native_output = model(indices, offset)
-        torch._dynamo.reset()
+        reset_dynamo()
 
         compiled_graph = torch.compile(model, backend="zentorch")
 
@@ -855,7 +861,7 @@ class TEST_EMBEDDING_GROUP(TestCase):
 
         native_output = model(x)
 
-        torch._dynamo.reset()
+        reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
 
         compiled_output = compiled_graph(x)
@@ -878,7 +884,7 @@ class TEST_EMBEDDING_GROUP(TestCase):
         offsets = test_data.offsets
 
         native_output = model(indices, offsets)
-        torch._dynamo.reset()
+        reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
 
         compiled_output = compiled_graph(indices, offsets)
@@ -900,7 +906,7 @@ class TEST_EMBEDDING_GROUP(TestCase):
         offsets = test_data.offsets
 
         native_output = model(indices, offsets)
-        torch._dynamo.reset()
+        reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
 
         compiled_output = compiled_graph(indices, offsets)
@@ -921,7 +927,7 @@ class TEST_EMBEDDING_GROUP(TestCase):
         indices = torch.cat([torch.unsqueeze(test_data.emb_input, dim=0)] * 2)
 
         native_output = model(indices)
-        torch._dynamo.reset()
+        reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
 
         compiled_output = compiled_graph(indices)
@@ -940,7 +946,7 @@ class TEST_HORIZONTAL_MLP(TestCase):
         for i in range(len(data.x2)):
             for j in range(len(data.y2)):
                 native_output = model(data.x2[i], data.y2[j])
-                torch._dynamo.reset()
+                reset_dynamo()
                 compiled_graph = torch.compile(model, backend="zentorch")
 
                 compiled_output = compiled_graph(data.x2[i], data.y2[j])
@@ -957,7 +963,7 @@ class TEST_HORIZONTAL_MLP(TestCase):
         for i in range(len(data.x2)):
             for j in range(len(data.y2)):
                 native_output = model(data.x2[i], data.y2[j])
-                torch._dynamo.reset()
+                reset_dynamo()
                 compiled_graph = torch.compile(model, backend="zentorch")
 
                 compiled_output = compiled_graph(data.x2[i], data.y2[j])
@@ -1044,7 +1050,7 @@ class TEST_GROUP_MLP(TestCase):
         model = CustomModel_GroupMLP_Model(data.k, data.get_torch_type(dtype))
 
         native_output = model(data.x)
-        torch._dynamo.reset()
+        reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
 
         compiled_output = compiled_graph(data.x)
@@ -1059,7 +1065,7 @@ class TEST_GROUP_MLP(TestCase):
         model = CustomModel_GroupMLP_Model_Relu(data.k, data.get_torch_type(dtype))
 
         native_output = model(data.x)
-        torch._dynamo.reset()
+        reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
 
         compiled_output = compiled_graph(data.x)
@@ -1074,7 +1080,7 @@ class TEST_GROUP_MLP(TestCase):
         model = CustomModel_GroupMLP_Model_Relu_Gelu(data.k, data.get_torch_type(dtype))
 
         native_output = model(data.x)
-        torch._dynamo.reset()
+        reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
 
         compiled_output = compiled_graph(data.x)
@@ -1155,7 +1161,7 @@ class TEST_GROUP_EB_MLP(TestCase):
         model = CustomModel_Group_EB_MLP_Model(data.R, data.k)
 
         native_output = model(indices, offsets, data.x)
-        torch._dynamo.reset()
+        reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
 
         compiled_output = compiled_graph(indices, offsets, data.x)
@@ -1179,7 +1185,7 @@ class TEST_GROUP_EB_MLP(TestCase):
         model = CustomModel_Group_MLP_EB_Model(data.R, data.k)
 
         native_output = model(indices, offsets, data.x)
-        torch._dynamo.reset()
+        reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
 
         compiled_output = compiled_graph(indices, offsets, data.x)
@@ -1199,7 +1205,7 @@ class TEST_GROUP_EB_MLP(TestCase):
 
         model = CustomModel_Group_EB_MLP_Model_multiple_groups()
         native_output = model(eb_inputs, mlp_inputs)
-        torch._dynamo.reset()
+        reset_dynamo()
         compiled_model = torch.compile(model, backend="zentorch")
         compiled_output = compiled_model(eb_inputs, mlp_inputs)
 
@@ -1230,7 +1236,7 @@ class TEST_GROUP_EMBED_OPS_WITH_SUM_OPS(TestCase):
         model = CustomModel_EmbeddingBag_Sum_nodes(data.R)
 
         native_output = model(indices, offsets)
-        torch._dynamo.reset()
+        reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
 
         compiled_output = compiled_graph(indices, offsets)
@@ -1253,7 +1259,7 @@ class TEST_GROUP_EMBED_OPS_WITH_SUM_OPS(TestCase):
         model = CustomModel_Embedding_Sum_nodes(data.R)
 
         native_output = model(indices)
-        torch._dynamo.reset()
+        reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
 
         compiled_output = compiled_graph(indices)
@@ -1856,7 +1862,7 @@ class TestMMRELU(TestCase):
         for i in range(len(data.x1)):
             for j in range(len(data.y1)):
                 model_output = model(data.x1[i], data.y1[j])
-                torch._dynamo.reset()
+                reset_dynamo()
                 compiled_graph = torch.compile(model, backend="zentorch")
                 compiled_graph_output = compiled_graph(data.x1[i], data.y1[j])
                 self.assertEqual(model_output, compiled_graph_output)
@@ -1868,7 +1874,7 @@ class TestMMRELU(TestCase):
         data.create_data(dtype)
         model = CustomModelMMRelu2().eval()
         model_output = model(data.x1[0] * 0, data.y1[0] * 0)
-        torch._dynamo.reset()
+        reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
         compiled_graph_output = compiled_graph(data.x1[0] * 0, data.y1[0] * 0)
         self.assertEqual(model_output, compiled_graph_output)
@@ -1880,7 +1886,7 @@ class TestMMRELU(TestCase):
         data.create_data(dtype)
         model = CustomModelMMRelu2().eval()
         model_output = model(data.x1[0] * -1, data.y1[0] * -1)
-        torch._dynamo.reset()
+        reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
         compiled_graph_output = compiled_graph(data.x1[0] * -1, data.y1[0] * -1)
         self.assertEqual(model_output, compiled_graph_output)
@@ -1894,7 +1900,7 @@ class TestMMRELU(TestCase):
         if dtype == "bfloat16":
             model = model.bfloat16()
         model_output = model(data.input)
-        torch._dynamo.reset()
+        reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
         compiled_graph_output = compiled_graph(data.input)
         self.assertEqual(model_output, compiled_graph_output)
@@ -1913,13 +1919,14 @@ class TestMMADD(TestCase):
         for inp in data.M:
             for i in range(len(data.x1)):
                 for j in range(len(data.y1)):
-                    torch._dynamo.reset()
+                    reset_dynamo()
                     zentorch_model = copy.deepcopy(model)
                     inductor_graph = torch.compile(model, backend="inductor")
                     inductor_graph_output = inductor_graph(inp, data.x1[i], data.y1[j])
-                    torch._dynamo.reset()
+                    reset_dynamo()
                     zentorch_graph = torch.compile(zentorch_model, backend="zentorch")
                     zentorch_graph_output = zentorch_graph(inp, data.x1[i], data.y1[j])
+
                     self.assertEqual(inductor_graph_output, zentorch_graph_output)
 
     @parameterized.expand(supported_dtypes)
@@ -1930,7 +1937,7 @@ class TestMMADD(TestCase):
         model = CustomModelMMAdd1().eval()
         for inp in data.M:
             model_output = model(inp * 0, data.x1[0] * 0, data.y1[0] * 0)
-            torch._dynamo.reset()
+            reset_dynamo()
             compiled_graph = torch.compile(model, backend="zentorch")
             compiled_graph_output = compiled_graph(
                 inp * 0, data.x1[0] * 0, data.y1[0] * 0
@@ -1945,7 +1952,7 @@ class TestMMADD(TestCase):
         model = CustomModelMMAdd1().eval()
         for inp in data.M:
             model_output = model(inp / 0, data.x1[0] / 0, data.y1[0] / 0)
-            torch._dynamo.reset()
+            reset_dynamo()
             compiled_graph = torch.compile(model, backend="zentorch")
             compiled_graph_output = compiled_graph(
                 inp / 0, data.x1[0] / 0, data.y1[0] / 0
@@ -1962,7 +1969,7 @@ class TestMMADD(TestCase):
             model_output = model(
                 inp * float("nan"), data.x1[0] * float("nan"), data.y1[0] * float("nan")
             )
-            torch._dynamo.reset()
+            reset_dynamo()
             compiled_graph = torch.compile(model, backend="zentorch")
             compiled_graph_output = compiled_graph(
                 inp * float("nan"), data.x1[0] * float("nan"), data.y1[0] * float("nan")
@@ -1982,7 +1989,7 @@ class TestMMADD(TestCase):
             data.x1[0] * float("nan"),
             data.y1[0] * float("nan"),
         )
-        torch._dynamo.reset()
+        reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
         compiled_graph_output = compiled_graph(
             torch.eye(data.M[0].shape[0], data.M[0].shape[1]),
@@ -2006,7 +2013,7 @@ class TestADDMM_GELU(TestCase):
             for i in range(len(data.x1)):
                 for j in range(len(data.y1)):
                     model_output = model(inp, data.x1[i], data.y1[j])
-                    torch._dynamo.reset()
+                    reset_dynamo()
                     compiled_graph = torch.compile(model, backend="zentorch")
                     compiled_graph_output = compiled_graph(inp, data.x1[i], data.y1[j])
                     self.assertEqual(model_output, compiled_graph_output)
@@ -2023,7 +2030,7 @@ class TestADDMM_GELU(TestCase):
             for i in range(len(data.x1)):
                 for j in range(len(data.y1)):
                     model_output = model(inp, data.x1[i], data.y1[j])
-                    torch._dynamo.reset()
+                    reset_dynamo()
                     compiled_graph = torch.compile(model, backend="zentorch")
                     compiled_graph_output = compiled_graph(inp, data.x1[i], data.y1[j])
                     self.assertEqual(model_output, compiled_graph_output)
@@ -2040,7 +2047,7 @@ class TestADDMM_GELU(TestCase):
             for i in range(len(data.x1)):
                 for j in range(len(data.y1)):
                     model_output = model(inp, data.x1[i], data.y1[j])
-                    torch._dynamo.reset()
+                    reset_dynamo()
                     compiled_graph = torch.compile(model, backend="zentorch")
                     compiled_graph_output = compiled_graph(inp, data.x1[i], data.y1[j])
                     self.assertEqual(model_output, compiled_graph_output)
@@ -2057,7 +2064,7 @@ class TestADDMM_GELU(TestCase):
             for i in range(len(data.x1)):
                 for j in range(len(data.y1)):
                     model_output = model(inp, data.x1[i], data.y1[j])
-                    torch._dynamo.reset()
+                    reset_dynamo()
                     compiled_graph = torch.compile(model, backend="zentorch")
                     compiled_graph_output = compiled_graph(inp, data.x1[i], data.y1[j])
                     self.assertEqual(model_output, compiled_graph_output)
@@ -2074,7 +2081,7 @@ class TestADDMM_GELU(TestCase):
             for i in range(len(data.x1)):
                 for j in range(len(data.y1)):
                     model_output = model(inp, data.x1[i], data.y1[j])
-                    torch._dynamo.reset()
+                    reset_dynamo()
                     compiled_graph = torch.compile(model, backend="zentorch")
                     compiled_graph_output = compiled_graph(inp, data.x1[i], data.y1[j])
                     self.assertEqual(model_output, compiled_graph_output)
@@ -2094,7 +2101,7 @@ class TestADDMM_RELU(TestCase):
             for i in range(len(data.x1)):
                 for j in range(len(data.y1)):
                     model_output = model(inp, data.x1[i], data.y1[j])
-                    torch._dynamo.reset()
+                    reset_dynamo()
                     compiled_graph = torch.compile(model, backend="zentorch")
                     compiled_graph_output = compiled_graph(inp, data.x1[i], data.y1[j])
                     self.assertEqual(model_output, compiled_graph_output)
@@ -2108,7 +2115,7 @@ class TestADDMM_RELU(TestCase):
         if dtype == "bfloat16":
             model = model.bfloat16()
         model_output = model(data.input)
-        torch._dynamo.reset()
+        reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
         compiled_graph_output = compiled_graph(data.input)
         self.assertEqual(model_output, compiled_graph_output)
@@ -2125,11 +2132,11 @@ class TestADDMM_RELU(TestCase):
         # Nan's output is non-deterministic. Skipping Nan
         # data.input[0][0] = float("nan")
         data.input[1][1] = float("inf")
-        torch._dynamo.reset()
+        reset_dynamo()
         zentorch_model = copy.deepcopy(model)
         inductor_graph = torch.compile(model, backend="inductor")
         inductor_graph_output = inductor_graph(data.input)
-        torch._dynamo.reset()
+        reset_dynamo()
         zentorch_graph = torch.compile(zentorch_model, backend="zentorch")
         zentorch_graph_output = zentorch_graph(data.input)
         self.assertEqual(inductor_graph_output, zentorch_graph_output)
@@ -2169,7 +2176,7 @@ class TestLinear_Gelu(TestCase):
         if dtype == "bfloat16":
             model = model.bfloat16()
         model_output = model(data.input)
-        torch._dynamo.reset()
+        reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
         compiled_graph_output = compiled_graph(data.input)
         self.assertEqual(model_output, compiled_graph_output)
@@ -2183,7 +2190,7 @@ class TestLinear_Gelu(TestCase):
         if dtype == "bfloat16":
             model = model.bfloat16()
         model_output = model(data.input)
-        torch._dynamo.reset()
+        reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
         compiled_graph_output = compiled_graph(data.input)
         self.assertEqual(model_output, compiled_graph_output)
@@ -2202,7 +2209,7 @@ class TestBMMADD(TestCase):
         for i in range(len(data.x2)):
             for j in range(len(data.y2)):
                 model_output = model(data.M2, data.x2[i], data.y2[j])
-                torch._dynamo.reset()
+                reset_dynamo()
                 compiled_graph = torch.compile(model, backend="zentorch")
                 compiled_graph_output = compiled_graph(data.M2, data.x2[i], data.y2[j])
                 self.assertEqual(
@@ -2218,12 +2225,10 @@ class TestBMMADD(TestCase):
         data.create_data(dtype)
         model = CustomModelBMM_Unsupport().eval()
         model_output = model(data.M3, data.x2[0], data.y2[0])
-        torch._dynamo.reset()
+        reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
         compiled_graph_output = compiled_graph(data.M3, data.x2[0], data.y2[0])
-        self.assertEqual(
-            model_output, compiled_graph_output, atol=1e-5, rtol=1e-3
-        )
+        self.assertEqual(model_output, compiled_graph_output, atol=1e-5, rtol=1e-3)
 
 
 if __name__ == "__main__":
