@@ -35,21 +35,23 @@ at::Tensor zendnn_matmul_impl(const at::Tensor &mat1, const at::Tensor &mat2,
                               at::Tensor &self_or_result, const float &beta,
                               const float &alpha, const int64_t &fuse);
 
+template <int fuse = 0>
 at::Tensor zendnn_addmm(const at::Tensor &self, const at::Tensor &mat1,
                         const at::Tensor &mat2, const at::Scalar &beta,
-                        const at::Scalar &alpha, const int64_t &fuse);
+                        const at::Scalar &alpha);
 
 // for 1d bias
+template <int fuse = 0>
 at::Tensor zendnn_addmm_1dbias(const at::Tensor &self, const at::Tensor &mat1,
                                const at::Tensor &mat2, const at::Scalar &beta,
-                               const at::Scalar &alpha, const int64_t &fuse);
+                               const at::Scalar &alpha);
 
 at::Tensor zendnn_baddbmm(const at::Tensor &self, const at::Tensor &batch1,
                           const at::Tensor &batch2, const at::Scalar &beta,
                           const at::Scalar &alpha);
 
-at ::Tensor zendnn_mm(const at::Tensor &self, const at::Tensor &mat2,
-                      const int64_t &fuse);
+template <int fuse = 0>
+at ::Tensor zendnn_mm(const at::Tensor &self, const at::Tensor &mat2);
 
 at::Tensor zendnn_bmm(const at::Tensor &self, const at::Tensor &mat2);
 

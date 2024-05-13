@@ -28,21 +28,31 @@ TORCH_LIBRARY(zentorch, m) {
         "int padding_idx=-1, bool scale_grad_by_freq=False, "
         "bool sparse=False) -> Tensor");
 
-  /*
-    The fuse variable is introduced to set the post-ops or fusion-ops;
-    by default, fuse = 0,
-    fuse = 1 for relu op,
-    fuse = 2 for gelu approximate (tanh)
-    fuse = 3 for gelu exact (erf)
-  */
-
-  m.def("zendnn_mm(Tensor self, Tensor mat2, *, int fuse=0) -> Tensor");
+  m.def("zendnn_mm(Tensor self, Tensor mat2, *) -> Tensor");
+  m.def("zendnn_mm_relu(Tensor self, Tensor mat2, *) -> Tensor");
+  m.def("zendnn_mm_gelu_tanh(Tensor self, Tensor mat2, *) -> Tensor");
+  m.def("zendnn_mm_gelu_erf(Tensor self, Tensor mat2, *) -> Tensor");
   m.def("zendnn_bmm(Tensor self, Tensor mat2) -> Tensor");
   m.def("zendnn_addmm(Tensor self, Tensor mat1, Tensor mat2, *, Scalar beta=1, "
-        "Scalar alpha=1, int fuse=0) -> Tensor");
+        "Scalar alpha=1) -> Tensor");
+  m.def("zendnn_addmm_relu(Tensor self, Tensor mat1, Tensor mat2, *, Scalar "
+        "beta=1, "
+        "Scalar alpha=1) -> Tensor");
+  m.def("zendnn_addmm_gelu_tanh(Tensor self, Tensor mat1, Tensor mat2, *, "
+        "Scalar beta=1, "
+        "Scalar alpha=1) -> Tensor");
+  m.def("zendnn_addmm_gelu_erf(Tensor self, Tensor mat1, Tensor mat2, *, "
+        "Scalar beta=1, "
+        "Scalar alpha=1) -> Tensor");
   // for 1d bias
   m.def("zendnn_addmm_1dbias(Tensor self, Tensor mat1, Tensor mat2, *, "
-        "Scalar beta=1, Scalar alpha=1, int fuse=0) -> Tensor");
+        "Scalar beta=1, Scalar alpha=1) -> Tensor");
+  m.def("zendnn_addmm_1dbias_relu(Tensor self, Tensor mat1, Tensor mat2, *, "
+        "Scalar beta=1, Scalar alpha=1) -> Tensor");
+  m.def("zendnn_addmm_1dbias_gelu_tanh(Tensor self, Tensor mat1, Tensor mat2,"
+        " *, Scalar beta=1, Scalar alpha=1) -> Tensor");
+  m.def("zendnn_addmm_1dbias_gelu_erf(Tensor self, Tensor mat1, Tensor mat2,"
+        " *, Scalar beta=1, Scalar alpha=1) -> Tensor");
   m.def("zendnn_baddbmm(Tensor self, Tensor mat1, Tensor mat2, *, Scalar "
         "beta=1, Scalar alpha=1) -> Tensor");
   m.def("zendnn_horizontal_embedding_bag_group(Tensor[] weight, "
@@ -71,10 +81,19 @@ TORCH_LIBRARY(zentorch, m) {
 TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
   m.impl("zendnn_embedding_bag", zentorch::zendnn_embedding_bag_impl);
   m.impl("zendnn_embedding", zentorch::zendnn_embedding_impl);
-  m.impl("zendnn_mm", zentorch::zendnn_mm);
+  m.impl("zendnn_mm", zentorch::zendnn_mm<0>);
+  m.impl("zendnn_mm_relu", zentorch::zendnn_mm<1>);
+  m.impl("zendnn_mm_gelu_tanh", zentorch::zendnn_mm<2>);
+  m.impl("zendnn_mm_gelu_erf", zentorch::zendnn_mm<3>);
   m.impl("zendnn_bmm", zentorch::zendnn_bmm);
-  m.impl("zendnn_addmm", zentorch::zendnn_addmm);
-  m.impl("zendnn_addmm_1dbias", zentorch::zendnn_addmm_1dbias);
+  m.impl("zendnn_addmm", zentorch::zendnn_addmm<0>);
+  m.impl("zendnn_addmm_relu", zentorch::zendnn_addmm<1>);
+  m.impl("zendnn_addmm_gelu_tanh", zentorch::zendnn_addmm<2>);
+  m.impl("zendnn_addmm_gelu_erf", zentorch::zendnn_addmm<3>);
+  m.impl("zendnn_addmm_1dbias", zentorch::zendnn_addmm_1dbias<0>);
+  m.impl("zendnn_addmm_1dbias_relu", zentorch::zendnn_addmm_1dbias<1>);
+  m.impl("zendnn_addmm_1dbias_gelu_tanh", zentorch::zendnn_addmm_1dbias<2>);
+  m.impl("zendnn_addmm_1dbias_gelu_erf", zentorch::zendnn_addmm_1dbias<3>);
   m.impl("zendnn_baddbmm", zentorch::zendnn_baddbmm);
   m.impl("zendnn_horizontal_embedding_bag_group",
          zentorch::zendnn_horizontal_embedding_bag_group);

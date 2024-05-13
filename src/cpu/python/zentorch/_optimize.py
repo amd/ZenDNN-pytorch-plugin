@@ -68,36 +68,41 @@ def optimize(fx_graph):
     return optimized_graph
 
 
-# use to fuse relu
-def set_relu_mm_fusion_kwargs(node):
-    return {**node.kwargs, "fuse": 1}
+eltwise_targets = {
+    zt_ops.zendnn_mm.default: [
+        zt_ops.zendnn_mm_relu.default,
+        zt_ops.zendnn_mm_gelu_tanh.default,
+        zt_ops.zendnn_mm_gelu_erf.default,
+    ],
+    zt_ops.zendnn_addmm.default: [
+        zt_ops.zendnn_addmm_relu.default,
+        zt_ops.zendnn_addmm_gelu_tanh.default,
+        zt_ops.zendnn_addmm_gelu_erf.default,
+    ],
+    zt_ops.zendnn_addmm_1dbias.default: [
+        zt_ops.zendnn_addmm_1dbias_relu.default,
+        zt_ops.zendnn_addmm_1dbias_gelu_tanh.default,
+        zt_ops.zendnn_addmm_1dbias_gelu_erf.default,
+    ],
+}
 
-
-# use to fuse gelu erf & tanh
-def set_gelu_mm_fusion_kwargs(node):
-    fuse = 3
-    if (
-        bool(list(node.users.keys())[0].kwargs)
-        and list(node.users.keys())[0].kwargs["approximate"] == "tanh"
-    ):
-        fuse = 2
-    return {**node.kwargs, "fuse": fuse}
-
-
-# create dict according to fuse
-eltwise_patterns = dict.fromkeys(
-    (
-        zt_ops.zendnn_mm.default,
-        zt_ops.zendnn_addmm.default,
-        zt_ops.zendnn_addmm_1dbias.default,
-    ),
-    {
-        at_ops.relu.default: set_relu_mm_fusion_kwargs,
-        at_ops.relu_.default: set_relu_mm_fusion_kwargs,
-        at_ops.gelu.default: set_gelu_mm_fusion_kwargs,
-        at_ops.gelu_.default: set_gelu_mm_fusion_kwargs,
-    },
+supported_eltwise_ops = (
+    at_ops.relu.default,
+    at_ops.relu_.default,
+    at_ops.gelu.default,
+    at_ops.gelu_.default,
 )
+
+
+# use to fuse relu, gelu(erf/tanh) with mm variants.
+def set_fused_target_for_mm(node, post_op):
+    if post_op.target == at_ops.relu.default or post_op.target == at_ops.relu_.default:
+        node.target = eltwise_targets[node.target][0]
+    elif bool(post_op.kwargs) and post_op.kwargs["approximate"] == "tanh":
+        node.target = eltwise_targets[node.target][1]
+    else:
+        node.target = eltwise_targets[node.target][2]
+
 
 # for now add is not added as post op that's why I created this pattern
 add_pattern = (zt_ops.zendnn_bmm.default, zt_ops.zendnn_mm.default)
@@ -177,11 +182,12 @@ def zendnn_op_fusion(fx_graph):
                         "baddbmm in zentorch doesnt support "
                         + "non 3 dimentional tensors as of now"
                     )
-        if node.target in eltwise_patterns:
+        # The last node in the graph pattern should be replaced. Eltwise
+        # fusion is an exception.
+        if node.target in eltwise_targets:
             # create a sub-dict from pattern dict
             if len(node.users) > 1:  # Output of node is used by other nodes
                 continue
-            op_dict = eltwise_patterns[node.target]
             op_list = [node]
             # store the user of node in next_node
             next_node = list(node.users.keys())[0]
@@ -193,9 +199,9 @@ def zendnn_op_fusion(fx_graph):
                 op_list.append(next_node)
                 # store user of next_node
                 next_node = list(next_node.users.keys())[0]
-            if next_node.target in op_dict:
+            if next_node.target in supported_eltwise_ops:
                 # call the function for eltwise ops
-                node.kwargs = op_dict[next_node.target](op_list[-1])
+                set_fused_target_for_mm(node, next_node)
                 next_node.replace_all_uses_with(op_list[-1])
                 fx_graph.graph.erase_node(next_node)
 

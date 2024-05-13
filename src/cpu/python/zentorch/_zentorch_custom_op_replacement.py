@@ -220,7 +220,66 @@ def emb_ops_horizontal_fusion(fx_g):
     return fx_g
 
 
+def get_fuse_val(target):
+    if target in (
+        zt_ops.zendnn_mm_relu.default,
+        zt_ops.zendnn_addmm_relu.default,
+        zt_ops.zendnn_addmm_1dbias_relu.default,
+    ):
+        return 1
+    elif target in (
+        zt_ops.zendnn_mm_gelu_tanh.default,
+        zt_ops.zendnn_addmm_gelu_tanh.default,
+        zt_ops.zendnn_addmm_1dbias_gelu_tanh.default,
+    ):
+        return 2
+    elif target in (
+        zt_ops.zendnn_mm_gelu_erf.default,
+        zt_ops.zendnn_addmm_gelu_erf.default,
+        zt_ops.zendnn_addmm_1dbias_gelu_erf.default,
+    ):
+        return 3
+    else:
+        return 0
+
+
+horizontal_mlp_targets = {
+    "mm": [
+        zt_ops.zendnn_mm,
+        zt_ops.zendnn_mm_relu,
+        zt_ops.zendnn_mm_gelu_tanh,
+        zt_ops.zendnn_mm_gelu_erf,
+    ],
+    "addmm_1dbias": [
+        zt_ops.zendnn_addmm_1dbias,
+        zt_ops.zendnn_addmm_1dbias_relu,
+        zt_ops.zendnn_addmm_1dbias_gelu_tanh,
+        zt_ops.zendnn_addmm_1dbias_gelu_erf,
+    ],
+}
+
+
+def get_group_attr(target):
+    if target in horizontal_mlp_targets["addmm_1dbias"]:
+        return {"beta": (1.0, -4), "alpha": (1.0, -3), "is_zentorch_mm": (0, -1)}
+    elif target in horizontal_mlp_targets["mm"]:
+        return {"beta": (0.0, -4), "alpha": (1.0, -3), "is_zentorch_mm": (1, -1)}
+    else:
+        return None
+
+
 def vertical_mlp_fusion(fx_graph):
+    vertical_mlp_candidates = {
+        zt_ops.zendnn_addmm.default,
+        zt_ops.zendnn_addmm_relu.default,
+        zt_ops.zendnn_addmm_gelu_tanh.default,
+        zt_ops.zendnn_addmm_gelu_erf.default,
+        zt_ops.zendnn_addmm_1dbias.default,
+        zt_ops.zendnn_addmm_1dbias_relu.default,
+        zt_ops.zendnn_addmm_1dbias_gelu_tanh.default,
+        zt_ops.zendnn_addmm_1dbias_gelu_erf.default,
+    }
+
     def return_next_addmm(users):
         # GroupMLP fusion is possible only when the consecutive Linear layers
         # have only one output, which must go to the next Linear layer. These
@@ -229,10 +288,7 @@ def vertical_mlp_fusion(fx_graph):
         # these two conditions are true, True and the next Linear layer node
         # is returned.
         if len(users) == 1:
-            if users[0].target in (
-                zt_ops.zendnn_addmm.default,
-                zt_ops.zendnn_addmm_1dbias.default,
-            ):
+            if users[0].target in vertical_mlp_candidates:
                 return users[0]
 
         return None
@@ -246,10 +302,7 @@ def vertical_mlp_fusion(fx_graph):
     addmm_groups = [[]]
     nodes_traversed = set()
     for node in fx_graph.graph.nodes:
-        if node.target in (
-            zt_ops.zendnn_addmm.default,
-            zt_ops.zendnn_addmm_1dbias.default,
-        ):
+        if node.target in vertical_mlp_candidates:
             while node not in nodes_traversed:
                 addmm_groups[-1].append(node)
                 nodes_traversed.add(node)
@@ -260,7 +313,7 @@ def vertical_mlp_fusion(fx_graph):
                 node = result_node
 
     # kwargs in the form (name, default_value, idx_in_args)
-    kwargs = [("beta", 1.0, -3), ("alpha", 1.0, -2), ("fuse", 0, -1)]
+    kwargs = [("beta", 1.0, -3), ("alpha", 1.0, -2)]
 
     group_idx = 0
     for group in addmm_groups:
@@ -277,6 +330,9 @@ def vertical_mlp_fusion(fx_graph):
                         group_op_args[kwarg[2]].append(addmm.kwargs[kwarg[0]])
                     else:
                         group_op_args[kwarg[2]].append(kwarg[1])
+
+                # Populate "fuse" argument
+                group_op_args[-1].append(get_fuse_val(addmm.target))
 
             continue_status = False
 
@@ -344,7 +400,6 @@ def horizontal_mlp_fusion(fx_g):
                     continue
                 user_node = list(user.users.keys())[0]
                 # Skipping fusion if args of view are not placeholders or constants.
-                #
                 view_arg_check = False
                 if user.target == torch.ops.aten.view.default:
                     for node_arg in user.args[1]:
@@ -362,27 +417,12 @@ def horizontal_mlp_fusion(fx_g):
                     continue
                 # Append addmm/mm nodes to group
                 # Check if addmm/mm is unique to the dictionary
-                if (
-                    user_node.target == torch.ops.zentorch.zendnn_addmm_1dbias.default
-                    and user_node not in user_node_list
-                ):
+                node_values = get_group_attr(user_node.target)
+                if node_values:
                     groups.setdefault(node_name, {"nodes": []})["nodes"].append(
                         user_node
                     )
-                    groups[node_name].update(
-                        {"beta": (1.0, -4), "alpha": (1.0, -3), "fuse": (0, -2)}
-                    )
-                    user_node_list.append(user_node)
-                elif (
-                    user_node.target == torch.ops.zentorch.zendnn_mm.default
-                    and user_node not in user_node_list
-                ):
-                    groups.setdefault(node_name, {"nodes": []})["nodes"].append(
-                        user_node
-                    )
-                    groups[node_name].update(
-                        {"beta": (0.0, -4), "alpha": (1.0, -3), "fuse": (0, -2)}
-                    )
+                    groups[node_name].update(node_values)
                     user_node_list.append(user_node)
 
     # Perform fusion and optimization
@@ -390,8 +430,11 @@ def horizontal_mlp_fusion(fx_g):
         # Check for attention block matmuls
         # Validate if all K,Q,V are of same target value
         target_values = [(group["nodes"][i]).target for i in range(len(group["nodes"]))]
+        same_target = set(target_values).issubset(horizontal_mlp_targets["mm"]) or set(
+            target_values
+        ).issubset(horizontal_mlp_targets["addmm_1dbias"])
         # Checking only for K,Q,V pair hence hardcoded to 3
-        if len(group["nodes"]) == 3 and len(set(target_values)) == 1:
+        if len(group["nodes"]) == 3 and same_target:
             group_op_args = [[] for _ in range(7)]
             first_node = group["nodes"][0]
             # Check if node is zendnn_addmm or zendnn_mm.
@@ -424,21 +467,17 @@ def horizontal_mlp_fusion(fx_g):
                         first_node.prepend(arg)
                 # iterate through kwargs to append node's value, if present in graph,
                 # else append the default value
-                for kwarg in ["fuse", "alpha", "beta"]:
+                for kwarg in ["alpha", "beta", "is_zentorch_mm"]:
                     if group[kwarg] in node.kwargs:
                         group_op_args[group[kwarg][1]].append(node.kwargs[kwarg])
                     else:
                         group_op_args[group[kwarg][1]].append(group[kwarg][0])
-                # Adding flag to recognise zendnn_mm or zendnn_addmm to make
-                # appropriate changes in op definition.
-                if first_node.target == torch.ops.zentorch.zendnn_addmm_1dbias.default:
-                    group_op_args[6].append(0)
-                elif first_node.target == torch.ops.zentorch.zendnn_mm.default:
-                    group_op_args[6].append(1)
+                # Update fuse values.
+                group_op_args[5].append(get_fuse_val(node.target))
             # Create zendnn_attn_horizontal_mlp_group node
             group_node = fx_g.graph.create_node(
                 op="call_function",
-                target=torch.ops.zentorch.zendnn_attn_horizontal_mlp_group.default,
+                target=zt_ops.zendnn_attn_horizontal_mlp_group.default,
                 args=tuple(group_op_args),
             )
             first_node.prepend(group_node)
@@ -576,7 +615,7 @@ def eb_group_mlp_group_fusion(fx_graph):
             group_mlp_op.args = tuple(fused_op_args)
             new_node = None
 
-            group_mlp_op.target = torch.ops.zentorch.zendnn_fused_eb_mlp.default
+            group_mlp_op.target = zt_ops.zendnn_fused_eb_mlp.default
 
             if group_idx:
                 group_mlp_op.name = f"fused_eb_mlp_{group_idx}"

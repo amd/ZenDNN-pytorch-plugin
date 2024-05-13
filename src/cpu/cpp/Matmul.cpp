@@ -230,11 +230,13 @@ std::vector<at::Tensor> zendnn_matmul_group_impl(
 }
 
 // for 1d bias
+template <int fuse = 0>
 at::Tensor zendnn_addmm_1dbias(const at::Tensor &self, const at::Tensor &mat1,
                                const at::Tensor &mat2, const at::Scalar &beta,
-                               const at::Scalar &alpha, const int64_t &fuse) {
+                               const at::Scalar &alpha) {
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
+
   TORCH_CHECK(
       (self.dim() == 1 && mat1.dim() == 2 && mat2.dim() == 2), // aten::addmm
       "zendnn_addmm_1dbias: unsupported dims for self, mat1 and mat2");
@@ -258,9 +260,10 @@ at::Tensor zendnn_addmm_1dbias(const at::Tensor &self, const at::Tensor &mat1,
                             alpha.to<float>(), fuse);
 }
 
+template <int fuse = 0>
 at::Tensor zendnn_addmm(const at::Tensor &self, const at::Tensor &mat1,
                         const at::Tensor &mat2, const at::Scalar &beta,
-                        const at::Scalar &alpha, const int64_t &fuse) {
+                        const at::Scalar &alpha) {
 
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
@@ -289,8 +292,7 @@ at::Tensor zendnn_addmm(const at::Tensor &self, const at::Tensor &mat1,
         "zendnn_addmm: unsupported dims for self, mat1 and mat2");
 
     LOG(INFO) << "Entering zendnn_addmm_1dbias from " << __FUNCTION__ << "!\n";
-
-    return zendnn_addmm_1dbias(self, mat1, mat2, beta, alpha, fuse);
+    return zendnn_addmm_1dbias<fuse>(self, mat1, mat2, beta, alpha);
   }
 }
 
@@ -329,8 +331,8 @@ at::Tensor zendnn_baddbmm(const at::Tensor &self, const at::Tensor &batch1,
 }
 
 // zendnn_mm function does not broadcast
-at::Tensor zendnn_mm(const at::Tensor &self, const at::Tensor &mat2,
-                     const int64_t &fuse) {
+template <int fuse = 0>
+at::Tensor zendnn_mm(const at::Tensor &self, const at::Tensor &mat2) {
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
   TORCH_CHECK((self.dim() == 2 && mat2.dim() == 2), // aten::mm
@@ -343,7 +345,7 @@ at::Tensor zendnn_mm(const at::Tensor &self, const at::Tensor &mat2,
 
   LOG(INFO) << "Entering zendnn_addmm from " << __FUNCTION__ << "!\n";
 
-  return zendnn_addmm(out, self, mat2, beta, alpha, fuse);
+  return zendnn_addmm<fuse>(out, self, mat2, beta, alpha);
 }
 
 // zendnn_bmm function does not broadcast
@@ -421,4 +423,19 @@ std::vector<at::Tensor> zendnn_attn_horizontal_mlp_group(
   return zendnn_matmul_group_impl(self_vector, input_vector, weights, betas,
                                   alphas, fuse, true);
 }
+
+// Template instantiations.
+// The "mm" instantiations, in-turn instantiate "addmm" and "addmm_1dbias".
+// No post-op.
+template at::Tensor zendnn_mm<0>(const at::Tensor &self,
+                                 const at::Tensor &mat2);
+// ReLU.
+template at::Tensor zendnn_mm<1>(const at::Tensor &self,
+                                 const at::Tensor &mat2);
+// GELU Tanh.
+template at::Tensor zendnn_mm<2>(const at::Tensor &self,
+                                 const at::Tensor &mat2);
+// GELU Erf.
+template at::Tensor zendnn_mm<3>(const at::Tensor &self,
+                                 const at::Tensor &mat2);
 } // namespace zentorch

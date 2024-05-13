@@ -188,7 +188,7 @@ class Test_MM_OP(TestCase):
             torch._C._VariableFunctions.relu(
                 torch._C._VariableFunctions.mm(data.x, data.y)
             ),
-            torch.ops.zentorch.zendnn_mm(data.x, data.y, fuse=1),
+            torch.ops.zentorch.zendnn_mm_relu(data.x, data.y),
         )
 
 
@@ -292,36 +292,32 @@ class Test_ADDMM_OP(TestCase):
                     data.input, data.x, data.y, beta=1.5, alpha=1.7
                 )
             ),
-            torch.ops.zentorch.zendnn_addmm(
-                data.input, data.x, data.y, beta=1.5, alpha=1.7, fuse=1
-            ),
+            torch.ops.zentorch.zendnn_addmm_relu(
+                data.input, data.x, data.y, beta=1.5, alpha=1.7)
         )
 
         self.assertEqual(
             torch._C._VariableFunctions.relu(
                 torch._C._VariableFunctions.addmm(data.input, data.x, data.y, alpha=1.7)
             ),
-            torch.ops.zentorch.zendnn_addmm(
-                data.input, data.x, data.y, alpha=1.7, fuse=1
-            ),
+            torch.ops.zentorch.zendnn_addmm_relu(
+                data.input, data.x, data.y, alpha=1.7),
         )
 
         self.assertEqual(
             torch._C._VariableFunctions.relu(
                 torch._C._VariableFunctions.addmm(data.input, data.x, data.y, beta=1.5)
             ),
-            torch.ops.zentorch.zendnn_addmm(
-                data.input, data.x, data.y, beta=1.5, fuse=1
-            ),
+            torch.ops.zentorch.zendnn_addmm_relu(
+                data.input, data.x, data.y, beta=1.5),
         )
 
         self.assertEqual(
             torch._C._VariableFunctions.relu(
                 torch._C._VariableFunctions.addmm(data.input, data.x, data.y, beta=0.0)
             ),
-            torch.ops.zentorch.zendnn_addmm(
-                data.input, data.x, data.y, beta=0.0, fuse=1
-            ),
+            torch.ops.zentorch.zendnn_addmm_relu(
+                data.input, data.x, data.y, beta=0.0),
         )
 
     @parameterized.expand(supported_dtypes)
@@ -342,7 +338,7 @@ class Test_ADDMM_OP(TestCase):
             torch._C._VariableFunctions.relu(
                 torch._C._VariableFunctions.addmm(data.input, data.x, data.y)
             ),
-            torch.ops.zentorch.zendnn_addmm(data.input, data.x, data.y, fuse=1),
+            torch.ops.zentorch.zendnn_addmm_relu(data.input, data.x, data.y),
         )
 
 
