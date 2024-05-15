@@ -13,7 +13,10 @@ from ._zentorch_op_replacement import (
     replace_with_zentorch_ops,
     is_bias_1d_tensor,
     numdims_tensor,
+    are_args_same_dtype,
+    get_tensor
 )
+
 # TODO: Add support for horizontal_mlp_fusion
 from ._zentorch_custom_op_replacement import (
     emb_ops_horizontal_fusion,
@@ -125,10 +128,9 @@ def zendnn_op_fusion(fx_graph):
         # TODO Support add fusion when add is farther from matmul node
         # TODO Unit Tests to be added for the farther case
         # TODO Add a negative Unit test for the farther case
+        # TODO Support mm add fusion when add is scalar or its dim is 0
         if node.target in add_pattern:
-
             node_next = list(node.users.keys())[0]
-
             if node_next.target == at_ops.add.Tensor and node_next == node.next:
                 logger.info(
                     "Fusing the "
@@ -137,7 +139,6 @@ def zendnn_op_fusion(fx_graph):
                     + str(node_next.target)
                     + " in fx graph"
                 )
-
                 # fuse bmm and add only if dims of bmm and add is same
                 should_add_be_fused = (
                     all(
@@ -150,27 +151,30 @@ def zendnn_op_fusion(fx_graph):
                         )
                     )
                     if node.target == zt_ops.zendnn_bmm.default
-                    else False
+                    else True
                 )
-                if should_add_be_fused:
+                if should_add_be_fused and are_args_same_dtype(fx_graph, node_next):
                     for add_tensor in node_next.args:
                         if add_tensor != node:
-                            # by *node.args we can append all the arguments
-                            new_args = (add_tensor, *node.args)
-                    node.args = new_args
-                    node_next.replace_all_uses_with(node)
-                    fx_graph.graph.erase_node(node_next)
-
-                    if node.target == zt_ops.zendnn_mm.default:
-                        if is_bias_1d_tensor(fx_graph, node):
-                            node.target = zt_ops.zendnn_addmm_1dbias.default
-                        else:
-                            node.target = zt_ops.zendnn_addmm.default
-                    else:
-                        node.target = zt_ops.zendnn_baddbmm.default
+                            if (
+                                torch.is_tensor(get_tensor(fx_graph, add_tensor))
+                                and get_tensor(fx_graph, add_tensor).dim != 0
+                            ):
+                                # by *node.args we can append all the arguments
+                                new_args = (add_tensor, *node.args)
+                                node.args = new_args
+                                node_next.replace_all_uses_with(node)
+                                fx_graph.graph.erase_node(node_next)
+                                if node.target == zt_ops.zendnn_mm.default:
+                                    if is_bias_1d_tensor(fx_graph, node):
+                                        node.target = zt_ops.zendnn_addmm_1dbias.default
+                                    else:
+                                        node.target = zt_ops.zendnn_addmm.default
+                                else:
+                                    node.target = zt_ops.zendnn_baddbmm.default
                 else:
                     logger.warning(
-                        "baddbdmm in zentorch doesnt support "
+                        "baddbmm in zentorch doesnt support "
                         + "non 3 dimentional tensors as of now"
                     )
         if node.target in eltwise_patterns:

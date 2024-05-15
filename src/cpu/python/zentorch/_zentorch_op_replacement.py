@@ -15,15 +15,42 @@ at_ops = torch.ops.aten
 zt_ops = torch.ops.zentorch
 
 
-def numdims_tensor(fx_graph, node, arg_index):
-    is_fake_tensor = bool(node.args[arg_index].meta)
-
-    if is_fake_tensor:
-        # arg node in fx_graph generated through torch.compile will be fake tensor
-        return node.args[arg_index].meta["val"].ndim
+# When arg_index is none, it will check for node
+def get_tensor(fx_graph, node, arg_index=None):
+    if arg_index:
+        is_fake_tensor = bool(node.args[arg_index].meta)
+        if is_fake_tensor:
+            # arg node in fx_graph generated through torch.compile
+            # will be fake tensor
+            return node.args[arg_index].meta["val"]
+        else:
+            # while arg node in fx_graph generated through make_fx
+            # will not be fake tensor
+            return fx_graph._parameters[node.args[arg_index].target]
     else:
-        # while arg node in fx_graph generated through make_fx will not be fake tensor
-        return fx_graph._parameters[node.args[arg_index].target].ndim
+        is_fake_tensor = bool(node.meta)
+        if is_fake_tensor:
+            # arg node in fx_graph generated through torch.compile will be fake tensor
+            return node.meta["val"]
+        else:
+            # while arg node in fx_graph generated through make_fx
+            # will not be fake tensor
+            return fx_graph._parameters[node.target]
+
+
+# Compare all the args are same dtype or not
+def are_args_same_dtype(fx_graph, node):
+    dtype_set = set()
+    for i in range(0, len(node.args)):
+        dtype_set.add(get_tensor(fx_graph, node, i).dtype)
+    if len(dtype_set) == 1:
+        return True
+    else:
+        return False
+
+
+def numdims_tensor(fx_graph, node, arg_index=None):
+    return get_tensor(fx_graph, node, arg_index).ndim
 
 
 def is_baddbmm_replacable(fx_graph, node):
