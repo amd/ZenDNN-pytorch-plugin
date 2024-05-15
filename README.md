@@ -76,14 +76,6 @@ CMake downloads the ZenDNN , AOCL BLIS and FBGEMM during configure stage. It gen
 #### 1.2.3.2. Packaging into a Wheel File
 The CPP code, being an extension module, is built through CppExtension. It takes static libraries of the ZenDNN , AOCL BLIS and FBGEMM libraries. `setup.py` also adds in various attributes to the _zentorch_ for debugging and providing additional information.
 
-
-#### 1.2.3.3. build.sh
-It installs packages necessary for the _zentorch_ build and completes all other steps needed for building the _zentorch_.
-
-Wheel file can be generated solely through the `setup.py` script, without the need for any additional scripts. The build.sh is a tiny wrapper around the Python setup script.
-
-> NOTE: Alternatively PyPA build can be used instead of `setup.py`. Currently minimal support is added for PyPA build. When using PyPA Build, ensure to run `pip install build` prior to building.
-
 ## 1.3. Third Party Libraries
 _zentorch_ uses following libraries for its functionality.
   * [ZenDNN](https://github.com/amd/ZenDNN)
@@ -189,11 +181,19 @@ conda install pytorch==2.1.2 cpuonly -c pytorch
 
 >Note: cmake & ninja are required for cpp extension builds, will be installed through build script.
 
-#### 2.2.2.3. To build & install the _zentorch_
+#### 2.2.2.3. Install Dependencies
 ```bash
-bash build.sh
+pip install -r requirements.txt
 ```
-#### 2.2.2.4. Build Cleanup
+#### 2.2.2.4. To build & install the _zentorch_
+```bash
+python setup.py install
+```
+#### 2.2.2.5. Run Unit Tests
+```python
+python test/test_zentorch.py
+```
+#### 2.2.2.6. Build Cleanup
 ```bash
 python setup.py clean --all
 ```

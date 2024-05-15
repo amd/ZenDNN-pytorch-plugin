@@ -5,9 +5,9 @@
 
 from setuptools import setup
 from torch.utils.cpp_extension import BuildExtension, CppExtension
+from os.path import join as Path
 import os
 import glob
-import shutil
 import subprocess
 
 
@@ -25,8 +25,6 @@ class CustomBuildExtension(BuildExtension):
         if "ZENDNN_PT_USE_LOCAL_FBGEMM" not in os.environ:
             os.environ["ZENDNN_PT_USE_LOCAL_FBGEMM"] = "0"
 
-        if os.path.exists(self.build_temp):
-            shutil.rmtree(self.build_temp)
         os.makedirs(self.build_temp, exist_ok=True)
 
         rc, out, err = subproc_communicate("which python")
@@ -61,10 +59,10 @@ class CustomBuildExtension(BuildExtension):
         extension = self.extensions[0]
 
         extra_objects = [
-            os.path.join(project_root_dir, self.build_temp, "lib/libamdZenDNN.a"),
-            os.path.join(project_root_dir, self.build_temp, "lib/libblis-mt.a"),
-            os.path.join(project_root_dir, self.build_temp, "lib/libfbgemm.a"),
-            os.path.join(project_root_dir, self.build_temp, "lib/libasmjit.a"),
+            Path(project_root_dir, self.build_temp, "lib", "libamdZenDNN.a"),
+            Path(project_root_dir, self.build_temp, "lib", "libblis-mt.a"),
+            Path(project_root_dir, self.build_temp, "lib", "libfbgemm.a"),
+            Path(project_root_dir, self.build_temp, "lib", "libasmjit.a"),
         ]
 
         extension.extra_objects.extend(extra_objects)
@@ -104,11 +102,11 @@ def get_commit_hash(base_dir):
 
 
 project_root_dir = os.path.abspath(os.path.dirname(__file__))
-sources = glob.glob(os.path.join(project_root_dir, "src/cpu/cpp/*.cpp"))
+sources = glob.glob(Path(project_root_dir, "src", "cpu", "cpp", "*.cpp"))
 include_dirs = [
-    os.path.join(project_root_dir, "third_party/ZenDNN/inc"),
-    os.path.join(project_root_dir, "third_party/FBGEMM/include"),
-    os.path.join(project_root_dir, "third_party/blis/include/amdzen"),
+    Path(project_root_dir, "third_party", "ZenDNN", "inc"),
+    Path(project_root_dir, "third_party", "FBGEMM", "include"),
+    Path(project_root_dir, "third_party", "blis", "include", "amdzen"),
 ]
 
 zentorch_build_version = os.getenv("ZenTorch_BUILD_VERSION", PACKAGE_VERSION)
@@ -116,7 +114,7 @@ git_sha = get_commit_hash(project_root_dir)
 wheel_file_dependencies = ["numpy", "torch"]
 
 long_description = ""
-with open(os.path.join(project_root_dir, "DESCRIPTION.md"), encoding="utf-8") as f:
+with open(Path(project_root_dir, "DESCRIPTION.md"), encoding="utf-8") as f:
     long_description = f.read()
 
 
@@ -151,7 +149,7 @@ def main():
             "build_ext": CustomBuildExtension,
         },
         packages=[PACKAGE_NAME],
-        package_dir={"": "src/cpu/python"},
+        package_dir={"": Path("src", "cpu", "python")},
     )
 
 
