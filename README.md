@@ -18,12 +18,10 @@ Table of Contents
 - [Logging and Debugging](#4-logging-and-debugging)
   - [ZenDNN logs](#41-zendnn-logs)
   - [_zentorch_ logs](#42-zentorch-logs)
-  - [Saving the graph](#43-saving-the-graph)
-  - [Support for `TORCH_COMPILE_DEBUG`](#44-support-for-torch_compile_debug)
+  - [Support for `TORCH_COMPILE_DEBUG`](#43-support-for-torch_compile_debug)
 - [Performance tuning and Benchmarking](#5-performance-tuning-and-benchmarking)
 - [Additional Utilities](#6-additional-utilities)
-  - [Disabling Inductor](#61-disabling-inductor)
-  - [_zentorch_ attributes](#62-zentorch-attributes)
+  - [_zentorch_ attributes](#61-zentorch-attributes)
 <!-- tocstop -->
 
 # 1. About _zentorch_
@@ -193,7 +191,11 @@ python setup.py install
 ```python
 python test/test_zentorch.py
 ```
-#### 2.2.2.6. Build Cleanup
+#### 2.2.2.6 Run unit test with seed
+```python
+python test/test_zentorch.py --seed seed_value
+```
+#### 2.2.2.7. Build Cleanup
 ```bash
 python setup.py clean --all
 ```

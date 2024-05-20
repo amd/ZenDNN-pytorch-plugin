@@ -104,10 +104,14 @@ at::Tensor zendnn_matmul_impl(const at::Tensor &mat1, const at::Tensor &mat2,
   LOG(INFO) << "MatMul compute in progress...";
   matmul(pd).execute(utils::stream::default_stream(), execute_args);
 
-  if ((mat1.dim() == 1 || mat1.dim() == 2) && mat2.dim() == 1) {
-    // aten::mv  >>  [m, 1] tensor will be squeezed to 1-d([m]) tensor
-    // aten::dot >>  [1, 1] tensor will be squeezed to 0-d([]) tensor
-    self_or_result_unsqueezed.squeeze_();
+  if (mat2.dim() == 1) {
+    if (mat1.dim() == 2) {
+      // aten::mv  >>  [m, 1] tensor will be squeezed to 1-d([m]) tensor
+      self_or_result_unsqueezed.squeeze_(1);
+    } else if (mat1.dim() == 1) {
+      // aten::dot >>  [1, 1] tensor will be squeezed to 0-d([]) tensor
+      self_or_result_unsqueezed.squeeze_();
+    }
   }
 
   LOG(INFO) << "Finished executing: " << __FUNCTION__ << "!\n";
