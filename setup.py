@@ -17,13 +17,11 @@ class CustomBuildExtension(BuildExtension):
         Invoke the CMAKE compilation commands.
         """
         # Env variables set to copy ZenDNN/BLIS from local
-        # After ZenDNN4.1 release ZENDNN_PT_USE_LOCAL_ZENDNN should be set to 0
-
         # if variables not set: then use default values
         if "ZENDNN_PT_USE_LOCAL_BLIS" not in os.environ:
             os.environ["ZENDNN_PT_USE_LOCAL_BLIS"] = "0"
         if "ZENDNN_PT_USE_LOCAL_ZENDNN" not in os.environ:
-            os.environ["ZENDNN_PT_USE_LOCAL_ZENDNN"] = "1"
+            os.environ["ZENDNN_PT_USE_LOCAL_ZENDNN"] = "0"
         if "ZENDNN_PT_USE_LOCAL_FBGEMM" not in os.environ:
             os.environ["ZENDNN_PT_USE_LOCAL_FBGEMM"] = "0"
 

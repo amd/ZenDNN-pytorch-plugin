@@ -155,14 +155,14 @@ Build setup downloads the AOCL BLIS and ZenDNN repos into `third_party` folder. 
     |------><ZenDNN_PyTorch_Plugin>
 ```
 >NOTE:
-> 1. The recommended values of `ZENDNN_PT_USE_LOCAL_ZENDNN` , `ZENDNN_PT_USE_LOCAL_BLIS` and `ZENDNN_PT_USE_LOCAL_FBGEMM` are 1 , 0 and 0 respectively. Default values are the same as recommended values.
+> 1. The recommended values of `ZENDNN_PT_USE_LOCAL_ZENDNN` , `ZENDNN_PT_USE_LOCAL_BLIS` and `ZENDNN_PT_USE_LOCAL_FBGEMM` are 0 , 0 and 0 respectively. Default values are the same as recommended values.
 >```bash
->export ZENDNN_PT_USE_LOCAL_ZENDNN=1
+>export ZENDNN_PT_USE_LOCAL_ZENDNN=0
 >export ZENDNN_PT_USE_LOCAL_BLIS=0
 >export ZENDNN_PT_USE_LOCAL_FBGEMM=0
 >```
-> 2. ZenDNN repository can be cloned using command<br> `git clone "ssh://gerritgit/amd/ec/ZenDNN"`
-> 3. AOCL BLIS can be cloned using command<br> `git clone "ssh://gerritgit/cpulibraries/er/blis"`
+> 2. ZenDNN repository can be cloned using command<br> `git clone https://github.com/amd/ZenDNN.git`
+> 3. AOCL BLIS can be cloned using command<br> `git clone https://github.com/amd/blis.git`
 > 4. FBGEMM can be cloned using command<br> `git clone https://github.com/pytorch/FBGEMM.git`
 
 ### 2.2.2. Linux build
