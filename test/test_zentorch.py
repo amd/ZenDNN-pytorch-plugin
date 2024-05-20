@@ -13,6 +13,7 @@ from torch.fx.experimental.proxy_tensor import make_fx
 from parameterized import parameterized
 from itertools import product
 from torch.torch_version import TorchVersion
+
 try:
     import zentorch
 
@@ -40,7 +41,7 @@ sparse_opt = [True, False]
 
 # Checking _dynamo.reset is compatible with pytorch version
 def reset_dynamo():
-    if TorchVersion(torch.__version__) < '2.3':
+    if TorchVersion(torch.__version__) < "2.3":
         torch._dynamo.reset()
 
 
@@ -77,6 +78,7 @@ class Test_Data:
         self.embedding_matrix = torch.rand(self.R, 3).type(torch_type)
         self.emb_input = torch.randint(0, self.R, (self.W,))
         self.offsets = torch.tensor([0, self.W])
+        self.mlp_inputs = torch.randn(2, self.k)
 
         self.M = [
             torch.randn(60, 30).type(torch_type),
@@ -1157,14 +1159,15 @@ class TEST_GROUP_EB_MLP(TestCase):
 
         indices = data.emb_input
         offsets = data.offsets
+        mlp_inputs = data.mlp_inputs
 
         model = CustomModel_Group_EB_MLP_Model(data.R, data.k)
 
-        native_output = model(indices, offsets, data.x)
+        native_output = model(indices, offsets, mlp_inputs)
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
 
-        compiled_output = compiled_graph(indices, offsets, data.x)
+        compiled_output = compiled_graph(indices, offsets, mlp_inputs)
         self.assertEqual(native_output, compiled_output)
 
     @parameterized.expand(supported_dtypes)
@@ -1181,14 +1184,15 @@ class TEST_GROUP_EB_MLP(TestCase):
 
         indices = data.emb_input
         offsets = data.offsets
+        mlp_inputs = data.mlp_inputs
 
         model = CustomModel_Group_MLP_EB_Model(data.R, data.k)
 
-        native_output = model(indices, offsets, data.x)
+        native_output = model(indices, offsets, mlp_inputs)
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
 
-        compiled_output = compiled_graph(indices, offsets, data.x)
+        compiled_output = compiled_graph(indices, offsets, mlp_inputs)
         self.assertEqual(native_output, compiled_output)
 
     @parameterized.expand(supported_dtypes)
@@ -1200,14 +1204,18 @@ class TEST_GROUP_EB_MLP(TestCase):
                 in ZenDNN EmbeddingBag!"
             )
 
-        eb_inputs = torch.randint(0, 3, (2, 1))
-        mlp_inputs = torch.randn(2, 2)
+        data = Test_Data()
+        data.create_data(dtype)
 
-        model = CustomModel_Group_EB_MLP_Model_multiple_groups()
-        native_output = model(eb_inputs, mlp_inputs)
+        indices = data.emb_input
+        offsets = data.offsets
+        mlp_inputs = data.mlp_inputs
+
+        model = CustomModel_Group_EB_MLP_Model_multiple_groups(data.R, data.k)
+        native_output = model(indices, offsets, mlp_inputs)
         reset_dynamo()
         compiled_model = torch.compile(model, backend="zentorch")
-        compiled_output = compiled_model(eb_inputs, mlp_inputs)
+        compiled_output = compiled_model(indices, offsets, mlp_inputs)
 
         self.assertEqual(native_output, compiled_output)
 
@@ -1319,15 +1327,15 @@ class CustomModel_Group_MLP_EB_Model(nn.Module):
 
 
 class CustomModel_Group_EB_MLP_Model_multiple_groups(torch.nn.Module):
-    def __init__(self):
+    def __init__(self, num_embeddings, k):
         super(CustomModel_Group_EB_MLP_Model_multiple_groups, self).__init__()
         # Common Nodes
         self.relu = torch.nn.ReLU()
         self.sigmoid = torch.nn.Sigmoid()
 
-        self.eb_bags = [torch.nn.EmbeddingBag(3, 3, mode="sum") for _ in range(2)]
+        self.eb_bags = [torch.nn.EmbeddingBag(num_embeddings, 3)] * 2
 
-        self.bmlp_0 = torch.nn.Linear(2, 4)
+        self.bmlp_0 = torch.nn.Linear(k, 4)
         self.bmlp_1 = torch.nn.Linear(4, 4)
         self.bmlp_2 = torch.nn.Linear(4, 3)
 
@@ -1336,12 +1344,12 @@ class CustomModel_Group_EB_MLP_Model_multiple_groups(torch.nn.Module):
         self.tmlp_2 = torch.nn.Linear(2, 2)
         self.tmlp_3 = torch.nn.Linear(2, 1)
 
-    def forward(self, eb_inputs, mlp_inputs):
+    def forward(self, eb_inputs, eb_offsets, mlp_inputs):
 
         outputs = []
 
         for _ in range(3):
-            eb_outputs = [eb_op(eb_inputs, None) for eb_op in self.eb_bags]
+            eb_outputs = [eb_op(eb_inputs, eb_offsets) for eb_op in self.eb_bags]
 
             mlp_outputs = self.bmlp_0(mlp_inputs)
             mlp_outputs = self.relu(mlp_outputs)
