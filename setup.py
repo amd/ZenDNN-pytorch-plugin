@@ -5,6 +5,7 @@
 
 from setuptools import setup
 from torch.utils.cpp_extension import BuildExtension, CppExtension
+import torch
 from os.path import join as Path
 import os
 import glob
@@ -86,6 +87,7 @@ def subproc_communicate(cmd):
 # Define env values
 PACKAGE_NAME = "zentorch"
 PACKAGE_VERSION = "4.2.0"
+PT_VERSION = torch.__version__
 
 
 def get_commit_hash(base_dir):
@@ -142,6 +144,7 @@ def main():
                     "-Werror",
                     "-DZENTORCH_VERSION_HASH=" + git_sha,
                     "-DZENTORCH_VERSION=" + PACKAGE_VERSION,
+                    "-DPT_VERSION=" + PT_VERSION,
                 ],
             )
         ],

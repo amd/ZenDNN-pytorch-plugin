@@ -27,6 +27,7 @@ std::string show_config() {
   ss << "zentorch Version: " << TO_STRING(ZENTORCH_VERSION) << "\n";
   ss << "zentorch built with:\n";
   ss << "  - Commit-id: " << TO_STRING(ZENTORCH_VERSION_HASH) << "\n";
+  ss << "  - PyTorch: " << TO_STRING(PT_VERSION) << "\n";
 #if defined(__GNUC__)
   ss << "  - GCC Version: " << __GNUC__ << "." << __GNUC_MINOR__ << "\n";
 #endif
