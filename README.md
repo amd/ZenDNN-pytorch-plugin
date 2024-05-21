@@ -138,6 +138,10 @@ Run the following commands:
 git clone "ssh://gerritgit/amd/ec/ZenDNN_PyTorch_Plugin"
 cd ZenDNN_PyTorch_Plugin/
 ```
+>Note: Repository defaults to master branch, to build the version 4.2 checkout the branch r4.2.
+```bash
+git checkout r4.2
+```
 
 ### 2.2.1. Preparing third party repositories
 
