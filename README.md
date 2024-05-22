@@ -114,7 +114,7 @@ or
 
 Using the release package.
 
-> Download the package from AMD developer portal.
+> Download the package from AMD developer portal from [here](https://www.amd.com/en/developer/zendnn.html).
 
 > Run the following commands to unzip the package and install the binary.
 
@@ -130,12 +130,11 @@ zentorch/_C.cpython-3x-x86_64-linux-gnu.so : undefined symbol: <some string>,
 it could be due to version differences with PyTorch. Verify that you are using PyTorch version
 2.1.2 only.
 * Dependent packages 'numpy' and 'torch' will be installed by '_zentorch_' if not already present.
-* Torch Version should be greater than or equal to 2.0
 
 ## 2.2. From Source
 Run the following commands:
 ```bash
-git clone "ssh://gerritgit/amd/ec/ZenDNN_PyTorch_Plugin"
+git clone https://github.com/amd/ZenDNN-pytorch-plugin.git
 cd ZenDNN_PyTorch_Plugin/
 ```
 >Note: Repository defaults to master branch, to build the version 4.2 checkout the branch r4.2.
@@ -145,7 +144,7 @@ git checkout r4.2
 
 ### 2.2.1. Preparing third party repositories
 
-Build setup downloads the AOCL BLIS and ZenDNN repos into `third_party` folder. It can alternatively use local copies of ZenDNN and AOCL BLIS. This is very useful for day to day development scenarios, where developer may be interested in using recent version of repositories. Build setup will switch between local and remote copies of ZenDNN , AOCL BLIS and FBGEMM with environmental variables `ZENDNN_PT_USE_LOCAL_ZENDNN` , `ZENDNN_PT_USE_LOCAL_BLIS` and `ZENDNN_PT_USE_LOCAL_FBGEMM` respectively. To use local copies of ZenDNN , AOCL BLIS or FBGEMM, set `ZENDNN_PT_USE_LOCAL_ZENDNN` , `ZENDNN_PT_USE_LOCAL_BLIS` or `ZENDNN_PT_USE_LOCAL_FBGEMM` to 1 respectively. The source repositories should be downloaded/cloned in the directory where `ZenDNN_PyTorch_Plugin` is cloned for local setting. Folder structure may look like below.
+Build setup downloads the ZenDNN, AOCL BLIS and FBGEMM repos into `third_party` folder. It can alternatively use local copies of ZenDNN, AOCL BLIS and FBGEMM. This is very useful for day to day development scenarios, where developer may be interested in using recent version of repositories. Build setup will switch between local and remote copies of ZenDNN, AOCL BLIS and FBGEMM with environmental variables `ZENDNN_PT_USE_LOCAL_ZENDNN` , `ZENDNN_PT_USE_LOCAL_BLIS` and `ZENDNN_PT_USE_LOCAL_FBGEMM` respectively. To use local copies of ZenDNN , AOCL BLIS or FBGEMM, set `ZENDNN_PT_USE_LOCAL_ZENDNN` , `ZENDNN_PT_USE_LOCAL_BLIS` or `ZENDNN_PT_USE_LOCAL_FBGEMM` to 1 respectively. The source repositories should be downloaded/cloned in the directory where `ZenDNN_PyTorch_Plugin` is cloned for local setting. Folder structure may look like below.
 
 ```
 <parent folder>
@@ -217,14 +216,14 @@ For CNN models, set `dynamic=False` when calling for `torch.compile` as below:
 ```python
 model = torch.compile(model, backend='zentorch', dynamic=False)
 with torch.no_grad():
-  output = model(input)
+    output = model(input)
 ```
 
 For hugging face NLP models, optimize them as below:
 ```python
 model = torch.compile(model, backend='zentorch')
 with torch.no_grad():
-  output = model(input)
+    output = model(input)
 ```
 
 For hugging face LLM models, optimize them as below:
@@ -232,14 +231,14 @@ For hugging face LLM models, optimize them as below:
 ```python
 model = torch.compile(model, backend='zentorch')
 with torch.no_grad():
-  output = model(input)
+    output = model(input)
 ```
 
 2. If output is generated through a call to `model.forward`, optimize it as below:
 ```python
 model.forward = torch.compile(model.forward, backend='zentorch')
 with torch.no_grad():
-  output = model.forward(input)
+    output = model.forward(input)
 ```
 
 3. If output is generated through a call to `model.generate`, optimize it as below:
@@ -248,7 +247,7 @@ with torch.no_grad():
 ```python
 model.forward = torch.compile(model.forward, backend='zentorch')
 with torch.no_grad():
-  output = model.generate(input)
+    output = model.generate(input)
 ```
 
 # 4. Logging and Debugging
@@ -275,15 +274,7 @@ The default level of logs is **WARNING** for both cpp and python sources but can
 
 >INFO: Since all OPs implemented in _zentorch_ are registered with torch using the TORCH_LIBRARY() and TORCH_LIBRARY_IMPL() macros in bindings, the PyTorch profiler can be used without any modifications to measure the op level performance.
 
-
-## 4.3 Saving the graph
-Saving of the fx graphs before and after optimization in svg format can be enabled by setting the environment variable `ZENTORCH_SAVE_GRAPH` to 1.
-```bash
-export ZENTORCH_SAVE_GRAPH=1
-```
-The graphs will be saved by the names 'native_model.svg' and 'zen_optimized_model.svg', in the parent directory of the script in which the optimize function provided by the _zentorch_ is used.
-
-## 4.4 Support for `TORCH_COMPILE_DEBUG`
+## 4.3 Support for `TORCH_COMPILE_DEBUG`
 PyTorch offers a debugging toolbox that comprises a built-in stats and trace function. This functionality facilitates the display of the time spent by each compilation phase, output code, output graph visualization, and IR dump. `TORCH_COMPILE_DEBUG` invokes this debugging tool that allows for better problem-solving while troubleshooting the internal issues of TorchDynamo and TorchInductor. This functionality works for the models optimized using _zentorch_, so it can be leveraged to debug these models as well. To enable this functionality, users can either set the environment variable `TORCH_COMPILE_DEBUG=1` or specify the environment variable with the runnable file (e.g., test.py) as input.
 ```bash
 # test.py contains model optimized by torch.compile with 'zentorch' as backend
@@ -296,31 +287,7 @@ zentorch v4.2.0 is supported with ZenDNN v4.2. Please see the **Tuning Guideline
 
 # 6. Additional Utilities:
 
-## 6.1 Disabling Inductor:
-
-This feature is intended for use whenever fx_graphs generated from torch.compile needs to be compared with and without Inductor compilation.
-
-disable_inductor() API takes in a boolean input to disable Inductor. Once disabled, to re-enable inductor, pass "False" to the same API.
-
-```python
-import torch
-import zentorch
-
-# To disable Torch Inductor
-zentorch.disable_inductor(True)
-compiled_model = torch.compile(model, backend='zentorch')
-output = compiled_model(input)
-
-# To re-enable Torch Inductor
-torch._dynamo.reset()
-zentorch.disable_inductor(False)
-compiled_model = torch.compile(model, backend='zentorch')
-
-```
-
-Fx graphs are sent to AOT Autograd using aot_module_simplified and thus Inductor is not used at all.
-
-## 6.2 _zentorch_ attributes:
+## 6.1 _zentorch_ attributes:
 To check the version of _zentorch_ use the following command:
 
 ```bash
