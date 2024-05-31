@@ -89,7 +89,8 @@ def meta_zendnn_embedding_bag(
     padding_idx=-1,
 ):
     num_bags = offsets.size(0)
-
+    if include_last_offset:
+        num_bags = num_bags - 1
     output = weight.new_empty(num_bags, weight.size(1))
     bag_size = indices.new_empty(offsets.size())
     offset2bag = offsets.new_empty(0)
@@ -128,6 +129,8 @@ def meta_zendnn_horizontal_embedding_bag_group(
 
     for i in range(len(weight)):
         num_bags = offsets[i].size(0)
+        if include_last_offset[i]:
+            num_bags = num_bags - 1
         output = weight[i].new_empty(num_bags, weight[i].size(1))
         bag_size = indices[i].new_empty(offsets[i].size())
         offset2bag = offsets[i].new_empty(0)
