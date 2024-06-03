@@ -19,12 +19,12 @@ class CustomBuildExtension(BuildExtension):
         """
         # Env variables set to copy ZenDNN/BLIS from local
         # if variables not set: then use default values
-        if "ZENDNN_PT_USE_LOCAL_BLIS" not in os.environ:
-            os.environ["ZENDNN_PT_USE_LOCAL_BLIS"] = "0"
-        if "ZENDNN_PT_USE_LOCAL_ZENDNN" not in os.environ:
-            os.environ["ZENDNN_PT_USE_LOCAL_ZENDNN"] = "0"
-        if "ZENDNN_PT_USE_LOCAL_FBGEMM" not in os.environ:
-            os.environ["ZENDNN_PT_USE_LOCAL_FBGEMM"] = "0"
+        if "ZENTORCH_USE_LOCAL_BLIS" not in os.environ:
+            os.environ["ZENTORCH_USE_LOCAL_BLIS"] = "0"
+        if "ZENTORCH_USE_LOCAL_ZENDNN" not in os.environ:
+            os.environ["ZENTORCH_USE_LOCAL_ZENDNN"] = "0"
+        if "ZENTORCH_USE_LOCAL_FBGEMM" not in os.environ:
+            os.environ["ZENTORCH_USE_LOCAL_FBGEMM"] = "0"
 
         os.makedirs(self.build_temp, exist_ok=True)
 

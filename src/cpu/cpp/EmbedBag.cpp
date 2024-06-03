@@ -13,7 +13,7 @@ using namespace zendnn;
 namespace zentorch {
 
 std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor>
-zendnn_embedding_bag_impl(
+zentorch_embedding_bag_impl(
     const at::Tensor &weight, const at::Tensor &indices,
     const at::Tensor &offsets, const bool &scale_grad_by_freq,
     const int64_t &mode, const bool &sparse,
@@ -81,7 +81,7 @@ zendnn_embedding_bag_impl(
   return out;
 }
 
-std::vector<at::Tensor> zendnn_horizontal_embedding_bag_group(
+std::vector<at::Tensor> zentorch_horizontal_embedding_bag_group(
     const at::TensorList &weight, const at::TensorList &indices,
     const at::TensorList &offsets, const at::IntArrayRef &scale_grad_by_freq,
     const at::IntArrayRef &mode, const at::IntArrayRef &sparse,

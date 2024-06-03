@@ -138,19 +138,21 @@ class Test_MM_OP(TestCase):
         # mm
         self.assertEqual(
             torch._C._VariableFunctions.mm(data.x, data.y),
-            torch.ops.zentorch.zendnn_mm(data.x, data.y),
+            torch.ops.zentorch.zentorch_mm(data.x, data.y),
         )
         self.assertEqual(
-            torch.matmul(data.x, data.y), torch.ops.zentorch.zendnn_mm(data.x, data.y)
+            torch.matmul(data.x, data.y), torch.ops.zentorch.zentorch_mm(data.x, data.y)
         )
         self.assertEqual(
-            torch.mm(data.x, data.y), torch.ops.zentorch.zendnn_mm(data.x, data.y)
+            torch.mm(data.x, data.y), torch.ops.zentorch.zentorch_mm(data.x, data.y)
         )
 
-        self.assertEqual(data.x @ data.y, torch.ops.zentorch.zendnn_mm(data.x, data.y))
+        self.assertEqual(
+            data.x @ data.y, torch.ops.zentorch.zentorch_mm(data.x, data.y)
+        )
 
         self.assertEqual(
-            torch.mul(data.A, data.B), torch.ops.zentorch.zendnn_mm(data.A, data.B)
+            torch.mul(data.A, data.B), torch.ops.zentorch.zentorch_mm(data.A, data.B)
         )
 
     @parameterized.expand(supported_dtypes)
@@ -158,14 +160,14 @@ class Test_MM_OP(TestCase):
         data = Test_Data()
         data.create_data(dtype)
         with self.assertRaises(RuntimeError) as context:
-            torch.ops.zentorch.zendnn_mm(
+            torch.ops.zentorch.zentorch_mm(
                 data.x,
                 torch.reshape(
                     data.x, (1, list(data.x.shape)[0], list(data.x.shape)[1])
                 ),
             )
         self.assertTrue(
-            "zendnn_mm:  unsupported dims for self and mat2" in str(context.exception)
+            "zentorch_mm:  unsupported dims for self and mat2" in str(context.exception)
         )
 
     @parameterized.expand([("int",)])
@@ -173,9 +175,9 @@ class Test_MM_OP(TestCase):
         data = Test_Data()
         data.create_data(dtype)
         with self.assertRaises(RuntimeError) as context:
-            torch.ops.zentorch.zendnn_mm(data.x, data.y)
+            torch.ops.zentorch.zentorch_mm(data.x, data.y)
         self.assertTrue(
-            "zendnn_matmul: zendnn_matmul only supports Float and BFloat16"
+            "zentorch_matmul: zentorch_matmul only supports Float and BFloat16"
             in str(context.exception)
         )
 
@@ -188,7 +190,7 @@ class Test_MM_OP(TestCase):
             torch._C._VariableFunctions.relu(
                 torch._C._VariableFunctions.mm(data.x, data.y)
             ),
-            torch.ops.zentorch.zendnn_mm_relu(data.x, data.y),
+            torch.ops.zentorch.zentorch_mm_relu(data.x, data.y),
         )
 
 
@@ -202,7 +204,7 @@ class Test_ADDMM_OP(TestCase):
         # addmm
         self.assertEqual(
             torch._C._VariableFunctions.addmm(data.input, data.x, data.y),
-            torch.ops.zentorch.zendnn_addmm(
+            torch.ops.zentorch.zentorch_addmm(
                 data.input,
                 data.x,
                 data.y,
@@ -211,13 +213,13 @@ class Test_ADDMM_OP(TestCase):
         # addmm with kw_only arguments
         self.assertEqual(
             torch._C._VariableFunctions.addmm(data.input, data.x, data.y, beta=1.3),
-            torch.ops.zentorch.zendnn_addmm(data.input, data.x, data.y, beta=1.3),
+            torch.ops.zentorch.zentorch_addmm(data.input, data.x, data.y, beta=1.3),
         )
 
         # addmm with kw_only arguments
         self.assertEqual(
             torch._C._VariableFunctions.addmm(data.input, data.x, data.y, alpha=1.3),
-            torch.ops.zentorch.zendnn_addmm(data.input, data.x, data.y, alpha=1.3),
+            torch.ops.zentorch.zentorch_addmm(data.input, data.x, data.y, alpha=1.3),
         )
 
         # addmm with kw_only arguments
@@ -225,7 +227,7 @@ class Test_ADDMM_OP(TestCase):
             torch._C._VariableFunctions.addmm(
                 data.input, data.x, data.y, alpha=1.3, beta=1.3
             ),
-            torch.ops.zentorch.zendnn_addmm(
+            torch.ops.zentorch.zentorch_addmm(
                 data.input, data.x, data.y, alpha=1.3, beta=1.3
             ),
         )
@@ -233,11 +235,11 @@ class Test_ADDMM_OP(TestCase):
         # addmm with 1-d input
         if dtype == "bfloat16":
             with self.assertRaises(RuntimeError) as context:
-                torch.ops.zentorch.zendnn_addmm(
+                torch.ops.zentorch.zentorch_addmm(
                     data.input1d, data.x, data.y, alpha=1.3, beta=1.3
                 )
                 self.assertTrue(
-                    "zendnn_matmul: zendnn_matmul is not supported for "
+                    "zentorch_matmul: zentorch_matmul is not supported for "
                     "bf16 tensors when bias is defined and alpha is not equal "
                     "to 1" in str(context.exception)
                 )
@@ -246,7 +248,7 @@ class Test_ADDMM_OP(TestCase):
                 torch._C._VariableFunctions.addmm(
                     data.input1d, data.x, data.y, alpha=1.3, beta=1.3
                 ),
-                torch.ops.zentorch.zendnn_addmm(
+                torch.ops.zentorch.zentorch_addmm(
                     data.input1d, data.x, data.y, alpha=1.3, beta=1.3
                 ),
             )
@@ -256,7 +258,7 @@ class Test_ADDMM_OP(TestCase):
         data = Test_Data()
         data.create_data(dtype)
         with self.assertRaises(RuntimeError) as context:
-            torch.ops.zentorch.zendnn_addmm(
+            torch.ops.zentorch.zentorch_addmm(
                 data.x,
                 data.x,
                 torch.reshape(
@@ -265,7 +267,7 @@ class Test_ADDMM_OP(TestCase):
             )
 
         self.assertTrue(
-            "zendnn_addmm:  unsupported dims for self, mat1 and mat2"
+            "zentorch_addmm:  unsupported dims for self, mat1 and mat2"
             in str(context.exception)
         )
 
@@ -274,10 +276,10 @@ class Test_ADDMM_OP(TestCase):
         data = Test_Data()
         data.create_data(dtype)
         with self.assertRaises(RuntimeError) as context:
-            torch.ops.zentorch.zendnn_addmm(data.x, data.x, data.x)
+            torch.ops.zentorch.zentorch_addmm(data.x, data.x, data.x)
 
         self.assertTrue(
-            "zendnn_matmul: zendnn_matmul only supports Float and BFloat16"
+            "zentorch_matmul: zentorch_matmul only supports Float and BFloat16"
             in str(context.exception)
         )
 
@@ -292,15 +294,15 @@ class Test_ADDMM_OP(TestCase):
                     data.input, data.x, data.y, beta=1.5, alpha=1.7
                 )
             ),
-            torch.ops.zentorch.zendnn_addmm_relu(
-                data.input, data.x, data.y, beta=1.5, alpha=1.7)
+            torch.ops.zentorch.zentorch_addmm_relu(
+                data.input, data.x, data.y, beta=1.5, alpha=1.7),
         )
 
         self.assertEqual(
             torch._C._VariableFunctions.relu(
                 torch._C._VariableFunctions.addmm(data.input, data.x, data.y, alpha=1.7)
             ),
-            torch.ops.zentorch.zendnn_addmm_relu(
+            torch.ops.zentorch.zentorch_addmm_relu(
                 data.input, data.x, data.y, alpha=1.7),
         )
 
@@ -308,7 +310,7 @@ class Test_ADDMM_OP(TestCase):
             torch._C._VariableFunctions.relu(
                 torch._C._VariableFunctions.addmm(data.input, data.x, data.y, beta=1.5)
             ),
-            torch.ops.zentorch.zendnn_addmm_relu(
+            torch.ops.zentorch.zentorch_addmm_relu(
                 data.input, data.x, data.y, beta=1.5),
         )
 
@@ -316,7 +318,7 @@ class Test_ADDMM_OP(TestCase):
             torch._C._VariableFunctions.relu(
                 torch._C._VariableFunctions.addmm(data.input, data.x, data.y, beta=0.0)
             ),
-            torch.ops.zentorch.zendnn_addmm_relu(
+            torch.ops.zentorch.zentorch_addmm_relu(
                 data.input, data.x, data.y, beta=0.0),
         )
 
@@ -326,7 +328,7 @@ class Test_ADDMM_OP(TestCase):
         data.create_data(dtype)
         self.assertEqual(
             torch._C._VariableFunctions.addmm(data.input, data.x, data.y, alpha=0.0),
-            torch.ops.zentorch.zendnn_addmm(data.input, data.x, data.y, alpha=0.0),
+            torch.ops.zentorch.zentorch_addmm(data.input, data.x, data.y, alpha=0.0),
         )
 
     @parameterized.expand(supported_dtypes)
@@ -338,7 +340,7 @@ class Test_ADDMM_OP(TestCase):
             torch._C._VariableFunctions.relu(
                 torch._C._VariableFunctions.addmm(data.input, data.x, data.y)
             ),
-            torch.ops.zentorch.zendnn_addmm_relu(data.input, data.x, data.y),
+            torch.ops.zentorch.zentorch_addmm_relu(data.input, data.x, data.y),
         )
 
 
@@ -351,7 +353,7 @@ class Test_BMM_OP(TestCase):
         data.create_data(dtype)
         self.assertEqual(
             torch._C._VariableFunctions.bmm(data.x3d, data.y3d),
-            torch.ops.zentorch.zendnn_bmm(data.x3d, data.y3d),
+            torch.ops.zentorch.zentorch_bmm(data.x3d, data.y3d),
         )
 
     @parameterized.expand(supported_dtypes)
@@ -359,10 +361,11 @@ class Test_BMM_OP(TestCase):
         data = Test_Data()
         data.create_data(dtype)
         with self.assertRaises(RuntimeError) as context:
-            torch.ops.zentorch.zendnn_bmm(data.x, data.y)
+            torch.ops.zentorch.zentorch_bmm(data.x, data.y)
 
         self.assertTrue(
-            "zendnn_bmm:  unsupported dims for self and mat2" in str(context.exception)
+            "zentorch_bmm:  unsupported dims for self and mat2"
+            in str(context.exception)
         )
 
     @parameterized.expand([("int",)])
@@ -370,10 +373,10 @@ class Test_BMM_OP(TestCase):
         data = Test_Data()
         data.create_data(dtype)
         with self.assertRaises(RuntimeError) as context:
-            torch.ops.zentorch.zendnn_bmm(data.x3d, data.y3d)
+            torch.ops.zentorch.zentorch_bmm(data.x3d, data.y3d)
 
         self.assertTrue(
-            "zendnn_matmul: zendnn_matmul only supports Float and BFloat16"
+            "zentorch_matmul: zentorch_matmul only supports Float and BFloat16"
             in str(context.exception)
         )
 
@@ -387,7 +390,7 @@ class Test_BADDBMM_OP(TestCase):
         data.create_data(dtype)
         self.assertEqual(
             torch._C._VariableFunctions.baddbmm(data.input3d, data.x3d, data.y3d),
-            torch.ops.zentorch.zendnn_baddbmm(data.input3d, data.x3d, data.y3d),
+            torch.ops.zentorch.zentorch_baddbmm(data.input3d, data.x3d, data.y3d),
         )
 
     @parameterized.expand([("int",)])
@@ -395,10 +398,10 @@ class Test_BADDBMM_OP(TestCase):
         data = Test_Data()
         data.create_data(dtype)
         with self.assertRaises(RuntimeError) as context:
-            torch.ops.zentorch.zendnn_baddbmm(data.input3d, data.x3d, data.y3d)
+            torch.ops.zentorch.zentorch_baddbmm(data.input3d, data.x3d, data.y3d)
 
         self.assertTrue(
-            "zendnn_matmul: zendnn_matmul only supports Float and BFloat16"
+            "zentorch_matmul: zentorch_matmul only supports Float and BFloat16"
             in str(context.exception)
         )
 
@@ -407,12 +410,12 @@ class Test_BADDBMM_OP(TestCase):
         data = Test_Data()
         data.create_data(dtype)
         with self.assertRaises(RuntimeError) as context:
-            torch.ops.zentorch.zendnn_baddbmm(
+            torch.ops.zentorch.zentorch_baddbmm(
                 data.input3d.reshape((data.b * data.m), data.n), data.x3d, data.y3d
             )
 
         self.assertTrue(
-            "zendnn_baddbmm:  unsupported dims for self, batch1 and batch2"
+            "zentorch_baddbmm:  unsupported dims for self, batch1 and batch2"
             in str(context.exception)
         )
 
@@ -424,7 +427,7 @@ class Test_BADDBMM_OP(TestCase):
             torch._C._VariableFunctions.baddbmm(
                 data.input3d, data.x3d, data.y3d, alpha=1.4
             ),
-            torch.ops.zentorch.zendnn_baddbmm(
+            torch.ops.zentorch.zentorch_baddbmm(
                 data.input3d, data.x3d, data.y3d, alpha=1.4
             ),
         )
@@ -433,7 +436,7 @@ class Test_BADDBMM_OP(TestCase):
             torch._C._VariableFunctions.baddbmm(
                 data.input3d, data.x3d, data.y3d, beta=1.4
             ),
-            torch.ops.zentorch.zendnn_baddbmm(
+            torch.ops.zentorch.zentorch_baddbmm(
                 data.input3d, data.x3d, data.y3d, beta=1.4
             ),
         )
@@ -442,7 +445,7 @@ class Test_BADDBMM_OP(TestCase):
             torch._C._VariableFunctions.baddbmm(
                 data.input3d, data.x3d, data.y3d, alpha=1.4, beta=1.3
             ),
-            torch.ops.zentorch.zendnn_baddbmm(
+            torch.ops.zentorch.zentorch_baddbmm(
                 data.input3d, data.x3d, data.y3d, alpha=1.4, beta=1.3
             ),
         )
@@ -452,13 +455,13 @@ class Test_BADDBMM_OP(TestCase):
 class Test_MATMUL_IMPL_OP(TestCase):
 
     @parameterized.expand(supported_dtypes)
-    def test_zendnn_matmul_impl_for_mv_and_dot(self, dtype):
+    def test_zentorch_matmul_impl_for_mv_and_dot(self, dtype):
         data = Test_Data()
         data.create_data(dtype)
         # mv
         self.assertEqual(
             torch.mv(data.input, data.input1d),
-            zentorch._C.zendnn_matmul_impl(
+            zentorch._C.zentorch_matmul_impl(
                 data.input, data.input1d, data.empty_bias, data.result_m
             ),
             atol=1e-3,
@@ -467,7 +470,7 @@ class Test_MATMUL_IMPL_OP(TestCase):
         # dot
         self.assertEqual(
             torch.dot(data.input1d, data.input1d),
-            zentorch._C.zendnn_matmul_impl(
+            zentorch._C.zentorch_matmul_impl(
                 data.input1d, data.input1d, data.empty_bias, data.result_1
             ),
         )
@@ -482,7 +485,7 @@ class TEST_EMBEDDING_BAG(TestCase):
         data.create_data(dtype)
         if dtype == "bfloat16":
             with self.assertRaises(RuntimeError) as context:
-                torch.ops.zentorch.zendnn_embedding_bag(
+                torch.ops.zentorch.zentorch_embedding_bag(
                     data.embedding_matrix,
                     data.emb_input,
                     data.offsets,
@@ -510,7 +513,7 @@ class TEST_EMBEDDING_BAG(TestCase):
                 False,
             )
 
-            y_ebz, _, _, _ = torch.ops.zentorch.zendnn_embedding_bag(
+            y_ebz, _, _, _ = torch.ops.zentorch.zentorch_embedding_bag(
                 data.embedding_matrix,
                 data.emb_input,
                 data.offsets,
@@ -553,7 +556,7 @@ class TEST_EMBEDDING_BAG(TestCase):
         )
         if dtype == "bfloat16":
             with self.assertRaises(RuntimeError) as context:
-                torch.ops.zentorch.zendnn_embedding_bag(
+                torch.ops.zentorch.zentorch_embedding_bag(
                     data.embedding_matrix,
                     data.emb_input,
                     data.offsets,
@@ -569,7 +572,7 @@ class TEST_EMBEDDING_BAG(TestCase):
                 in str(context.exception)
             )
         else:
-            y_ebz, _, _, _ = torch.ops.zentorch.zendnn_embedding_bag(
+            y_ebz, _, _, _ = torch.ops.zentorch.zentorch_embedding_bag(
                 data.embedding_matrix,
                 data.emb_input,
                 data.offsets,
@@ -608,7 +611,7 @@ class TEST_EMBEDDING(TestCase):
         data.create_data(dtype)
         if dtype == "bfloat16":
             with self.assertRaises(RuntimeError) as context:
-                torch.ops.zentorch.zendnn_embedding(
+                torch.ops.zentorch.zentorch_embedding(
                     data.embedding_matrix, data.emb_input
                 )
             self.assertTrue(
@@ -621,7 +624,7 @@ class TEST_EMBEDDING(TestCase):
                 data.embedding_matrix, data.emb_input
             )
 
-            y_ebz = torch.ops.zentorch.zendnn_embedding(
+            y_ebz = torch.ops.zentorch.zentorch_embedding(
                 data.embedding_matrix, data.emb_input
             )
 
@@ -638,7 +641,7 @@ class TEST_EMBEDDING(TestCase):
             for scale_opt in scale_grad_opt:
                 if dtype == "bfloat16":
                     with self.assertRaises(RuntimeError) as context:
-                        torch.ops.zentorch.zendnn_embedding(
+                        torch.ops.zentorch.zentorch_embedding(
                             data.embedding_matrix,
                             data.emb_input,
                             -1,
@@ -654,7 +657,7 @@ class TEST_EMBEDDING(TestCase):
                         data.embedding_matrix, data.emb_input, -1, scale_opt, sprs_opt
                     )
 
-                    y_ebz = torch.ops.zentorch.zendnn_embedding(
+                    y_ebz = torch.ops.zentorch.zentorch_embedding(
                         data.embedding_matrix, data.emb_input, -1, scale_opt, sprs_opt
                     )
 
@@ -693,7 +696,7 @@ class TEST_EMBEDDING_BAG_GROUP(TestCase):
         data.create_data(dtype)
         if dtype == "bfloat16":
             with self.assertRaises(RuntimeError) as context:
-                torch.ops.zentorch.zendnn_horizontal_embedding_bag_group(
+                torch.ops.zentorch.zentorch_horizontal_embedding_bag_group(
                     [data.embedding_matrix] * 3,
                     [data.emb_input] * 3,
                     [data.offsets] * 3,
@@ -721,7 +724,7 @@ class TEST_EMBEDDING_BAG_GROUP(TestCase):
                 include_last_offset,
             )
 
-            y_ebz_list = torch.ops.zentorch.zendnn_horizontal_embedding_bag_group(
+            y_ebz_list = torch.ops.zentorch.zentorch_horizontal_embedding_bag_group(
                 [data.embedding_matrix] * 3,
                 [data.emb_input] * 3,
                 [data.offsets] * 3,
@@ -760,7 +763,7 @@ class TEST_EMBEDDING_BAG_GROUP(TestCase):
 
         self.assertEqual(fx_g_output, fx_g_optimized_output)
 
-        target = torch.ops.zentorch.zendnn_horizontal_embedding_bag_group.default
+        target = torch.ops.zentorch.zentorch_horizontal_embedding_bag_group.default
         group_eb_count = 0
 
         for node in fx_g_optimized.graph.nodes:
@@ -803,7 +806,7 @@ class TEST_EMBEDDING_GROUP(TestCase):
         data.create_data(dtype)
         if dtype == "bfloat16":
             with self.assertRaises(RuntimeError) as context:
-                torch.ops.zentorch.zendnn_horizontal_embedding_group(
+                torch.ops.zentorch.zentorch_horizontal_embedding_group(
                     [data.embedding_matrix] * 3,
                     [data.emb_input] * 3,
                     [-1] * 3,
@@ -820,7 +823,7 @@ class TEST_EMBEDDING_GROUP(TestCase):
                 data.embedding_matrix, data.emb_input
             )
 
-            y_ebz_list = torch.ops.zentorch.zendnn_horizontal_embedding_group(
+            y_ebz_list = torch.ops.zentorch.zentorch_horizontal_embedding_group(
                 [data.embedding_matrix] * 3,
                 [data.emb_input] * 3,
                 [-1] * 3,
@@ -854,7 +857,7 @@ class TEST_EMBEDDING_GROUP(TestCase):
 
         self.assertEqual(fx_g_output, fx_g_optimized_output)
 
-        target = torch.ops.zentorch.zendnn_horizontal_embedding_group.default
+        target = torch.ops.zentorch.zentorch_horizontal_embedding_group.default
         group_eb_count = 0
 
         for node in fx_g_optimized.graph.nodes:
@@ -993,7 +996,7 @@ class TEST_HORIZONTAL_MLP(TestCase):
         data = Test_Data()
         data.create_data(dtype)
         with self.assertRaises(RuntimeError) as context:
-            torch.ops.zentorch.zendnn_attn_horizontal_mlp_group(
+            torch.ops.zentorch.zentorch_attn_horizontal_mlp_group(
                 [data.x1[0]] * 3,
                 [data.y1[0]] * 3,
                 [data.y1[0]] * 3,
@@ -1003,7 +1006,7 @@ class TEST_HORIZONTAL_MLP(TestCase):
                 [1],
             )
         self.assertTrue(
-            "zendnn_addmm: unsupported dims for self, mat1 and mat2"
+            "zentorch_addmm: unsupported dims for self, mat1 and mat2"
             in str(context.exception)
         )
 
@@ -1012,7 +1015,7 @@ class TEST_HORIZONTAL_MLP(TestCase):
         data = Test_Data()
         data.create_data(dtype)
         with self.assertRaises(RuntimeError) as context:
-            torch.ops.zentorch.zendnn_attn_horizontal_mlp_group(
+            torch.ops.zentorch.zentorch_attn_horizontal_mlp_group(
                 [data.y2[0]] * 3,
                 [data.y2[0]] * 3,
                 [data.y2[0]] * 3,
@@ -1022,7 +1025,7 @@ class TEST_HORIZONTAL_MLP(TestCase):
                 [1],
             )
         self.assertTrue(
-            "zendnn_addmm:  unsupported dims for self, mat1 and mat2"
+            "zentorch_addmm:  unsupported dims for self, mat1 and mat2"
             in str(context.exception)
         )
 
@@ -1031,7 +1034,7 @@ class TEST_HORIZONTAL_MLP(TestCase):
         data = Test_Data()
         data.create_data(dtype)
         with self.assertRaises(RuntimeError) as context:
-            torch.ops.zentorch.zendnn_attn_horizontal_mlp_group(
+            torch.ops.zentorch.zentorch_attn_horizontal_mlp_group(
                 [data.M[1]] * 3,
                 [data.y1[0]] * 3,
                 [data.y1[0]] * 3,
@@ -1050,9 +1053,9 @@ class TEST_HORIZONTAL_MLP(TestCase):
         data = Test_Data()
         data.create_data("bfloat16")
         with self.assertRaises(RuntimeError) as context:
-            torch.ops.zentorch.zendnn_addmm(data.input1d, data.x, data.y, alpha=1.7)
+            torch.ops.zentorch.zentorch_addmm(data.input1d, data.x, data.y, alpha=1.7)
             self.assertTrue(
-                "zendnn_matmul: zendnn_matmul is not supported for bf16 \
+                "zentorch_matmul: zentorch_matmul is not supported for bf16 \
                 tensors when bias is defined and alpha is not equal to 1"
                 in str(context.exception)
             )
@@ -1113,37 +1116,37 @@ class TEST_GROUP_MLP(TestCase):
         data.create_data(dtype)
 
         with self.assertRaises(RuntimeError) as context:
-            torch.ops.zentorch.zendnn_addmm(data.x3d, data.x, data.x)
+            torch.ops.zentorch.zentorch_addmm(data.x3d, data.x, data.x)
             self.assertTrue(
-                "zendnn_addmm: unsupported dims for self, mat1 and mat2!"
+                "zentorch_addmm: unsupported dims for self, mat1 and mat2!"
                 in str(context.exception)
             )
 
         with self.assertRaises(RuntimeError) as context:
-            torch.ops.zentorch.zendnn_addmm_1dbias(data.x, data.x, data.x)
+            torch.ops.zentorch.zentorch_addmm_1dbias(data.x, data.x, data.x)
             self.assertTrue(
-                "zendnn_addmm_1dbias: unsupported dims for self, mat1 and mat2!"
+                "zentorch_addmm_1dbias: unsupported dims for self, mat1 and mat2!"
                 in str(context.exception)
             )
 
         with self.assertRaises(RuntimeError) as context:
-            torch.ops.zentorch.zendnn_baddbmm(data.x, data.x3d, data.x3d)
+            torch.ops.zentorch.zentorch_baddbmm(data.x, data.x3d, data.x3d)
             self.assertTrue(
-                "zendnn_baddbmm:  unsupported dims for self, batch1 and batch2!"
+                "zentorch_baddbmm:  unsupported dims for self, batch1 and batch2!"
                 in str(context.exception)
             )
 
         with self.assertRaises(RuntimeError) as context:
-            torch.ops.zentorch.zendnn_mm(data.x3d, data.x3d)
+            torch.ops.zentorch.zentorch_mm(data.x3d, data.x3d)
             self.assertTrue(
-                "zendnn_mm:  unsupported dims for self and mat2!"
+                "zentorch_mm:  unsupported dims for self and mat2!"
                 in str(context.exception)
             )
 
         with self.assertRaises(RuntimeError) as context:
-            torch.ops.zentorch.zendnn_bmm(data.x, data.x)
+            torch.ops.zentorch.zentorch_bmm(data.x, data.x)
             self.assertTrue(
-                "zendnn_bmm:  unsupported dims for self and mat2!"
+                "zentorch_bmm:  unsupported dims for self and mat2!"
                 in str(context.exception)
             )
 
@@ -1153,9 +1156,9 @@ class TEST_GROUP_MLP(TestCase):
         data.create_data("bfloat16")
 
         with self.assertRaises(RuntimeError) as context:
-            torch.ops.zentorch.zendnn_addmm(data.input1d, data.x, data.y, alpha=1.7)
+            torch.ops.zentorch.zentorch_addmm(data.input1d, data.x, data.y, alpha=1.7)
             self.assertTrue(
-                "zendnn_matmul: zendnn_matmul is not supported for bf16 \
+                "zentorch_matmul: zentorch_matmul is not supported for bf16 \
                 tensors when bias is defined and alpha is not equal to 1"
                 in str(context.exception)
             )
@@ -2034,7 +2037,7 @@ class TestADDMM_GELU(TestCase):
 
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
-    def test_zendnn_addmm_gelu_tanh(self, dtype):
+    def test_zentorch_addmm_gelu_tanh(self, dtype):
         if dtype == "bfloat16":
             self.skipTest("Skipping it due to issue BF16 path.")
         data = Test_Data()
@@ -2051,7 +2054,7 @@ class TestADDMM_GELU(TestCase):
 
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
-    def test_zendnn_addmm_gelu_exact(self, dtype):
+    def test_zentorch_addmm_gelu_exact(self, dtype):
         if dtype == "bfloat16":
             self.skipTest("Skipping it due to issue BF16 path.")
         data = Test_Data()
@@ -2068,7 +2071,7 @@ class TestADDMM_GELU(TestCase):
 
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
-    def test_zendnn_addmm_gelu(self, dtype):
+    def test_zentorch_addmm_gelu(self, dtype):
         if dtype == "bfloat16":
             self.skipTest("Skipping it due to issue BF16 path.")
         data = Test_Data()
@@ -2085,7 +2088,7 @@ class TestADDMM_GELU(TestCase):
 
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
-    def test_zendnn_addmm_view_gelu(self, dtype):
+    def test_zentorch_addmm_view_gelu(self, dtype):
         if dtype == "bfloat16":
             self.skipTest("Skipping it due to issue BF16 path.")
         data = Test_Data()
@@ -2102,7 +2105,7 @@ class TestADDMM_GELU(TestCase):
 
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
-    def test_zendnn_mm_diff_user_in_btw(self, dtype):
+    def test_zentorch_mm_diff_user_in_btw(self, dtype):
         if dtype == "bfloat16":
             self.skipTest("Skipping it due to issue BF16 path.")
         data = Test_Data()
@@ -2123,7 +2126,7 @@ class TestADDMM_RELU(TestCase):
 
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
-    def test_zendnn_addmm_relu(self, dtype):
+    def test_zentorch_addmm_relu(self, dtype):
         if dtype == "bfloat16":
             self.skipTest("Skipping it due to issue BF16 path.")
         data = Test_Data()
@@ -2179,7 +2182,7 @@ class TestLinear_Relu(TestCase):
 
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
-    def test_zendnn_linear_relu(self, dtype):
+    def test_zentorch_linear_relu(self, dtype):
         data = Test_Data()
         data.create_data(dtype)
         model = nn.Sequential(nn.Linear(data.n, data.m), nn.ReLU())
@@ -2194,7 +2197,7 @@ class TestLinear_Relu(TestCase):
             if isinstance(node.target, torch._ops.OpOverload):
                 if node.target.name() in ["aten::addmm"]:
                     self.assertEqual(
-                        node.target, torch.ops.zentorch.zendnn_addmm_1dbias
+                        node.target, torch.ops.zentorch.zentorch_addmm_1dbias
                     )
 
 
@@ -2203,7 +2206,7 @@ class TestLinear_Gelu(TestCase):
 
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
-    def test_zendnn_linear_gelu_tanh(self, dtype):
+    def test_zentorch_linear_gelu_tanh(self, dtype):
         data = Test_Data()
         data.create_data(dtype)
         model = nn.Sequential(nn.Linear(data.n, data.m), nn.GELU(approximate="tanh"))
@@ -2217,7 +2220,7 @@ class TestLinear_Gelu(TestCase):
 
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
-    def test_zendnn_linear_gelu_none(self, dtype):
+    def test_zentorch_linear_gelu_none(self, dtype):
         data = Test_Data()
         data.create_data(dtype)
         model = nn.Sequential(nn.Linear(data.n, data.m), nn.GELU(approximate="none"))
@@ -2235,7 +2238,7 @@ class TestBMMADD(TestCase):
 
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
-    def test_zendnn_bmm_baddbmm(self, dtype):
+    def test_zentorch_bmm_baddbmm(self, dtype):
         if dtype == "bfloat16":
             self.skipTest("Skipping it due to issue with BF16 path.")
         data = Test_Data()
@@ -2253,7 +2256,7 @@ class TestBMMADD(TestCase):
 
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
-    def test_zendnn_baddbmm_unsupport(self, dtype):
+    def test_zentorch_baddbmm_unsupport(self, dtype):
         if dtype == "bfloat16":
             self.skipTest("Skipping it due to issue with BF16 path.")
         data = Test_Data()

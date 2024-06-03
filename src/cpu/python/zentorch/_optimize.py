@@ -14,7 +14,7 @@ from ._zentorch_op_replacement import (
     is_bias_1d_tensor,
     numdims_tensor,
     are_args_same_dtype,
-    get_tensor
+    get_tensor,
 )
 
 # TODO: Add support for horizontal_mlp_fusion
@@ -35,7 +35,7 @@ def optimize(fx_graph):
     """
     optimize:
     takes in the fx_graph and replaces some of the native ops
-    with zendnn implementation of respective ops and fusion
+    with zentorch implementation of respective ops and fusion
     few ops
     """
     # Dumping of the native graph in svg format
@@ -43,11 +43,11 @@ def optimize(fx_graph):
 
     logger.info("Optimizing the fx_graph with zentorch ops.")
 
-    # Replacing ops to zendnn ops
+    # Replacing ops to zentorch ops
     optimized_graph = replace_with_zentorch_ops(fx_graph)
 
-    # Op fusions supported by ZenDNN
-    optimized_graph = zendnn_op_fusion(optimized_graph)
+    # Op fusions supported by zentorch
+    optimized_graph = zentorch_op_fusion(optimized_graph)
 
     # Fusion of parallel embeddingbags
     optimized_graph = emb_ops_horizontal_fusion(optimized_graph)
@@ -69,20 +69,20 @@ def optimize(fx_graph):
 
 
 eltwise_targets = {
-    zt_ops.zendnn_mm.default: [
-        zt_ops.zendnn_mm_relu.default,
-        zt_ops.zendnn_mm_gelu_tanh.default,
-        zt_ops.zendnn_mm_gelu_erf.default,
+    zt_ops.zentorch_mm.default: [
+        zt_ops.zentorch_mm_relu.default,
+        zt_ops.zentorch_mm_gelu_tanh.default,
+        zt_ops.zentorch_mm_gelu_erf.default,
     ],
-    zt_ops.zendnn_addmm.default: [
-        zt_ops.zendnn_addmm_relu.default,
-        zt_ops.zendnn_addmm_gelu_tanh.default,
-        zt_ops.zendnn_addmm_gelu_erf.default,
+    zt_ops.zentorch_addmm.default: [
+        zt_ops.zentorch_addmm_relu.default,
+        zt_ops.zentorch_addmm_gelu_tanh.default,
+        zt_ops.zentorch_addmm_gelu_erf.default,
     ],
-    zt_ops.zendnn_addmm_1dbias.default: [
-        zt_ops.zendnn_addmm_1dbias_relu.default,
-        zt_ops.zendnn_addmm_1dbias_gelu_tanh.default,
-        zt_ops.zendnn_addmm_1dbias_gelu_erf.default,
+    zt_ops.zentorch_addmm_1dbias.default: [
+        zt_ops.zentorch_addmm_1dbias_relu.default,
+        zt_ops.zentorch_addmm_1dbias_gelu_tanh.default,
+        zt_ops.zentorch_addmm_1dbias_gelu_erf.default,
     ],
 }
 
@@ -105,18 +105,18 @@ def set_fused_target_for_mm(node, post_op):
 
 
 # for now add is not added as post op that's why I created this pattern
-add_pattern = (zt_ops.zendnn_bmm.default, zt_ops.zendnn_mm.default)
+add_pattern = (zt_ops.zentorch_bmm.default, zt_ops.zentorch_mm.default)
 
 
 # list of benign operators
 benign_op = [at_ops.clone.default, at_ops.view.default]
 
 
-def zendnn_op_fusion(fx_graph):
+def zentorch_op_fusion(fx_graph):
     """
-    zendnn_op_fusion:
+    zentorch_op_fusion:
     takes in the fx_graph and fuses some of the native ops
-    with zendnn implementation of respective op fusions
+    with zentorch implementation of respective op fusions
     """
     logger.info("Fusing the zentorch ops in fx graph.")
     # Loop through the nodes in fx_graph.graph
@@ -155,7 +155,7 @@ def zendnn_op_fusion(fx_graph):
                             (node_next, 1),
                         )
                     )
-                    if node.target == zt_ops.zendnn_bmm.default
+                    if node.target == zt_ops.zentorch_bmm.default
                     else True
                 )
                 if should_add_be_fused and are_args_same_dtype(fx_graph, node_next):
@@ -170,13 +170,15 @@ def zendnn_op_fusion(fx_graph):
                                 node.args = new_args
                                 node_next.replace_all_uses_with(node)
                                 fx_graph.graph.erase_node(node_next)
-                                if node.target == zt_ops.zendnn_mm.default:
+                                if node.target == zt_ops.zentorch_mm.default:
                                     if is_bias_1d_tensor(fx_graph, node):
-                                        node.target = zt_ops.zendnn_addmm_1dbias.default
+                                        node.target = (
+                                            zt_ops.zentorch_addmm_1dbias.default
+                                        )
                                     else:
-                                        node.target = zt_ops.zendnn_addmm.default
+                                        node.target = zt_ops.zentorch_addmm.default
                                 else:
-                                    node.target = zt_ops.zendnn_baddbmm.default
+                                    node.target = zt_ops.zentorch_baddbmm.default
                 else:
                     logger.warning(
                         "baddbmm in zentorch doesnt support "

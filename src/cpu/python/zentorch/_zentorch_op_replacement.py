@@ -107,7 +107,7 @@ def is_embedding_op_replacable(fx_graph, node):
         # is mixed precision as zendnn doesn't support it w/ bf16
         return False
     else:
-        # Currently zendnn_embedding op only accepts 1-D inputs
+        # Currently zentorch_embedding op only accepts 1-D inputs
         # which is predominantly evident in RecSys models. The
         # embedding op in Langauge models like Bert work with
         # 2-D inputs. In such cases, we do not replace
@@ -134,23 +134,23 @@ def is_bias_1d_tensor(fx_graph, node):
 def replace_with_zentorch_ops(fx_graph):
     op_dict = {
         at_ops._embedding_bag.default: (
-            zt_ops.zendnn_embedding_bag.default,
+            zt_ops.zentorch_embedding_bag.default,
             is_embedding_bag_op_replacable,
         ),
         at_ops.embedding.default: (
-            zt_ops.zendnn_embedding.default,
+            zt_ops.zentorch_embedding.default,
             is_embedding_op_replacable,
         ),
-        at_ops.mm.default: (zt_ops.zendnn_mm.default, None),
-        at_ops.bmm.default: (zt_ops.zendnn_bmm.default, None),
-        at_ops.addmm.default: (zt_ops.zendnn_addmm.default, None),
+        at_ops.mm.default: (zt_ops.zentorch_mm.default, None),
+        at_ops.bmm.default: (zt_ops.zentorch_bmm.default, None),
+        at_ops.addmm.default: (zt_ops.zentorch_addmm.default, None),
         at_ops.baddbmm.default: (
-            zt_ops.zendnn_baddbmm.default,
+            zt_ops.zentorch_baddbmm.default,
             is_baddbmm_replacable,
         ),
     }
     # Loop through the nodes in fx_graph.graph
-    # Replacing aten ops with respective zendnn ops
+    # Replacing aten ops with respective zentorch ops
     for node in fx_graph.graph.nodes:
         # Checking for op default implementation to be replaced.
         if node.target in op_dict.keys():
@@ -183,9 +183,9 @@ def replace_with_zentorch_ops(fx_graph):
                 )
                 node.target = op_dict[target_op][0]
 
-            # currently only zendnn_addmm is the conditional zendnn op
-            if node.target == zt_ops.zendnn_addmm.default:
+            # currently only zentorch_addmm is the conditional zentorch op
+            if node.target == zt_ops.zentorch_addmm.default:
                 if is_bias_1d_tensor(fx_graph, node):
-                    node.target = zt_ops.zendnn_addmm_1dbias.default
+                    node.target = zt_ops.zentorch_addmm_1dbias.default
 
     return fx_graph

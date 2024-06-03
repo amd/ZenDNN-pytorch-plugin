@@ -19,10 +19,10 @@ zt_ops = torch.ops.zentorch
 def emb_ops_horizontal_fusion(fx_g):
     logger.info("Fusing horizontal parallel embedding ops.")
     zentorch_embed_ops_dict = {
-        zt_ops.zendnn_embedding_bag.default:
-        zt_ops.zendnn_horizontal_embedding_bag_group.default,
-        zt_ops.zendnn_embedding.default:
-        zt_ops.zendnn_horizontal_embedding_group.default,
+        zt_ops.zentorch_embedding_bag.default:
+        zt_ops.zentorch_horizontal_embedding_bag_group.default,
+        zt_ops.zentorch_embedding.default:
+        zt_ops.zentorch_horizontal_embedding_group.default,
     }
     groups = {}
 
@@ -31,10 +31,10 @@ def emb_ops_horizontal_fusion(fx_g):
             users = list(node.users.keys())
             user_node = None
 
-            if node.target == zt_ops.zendnn_embedding.default:
+            if node.target == zt_ops.zentorch_embedding.default:
                 if len(users) == 1:
                     user_node = users[0]
-            elif node.target == zt_ops.zendnn_embedding_bag.default:
+            elif node.target == zt_ops.zentorch_embedding_bag.default:
                 for user in users:
                     if user_node is None and len(user.users.keys()) == 1:
                         user_node = user
@@ -44,7 +44,7 @@ def emb_ops_horizontal_fusion(fx_g):
 
             if user_node is not None:
 
-                if node.target == zt_ops.zendnn_embedding.default:
+                if node.target == zt_ops.zentorch_embedding.default:
                     common_output_node = user_node
                     node_name = common_output_node.name
                     if node_name in groups:
@@ -64,7 +64,7 @@ def emb_ops_horizontal_fusion(fx_g):
                             "type": "embedding",
                             "nodes": [node],
                         }
-                elif node.target == zt_ops.zendnn_embedding_bag.default:
+                elif node.target == zt_ops.zentorch_embedding_bag.default:
                     common_output_node = list(user_node.users.keys())[0]
                     node_name = common_output_node.name
                     if node_name in groups:
@@ -135,17 +135,17 @@ def emb_ops_horizontal_fusion(fx_g):
                         list_new_args[i].append(1)
                     else:
                         list_new_args[i].append(node.args[i])
-            if node.target == zt_ops.zendnn_embedding.default:
+            if node.target == zt_ops.zentorch_embedding.default:
                 list_new_args = populate_default_args(
                     list_new_args, type_of_node="embedding"
                 )
-            elif node.target == zt_ops.zendnn_embedding_bag.default:
+            elif node.target == zt_ops.zentorch_embedding_bag.default:
                 list_new_args = populate_default_args(
                     list_new_args, type_of_node="embedding_bag"
                 )
 
             for node in groups[group]["nodes"]:
-                if node.target == zt_ops.zendnn_embedding_bag.default:
+                if node.target == zt_ops.zentorch_embedding_bag.default:
                     total_prev_outputs_emb_bag = op_count * 4
                     for temp_node in list(node.users.keys()):
                         if (
@@ -176,7 +176,7 @@ def emb_ops_horizontal_fusion(fx_g):
             elif op_count == 1:
                 last_node.target = node.target
 
-            if node.target == zt_ops.zendnn_horizontal_embedding_group.default:
+            if node.target == zt_ops.zentorch_horizontal_embedding_group.default:
                 common_output_node = list(last_node.users.keys())[0]
                 nodes_list = []
 
@@ -191,11 +191,11 @@ def emb_ops_horizontal_fusion(fx_g):
                     # Since replacement of all occurences of all embedding ops
                     # with the last embedding op takes place and the target is
                     # updated, the condition looks for the target equal to the
-                    # zendnn_horizontal_embedding_group, rather than
-                    # zendnn_embedding.
+                    # zentorch_horizontal_embedding_group, rather than
+                    # zentorch_embedding.
                     if (
                         arg_node.target
-                        == zt_ops.zendnn_horizontal_embedding_group.default
+                        == zt_ops.zentorch_horizontal_embedding_group.default
                     ):
                         new_node = fx_g.graph.create_node(
                             op="call_function",
@@ -222,21 +222,21 @@ def emb_ops_horizontal_fusion(fx_g):
 
 def get_fuse_val(target):
     if target in (
-        zt_ops.zendnn_mm_relu.default,
-        zt_ops.zendnn_addmm_relu.default,
-        zt_ops.zendnn_addmm_1dbias_relu.default,
+        zt_ops.zentorch_mm_relu.default,
+        zt_ops.zentorch_addmm_relu.default,
+        zt_ops.zentorch_addmm_1dbias_relu.default,
     ):
         return 1
     elif target in (
-        zt_ops.zendnn_mm_gelu_tanh.default,
-        zt_ops.zendnn_addmm_gelu_tanh.default,
-        zt_ops.zendnn_addmm_1dbias_gelu_tanh.default,
+        zt_ops.zentorch_mm_gelu_tanh.default,
+        zt_ops.zentorch_addmm_gelu_tanh.default,
+        zt_ops.zentorch_addmm_1dbias_gelu_tanh.default,
     ):
         return 2
     elif target in (
-        zt_ops.zendnn_mm_gelu_erf.default,
-        zt_ops.zendnn_addmm_gelu_erf.default,
-        zt_ops.zendnn_addmm_1dbias_gelu_erf.default,
+        zt_ops.zentorch_mm_gelu_erf.default,
+        zt_ops.zentorch_addmm_gelu_erf.default,
+        zt_ops.zentorch_addmm_1dbias_gelu_erf.default,
     ):
         return 3
     else:
@@ -245,16 +245,16 @@ def get_fuse_val(target):
 
 horizontal_mlp_targets = {
     "mm": [
-        zt_ops.zendnn_mm,
-        zt_ops.zendnn_mm_relu,
-        zt_ops.zendnn_mm_gelu_tanh,
-        zt_ops.zendnn_mm_gelu_erf,
+        zt_ops.zentorch_mm,
+        zt_ops.zentorch_mm_relu,
+        zt_ops.zentorch_mm_gelu_tanh,
+        zt_ops.zentorch_mm_gelu_erf,
     ],
     "addmm_1dbias": [
-        zt_ops.zendnn_addmm_1dbias,
-        zt_ops.zendnn_addmm_1dbias_relu,
-        zt_ops.zendnn_addmm_1dbias_gelu_tanh,
-        zt_ops.zendnn_addmm_1dbias_gelu_erf,
+        zt_ops.zentorch_addmm_1dbias,
+        zt_ops.zentorch_addmm_1dbias_relu,
+        zt_ops.zentorch_addmm_1dbias_gelu_tanh,
+        zt_ops.zentorch_addmm_1dbias_gelu_erf,
     ],
 }
 
@@ -270,21 +270,21 @@ def get_group_attr(target):
 
 def vertical_mlp_fusion(fx_graph):
     vertical_mlp_candidates = {
-        zt_ops.zendnn_addmm.default,
-        zt_ops.zendnn_addmm_relu.default,
-        zt_ops.zendnn_addmm_gelu_tanh.default,
-        zt_ops.zendnn_addmm_gelu_erf.default,
-        zt_ops.zendnn_addmm_1dbias.default,
-        zt_ops.zendnn_addmm_1dbias_relu.default,
-        zt_ops.zendnn_addmm_1dbias_gelu_tanh.default,
-        zt_ops.zendnn_addmm_1dbias_gelu_erf.default,
+        zt_ops.zentorch_addmm.default,
+        zt_ops.zentorch_addmm_relu.default,
+        zt_ops.zentorch_addmm_gelu_tanh.default,
+        zt_ops.zentorch_addmm_gelu_erf.default,
+        zt_ops.zentorch_addmm_1dbias.default,
+        zt_ops.zentorch_addmm_1dbias_relu.default,
+        zt_ops.zentorch_addmm_1dbias_gelu_tanh.default,
+        zt_ops.zentorch_addmm_1dbias_gelu_erf.default,
     }
 
     def return_next_addmm(users):
         # GroupMLP fusion is possible only when the consecutive Linear layers
         # have only one output, which must go to the next Linear layer. These
         # two conditions translate to checking if length of users is 1 and the
-        # the user is either zendnn_addmm or zendnn_addmm_1dbias. Only when
+        # the user is either zentorch_addmm or zentorch_addmm_1dbias. Only when
         # these two conditions are true, True and the next Linear layer node
         # is returned.
         if len(users) == 1:
@@ -303,6 +303,7 @@ def vertical_mlp_fusion(fx_graph):
     nodes_traversed = set()
     for node in fx_graph.graph.nodes:
         if node.target in vertical_mlp_candidates:
+
             while node not in nodes_traversed:
                 addmm_groups[-1].append(node)
                 nodes_traversed.add(node)
@@ -363,7 +364,7 @@ def vertical_mlp_fusion(fx_graph):
             # kwargs are not present, since they are being taken care by
             # group_op_args
             last_addmm.kwargs = {}
-            last_addmm.target = zt_ops.zendnn_vertical_mlp_group.default
+            last_addmm.target = zt_ops.zentorch_vertical_mlp_group.default
 
             # Name is form group_mlp_{Op Number}
             if group_idx:
@@ -437,8 +438,8 @@ def horizontal_mlp_fusion(fx_g):
         if len(group["nodes"]) == 3 and same_target:
             group_op_args = [[] for _ in range(7)]
             first_node = group["nodes"][0]
-            # Check if node is zendnn_addmm or zendnn_mm.
-            # zendnn_mm has only 2 arguments, whereas zendnn_addmm has 3.
+            # Check if node is zentorch_addmm or zentorch_mm.
+            # zentorch_mm has only 2 arguments, whereas zentorch_addmm has 3.
             # create an empty node to replicate the arg structure of addmm.
             if len(first_node.args) == 2:
                 # take arbitrary shape value for the empty_node being created
@@ -474,10 +475,10 @@ def horizontal_mlp_fusion(fx_g):
                         group_op_args[group[kwarg][1]].append(group[kwarg][0])
                 # Update fuse values.
                 group_op_args[5].append(get_fuse_val(node.target))
-            # Create zendnn_attn_horizontal_mlp_group node
+            # Create zentorch_attn_horizontal_mlp_group node
             group_node = fx_g.graph.create_node(
                 op="call_function",
-                target=zt_ops.zendnn_attn_horizontal_mlp_group.default,
+                target=zt_ops.zentorch_attn_horizontal_mlp_group.default,
                 args=tuple(group_op_args),
             )
             first_node.prepend(group_node)
@@ -550,7 +551,7 @@ def eb_group_mlp_group_fusion(fx_graph):
             # vertically fused MLP op. If there are multiple vertically fused
             # MLP ops that are inputs to the interaction node, the last one
             # will be fused with the horizontally fused EmbeddingBag op
-            if node_input.target == zt_ops.zendnn_vertical_mlp_group.default:
+            if node_input.target == zt_ops.zentorch_vertical_mlp_group.default:
                 group_mlp_op = node_input
 
             # Here we strictly checking that every get_item node has the
@@ -561,7 +562,7 @@ def eb_group_mlp_group_fusion(fx_graph):
                 for getitem_input in node_input.all_input_nodes:
                     condition = (
                         getitem_input.target
-                        == zt_ops.zendnn_horizontal_embedding_bag_group.default
+                        == zt_ops.zentorch_horizontal_embedding_bag_group.default
                     )
                     if condition:
                         group_eb_op = getitem_input
@@ -615,7 +616,7 @@ def eb_group_mlp_group_fusion(fx_graph):
             group_mlp_op.args = tuple(fused_op_args)
             new_node = None
 
-            group_mlp_op.target = zt_ops.zendnn_fused_eb_mlp.default
+            group_mlp_op.target = zt_ops.zentorch_fused_eb_mlp.default
 
             if group_idx:
                 group_mlp_op.name = f"fused_eb_mlp_{group_idx}"

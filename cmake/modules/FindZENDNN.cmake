@@ -23,7 +23,7 @@ include(FetchContent)
 
 get_filename_component(PLUGIN_PARENT_DIR ${CMAKE_CURRENT_SOURCE_DIR} DIRECTORY)
 
-IF("$ENV{ZENDNN_PT_USE_LOCAL_BLIS}" EQUAL 0)
+IF("$ENV{ZENTORCH_USE_LOCAL_BLIS}" EQUAL 0)
     FetchContent_Declare(blis
     GIT_REPOSITORY https://github.com/amd/blis.git
     GIT_TAG 4.2
@@ -59,7 +59,7 @@ endif()
 # Download/Copy FBGEMM
 ###############################################################################
 
-IF("$ENV{ZENDNN_PT_USE_LOCAL_FBGEMM}" EQUAL 0)
+IF("$ENV{ZENTORCH_USE_LOCAL_FBGEMM}" EQUAL 0)
     FetchContent_Declare(FBGEMM
     GIT_REPOSITORY https://github.com/pytorch/FBGEMM.git
     GIT_TAG v0.6.0
@@ -115,7 +115,7 @@ endif()
 # Download/Copy ZENDNN
 ###############################################################################
 
-IF("$ENV{ZENDNN_PT_USE_LOCAL_ZENDNN}" EQUAL 0)
+IF("$ENV{ZENTORCH_USE_LOCAL_ZENDNN}" EQUAL 0)
     FetchContent_Declare(ZenDNN
     GIT_REPOSITORY https://github.com/amd/ZenDNN.git
     GIT_TAG v4.2

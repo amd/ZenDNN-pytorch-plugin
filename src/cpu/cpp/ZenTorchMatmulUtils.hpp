@@ -16,7 +16,7 @@ inline void check_valid_sizes(const at::Tensor &mat1, const at::Tensor &mat2) {
       ((mat1.dim() <= 3 && mat2.dim() <= 3) &&  // dimensionality check
        ((mat1.dim() == 2 && mat2.dim() == 1) || // specific case for aten::mv
         (mat1.dim() == mat2.dim()))), // general check for matrix multiplication
-      "zendnn_matmul:  unsupported dims for mat1 and mat2");
+      "zentorch_matmul:  unsupported dims for mat1 and mat2");
 }
 
 inline void check_scalar_type(const std::vector<at::Tensor> &tensor_vector) {
@@ -28,8 +28,9 @@ inline void check_scalar_type(const std::vector<at::Tensor> &tensor_vector) {
         is_bfloat16 && (tensor.scalar_type() == c10::ScalarType::BFloat16);
   }
 
-  TORCH_CHECK(is_float || is_bfloat16,
-              "zendnn_matmul: zendnn_matmul only supports Float and BFloat16");
+  TORCH_CHECK(
+      is_float || is_bfloat16,
+      "zentorch_matmul: zentorch_matmul only supports Float and BFloat16");
 }
 
 inline bool is_zendnn_optimized_format(const at::Tensor &t) {
@@ -75,9 +76,10 @@ matmul_tensors_to_memory(const at::Tensor &mat1, const at::Tensor &mat2,
 
   if (mat1.scalar_type() == c10::ScalarType::BFloat16 ||
       mat2.scalar_type() == c10::ScalarType::BFloat16) {
-    TORCH_CHECK(utils::zendnn_bf16_device_check(),
-                "zendnn_matmul: zendnn_matmul bf16 path needs the cpu support "
-                "avx512bf16");
+    TORCH_CHECK(
+        utils::zendnn_bf16_device_check(),
+        "zentorch_matmul: zentorch_matmul bf16 path needs the cpu support "
+        "avx512bf16");
   }
 
   std::vector<at::Tensor> tensor_vector(3);
@@ -123,7 +125,7 @@ matmul_tensors_to_memory(const at::Tensor &mat1, const at::Tensor &mat2,
     if (bias.scalar_type() == c10::ScalarType::BFloat16) {
       TORCH_CHECK(
           utils::zendnn_bf16_device_check(),
-          "zendnn_matmul: zendnn_matmul bf16 path needs the cpu support "
+          "zentorch_matmul: zentorch_matmul bf16 path needs the cpu support "
           "avx512bf16");
     }
 

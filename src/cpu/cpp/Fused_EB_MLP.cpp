@@ -12,7 +12,7 @@
 using namespace zendnn;
 
 namespace zentorch {
-std::vector<at::Tensor> zendnn_fused_eb_mlp(
+std::vector<at::Tensor> zentorch_fused_eb_mlp(
     const at::TensorList &eb_weight, const at::TensorList &eb_indices,
     const at::TensorList &eb_offsets,
     const at::IntArrayRef &eb_scale_grad_by_freq,
@@ -106,14 +106,14 @@ std::vector<at::Tensor> zendnn_fused_eb_mlp(
     // Here the if condition checks if the matrices are compatible for matrix
     // multiplication and bias addition for any general n-d case. But the
     // TORCH_CHECK conditions specifically checks for the dimensionality
-    // conditions which are supported by either zendnn_addmm or
-    // zendnn_addmm_1dbias
+    // conditions which are supported by either zentorch_addmm or
+    // zentorch_addmm_1dbias
 
     if (mlp_self[i].sizes() ==
         c10::IntArrayRef(get_matmul_output_sizes(mlp_input, mlp_weights[i]))) {
       TORCH_CHECK((mlp_self[i].dim() == 2 && mlp_input.dim() == 2 &&
                    mlp_weights[i].dim() == 2), // aten::addmm
-                  "zendnn_addmm:  unsupported dims for self, mat1 and mat2");
+                  "zentorch_addmm:  unsupported dims for self, mat1 and mat2");
 
       const at::Tensor empty_bias; // dummy empty bias
 
@@ -125,7 +125,7 @@ std::vector<at::Tensor> zendnn_fused_eb_mlp(
     } else {
       TORCH_CHECK((mlp_self[i].dim() == 1 && mlp_input.dim() == 2 &&
                    mlp_weights[i].dim() == 2), // aten::addmm
-                  "zendnn_addmm: unsupported dims for self, mat1 and mat2");
+                  "zentorch_addmm: unsupported dims for self, mat1 and mat2");
 
       // Array access is faster than .size(n)
       const auto mat1_sizes = mlp_input.sizes();
@@ -164,7 +164,7 @@ std::vector<at::Tensor> zendnn_fused_eb_mlp(
         TORCH_CHECK(
             !(mlp_input.scalar_type() == c10::ScalarType::BFloat16 ||
               mlp_weights[i].scalar_type() == c10::ScalarType::BFloat16),
-            "zendnn_matmul: zendnn_matmul is not supported for bf16 "
+            "zentorch_matmul: zentorch_matmul is not supported for bf16 "
             "tensors when bias is defined and alpha is not equal to 1");
       }
     }

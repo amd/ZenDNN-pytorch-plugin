@@ -10,10 +10,10 @@ namespace zentorch {
 
 using namespace zendnn;
 
-at::Tensor zendnn_matmul_impl(const at::Tensor &mat1, const at::Tensor &mat2,
-                              const at::Tensor &bias,
-                              at::Tensor &self_or_result, const float &beta,
-                              const float &alpha, const int64_t &fuse) {
+at::Tensor zentorch_matmul_impl(const at::Tensor &mat1, const at::Tensor &mat2,
+                                const at::Tensor &bias,
+                                at::Tensor &self_or_result, const float &beta,
+                                const float &alpha, const int64_t &fuse) {
 
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
@@ -52,7 +52,7 @@ at::Tensor zendnn_matmul_impl(const at::Tensor &mat1, const at::Tensor &mat2,
       // TODO: add support for alpha when bias is defined
       TORCH_CHECK(!(mat1.scalar_type() == c10::ScalarType::BFloat16 ||
                     mat2.scalar_type() == c10::ScalarType::BFloat16),
-                  "zendnn_matmul: zendnn_matmul is not supported for bf16 "
+                  "zentorch_matmul: zentorch_matmul is not supported for bf16 "
                   "tensors when bias is defined and alpha is not equal to 1");
     }
     LOG(INFO) << "Setting output scales with alpha = " << alpha;
@@ -121,8 +121,8 @@ at::Tensor zendnn_matmul_impl(const at::Tensor &mat1, const at::Tensor &mat2,
 // There are two custom group matmul ops which are structurally different, but
 // have a lot of overlap with respect to initialization of tensors and other
 // arguments. These overlaps are covered in the following function called
-// zendnn_matmul_group_impl.
-std::vector<at::Tensor> zendnn_matmul_group_impl(
+// zentorch_matmul_group_impl.
+std::vector<at::Tensor> zentorch_matmul_group_impl(
     std::vector<at::Tensor> &self_vector, std::vector<at::Tensor> &inputs,
     const at::TensorList &weights, const at::ArrayRef<double> &betas,
     const at::ArrayRef<double> &alphas, const at::IntArrayRef &fuse,
@@ -148,16 +148,17 @@ std::vector<at::Tensor> zendnn_matmul_group_impl(
       betas_vector[i] = static_cast<float>(betas[i]);
       if (self_vector[i].sizes() ==
           c10::IntArrayRef(get_matmul_output_sizes(inputs[i], weights[i]))) {
-        TORCH_CHECK((self_vector[i].dim() == 2 && inputs[i].dim() == 2 &&
-                     weights[i].dim() == 2), // aten::addmm
-                    "zendnn_addmm:  unsupported dims for self, mat1 and mat2");
+        TORCH_CHECK(
+            (self_vector[i].dim() == 2 && inputs[i].dim() == 2 &&
+             weights[i].dim() == 2), // aten::addmm
+            "zentorch_addmm:  unsupported dims for self, mat1 and mat2");
         const at::Tensor empty_bias; // dummy empty bias
         bias_vector[i] = empty_bias;
         self_or_result_vector[i] = self_vector[i];
       } else {
         TORCH_CHECK((self_vector[i].dim() == 1 && inputs[i].dim() == 2 &&
                      weights[i].dim() == 2), // aten::addmm
-                    "zendnn_addmm: unsupported dims for self, mat1 and mat2");
+                    "zentorch_addmm: unsupported dims for self, mat1 and mat2");
         // Array access is faster than .size(n)
         const auto mat1_sizes = inputs[i].sizes();
         const auto mat2_sizes = weights[i].sizes();
@@ -194,10 +195,11 @@ std::vector<at::Tensor> zendnn_matmul_group_impl(
       if (alphas[i] != 1.0f) {
         if (bias_defined_vector[i]) {
           // TODO: add support for alpha when bias is defined
-          TORCH_CHECK(!(inputs[i].scalar_type() == c10::ScalarType::BFloat16 ||
-                        weights[i].scalar_type() == c10::ScalarType::BFloat16),
-                      "zendnn_matmul: zendnn_matmul is not supported for bf16 "
-                      "tensors when bias is defined and alpha != 1");
+          TORCH_CHECK(
+              !(inputs[i].scalar_type() == c10::ScalarType::BFloat16 ||
+                weights[i].scalar_type() == c10::ScalarType::BFloat16),
+              "zentorch_matmul: zentorch_matmul is not supported for bf16 "
+              "tensors when bias is defined and alpha != 1");
         }
         LOG(INFO) << "Setting output scales with alpha = " << alphas[i];
       }
@@ -231,15 +233,15 @@ std::vector<at::Tensor> zendnn_matmul_group_impl(
 
 // for 1d bias
 template <int fuse = 0>
-at::Tensor zendnn_addmm_1dbias(const at::Tensor &self, const at::Tensor &mat1,
-                               const at::Tensor &mat2, const at::Scalar &beta,
-                               const at::Scalar &alpha) {
+at::Tensor zentorch_addmm_1dbias(const at::Tensor &self, const at::Tensor &mat1,
+                                 const at::Tensor &mat2, const at::Scalar &beta,
+                                 const at::Scalar &alpha) {
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
 
   TORCH_CHECK(
       (self.dim() == 1 && mat1.dim() == 2 && mat2.dim() == 2), // aten::addmm
-      "zendnn_addmm_1dbias: unsupported dims for self, mat1 and mat2");
+      "zentorch_addmm_1dbias: unsupported dims for self, mat1 and mat2");
 
   // Array access is faster than .size(n)
   const auto mat1_sizes = mat1.sizes();
@@ -254,16 +256,16 @@ at::Tensor zendnn_addmm_1dbias(const at::Tensor &self, const at::Tensor &mat1,
   at::Tensor result =
       at::empty(get_matmul_output_sizes(mat1, mat2), mat1.options());
 
-  LOG(INFO) << "Entering zendnn_matmul_impl from " << __FUNCTION__ << "!\n";
+  LOG(INFO) << "Entering zentorch_matmul_impl from " << __FUNCTION__ << "!\n";
 
-  return zendnn_matmul_impl(mat1, mat2, self, result, beta.to<float>(),
-                            alpha.to<float>(), fuse);
+  return zentorch_matmul_impl(mat1, mat2, self, result, beta.to<float>(),
+                              alpha.to<float>(), fuse);
 }
 
 template <int fuse = 0>
-at::Tensor zendnn_addmm(const at::Tensor &self, const at::Tensor &mat1,
-                        const at::Tensor &mat2, const at::Scalar &beta,
-                        const at::Scalar &alpha) {
+at::Tensor zentorch_addmm(const at::Tensor &self, const at::Tensor &mat1,
+                          const at::Tensor &mat2, const at::Scalar &beta,
+                          const at::Scalar &alpha) {
 
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
@@ -271,43 +273,45 @@ at::Tensor zendnn_addmm(const at::Tensor &self, const at::Tensor &mat1,
   // Here the if condition checks if the matrices are compatible for matrix
   // multiplication and bias addition for any general n-d case. But the
   // TORCH_CHECK conditions specifically checks for the dimensionality
-  // conditions which are supported by either zendnn_addmm or
-  // zendnn_addmm_1dbias
+  // conditions which are supported by either zentorch_addmm or
+  // zentorch_addmm_1dbias
 
   if (self.sizes() == c10::IntArrayRef(get_matmul_output_sizes(mat1, mat2))) {
     TORCH_CHECK(
         (self.dim() == 2 && mat1.dim() == 2 && mat2.dim() == 2), // aten::addmm
-        "zendnn_addmm:  unsupported dims for self, mat1 and mat2");
+        "zentorch_addmm:  unsupported dims for self, mat1 and mat2");
 
     const at::Tensor empty_bias; // dummy empty bias
 
-    LOG(INFO) << "Entering zendnn_matmul_impl from " << __FUNCTION__ << "!\n";
+    LOG(INFO) << "Entering zentorch_matmul_impl from " << __FUNCTION__ << "!\n";
 
-    return zendnn_matmul_impl(mat1, mat2, empty_bias,
-                              const_cast<at::Tensor &>(self), beta.to<float>(),
-                              alpha.to<float>(), fuse);
+    return zentorch_matmul_impl(mat1, mat2, empty_bias,
+                                const_cast<at::Tensor &>(self),
+                                beta.to<float>(), alpha.to<float>(), fuse);
   } else {
     TORCH_CHECK(
         (self.dim() == 1 && mat1.dim() == 2 && mat2.dim() == 2), // aten::addmm
-        "zendnn_addmm: unsupported dims for self, mat1 and mat2");
+        "zentorch_addmm: unsupported dims for self, mat1 and mat2");
 
-    LOG(INFO) << "Entering zendnn_addmm_1dbias from " << __FUNCTION__ << "!\n";
-    return zendnn_addmm_1dbias<fuse>(self, mat1, mat2, beta, alpha);
+    LOG(INFO) << "Entering zentorch_addmm_1dbias from " << __FUNCTION__
+              << "!\n";
+    return zentorch_addmm_1dbias<fuse>(self, mat1, mat2, beta, alpha);
   }
 }
 
-at::Tensor zendnn_baddbmm(const at::Tensor &self, const at::Tensor &batch1,
-                          const at::Tensor &batch2, const at::Scalar &beta,
-                          const at::Scalar &alpha) {
+at::Tensor zentorch_baddbmm(const at::Tensor &self, const at::Tensor &batch1,
+                            const at::Tensor &batch2, const at::Scalar &beta,
+                            const at::Scalar &alpha) {
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
 
   if (self.numel() == 0) {
-    TORCH_CHECK(false, "zendnn_baddbmm: incorrect self tensor");
+    TORCH_CHECK(false, "zentorch_baddbmm: incorrect self tensor");
   }
-  TORCH_CHECK((self.dim() == 3 && batch1.dim() == 3 &&
-               batch2.dim() == 3), // aten::baddbmm
-              "zendnn_baddbmm:  unsupported dims for self, batch1 and batch2");
+  TORCH_CHECK(
+      (self.dim() == 3 && batch1.dim() == 3 &&
+       batch2.dim() == 3), // aten::baddbmm
+      "zentorch_baddbmm:  unsupported dims for self, batch1 and batch2");
 
   // Array access is faster than .size(n)
   const auto batch1_sizes = batch1.sizes();
@@ -323,54 +327,54 @@ at::Tensor zendnn_baddbmm(const at::Tensor &self, const at::Tensor &batch1,
   const int64_t fuse = 0;
   const at::Tensor empty_bias; // dummy empty bias
 
-  LOG(INFO) << "Entering zendnn_matmul_impl from " << __FUNCTION__ << "!\n";
+  LOG(INFO) << "Entering zentorch_matmul_impl from " << __FUNCTION__ << "!\n";
 
-  return zendnn_matmul_impl(batch1, batch2, empty_bias,
-                            const_cast<at::Tensor &>(self), beta.to<float>(),
-                            alpha.to<float>(), fuse);
+  return zentorch_matmul_impl(batch1, batch2, empty_bias,
+                              const_cast<at::Tensor &>(self), beta.to<float>(),
+                              alpha.to<float>(), fuse);
 }
 
-// zendnn_mm function does not broadcast
+// zentorch_mm function does not broadcast
 template <int fuse = 0>
-at::Tensor zendnn_mm(const at::Tensor &self, const at::Tensor &mat2) {
+at::Tensor zentorch_mm(const at::Tensor &self, const at::Tensor &mat2) {
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
   TORCH_CHECK((self.dim() == 2 && mat2.dim() == 2), // aten::mm
-              "zendnn_mm:  unsupported dims for self and mat2");
+              "zentorch_mm:  unsupported dims for self and mat2");
 
   at::Tensor out =
       at::empty(get_matmul_output_sizes(self, mat2), self.options());
   const float beta = 0.0f;
   const float alpha = 1.0f;
 
-  LOG(INFO) << "Entering zendnn_addmm from " << __FUNCTION__ << "!\n";
+  LOG(INFO) << "Entering zentorch_addmm from " << __FUNCTION__ << "!\n";
 
-  return zendnn_addmm<fuse>(out, self, mat2, beta, alpha);
+  return zentorch_addmm<fuse>(out, self, mat2, beta, alpha);
 }
 
-// zendnn_bmm function does not broadcast
-at::Tensor zendnn_bmm(const at::Tensor &self, const at::Tensor &mat2) {
+// zentorch_bmm function does not broadcast
+at::Tensor zentorch_bmm(const at::Tensor &self, const at::Tensor &mat2) {
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
   TORCH_CHECK((self.dim() == 3 && mat2.dim() == 3), // aten::bmm
-              "zendnn_bmm:  unsupported dims for self and mat2");
+              "zentorch_bmm:  unsupported dims for self and mat2");
 
   at::Tensor out =
       at::empty(get_matmul_output_sizes(self, mat2), self.options());
   const float beta = 0.0f;
   const float alpha = 1.0f;
 
-  LOG(INFO) << "Entering zendnn_baddbmm from " << __FUNCTION__ << "!\n";
+  LOG(INFO) << "Entering zentorch_baddbmm from " << __FUNCTION__ << "!\n";
 
-  return zendnn_baddbmm(out, self, mat2, beta, alpha);
+  return zentorch_baddbmm(out, self, mat2, beta, alpha);
 }
 
-at::Tensor zendnn_vertical_mlp_group(const at::TensorList &self,
-                                     const at::Tensor &input,
-                                     const at::TensorList &weights,
-                                     const at::ArrayRef<double> &betas,
-                                     const at::ArrayRef<double> &alphas,
-                                     const at::IntArrayRef &fuse) {
+at::Tensor zentorch_vertical_mlp_group(const at::TensorList &self,
+                                       const at::Tensor &input,
+                                       const at::TensorList &weights,
+                                       const at::ArrayRef<double> &betas,
+                                       const at::ArrayRef<double> &alphas,
+                                       const at::IntArrayRef &fuse) {
 
   // self = alpha * input * weights + beta * self
 
@@ -394,19 +398,19 @@ at::Tensor zendnn_vertical_mlp_group(const at::TensorList &self,
     self_vector[i] = self[i];
   }
 
-  output_vector = zendnn_matmul_group_impl(self_vector, input_vector, weights,
-                                           betas, alphas, fuse, false);
+  output_vector = zentorch_matmul_group_impl(self_vector, input_vector, weights,
+                                             betas, alphas, fuse, false);
 
   return output_vector[num_ops - 1];
 }
 
-std::vector<at::Tensor> zendnn_attn_horizontal_mlp_group(
+std::vector<at::Tensor> zentorch_attn_horizontal_mlp_group(
     const at::TensorList &self, const at::TensorList &inputs,
     const at::TensorList &weights, const at::ArrayRef<double> &betas,
     const at::ArrayRef<double> &alphas, const at::IntArrayRef &fuse,
-    const at::IntArrayRef &is_zendnnmm) {
+    const at::IntArrayRef &is_zentorch_mm) {
   // self = alpha * inputs * weights.t + beta * self
-  LOG(INFO) << "In zendnn_attention_horizontal_matmul_group_mlp...\n";
+  LOG(INFO) << "In zentorch_attention_horizontal_matmul_group_mlp...\n";
   int num_ops = inputs.size();
   std::vector<at::Tensor> input_vector(num_ops);
   std::vector<at::Tensor> self_vector(num_ops);
@@ -414,28 +418,28 @@ std::vector<at::Tensor> zendnn_attn_horizontal_mlp_group(
   LOG(INFO) << "Executing function: " << __FUNCTION__;
   for (int i = 0; i < num_ops; i++) {
     input_vector[i] = inputs[i];
-    if (is_zendnnmm[i] == 1)
+    if (is_zentorch_mm[i] == 1)
       self_vector[i] = at::empty(get_matmul_output_sizes(inputs[i], weights[i]),
                                  inputs[i].options());
     else
       self_vector[i] = self[i];
   }
-  return zendnn_matmul_group_impl(self_vector, input_vector, weights, betas,
-                                  alphas, fuse, true);
+  return zentorch_matmul_group_impl(self_vector, input_vector, weights, betas,
+                                    alphas, fuse, true);
 }
 
 // Template instantiations.
 // The "mm" instantiations, in-turn instantiate "addmm" and "addmm_1dbias".
 // No post-op.
-template at::Tensor zendnn_mm<0>(const at::Tensor &self,
-                                 const at::Tensor &mat2);
+template at::Tensor zentorch_mm<0>(const at::Tensor &self,
+                                   const at::Tensor &mat2);
 // ReLU.
-template at::Tensor zendnn_mm<1>(const at::Tensor &self,
-                                 const at::Tensor &mat2);
+template at::Tensor zentorch_mm<1>(const at::Tensor &self,
+                                   const at::Tensor &mat2);
 // GELU Tanh.
-template at::Tensor zendnn_mm<2>(const at::Tensor &self,
-                                 const at::Tensor &mat2);
+template at::Tensor zentorch_mm<2>(const at::Tensor &self,
+                                   const at::Tensor &mat2);
 // GELU Erf.
-template at::Tensor zendnn_mm<3>(const at::Tensor &self,
-                                 const at::Tensor &mat2);
+template at::Tensor zentorch_mm<3>(const at::Tensor &self,
+                                   const at::Tensor &mat2);
 } // namespace zentorch

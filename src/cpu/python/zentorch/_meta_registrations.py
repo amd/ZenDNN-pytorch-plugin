@@ -33,8 +33,8 @@ def register_meta(op_name, overload_name="default"):
 # https://pytorch.org/docs/stable/torch.compiler_fake_tensor.html
 
 
-@register_meta("zendnn_addmm")
-def meta_zendnn_addmm(
+@register_meta("zentorch_addmm")
+def meta_zentorch_addmm(
     bias,
     input,
     weight,
@@ -44,8 +44,8 @@ def meta_zendnn_addmm(
     return input.new_empty((input.shape[0], weight.shape[-1]))
 
 
-@register_meta("zendnn_addmm_relu")
-def meta_zendnn_addmm_relu(
+@register_meta("zentorch_addmm_relu")
+def meta_zentorch_addmm_relu(
     bias,
     input,
     weight,
@@ -55,8 +55,8 @@ def meta_zendnn_addmm_relu(
     return input.new_empty((input.shape[0], weight.shape[-1]))
 
 
-@register_meta("zendnn_addmm_gelu_tanh")
-def meta_zendnn_addmm_gelu_tanh(
+@register_meta("zentorch_addmm_gelu_tanh")
+def meta_zentorch_addmm_gelu_tanh(
     bias,
     input,
     weight,
@@ -66,8 +66,8 @@ def meta_zendnn_addmm_gelu_tanh(
     return input.new_empty((input.shape[0], weight.shape[-1]))
 
 
-@register_meta("zendnn_addmm_gelu_erf")
-def meta_zendnn_addmm_gelu_erf(
+@register_meta("zentorch_addmm_gelu_erf")
+def meta_zentorch_addmm_gelu_erf(
     bias,
     input,
     weight,
@@ -77,8 +77,8 @@ def meta_zendnn_addmm_gelu_erf(
     return input.new_empty((input.shape[0], weight.shape[-1]))
 
 
-@register_meta("zendnn_addmm_1dbias")
-def meta_zendnn_addmm_1dbias(
+@register_meta("zentorch_addmm_1dbias")
+def meta_zentorch_addmm_1dbias(
     bias,
     input,
     weight,
@@ -88,8 +88,8 @@ def meta_zendnn_addmm_1dbias(
     return input.new_empty((input.shape[0], weight.shape[-1]))
 
 
-@register_meta("zendnn_addmm_1dbias_relu")
-def meta_zendnn_addmm_1dbias_relu(
+@register_meta("zentorch_addmm_1dbias_relu")
+def meta_zentorch_addmm_1dbias_relu(
     bias,
     input,
     weight,
@@ -99,8 +99,8 @@ def meta_zendnn_addmm_1dbias_relu(
     return input.new_empty((input.shape[0], weight.shape[-1]))
 
 
-@register_meta("zendnn_addmm_1dbias_gelu_tanh")
-def meta_zendnn_addmm_1dbias_gelu_tanh(
+@register_meta("zentorch_addmm_1dbias_gelu_tanh")
+def meta_zentorch_addmm_1dbias_gelu_tanh(
     bias,
     input,
     weight,
@@ -110,8 +110,8 @@ def meta_zendnn_addmm_1dbias_gelu_tanh(
     return input.new_empty((input.shape[0], weight.shape[-1]))
 
 
-@register_meta("zendnn_addmm_1dbias_gelu_erf")
-def meta_zendnn_addmm_1dbias_gelu_erf(
+@register_meta("zentorch_addmm_1dbias_gelu_erf")
+def meta_zentorch_addmm_1dbias_gelu_erf(
     bias,
     input,
     weight,
@@ -121,50 +121,50 @@ def meta_zendnn_addmm_1dbias_gelu_erf(
     return input.new_empty((input.shape[0], weight.shape[-1]))
 
 
-@register_meta("zendnn_mm")
-def meta_zendnn_mm(
+@register_meta("zentorch_mm")
+def meta_zentorch_mm(
     input,
     weight,
 ):
     return input.new_empty((input.shape[0], weight.shape[-1]))
 
 
-@register_meta("zendnn_mm_relu")
-def meta_zendnn_mm_relu(
+@register_meta("zentorch_mm_relu")
+def meta_zentorch_mm_relu(
     input,
     weight,
 ):
     return input.new_empty((input.shape[0], weight.shape[-1]))
 
 
-@register_meta("zendnn_mm_gelu_tanh")
-def meta_zendnn_mm_gelu_tanh(
+@register_meta("zentorch_mm_gelu_tanh")
+def meta_zentorch_mm_gelu_tanh(
     input,
     weight,
 ):
     return input.new_empty((input.shape[0], weight.shape[-1]))
 
 
-@register_meta("zendnn_mm_gelu_erf")
-def meta_zendnn_mm_gelu_erf(
+@register_meta("zentorch_mm_gelu_erf")
+def meta_zentorch_mm_gelu_erf(
     input,
     weight,
 ):
     return input.new_empty((input.shape[0], weight.shape[-1]))
 
 
-@register_meta("zendnn_bmm")
-def meta_zendnn_bmm(input, weight):
+@register_meta("zentorch_bmm")
+def meta_zentorch_bmm(input, weight):
     return input.new_empty((input.shape[0], input.shape[1], weight.shape[-1]))
 
 
-@register_meta("zendnn_baddbmm")
-def meta_zendnn_baddbmm(bias, input, weight, alpha=1, beta=1):
+@register_meta("zentorch_baddbmm")
+def meta_zentorch_baddbmm(bias, input, weight, alpha=1, beta=1):
     return input.new_empty((input.shape[0], input.shape[1], weight.shape[-1]))
 
 
-@register_meta("zendnn_embedding_bag")
-def meta_zendnn_embedding_bag(
+@register_meta("zentorch_embedding_bag")
+def meta_zentorch_embedding_bag(
     weight,
     indices,
     offsets,
@@ -185,8 +185,8 @@ def meta_zendnn_embedding_bag(
     return output, offset2bag, bag_size, max_indices
 
 
-@register_meta("zendnn_embedding")
-def meta_zendnn_embedding(
+@register_meta("zentorch_embedding")
+def meta_zentorch_embedding(
     weight,
     indices,
     padding_idx=-1,
@@ -200,8 +200,8 @@ def meta_zendnn_embedding(
     return output
 
 
-@register_meta("zendnn_horizontal_embedding_bag_group")
-def meta_zendnn_horizontal_embedding_bag_group(
+@register_meta("zentorch_horizontal_embedding_bag_group")
+def meta_zentorch_horizontal_embedding_bag_group(
     weight,
     indices,
     offsets,
@@ -228,8 +228,8 @@ def meta_zendnn_horizontal_embedding_bag_group(
     return output_list
 
 
-@register_meta("zendnn_horizontal_embedding_group")
-def meta_zendnn_horizontal_embedding_group(
+@register_meta("zentorch_horizontal_embedding_group")
+def meta_zentorch_horizontal_embedding_group(
     weight, indices, padding_idx, scale_grad_by_freq, sparse
 ):
     output_list = []
@@ -244,43 +244,44 @@ def meta_zendnn_horizontal_embedding_group(
     return output_list
 
 
-zendnn_addmm_mappings = {
-    0: meta_zendnn_addmm,
-    1: meta_zendnn_addmm_relu,
-    2: meta_zendnn_addmm_gelu_tanh,
-    3: meta_zendnn_addmm_gelu_erf,
+zentorch_addmm_mappings = {
+    0: meta_zentorch_addmm,
+    1: meta_zentorch_addmm_relu,
+    2: meta_zentorch_addmm_gelu_tanh,
+    3: meta_zentorch_addmm_gelu_erf,
 }
 
 
-@register_meta("zendnn_vertical_mlp_group")
-def meta_zendnn_vertical_mlp_group(self, inputs, weight, betas, alphas, fuse):
+@register_meta("zentorch_vertical_mlp_group")
+def meta_zentorch_vertical_mlp_group(self, inputs, weight, betas, alphas, fuse):
     # For the functionality of GroupMLP op, the outputs of one MLP will act as
     # the input for the next MLP. That is why, overwriting the same variable
     # instead of creating multiple variables, and finally returning an empty
     # tensor of the final shape.
     for idx in range(len(weight)):
-        inputs = zendnn_addmm_mappings[fuse[idx]](
+        inputs = zentorch_addmm_mappings[fuse[idx]](
             self[idx], inputs, weight[idx], betas[idx], alphas[idx]
+
         )
 
     return inputs.new_empty(inputs.size())
 
 
-@register_meta("zendnn_attn_horizontal_mlp_group")
-def meta_zendnn_attn_horizontal_mlp_group(
-    self, inputs, weights, betas, alphas, fuse, is_zendnnmm
+@register_meta("zentorch_attn_horizontal_mlp_group")
+def meta_zentorch_attn_horizontal_mlp_group(
+    self, inputs, weights, betas, alphas, fuse, is_zentorch_mm
 ):
     output_list = []
     for idx in range(len(inputs)):
-        output = zendnn_addmm_mappings[fuse[idx]](
+        output = zentorch_addmm_mappings[fuse[idx]](
             self[idx], inputs[idx], weights[idx], betas[idx], alphas[idx]
         )
         output_list.append(output)
     return output_list
 
 
-@register_meta("zendnn_fused_eb_mlp")
-def meta_zendnn_fused_eb_mlp(
+@register_meta("zentorch_fused_eb_mlp")
+def meta_zentorch_fused_eb_mlp(
     eb_weight,
     eb_indices,
     eb_offsets,
@@ -298,7 +299,7 @@ def meta_zendnn_fused_eb_mlp(
     mlp_fuse,
 ):
 
-    output = meta_zendnn_horizontal_embedding_bag_group(
+    output = meta_zentorch_horizontal_embedding_bag_group(
         eb_weight,
         eb_indices,
         eb_offsets,
@@ -311,7 +312,7 @@ def meta_zendnn_fused_eb_mlp(
     )
 
     output.append(
-        meta_zendnn_vertical_mlp_group(
+        meta_zentorch_vertical_mlp_group(
             mlp_self, mlp_inputs, mlp_weight, mlp_betas, mlp_alphas, mlp_fuse
         )
     )
@@ -319,24 +320,24 @@ def meta_zendnn_fused_eb_mlp(
     return output
 
 
-make_fallback(torch.ops.zentorch.zendnn_addmm)
-make_fallback(torch.ops.zentorch.zendnn_addmm_relu)
-make_fallback(torch.ops.zentorch.zendnn_addmm_gelu_tanh)
-make_fallback(torch.ops.zentorch.zendnn_addmm_gelu_erf)
-make_fallback(torch.ops.zentorch.zendnn_addmm_1dbias)
-make_fallback(torch.ops.zentorch.zendnn_addmm_1dbias_relu)
-make_fallback(torch.ops.zentorch.zendnn_addmm_1dbias_gelu_tanh)
-make_fallback(torch.ops.zentorch.zendnn_addmm_1dbias_gelu_erf)
-make_fallback(torch.ops.zentorch.zendnn_embedding_bag)
-make_fallback(torch.ops.zentorch.zendnn_embedding)
-make_fallback(torch.ops.zentorch.zendnn_bmm)
-make_fallback(torch.ops.zentorch.zendnn_baddbmm)
-make_fallback(torch.ops.zentorch.zendnn_mm)
-make_fallback(torch.ops.zentorch.zendnn_mm_relu)
-make_fallback(torch.ops.zentorch.zendnn_mm_gelu_tanh)
-make_fallback(torch.ops.zentorch.zendnn_mm_gelu_erf)
-make_fallback(torch.ops.zentorch.zendnn_horizontal_embedding_bag_group)
-make_fallback(torch.ops.zentorch.zendnn_horizontal_embedding_group)
-make_fallback(torch.ops.zentorch.zendnn_vertical_mlp_group)
-make_fallback(torch.ops.zentorch.zendnn_attn_horizontal_mlp_group)
-make_fallback(torch.ops.zentorch.zendnn_fused_eb_mlp)
+make_fallback(torch.ops.zentorch.zentorch_addmm)
+make_fallback(torch.ops.zentorch.zentorch_addmm_relu)
+make_fallback(torch.ops.zentorch.zentorch_addmm_gelu_tanh)
+make_fallback(torch.ops.zentorch.zentorch_addmm_gelu_erf)
+make_fallback(torch.ops.zentorch.zentorch_addmm_1dbias)
+make_fallback(torch.ops.zentorch.zentorch_addmm_1dbias_relu)
+make_fallback(torch.ops.zentorch.zentorch_addmm_1dbias_gelu_tanh)
+make_fallback(torch.ops.zentorch.zentorch_addmm_1dbias_gelu_erf)
+make_fallback(torch.ops.zentorch.zentorch_embedding_bag)
+make_fallback(torch.ops.zentorch.zentorch_embedding)
+make_fallback(torch.ops.zentorch.zentorch_bmm)
+make_fallback(torch.ops.zentorch.zentorch_baddbmm)
+make_fallback(torch.ops.zentorch.zentorch_mm)
+make_fallback(torch.ops.zentorch.zentorch_mm_relu)
+make_fallback(torch.ops.zentorch.zentorch_mm_gelu_tanh)
+make_fallback(torch.ops.zentorch.zentorch_mm_gelu_erf)
+make_fallback(torch.ops.zentorch.zentorch_horizontal_embedding_bag_group)
+make_fallback(torch.ops.zentorch.zentorch_horizontal_embedding_group)
+make_fallback(torch.ops.zentorch.zentorch_vertical_mlp_group)
+make_fallback(torch.ops.zentorch.zentorch_attn_horizontal_mlp_group)
+make_fallback(torch.ops.zentorch.zentorch_fused_eb_mlp)

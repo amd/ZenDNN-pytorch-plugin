@@ -134,7 +134,7 @@ git checkout r4.2
 
 ### 2.2.1. Preparing third party repositories
 
-Build setup downloads the ZenDNN, AOCL BLIS and FBGEMM repos into `third_party` folder. It can alternatively use local copies of ZenDNN, AOCL BLIS and FBGEMM. This is very useful for day to day development scenarios, where developer may be interested in using recent version of repositories. Build setup will switch between local and remote copies of ZenDNN, AOCL BLIS and FBGEMM with environmental variables `ZENDNN_PT_USE_LOCAL_ZENDNN` , `ZENDNN_PT_USE_LOCAL_BLIS` and `ZENDNN_PT_USE_LOCAL_FBGEMM` respectively. To use local copies of ZenDNN , AOCL BLIS or FBGEMM, set `ZENDNN_PT_USE_LOCAL_ZENDNN` , `ZENDNN_PT_USE_LOCAL_BLIS` or `ZENDNN_PT_USE_LOCAL_FBGEMM` to 1 respectively. The source repositories should be downloaded/cloned in the directory where `ZenDNN_PyTorch_Plugin` is cloned for local setting. Folder structure may look like below.
+Build setup downloads the ZenDNN, AOCL BLIS and FBGEMM repos into `third_party` folder. It can alternatively use local copies of ZenDNN, AOCL BLIS and FBGEMM. This is very useful for day to day development scenarios, where developer may be interested in using recent version of repositories. Build setup will switch between local and remote copies of ZenDNN, AOCL BLIS and FBGEMM with environmental variables `ZENTORCH_USE_LOCAL_ZENDNN` , `ZENTORCH_USE_LOCAL_BLIS` and `ZENTORCH_USE_LOCAL_FBGEMM` respectively. To use local copies of ZenDNN , AOCL BLIS or FBGEMM, set `ZENTORCH_USE_LOCAL_ZENDNN` , `ZENTORCH_USE_LOCAL_BLIS` or `ZENTORCH_USE_LOCAL_FBGEMM` to 1 respectively. The source repositories should be downloaded/cloned in the directory where `ZenDNN_PyTorch_Plugin` is cloned for local setting. Folder structure may look like below.
 
 ```
 <parent folder>
@@ -148,11 +148,11 @@ Build setup downloads the ZenDNN, AOCL BLIS and FBGEMM repos into `third_party` 
     |------><ZenDNN_PyTorch_Plugin>
 ```
 >NOTE:
-> 1. The recommended values of `ZENDNN_PT_USE_LOCAL_ZENDNN` , `ZENDNN_PT_USE_LOCAL_BLIS` and `ZENDNN_PT_USE_LOCAL_FBGEMM` are 0 , 0 and 0 respectively. Default values are the same as recommended values.
+> 1. The recommended values of `ZENTORCH_USE_LOCAL_ZENDNN` , `ZENTORCH_USE_LOCAL_BLIS` and `ZENTORCH_USE_LOCAL_FBGEMM` are 0 , 0 and 0 respectively. Default values are the same as recommended values.
 >```bash
->export ZENDNN_PT_USE_LOCAL_ZENDNN=0
->export ZENDNN_PT_USE_LOCAL_BLIS=0
->export ZENDNN_PT_USE_LOCAL_FBGEMM=0
+>export ZENTORCH_USE_LOCAL_ZENDNN=0
+>export ZENTORCH_USE_LOCAL_BLIS=0
+>export ZENTORCH_USE_LOCAL_FBGEMM=0
 >```
 > 2. ZenDNN repository can be cloned using command<br> `git clone https://github.com/amd/ZenDNN.git`
 > 3. AOCL BLIS can be cloned using command<br> `git clone https://github.com/amd/blis.git`
