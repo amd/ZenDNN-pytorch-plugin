@@ -5,7 +5,7 @@
 
 #pragma once
 
-#include "ZenDNNUtils.hpp"
+#include "Utils.hpp"
 #include <torch/all.h>
 
 using namespace zendnn;

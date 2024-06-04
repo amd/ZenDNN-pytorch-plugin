@@ -9,7 +9,7 @@
 
 #include <torch/extension.h>
 // needs to be included only once in library.
-#include "ZenDNNSingletons.hpp"
+#include "Singletons.hpp"
 
 namespace zentorch {
 

@@ -4,7 +4,7 @@
  ******************************************************************************/
 #pragma once
 
-#include "ZenTorchMemory.hpp"
+#include "Memory.hpp"
 
 namespace zentorch {
 

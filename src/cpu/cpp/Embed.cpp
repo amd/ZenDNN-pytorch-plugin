@@ -3,8 +3,8 @@
  * All rights reserved.
  ******************************************************************************/
 
-#include "ZenTorchEmbedUtils.hpp"
-#include "ZenTorchMemory.hpp"
+#include "EmbedUtils.hpp"
+#include "Memory.hpp"
 #define ZENDNN_EMBED_THRDS 16
 
 using namespace zendnn;

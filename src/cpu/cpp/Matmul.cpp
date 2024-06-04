@@ -3,8 +3,8 @@
  * All rights reserved.
  ******************************************************************************/
 
-#include "ZenTorchMatmulUtils.hpp"
-#include "ZenTorchMemory.hpp"
+#include "MatmulUtils.hpp"
+#include "Memory.hpp"
 
 namespace zentorch {
 

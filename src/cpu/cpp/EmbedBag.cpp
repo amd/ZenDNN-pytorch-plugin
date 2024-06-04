@@ -3,8 +3,8 @@
  * All rights reserved.
  ******************************************************************************/
 
-#include "ZenTorchEmbedUtils.hpp"
-#include "ZenTorchMemory.hpp"
+#include "EmbedUtils.hpp"
+#include "Memory.hpp"
 #include <ATen/ParallelOpenMP.h>
 #define ZENDNN_EMBED_BAG_THRDS 16
 

@@ -17,7 +17,7 @@
    zentorch_<corresponding op name>.
 */
 
-#include "ZenTorchOps.hpp"
+#include "Ops.hpp"
 
 TORCH_LIBRARY(zentorch, m) {
   m.def("zentorch_embedding_bag(Tensor weight, Tensor indices, Tensor offsets, "

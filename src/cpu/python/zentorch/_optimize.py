@@ -9,7 +9,7 @@ import zentorch._C  # noqa
 # import the custom logging module
 from ._logging import get_logger
 from ._util import save_graph
-from ._zentorch_op_replacement import (
+from ._op_replacement import (
     replace_with_zentorch_ops,
     is_bias_1d_tensor,
     numdims_tensor,
@@ -18,7 +18,7 @@ from ._zentorch_op_replacement import (
 )
 
 # TODO: Add support for horizontal_mlp_fusion
-from ._zentorch_custom_op_replacement import (
+from ._custom_op_replacement import (
     emb_ops_horizontal_fusion,
     vertical_mlp_fusion,
     eb_group_mlp_group_fusion,
