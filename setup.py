@@ -5,7 +5,7 @@
 
 from setuptools import setup
 from torch.utils.cpp_extension import BuildExtension, CppExtension
-import torch
+from torch.torch_version import __version__
 from os.path import join as Path
 import os
 import glob
@@ -87,7 +87,7 @@ def subproc_communicate(cmd):
 # Define env values
 PACKAGE_NAME = "zentorch"
 PACKAGE_VERSION = "4.2.0"
-PT_VERSION = torch.__version__
+PT_VERSION = __version__
 
 
 def get_commit_hash(base_dir):
@@ -118,6 +118,20 @@ wheel_file_dependencies = ["numpy", "torch"]
 long_description = ""
 with open(Path(project_root_dir, "DESCRIPTION.md"), encoding="utf-8") as f:
     long_description = f.read()
+
+
+config_file = "_build_info.py"
+
+_build_info_path = os.path.join(
+    project_root_dir, "src", "cpu", "python", PACKAGE_NAME, config_file
+)
+
+_build_config = "# PyTorch Build Version:\n"
+_build_config += '__torchversion__ = "{}"\n'.format(PT_VERSION)
+
+with open(_build_info_path, "w") as f:
+    f.write(_build_config)
+    f.close()
 
 
 def main():

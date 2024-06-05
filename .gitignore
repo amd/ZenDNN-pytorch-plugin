@@ -3,3 +3,4 @@ dist/
 third_party/
 *.egg-info/
 src/cpu/cpp/Config.hpp
+src/cpu/python/zentorch/_build_info.py
