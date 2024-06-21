@@ -3,6 +3,7 @@
 # All rights reserved.
 # ******************************************************************************
 
+import sys
 import torch
 import zentorch._C  # noqa
 
@@ -15,6 +16,8 @@ from ._op_replacement import (
     numdims_tensor,
     are_args_same_dtype,
     get_tensor,
+    at_to_zen_op_dict,
+    zen_to_zen_op_dict,
 )
 
 # TODO: Add support for horizontal_mlp_fusion
@@ -43,8 +46,22 @@ def optimize(fx_graph):
 
     logger.info("Optimizing the fx_graph with zentorch ops.")
 
-    # Replacing ops to zentorch ops
-    optimized_graph = replace_with_zentorch_ops(fx_graph)
+    # Replacing ops with zentorch ops
+    # first we check if ipex has been imported anywhere in the code,
+    # then we append the ipex dict to op replacement
+    op_dict_lst = [at_to_zen_op_dict]
+    if "intel_extension_for_pytorch" in sys.modules:
+        ipex_ops = torch.ops.torch_ipex
+        # add ipex rope replacement, no condition as of now
+        ipex_to_zen_op_dict = {
+            ipex_ops.rotary_position_embedding.default: (
+                zt_ops.zentorch_rope.default,
+                None,
+            ),
+        }
+        op_dict_lst.append(ipex_to_zen_op_dict)
+    op_dict_lst.append(zen_to_zen_op_dict)
+    optimized_graph = replace_with_zentorch_ops(fx_graph, op_dict_lst)
 
     # Op fusions supported by zentorch
     optimized_graph = zentorch_op_fusion(optimized_graph)

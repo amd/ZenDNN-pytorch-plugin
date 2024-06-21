@@ -261,7 +261,6 @@ def meta_zentorch_vertical_mlp_group(self, inputs, weight, betas, alphas, fuse):
     for idx in range(len(weight)):
         inputs = zentorch_addmm_mappings[fuse[idx]](
             self[idx], inputs, weight[idx], betas[idx], alphas[idx]
-
         )
 
     return inputs.new_empty(inputs.size())
@@ -320,6 +319,18 @@ def meta_zentorch_fused_eb_mlp(
     return output
 
 
+# meta registration for RoPE
+@register_meta("zentorch_rope")
+def meta_zentorch_rope(t_in, t_emb_pos, t_pos, N, H, offset, rotary_dim):
+    in_sz = t_in.size()
+    B = in_sz[0]
+    S = in_sz[1]
+    query = torch.empty((B, S, N, H), dtype=t_in.dtype, device=t_in.device)
+    key = torch.empty((B, S, N, H), dtype=t_in.dtype, device=t_in.device)
+    value = torch.empty((B, S, N, H), dtype=t_in.dtype, device=t_in.device)
+    return query, key, value
+
+
 make_fallback(torch.ops.zentorch.zentorch_addmm)
 make_fallback(torch.ops.zentorch.zentorch_addmm_relu)
 make_fallback(torch.ops.zentorch.zentorch_addmm_gelu_tanh)
@@ -341,3 +352,4 @@ make_fallback(torch.ops.zentorch.zentorch_horizontal_embedding_group)
 make_fallback(torch.ops.zentorch.zentorch_vertical_mlp_group)
 make_fallback(torch.ops.zentorch.zentorch_attn_horizontal_mlp_group)
 make_fallback(torch.ops.zentorch.zentorch_fused_eb_mlp)
+make_fallback(torch.ops.zentorch.zentorch_rope)

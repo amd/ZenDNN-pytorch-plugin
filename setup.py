@@ -140,6 +140,21 @@ include_dirs = [
 zentorch_build_version = os.getenv("ZenTorch_BUILD_VERSION", PACKAGE_VERSION)
 git_sha = get_commit_hash(project_root_dir)
 wheel_file_dependencies = ["numpy", "torch"]
+# -Wno-unknown-pragma is for [unroll pragma], to be removed
+# -fopenmp is needed for omp related pragmas (simd etc.)
+extra_compile_args = [
+    "-Werror",
+    "-fopenmp",
+    "-Wno-unknown-pragmas",
+    "-DZENTORCH_VERSION_HASH=" + git_sha,
+    "-DZENTORCH_VERSION=" + PACKAGE_VERSION,
+    "-DPT_VERSION=" + PT_VERSION,
+]
+# add the "-O2" optimization only when we are doing release build
+# check for release build
+if not os.getenv("DEBUG", 0):
+    extra_compile_args += ["-O2"]
+
 
 long_description = ""
 with open(Path(project_root_dir, "DESCRIPTION.md"), encoding="utf-8") as f:
@@ -191,12 +206,7 @@ def main():
                 name=f"{PACKAGE_NAME}._C",
                 sources=sources,
                 include_dirs=include_dirs,
-                extra_compile_args=[
-                    "-Werror",
-                    "-DZENTORCH_VERSION_HASH=" + git_sha,
-                    "-DZENTORCH_VERSION=" + PACKAGE_VERSION,
-                    "-DPT_VERSION=" + PT_VERSION,
-                ],
+                extra_compile_args=extra_compile_args,
             )
         ],
         cmdclass={

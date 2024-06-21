@@ -103,4 +103,10 @@ std::vector<at::Tensor> zentorch_fused_eb_mlp(
     const at::ArrayRef<double> &mlp_betas,
     const at::ArrayRef<double> &mlp_alphas, const at::IntArrayRef &mlp_fuse,
     std::string zentorch_op_name);
+
+std::tuple<at::Tensor, at::Tensor, at::Tensor>
+zentorch_rope_impl(at::Tensor &t_in, at::Tensor &t_emb_pos, at::Tensor &t_pos,
+                   int64_t N, int64_t H, int64_t offset, int64_t rotary_dim,
+                   std::string zentorch_op_name);
+
 } // namespace zentorch

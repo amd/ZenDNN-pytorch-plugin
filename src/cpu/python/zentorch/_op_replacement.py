@@ -131,32 +131,63 @@ def is_bias_1d_tensor(fx_graph, node):
     return is_arg_1d_tensor(fx_graph, node, 0)
 
 
-def replace_with_zentorch_ops(fx_graph):
-    op_dict = {
-        at_ops._embedding_bag.default: (
-            zt_ops.zentorch_embedding_bag.default,
-            is_embedding_bag_op_replacable,
-        ),
-        at_ops.embedding.default: (
-            zt_ops.zentorch_embedding.default,
-            is_embedding_op_replacable,
-        ),
-        at_ops.mm.default: (zt_ops.zentorch_mm.default, None),
-        at_ops.bmm.default: (zt_ops.zentorch_bmm.default, None),
-        at_ops.addmm.default: (zt_ops.zentorch_addmm.default, None),
-        at_ops.baddbmm.default: (
-            zt_ops.zentorch_baddbmm.default,
-            is_baddbmm_replacable,
-        ),
-    }
+at_to_zen_op_dict = {
+    at_ops._embedding_bag.default: (
+        zt_ops.zentorch_embedding_bag.default,
+        is_embedding_bag_op_replacable,
+    ),
+    at_ops.embedding.default: (
+        zt_ops.zentorch_embedding.default,
+        is_embedding_op_replacable,
+    ),
+    at_ops.mm.default: (zt_ops.zentorch_mm.default, None),
+    at_ops.bmm.default: (zt_ops.zentorch_bmm.default, None),
+    at_ops.addmm.default: (zt_ops.zentorch_addmm.default, None),
+    at_ops.baddbmm.default: (
+        zt_ops.zentorch_baddbmm.default,
+        is_baddbmm_replacable,
+    ),
+}
+
+# currently only zentorch_addmm is the conditional zentorch op
+zen_to_zen_op_dict = {
+    zt_ops.zentorch_addmm.default: (
+        zt_ops.zentorch_addmm_1dbias.default,
+        is_bias_1d_tensor,
+    ),
+}
+
+
+# generalized function for op-replacement
+# this will take a list of dictionaries and iterate over each dict
+# for replacement of the ops -> at, ipex [contitional], zen
+def replace_with_zentorch_ops(fx_graph: torch.fx.GraphModule, op_dict_lst: list):
     # Loop through the nodes in fx_graph.graph
     # Replacing aten ops with respective zentorch ops
     for node in fx_graph.graph.nodes:
-        # Checking for op default implementation to be replaced.
-        if node.target in op_dict.keys():
-            target_op = node.target
-            if op_dict[target_op][1] is not None:
-                if op_dict[target_op][1](fx_graph, node):
+        # Checking for op implementation to be replaced.
+        for op_dict in op_dict_lst:
+            if node.target in op_dict.keys():
+                target_op = node.target
+                if op_dict[target_op][1] is not None:
+                    if op_dict[target_op][1](fx_graph, node):
+                        logger.info(
+                            "Now replacing default "
+                            + str(target_op)
+                            + " with "
+                            + str(op_dict[target_op][0])
+                            + "!"
+                        )
+                        node.target = op_dict[target_op][0]
+                    else:
+                        logger.info(
+                            "Not able to replace default "
+                            + str(target_op)
+                            + " with "
+                            + str(op_dict[target_op][0])
+                            + " due to non-fulfilment of the condition."
+                        )
+                else:
                     logger.info(
                         "Now replacing default "
                         + str(target_op)
@@ -165,27 +196,5 @@ def replace_with_zentorch_ops(fx_graph):
                         + "!"
                     )
                     node.target = op_dict[target_op][0]
-                else:
-                    logger.info(
-                        "Not able to replace default "
-                        + str(target_op)
-                        + " with "
-                        + str(op_dict[target_op][0])
-                        + " due to non-fulfilment of the condition."
-                    )
-            else:
-                logger.info(
-                    "Now replacing default "
-                    + str(target_op)
-                    + " with "
-                    + str(op_dict[target_op][0])
-                    + "!"
-                )
-                node.target = op_dict[target_op][0]
-
-            # currently only zentorch_addmm is the conditional zentorch op
-            if node.target == zt_ops.zentorch_addmm.default:
-                if is_bias_1d_tensor(fx_graph, node):
-                    node.target = zt_ops.zentorch_addmm_1dbias.default
 
     return fx_graph

@@ -110,6 +110,9 @@ TORCH_LIBRARY(zentorch, m) {
       "Tensor mlp_inputs, Tensor[] mlp_weight, float[] mlp_betas, "
       "float[] mlp_alphas, int[] mlp_fuse, str zentorch_op_name = "
       "'zentorch::zentorch_fused_eb_mlp') -> Tensor[]");
+  m.def("zentorch_rope(Tensor t_in, Tensor t_emb_pos, Tensor t_pos, int N, int "
+        "H, int offset, int rotary_dim, str zentorch_op_name = "
+        "'zentorch::zentorch_rope') -> (Tensor, Tensor, Tensor)");
 }
 
 TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
@@ -137,6 +140,7 @@ TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
   m.impl("zentorch_attn_horizontal_mlp_group",
          zentorch::zentorch_attn_horizontal_mlp_group);
   m.impl("zentorch_fused_eb_mlp", zentorch::zentorch_fused_eb_mlp);
+  m.impl("zentorch_rope", zentorch::zentorch_rope_impl);
 }
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
