@@ -17,7 +17,7 @@ zt_ops = torch.ops.zentorch
 
 # When arg_index is none, it will check for node
 def get_tensor(fx_graph, node, arg_index=None):
-    if arg_index:
+    if arg_index is not None:
         is_fake_tensor = bool(node.args[arg_index].meta)
         if is_fake_tensor:
             # arg node in fx_graph generated through torch.compile
