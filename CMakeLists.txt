@@ -12,6 +12,9 @@ set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake/modules)
 # build and add ZenDNN and BLIS libraries
 find_package(ZENDNN REQUIRED)
 
+# build mha kernel
+find_package(CPUkernels REQUIRED)
+
 configure_file ("${CMAKE_CURRENT_SOURCE_DIR}/src/cpu/cpp/Config.hpp.in"
             "${CMAKE_CURRENT_SOURCE_DIR}/src/cpu/cpp/Config.hpp" )
 
@@ -35,4 +38,4 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 # Link against ZenDNN and AOCL BLIS
-target_link_libraries(zentorch INTERFACE ${ZENDNN_LIBRARIES} ${BLIS_LIBRARIES} ${FBGEMM_LIBRARIES})
+target_link_libraries(zentorch INTERFACE ${MHA_LIBRARIES} ${ZENDNN_LIBRARIES} ${BLIS_LIBRARIES} ${FBGEMM_LIBRARIES})

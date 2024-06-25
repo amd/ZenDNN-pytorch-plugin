@@ -58,6 +58,10 @@ def optimize(fx_graph):
                 zt_ops.zentorch_rope.default,
                 None,
             ),
+            ipex_ops.masked_multihead_self_attention.default: (
+                zt_ops.zentorch_masked_multihead_self_attention.default,
+                None,
+            ),
         }
         op_dict_lst.append(ipex_to_zen_op_dict)
     op_dict_lst.append(zen_to_zen_op_dict)

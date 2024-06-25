@@ -13,7 +13,7 @@ from torch.fx.experimental.proxy_tensor import make_fx
 from parameterized import parameterized
 from itertools import product
 from torch.torch_version import TorchVersion
-
+from test_zentorch_llm import MaskedMHATest
 
 try:
     import zentorch
@@ -2512,6 +2512,27 @@ class MiniRoPETester(TestCase):
                     self.batch_size, self.seq_len, kv_head, self.head_size
                 ),
             )
+
+
+class MiniMHATester(TestCase):
+    def test_mha(self):
+        mha = MaskedMHATest()
+        beam_size_list = [1]
+        batch_size_list = [1]
+        head_size = 256
+        head_num = 16
+        head_num_kv_list = [1]
+        max_seq_len = 64
+        first_seq_len = 32
+        mha._test_mha(
+            beam_size_list,
+            batch_size_list,
+            head_size,
+            head_num,
+            head_num_kv_list,
+            max_seq_len,
+            first_seq_len,
+        )
 
 
 if __name__ == "__main__":

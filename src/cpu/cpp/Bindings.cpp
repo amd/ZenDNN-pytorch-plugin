@@ -18,6 +18,7 @@
 */
 
 #include "Ops.hpp"
+#include "kernels/zen_cpukernels_ops.hpp"
 
 TORCH_LIBRARY(zentorch, m) {
   m.def("zentorch_embedding_bag(Tensor weight, Tensor indices, Tensor offsets, "
@@ -113,6 +114,14 @@ TORCH_LIBRARY(zentorch, m) {
   m.def("zentorch_rope(Tensor t_in, Tensor t_emb_pos, Tensor t_pos, int N, int "
         "H, int offset, int rotary_dim, str zentorch_op_name = "
         "'zentorch::zentorch_rope') -> (Tensor, Tensor, Tensor)");
+  m.def("zentorch_masked_multihead_self_attention(Tensor query, Tensor key, "
+        "Tensor value, Tensor key_cache, "
+        "Tensor value_cache, Tensor beam_idx, Tensor seq_info, float "
+        "scale_attn, int max_positions, "
+        "Tensor? head_mask, Tensor? attention_mask, bool? "
+        "add_casual_mask=None, str zentorch_op_name = "
+        "'zentorch::zentorch_masked_multihead_self_attention')-> (Tensor, "
+        "Tensor, Tensor, Tensor, Tensor)");
 }
 
 TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
@@ -141,6 +150,8 @@ TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
          zentorch::zentorch_attn_horizontal_mlp_group);
   m.impl("zentorch_fused_eb_mlp", zentorch::zentorch_fused_eb_mlp);
   m.impl("zentorch_rope", zentorch::zentorch_rope_impl);
+  m.impl("zentorch_masked_multihead_self_attention",
+         zentorch::zentorch_masked_multihead_self_attention_impl);
 }
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {

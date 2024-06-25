@@ -331,6 +331,45 @@ def meta_zentorch_rope(t_in, t_emb_pos, t_pos, N, H, offset, rotary_dim):
     return query, key, value
 
 
+@register_meta("zentorch_masked_multihead_self_attention")
+def meta_masked_multihead_self_attention(
+    query,
+    key,
+    value,
+    key_cache,
+    value_cache,
+    beam_idx,
+    seq_info,
+    scale_attn,
+    max_positions,
+    head_mask,
+    attention_mask,
+    add_casual_mask=None,
+):
+    attn_output = query.new_empty(
+        (query.shape[0], query.shape[2], query.shape[1], query.shape[3])
+    )
+    if query.dtype == torch.bfloat16:
+        attn_output.as_strided_(
+            attn_output.shape,
+            (
+                query.shape[1] * query.shape[2] * query.shape[3],
+                query.shape[3],
+                query.shape[2] * query.shape[3],
+                1,
+            ),
+        )
+    attn_weights = None
+    key_cache_out = query.new_empty(
+        (key_cache.shape[0], key_cache.shape[1], key.shape[2], key.shape[3])
+    )
+    value_cache_out = query.new_empty(
+        (value_cache.shape[0], value_cache.shape[1], value.shape[2], value.shape[3])
+    )
+    beam_idx_out = query.new_empty(beam_idx.shape)
+    return (attn_output, attn_weights, key_cache_out, value_cache_out, beam_idx_out)
+
+
 make_fallback(torch.ops.zentorch.zentorch_addmm)
 make_fallback(torch.ops.zentorch.zentorch_addmm_relu)
 make_fallback(torch.ops.zentorch.zentorch_addmm_gelu_tanh)
@@ -353,3 +392,4 @@ make_fallback(torch.ops.zentorch.zentorch_vertical_mlp_group)
 make_fallback(torch.ops.zentorch.zentorch_attn_horizontal_mlp_group)
 make_fallback(torch.ops.zentorch.zentorch_fused_eb_mlp)
 make_fallback(torch.ops.zentorch.zentorch_rope)
+make_fallback(torch.ops.zentorch.zentorch_masked_multihead_self_attention)

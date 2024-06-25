@@ -10,6 +10,7 @@ from os.path import join as Path
 import os
 import glob
 import subprocess
+import torch
 
 
 class CustomBuildExtension(BuildExtension):
@@ -37,6 +38,8 @@ class CustomBuildExtension(BuildExtension):
             exit(1)
 
         build_type = "Debug" if os.getenv("DEBUG", 0) == "1" else "Release"
+        # Finding torch cmake path that will be used to find Torch.cmake
+        torch_cmake_prefix_path = torch.utils.cmake_prefix_path
         working_dir = os.path.abspath(os.path.dirname(__file__))
         cmake_cmd = [
             "cmake",
@@ -45,6 +48,7 @@ class CustomBuildExtension(BuildExtension):
             "-B",
             self.build_temp,
             f"-DCMAKE_BUILD_TYPE={build_type}",
+            f"-DCMAKE_PREFIX_PATH={torch_cmake_prefix_path}",
         ]
         self.spawn(cmake_cmd)
         self.spawn(["make", "-j", "-C", self.build_temp])
@@ -64,6 +68,7 @@ class CustomBuildExtension(BuildExtension):
             Path(project_root_dir, self.build_temp, "lib", "libblis-mt.a"),
             Path(project_root_dir, self.build_temp, "lib", "libfbgemm.a"),
             Path(project_root_dir, self.build_temp, "lib", "libasmjit.a"),
+            Path(project_root_dir, self.build_temp, "lib", "libCPUkernels.a"),
         ]
 
         extension.extra_objects.extend(extra_objects)
