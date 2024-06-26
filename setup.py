@@ -125,7 +125,7 @@ def get_required_ipex_version(pt_version):
 
 # Define env values
 PACKAGE_NAME = "zentorch"
-PACKAGE_VERSION = "4.2.0"
+PACKAGE_VERSION = "5.0.0"
 PT_VERSION = __version__
 
 # Initializing all the parameters for the setup function
