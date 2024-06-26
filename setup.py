@@ -5,7 +5,7 @@
 
 from setuptools import setup
 from torch.utils.cpp_extension import BuildExtension, CppExtension
-from torch.torch_version import __version__
+from torch.torch_version import __version__, TorchVersion
 from os.path import join as Path
 import os
 import glob
@@ -80,16 +80,6 @@ def subproc_communicate(cmd):
     return rc, out.decode("ascii", "ignore"), err.decode("ascii", "ignore")
 
 
-#   ZenTorch_BUILD_VERSION
-#     specify the version of zentorch, rather than the hard-coded version
-#     in this file; used when we're building binaries for distribution
-
-# Define env values
-PACKAGE_NAME = "zentorch"
-PACKAGE_VERSION = "5.0.0"
-PT_VERSION = __version__
-
-
 def get_commit_hash(base_dir):
     cwd = os.getcwd()
     os.chdir(base_dir)
@@ -103,6 +93,42 @@ def get_commit_hash(base_dir):
     return git_sha
 
 
+def get_required_ipex_version(pt_version):
+    # This function returns the most suitable version of
+    # intel_extension_for_pytorch to be installed, which is required for
+    # zentorch.llm.optimize to work. This version is based on the
+    # version of torch that is being used.
+
+    torch_version = str(pt_version).split(".")
+    torch_major_version = torch_version[0]
+    torch_minor_version = torch_version[1]
+    torch_major_minor_version = TorchVersion(
+        ".".join([torch_major_version, torch_minor_version])
+    )
+
+    # Check for minimum torch version of 2.3. This is required for
+    # intel_extension_for_pytorch to work under the hood.
+    if torch_major_minor_version >= TorchVersion("2.3.0"):
+        required_ipex_version = ".".join(
+            [torch_major_version, torch_minor_version, "0"]
+        )
+
+        # Behaviour of tilda in the installation process
+        # "torch~=2.1" installs PT 2.3. i.e Latest in 2.x
+        # "torch~=2.1.1" installs PT 2.1.2 i.e Latest in 2.1.x
+        return f"intel_extension_for_pytorch~={required_ipex_version}"
+
+
+#   ZenTorch_BUILD_VERSION
+#     specify the version of zentorch, rather than the hard-coded version
+#     in this file; used when we're building binaries for distribution
+
+# Define env values
+PACKAGE_NAME = "zentorch"
+PACKAGE_VERSION = "4.2.0"
+PT_VERSION = __version__
+
+# Initializing all the parameters for the setup function
 project_root_dir = os.path.abspath(os.path.dirname(__file__))
 sources = glob.glob(Path(project_root_dir, "src", "cpu", "cpp", "*.cpp"))
 include_dirs = [
@@ -119,7 +145,6 @@ long_description = ""
 with open(Path(project_root_dir, "DESCRIPTION.md"), encoding="utf-8") as f:
     long_description = f.read()
 
-
 config_file = "_build_info.py"
 
 _build_info_path = os.path.join(
@@ -128,6 +153,18 @@ _build_info_path = os.path.join(
 
 _build_config = "# PyTorch Build Version:\n"
 _build_config += '__torchversion__ = "{}"\n'.format(PT_VERSION)
+
+packages = [PACKAGE_NAME, PACKAGE_NAME + ".llm"]
+extras_require = {}
+
+# maybe_valid_ipex_version will contain either the valid ipex version
+# if torch version is greater than or equal to 2.3.0.
+# If not, maybe_valid_ipex_version will be None.
+maybe_valid_ipex_version = get_required_ipex_version(PT_VERSION)
+if maybe_valid_ipex_version:
+    # pip install zentorch[llm] # ipex
+    # pip install zentorch
+    extras_require["llm"] = maybe_valid_ipex_version
 
 with open(_build_info_path, "w") as f:
     f.write(_build_config)
@@ -147,7 +184,7 @@ def main():
         url="https://developer.amd.com/zendnn",
         # license needs to be added when the source code gets the license
         license="MIT",
-        keywords='pytorch tensor machine learning plugin ZenDNN AMD',
+        keywords="pytorch tensor machine learning plugin ZenDNN AMD",
         install_requires=wheel_file_dependencies,
         ext_modules=[
             CppExtension(
@@ -165,8 +202,9 @@ def main():
         cmdclass={
             "build_ext": CustomBuildExtension,
         },
-        packages=[PACKAGE_NAME],
+        packages=packages,
         package_dir={"": Path("src", "cpu", "python")},
+        extras_require=extras_require,
     )
 
 
