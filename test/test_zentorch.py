@@ -17,14 +17,10 @@ from torch.torch_version import TorchVersion
 
 try:
     import zentorch
-    has_zentorch = True
+
+    HAS_ZENTORCH = True
 except ImportError:
-    has_zentorch = False
-
-skip_test_pt_2_0 = False
-
-if torch.__version__[:3] == '2.0':
-    skip_test_pt_2_0 = True
+    HAS_ZENTORCH = False
 
 supported_dtypes = ["float32"]
 if zentorch._C.is_bf16_supported():
@@ -132,11 +128,10 @@ class Test_Data(metaclass=Singleton):
         return dtypes[str_type]
 
 
-@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class Test_MM_OP(TestCase):
 
     @parameterized.expand(supported_dtypes)
-    @unittest.skipIf(skip_test_pt_2_0, "Skipping test due to PT2.0 instability")
     def test_matmul_variants(self, dtype):
         data = Test_Data()
         data.create_data(dtype)
@@ -199,11 +194,10 @@ class Test_MM_OP(TestCase):
         )
 
 
-@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class Test_ADDMM_OP(TestCase):
 
     @parameterized.expand(supported_dtypes)
-    @unittest.skipIf(skip_test_pt_2_0, "Skipping test due to PT2.0 instability")
     def test_addmm_variants(self, dtype):
         data = Test_Data()
         data.create_data(dtype)
@@ -290,7 +284,6 @@ class Test_ADDMM_OP(TestCase):
         )
 
     @parameterized.expand(supported_dtypes)
-    @unittest.skipIf(skip_test_pt_2_0, "Skipping test due to PT2.0 instability")
     def test_addmm_relu_with_kw(self, dtype):
         data = Test_Data()
         data.create_data(dtype)
@@ -339,7 +332,6 @@ class Test_ADDMM_OP(TestCase):
         )
 
     @parameterized.expand(supported_dtypes)
-    @unittest.skipIf(skip_test_pt_2_0, "Skipping test due to PT2.0 instability")
     def test_addmm_relu_without_kw(self, dtype):
         data = Test_Data()
         data.create_data(dtype)
@@ -352,11 +344,10 @@ class Test_ADDMM_OP(TestCase):
         )
 
 
-@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class Test_BMM_OP(TestCase):
 
     @parameterized.expand(supported_dtypes)
-    @unittest.skipIf(skip_test_pt_2_0, "Skipping test due to PT2.0 instability")
     def test_bmm_variants(self, dtype):
         data = Test_Data()
         data.create_data(dtype)
@@ -390,11 +381,10 @@ class Test_BMM_OP(TestCase):
         )
 
 
-@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class Test_BADDBMM_OP(TestCase):
 
     @parameterized.expand(supported_dtypes)
-    @unittest.skipIf(skip_test_pt_2_0, "Skipping test due to PT2.0 instability")
     def test_baddbmm_variants(self, dtype):
         data = Test_Data()
         data.create_data(dtype)
@@ -430,7 +420,6 @@ class Test_BADDBMM_OP(TestCase):
         )
 
     @parameterized.expand(supported_dtypes)
-    @unittest.skipIf(skip_test_pt_2_0, "Skipping test due to PT2.0 instability")
     def test_baddbmm_with_kw(self, dtype):
         data = Test_Data()
         data.create_data(dtype)
@@ -462,7 +451,7 @@ class Test_BADDBMM_OP(TestCase):
         )
 
 
-@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class Test_MATMUL_IMPL_OP(TestCase):
 
     @parameterized.expand(supported_dtypes)
@@ -487,7 +476,7 @@ class Test_MATMUL_IMPL_OP(TestCase):
         )
 
 
-@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class TEST_EMBEDDING_BAG(TestCase):
 
     @parameterized.expand(supported_dtypes)
@@ -613,7 +602,7 @@ class TEST_EMBEDDING_BAG(TestCase):
         )
 
 
-@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class TEST_EMBEDDING(TestCase):
 
     @parameterized.expand(supported_dtypes)
@@ -688,7 +677,7 @@ class TEST_EMBEDDING(TestCase):
         self.assertEqual(model_output, compiled_graph_output)
 
 
-@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class TEST_EMBEDDING_BAG_GROUP(TestCase):
 
     @parameterized.expand(
@@ -808,7 +797,7 @@ class TEST_EMBEDDING_BAG_GROUP(TestCase):
         self.assertEqual(native_output, compiled_output)
 
 
-@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class TEST_EMBEDDING_GROUP(TestCase):
 
     @parameterized.expand(supported_dtypes)
@@ -966,7 +955,7 @@ class TEST_EMBEDDING_GROUP(TestCase):
         self.assertEqual(native_output, compiled_output)
 
 
-@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class TEST_HORIZONTAL_MLP(TestCase):
 
     @parameterized.expand(supported_dtypes)
@@ -1072,7 +1061,7 @@ class TEST_HORIZONTAL_MLP(TestCase):
             )
 
 
-@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class TEST_GROUP_MLP(TestCase):
 
     @parameterized.expand(supported_dtypes)
@@ -1175,7 +1164,7 @@ class TEST_GROUP_MLP(TestCase):
             )
 
 
-@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class TEST_GROUP_EB_MLP(TestCase):
 
     @parameterized.expand(supported_dtypes)
@@ -1253,7 +1242,7 @@ class TEST_GROUP_EB_MLP(TestCase):
         self.assertEqual(native_output, compiled_output)
 
 
-@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 # Testing revealed one of the corner cases where the common output node can
 # have heterogeneous nodes like embedding1, embedding2, sum1, sum2, embedding3.
 # To test the above scenario, the following testcases are added.
@@ -1308,7 +1297,7 @@ class TEST_GROUP_EMBED_OPS_WITH_SUM_OPS(TestCase):
         self.assertEqual(native_output, compiled_output)
 
 
-@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class TestBF16Device(TestCase):
     @unittest.skipIf(
         not zentorch._C.is_bf16_supported(), "CPU does not support AVX512 BF16."
@@ -1317,7 +1306,7 @@ class TestBF16Device(TestCase):
         self.assertTrue(zentorch._C.is_bf16_supported(), "CPU supports AVX512 BF16.")
 
 
-@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class CustomModel_Group_EB_MLP_Model(nn.Module):
     def __init__(self, num_embeddings, k):
         super(CustomModel_Group_EB_MLP_Model, self).__init__()
@@ -1338,7 +1327,7 @@ class CustomModel_Group_EB_MLP_Model(nn.Module):
         return outputs
 
 
-@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class CustomModel_Group_MLP_EB_Model(nn.Module):
     def __init__(self, num_embeddings, k):
         super(CustomModel_Group_MLP_EB_Model, self).__init__()
@@ -1408,10 +1397,10 @@ class CustomModel_Group_EB_MLP_Model_multiple_groups(torch.nn.Module):
 
             outputs.append(tmlp_outputs)
 
-        return outputs
+        return torch.sum(torch.concat(outputs, dim=1))
 
 
-@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class Custom_Horizontal_GroupMLP_Model(nn.Module):
     def __init__(self, dtype):
         super(Custom_Horizontal_GroupMLP_Model, self).__init__()
@@ -1443,7 +1432,7 @@ class Custom_Horizontal_GroupMLP_Model(nn.Module):
         return output
 
 
-@unittest.skipIf(not has_zentorch, "PT PLUGIN is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "PT PLUGIN is not installed")
 class Custom_Horizontal_GroupMLP_multi_user_Model(nn.Module):
     def __init__(self, arg_1, dtype):
         super(Custom_Horizontal_GroupMLP_multi_user_Model, self).__init__()
@@ -1475,7 +1464,7 @@ class Custom_Horizontal_GroupMLP_multi_user_Model(nn.Module):
         return output
 
 
-@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class CustomModel_GroupMLP_Model(nn.Module):
     def __init__(self, k, dtype) -> None:
         super(CustomModel_GroupMLP_Model, self).__init__()
@@ -1491,7 +1480,7 @@ class CustomModel_GroupMLP_Model(nn.Module):
         return outputs
 
 
-@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class CustomModel_GroupMLP_Model_Relu(nn.Module):
     def __init__(self, k, dtype) -> None:
         super(CustomModel_GroupMLP_Model_Relu, self).__init__()
@@ -1528,7 +1517,7 @@ class CustomModel_GroupMLP_Model_Relu(nn.Module):
         return outputs
 
 
-@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class CustomModel_GroupMLP_Model_Relu_Gelu(nn.Module):
     def __init__(self, k, dtype) -> None:
         super(CustomModel_GroupMLP_Model_Relu_Gelu, self).__init__()
@@ -1566,7 +1555,7 @@ class CustomModel_GroupMLP_Model_Relu_Gelu(nn.Module):
         return outputs
 
 
-@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class CustomModelEmbeddingBagNN(nn.Module):
     def __init__(self, embedding_dim, output_dim, dtype=torch.float):
         super(CustomModelEmbeddingBagNN, self).__init__()
@@ -1581,7 +1570,7 @@ class CustomModelEmbeddingBagNN(nn.Module):
         return output
 
 
-@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class CustomModelEmbeddingNN(nn.Module):
     def __init__(self, embedding_dim, dtype=torch.float):
         super(CustomModelEmbeddingNN, self).__init__()
@@ -1592,7 +1581,7 @@ class CustomModelEmbeddingNN(nn.Module):
         return embed
 
 
-@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class CustomModel_Emb_EmbBag_Diff_Node(nn.Module):
     def __init__(self, num_embeddings):
         super(CustomModel_Emb_EmbBag_Diff_Node, self).__init__()
@@ -1619,7 +1608,7 @@ class CustomModel_Emb_EmbBag_Diff_Node(nn.Module):
         return torch.cat([output_0, output_1])
 
 
-@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class CustomModel_Emb_EmbBag_Common_Node(nn.Module):
     def __init__(self, num_embeddings):
         super(CustomModel_Emb_EmbBag_Common_Node, self).__init__()
@@ -1643,7 +1632,7 @@ class CustomModel_Emb_EmbBag_Common_Node(nn.Module):
         return output
 
 
-@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class CustomModel_Embedding_Sum_nodes(nn.Module):
     def __init__(self, num_embeddings):
         super(CustomModel_Embedding_Sum_nodes, self).__init__()
@@ -1660,7 +1649,7 @@ class CustomModel_Embedding_Sum_nodes(nn.Module):
         return output
 
 
-@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class CustomModel_EmbeddingBag_Sum_nodes(nn.Module):
     def __init__(self, num_embeddings):
         super(CustomModel_EmbeddingBag_Sum_nodes, self).__init__()
@@ -1679,7 +1668,7 @@ class CustomModel_EmbeddingBag_Sum_nodes(nn.Module):
         return output
 
 
-@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class CustomModel_2D_Embedding(nn.Module):
     def __init__(self, num_embeddings):
         super(CustomModel_2D_Embedding, self).__init__()
@@ -1692,7 +1681,7 @@ class CustomModel_2D_Embedding(nn.Module):
         return output
 
 
-@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class CustomModelEmbeddingBagGroup(nn.Module):
     def __init__(self, num_embeddings):
         super(CustomModelEmbeddingBagGroup, self).__init__()
@@ -1704,26 +1693,24 @@ class CustomModelEmbeddingBagGroup(nn.Module):
         eb_outputs_grp_0 = [
             self.eb_bags_grp_0[i](eb_input, eb_offset) for i in range(5)
         ]
-        concat_eb_tensors_0 = torch.cat(eb_outputs_grp_0)
+        eb_sum_0 = torch.unsqueeze(torch.sum(torch.cat(eb_outputs_grp_0), dim=0), dim=0)
 
         eb_outputs_grp_1 = [
             self.eb_bags_grp_1[i](eb_input, eb_offset) for i in range(10)
         ]
-        concat_eb_tensors_1 = torch.cat(eb_outputs_grp_1)
+        eb_sum_1 = torch.unsqueeze(torch.sum(torch.cat(eb_outputs_grp_1), dim=0), dim=0)
 
         eb_outputs_grp_2 = [
             self.eb_bags_grp_2[i](eb_input, eb_offset) for i in range(6)
         ]
-        concat_eb_tensors_2 = torch.cat(eb_outputs_grp_2)
+        eb_sum_2 = torch.unsqueeze(torch.sum(torch.cat(eb_outputs_grp_2), dim=0), dim=0)
 
-        output = torch.cat(
-                    [concat_eb_tensors_0, concat_eb_tensors_1, concat_eb_tensors_2]
-                )
+        output = torch.cat([eb_sum_0, eb_sum_1, eb_sum_2])
 
         return output
 
 
-@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class CustomModelEmbeddingGroup(nn.Module):
     def __init__(self, num_embeddings):
         super(CustomModelEmbeddingGroup, self).__init__()
@@ -1746,7 +1733,7 @@ class CustomModelEmbeddingGroup(nn.Module):
         return output
 
 
-@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class TestZenTorchVersion(TestCase):
     def test_zentorch_version(self):
         self.assertTrue(zentorch.__version__, metadata.version("zentorch"))
@@ -1895,7 +1882,7 @@ class CustomModelMM_Diff_User_In_Btw(nn.Module):
         return res
 
 
-@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class TestMMRELU(TestCase):
 
     @parameterized.expand(supported_dtypes)
@@ -1951,7 +1938,7 @@ class TestMMRELU(TestCase):
         self.assertEqual(model_output, compiled_graph_output)
 
 
-@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class TestMMADD(TestCase):
 
     @parameterized.expand(supported_dtypes)
@@ -2045,7 +2032,7 @@ class TestMMADD(TestCase):
         self.assertEqual(model_output, compiled_graph_output)
 
 
-@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class TestADDMM_GELU(TestCase):
 
     @parameterized.expand(supported_dtypes)
@@ -2134,7 +2121,7 @@ class TestADDMM_GELU(TestCase):
                     self.assertEqual(model_output, compiled_graph_output)
 
 
-@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class TestADDMM_RELU(TestCase):
 
     @parameterized.expand(supported_dtypes)
@@ -2190,7 +2177,7 @@ class TestADDMM_RELU(TestCase):
         self.assertEqual(inductor_graph_output, zentorch_graph_output)
 
 
-@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class TestLinear_Relu(TestCase):
 
     @parameterized.expand(supported_dtypes)
@@ -2214,7 +2201,7 @@ class TestLinear_Relu(TestCase):
                     )
 
 
-@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class TestLinear_Gelu(TestCase):
 
     @parameterized.expand(supported_dtypes)
@@ -2246,7 +2233,7 @@ class TestLinear_Gelu(TestCase):
         self.assertEqual(model_output, compiled_graph_output)
 
 
-@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
+@unittest.skipIf(not HAS_ZENTORCH, "ZENTORCH is not installed")
 class TestBMMADD(TestCase):
 
     @parameterized.expand(supported_dtypes)
