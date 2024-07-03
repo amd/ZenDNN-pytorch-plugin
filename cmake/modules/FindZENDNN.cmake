@@ -44,7 +44,10 @@ ELSE()
 ENDIF()
 
 # To get BLIS Git Hash
-if(GIT_FOUND)
+# Check if the directory is a Git repository by verifying the existence of the .git directory
+if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/blis/.git")
+    set(BLIS_VERSION_HASH "N/A")
+elseif(GIT_FOUND)
     execute_process(COMMAND ${GIT_EXECUTABLE} -c log.showSignature=false log --no-abbrev-commit --oneline -1 --format=%H
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/third_party/blis
         RESULT_VARIABLE RESULT
@@ -94,7 +97,10 @@ ELSE()
 ENDIF()
 
 # To get FBGEMM Git Hash and Git Tag
-if(GIT_FOUND)
+# Check if the directory is a Git repository by verifying the existence of the .git directory
+if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/FBGEMM/.git")
+    set(FBGEMM_VERSION_HASH "N/A")
+elseif(GIT_FOUND)
     execute_process(COMMAND ${GIT_EXECUTABLE} describe --tags --abbrev=0
             WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/third_party/FBGEMM
         RESULT_VARIABLE RESULT
@@ -137,7 +143,10 @@ ELSE()
 ENDIF()
 
 # To get the ZenDNN Git Hash
-if(GIT_FOUND)
+# Check if the directory is a Git repository by verifying the existence of the .git directory
+if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/ZenDNN/.git")
+    set(ZENDNN_LIB_VERSION_HASH "N/A")
+elseif(GIT_FOUND)
     execute_process(COMMAND ${GIT_EXECUTABLE} -c log.showSignature=false log --no-abbrev-commit --oneline -1 --format=%H
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/third_party/ZenDNN
         RESULT_VARIABLE RESULT
