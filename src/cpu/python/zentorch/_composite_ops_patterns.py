@@ -4,10 +4,10 @@
 # ******************************************************************************
 
 import torch
-import collections
 import functools
 from ._compile_backend import torch_version
 from functools import partial
+from ._counters import counters
 
 # Brief steps:
 # 1. define both patterns
@@ -19,7 +19,6 @@ from functools import partial
 # Take a look at gen_attention_patterns.py file in PT repo as well
 
 aten = torch.ops.aten
-counters = collections.defaultdict(collections.Counter)
 
 
 # adding gelu pattern here, find a way to generate patterns
