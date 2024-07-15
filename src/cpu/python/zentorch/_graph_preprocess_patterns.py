@@ -4,9 +4,9 @@
 # ******************************************************************************
 
 import torch
-import collections
-import functools
 from ._compile_backend import torch_version
+from ._utils import counters
+import functools
 from functools import partial
 
 # Brief steps:
@@ -18,74 +18,73 @@ from functools import partial
 # Note : Keep args different for F32 and BF16 patterns.
 # Take a look at gen_attention_patterns.py file in PT repo as well
 
-aten = torch.ops.aten
-counters = collections.defaultdict(collections.Counter)
+at_ops = torch.ops.aten
 
 
 # adding gelu pattern here, find a way to generate patterns
 def _gelu_tanh_pattern(arg_0):
-    mul_0 = aten.mul.Tensor(arg_0, 0.5)
-    pow_0 = aten.pow.Tensor_Scalar(arg_0, 3.0)
-    mul_1 = aten.mul.Tensor(pow_0, 0.044715)
-    add_0 = aten.add.Tensor(arg_0, mul_1)
-    mul_2 = aten.mul.Tensor(add_0, 0.7978845608028654)
-    tanh_0 = aten.tanh.default(mul_2)
-    add_1 = aten.add.Tensor(tanh_0, 1.0)
-    mul_3 = aten.mul.Tensor(mul_0, add_1)
+    mul_0 = at_ops.mul.Tensor(arg_0, 0.5)
+    pow_0 = at_ops.pow.Tensor_Scalar(arg_0, 3.0)
+    mul_1 = at_ops.mul.Tensor(pow_0, 0.044715)
+    add_0 = at_ops.add.Tensor(arg_0, mul_1)
+    mul_2 = at_ops.mul.Tensor(add_0, 0.7978845608028654)
+    tanh_0 = at_ops.tanh.default(mul_2)
+    add_1 = at_ops.add.Tensor(tanh_0, 1.0)
+    mul_3 = at_ops.mul.Tensor(mul_0, add_1)
     return (mul_3,)
 
 
 def _gelu_tanh_replacement(arg_0):
     counters["zentorch"]["pattern_matcher_gelu"] += 1
-    gelu_0 = aten.gelu.default(arg_0, approximate="tanh")
+    gelu_0 = at_ops.gelu.default(arg_0, approximate="tanh")
     return (gelu_0,)
 
 
 def _gelu_tanh_pattern_bf16(arg_0_):
-    mul_0 = aten.mul.Tensor(arg_0_, 0.5)
-    pow_0 = aten.pow.Tensor_Scalar(arg_0_, 3.0)
-    mul_1 = aten.mul.Tensor(pow_0, 0.044715)
-    add_0 = aten.add.Tensor(arg_0_, mul_1)
-    mul_2 = aten.mul.Tensor(add_0, 0.7978845608028654)
-    tanh_0 = aten.tanh.default(mul_2)
-    add_1 = aten.add.Tensor(tanh_0, 1.0)
-    mul_3 = aten.mul.Tensor(mul_0, add_1)
+    mul_0 = at_ops.mul.Tensor(arg_0_, 0.5)
+    pow_0 = at_ops.pow.Tensor_Scalar(arg_0_, 3.0)
+    mul_1 = at_ops.mul.Tensor(pow_0, 0.044715)
+    add_0 = at_ops.add.Tensor(arg_0_, mul_1)
+    mul_2 = at_ops.mul.Tensor(add_0, 0.7978845608028654)
+    tanh_0 = at_ops.tanh.default(mul_2)
+    add_1 = at_ops.add.Tensor(tanh_0, 1.0)
+    mul_3 = at_ops.mul.Tensor(mul_0, add_1)
     return (mul_3,)
 
 
 def _gelu_tanh_replacement_bf16(arg_0_):
     counters["zentorch"]["pattern_matcher_gelu"] += 1
-    gelu_0 = aten.gelu.default(arg_0_, approximate="tanh")
+    gelu_0 = at_ops.gelu.default(arg_0_, approximate="tanh")
     return (gelu_0,)
 
 
 def _gelu_erf_pattern(arg_0):
-    mul_0 = aten.mul.Tensor(arg_0, 0.5)
-    mul_1 = aten.mul.Tensor(arg_0, 0.7071067811865476)
-    erf_0 = aten.erf.default(mul_1)
-    add_0 = aten.add.Tensor(erf_0, 1.0)
-    mul_2 = aten.mul.Tensor(mul_0, add_0)
+    mul_0 = at_ops.mul.Tensor(arg_0, 0.5)
+    mul_1 = at_ops.mul.Tensor(arg_0, 0.7071067811865476)
+    erf_0 = at_ops.erf.default(mul_1)
+    add_0 = at_ops.add.Tensor(erf_0, 1.0)
+    mul_2 = at_ops.mul.Tensor(mul_0, add_0)
     return (mul_2,)
 
 
 def _gelu_erf_replacement(arg_0):
     counters["zentorch"]["pattern_matcher_gelu"] += 1
-    gelu_0 = aten.gelu.default(arg_0)
+    gelu_0 = at_ops.gelu.default(arg_0)
     return (gelu_0,)
 
 
 def _gelu_erf_pattern_bf16(arg_0_):
-    mul_0 = aten.mul.Tensor(arg_0_, 0.5)
-    mul_1 = aten.mul.Tensor(arg_0_, 0.7071067811865476)
-    erf_0 = aten.erf.default(mul_1)
-    add_0 = aten.add.Tensor(erf_0, 1.0)
-    mul_2 = aten.mul.Tensor(mul_0, add_0)
+    mul_0 = at_ops.mul.Tensor(arg_0_, 0.5)
+    mul_1 = at_ops.mul.Tensor(arg_0_, 0.7071067811865476)
+    erf_0 = at_ops.erf.default(mul_1)
+    add_0 = at_ops.add.Tensor(erf_0, 1.0)
+    mul_2 = at_ops.mul.Tensor(mul_0, add_0)
     return (mul_2,)
 
 
 def _gelu_erf_replacement_bf16(arg_0_):
     counters["zentorch"]["pattern_matcher_gelu"] += 1
-    gelu_0 = aten.gelu.default(arg_0_)
+    gelu_0 = at_ops.gelu.default(arg_0_)
     return (gelu_0,)
 
 
@@ -101,34 +100,34 @@ def _gelu_erf_replacement_bf16(arg_0_):
 def _bmm_to_mm_pattern_1_bf16(arg_0_, arg_1_):
     shape_0 = arg_0_.size()
     shape_1 = arg_1_.size()
-    exp_0 = aten.expand.default(arg_0_, [shape_0[0], 1, shape_0[-1]])
-    exp_1 = aten.expand.default(arg_1_, [shape_0[0], shape_1[0], shape_1[1]])
-    bmm_0 = aten.bmm.default(exp_0, exp_1)
+    exp_0 = at_ops.expand.default(arg_0_, [shape_0[0], 1, shape_0[-1]])
+    exp_1 = at_ops.expand.default(arg_1_, [shape_0[0], shape_1[0], shape_1[1]])
+    bmm_0 = at_ops.bmm.default(exp_0, exp_1)
     return (bmm_0,)
 
 
 def _bmm_to_mm_replacement_1_bf16(arg_0_, arg_1_):
     counters["zentorch"]["pattern_matcher_bmm_to_mm"] += 1
-    squeeze_0 = aten.squeeze.dim(arg_0_, 1)
-    mm_0 = aten.mm.default(squeeze_0, arg_1_)
-    unsqueeze_0 = aten.unsqueeze.default(mm_0, 1)
+    squeeze_0 = at_ops.squeeze.dim(arg_0_, 1)
+    mm_0 = at_ops.mm.default(squeeze_0, arg_1_)
+    unsqueeze_0 = at_ops.unsqueeze.default(mm_0, 1)
     return (unsqueeze_0,)
 
 
 def _bmm_to_mm_pattern_1(arg_0, arg_1):
     shape_0 = arg_0.size()
     shape_1 = arg_1.size()
-    exp_0 = aten.expand.default(arg_0, [shape_0[0], 1, shape_0[-1]])
-    exp_1 = aten.expand.default(arg_1, [shape_0[0], shape_1[0], shape_1[1]])
-    bmm_0 = aten.bmm.default(exp_0, exp_1)
+    exp_0 = at_ops.expand.default(arg_0, [shape_0[0], 1, shape_0[-1]])
+    exp_1 = at_ops.expand.default(arg_1, [shape_0[0], shape_1[0], shape_1[1]])
+    bmm_0 = at_ops.bmm.default(exp_0, exp_1)
     return (bmm_0,)
 
 
 def _bmm_to_mm_replacement_1(arg_0, arg_1):
     counters["zentorch"]["pattern_matcher_bmm_to_mm"] += 1
-    squeeze_0 = aten.squeeze.dim(arg_0, 1)
-    mm_0 = aten.mm.default(squeeze_0, arg_1)
-    unsqueeze_0 = aten.unsqueeze.default(mm_0, 1)
+    squeeze_0 = at_ops.squeeze.dim(arg_0, 1)
+    mm_0 = at_ops.mm.default(squeeze_0, arg_1)
+    unsqueeze_0 = at_ops.unsqueeze.default(mm_0, 1)
     return (unsqueeze_0,)
 
 
@@ -140,36 +139,36 @@ def _bmm_to_mm_replacement_1(arg_0, arg_1):
 def _bmm_to_mm_pattern_2_bf16(arg_0_, arg_1_):
     shape_0 = arg_0_.size()
     shape_1 = arg_1_.size()
-    exp_0 = aten.expand.default(arg_0_, arg_0_.size())
-    view_0 = aten.view.default(exp_0, arg_0_.size())
-    exp_1 = aten.expand.default(arg_1_, [shape_0[0], shape_1[0], shape_1[1]])
-    bmm_0 = aten.bmm.default(view_0, exp_1)
+    exp_0 = at_ops.expand.default(arg_0_, arg_0_.size())
+    view_0 = at_ops.view.default(exp_0, arg_0_.size())
+    exp_1 = at_ops.expand.default(arg_1_, [shape_0[0], shape_1[0], shape_1[1]])
+    bmm_0 = at_ops.bmm.default(view_0, exp_1)
     return (bmm_0,)
 
 
 def _bmm_to_mm_replacement_2_bf16(arg_0_, arg_1_):
     counters["zentorch"]["pattern_matcher_bmm_to_mm"] += 1
-    squeeze_0 = aten.squeeze.dim(arg_0_, 0)
-    mm_0 = aten.mm.default(squeeze_0, arg_1_)
-    unsqueeze_0 = aten.unsqueeze.default(mm_0, 1)
+    squeeze_0 = at_ops.squeeze.dim(arg_0_, 0)
+    mm_0 = at_ops.mm.default(squeeze_0, arg_1_)
+    unsqueeze_0 = at_ops.unsqueeze.default(mm_0, 1)
     return (unsqueeze_0,)
 
 
 def _bmm_to_mm_pattern_2(arg_0, arg_1):
     shape_0 = arg_0.size()
     shape_1 = arg_1.size()
-    exp_0 = aten.expand.default(arg_0, arg_0.size())
-    view_0 = aten.view.default(exp_0, arg_0.size())
-    exp_1 = aten.expand.default(arg_1, [shape_0[0], shape_1[0], shape_1[1]])
-    bmm_0 = aten.bmm.default(view_0, exp_1)
+    exp_0 = at_ops.expand.default(arg_0, arg_0.size())
+    view_0 = at_ops.view.default(exp_0, arg_0.size())
+    exp_1 = at_ops.expand.default(arg_1, [shape_0[0], shape_1[0], shape_1[1]])
+    bmm_0 = at_ops.bmm.default(view_0, exp_1)
     return (bmm_0,)
 
 
 def _bmm_to_mm_replacement_2(arg_0, arg_1):
     counters["zentorch"]["pattern_matcher_bmm_to_mm"] += 1
-    squeeze_0 = aten.squeeze.dim(arg_0, 0)
-    mm_0 = aten.mm.default(squeeze_0, arg_1)
-    unsqueeze_0 = aten.unsqueeze.default(mm_0, 1)
+    squeeze_0 = at_ops.squeeze.dim(arg_0, 0)
+    mm_0 = at_ops.mm.default(squeeze_0, arg_1)
+    unsqueeze_0 = at_ops.unsqueeze.default(mm_0, 1)
     return (unsqueeze_0,)
 
 
@@ -200,7 +199,7 @@ def _bmm_to_mm_check_2(match):
 
 def _get_pattern_with_replacement():
     # get the matcher_pass to register with
-    from ._composite_ops_matcher import matcher_pass
+    from ._graph_preprocess_matcher import matcher_pass
 
     arg_1 = partial(torch.empty, (4096, 4096), device="cpu", requires_grad=True)
     a_1 = partial(arg_1, dtype=torch.float)

@@ -8,10 +8,10 @@
 #pragma once
 
 #include <torch/extension.h>
-// needs to be included only once in library.
-#include "Singletons.hpp"
 
 namespace zentorch {
+
+enum POST_OP { NONE, RELU, GELU_TANH, GELU_ERF, SILU, MUL, ADD };
 
 // EmbedBag
 std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor>
@@ -32,20 +32,20 @@ at::Tensor zentorch_embedding_impl(const at::Tensor &weight,
 
 std::string show_config();
 
-at::Tensor zentorch_matmul_impl(const at::Tensor &mat1, const at::Tensor &mat2,
-                                const at::Tensor &bias,
-                                at::Tensor &self_or_result, const float &beta,
-                                const float &alpha, const int64_t &fuse,
-                                std::string zentorch_op_name);
+at::Tensor zentorch_matmul_impl(
+    const at::Tensor &input, const at::Tensor &weight, const at::Tensor &bias,
+    at::Tensor &self_or_result, const std::vector<int64_t> &post_op_ids,
+    const std::vector<at::Tensor> &post_op_buffers, const float &beta,
+    const float &alpha, std::string zentorch_op_name);
 
-template <int fuse = 0>
+template <POST_OP fuse = POST_OP::NONE>
 at::Tensor zentorch_addmm(const at::Tensor &self, const at::Tensor &mat1,
                           const at::Tensor &mat2, const at::Scalar &beta,
                           const at::Scalar &alpha,
                           std::string zentorch_op_name);
 
 // for 1d bias
-template <int fuse = 0>
+template <POST_OP fuse = POST_OP::NONE>
 at::Tensor zentorch_addmm_1dbias(const at::Tensor &self, const at::Tensor &mat1,
                                  const at::Tensor &mat2, const at::Scalar &beta,
                                  const at::Scalar &alpha,
@@ -56,11 +56,21 @@ at::Tensor zentorch_baddbmm(const at::Tensor &self, const at::Tensor &batch1,
                             const at::Scalar &alpha,
                             std::string zentorch_op_name);
 
-template <int fuse = 0>
+template <POST_OP fuse = POST_OP::NONE>
 at ::Tensor zentorch_mm(const at::Tensor &self, const at::Tensor &mat2,
                         std::string zentorch_op_name);
 
 at::Tensor zentorch_bmm(const at::Tensor &self, const at::Tensor &mat2,
+                        std::string zentorch_op_name);
+
+at::Tensor zentorch_mm_silu_mul(const at::Tensor &mat1, const at::Tensor &mat2,
+                                const at::Tensor &mat3,
+                                std::string zentorch_op_name);
+
+at::Tensor
+zentorch_addmm_silu_mul(const at::Tensor &bias, const at::Tensor &mat1,
+                        const at::Tensor &mat2, const at::Tensor &mat3,
+                        const at::Scalar &beta, const at::Scalar &alpha,
                         std::string zentorch_op_name);
 
 std::vector<at::Tensor> zentorch_horizontal_embedding_bag_group(

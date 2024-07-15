@@ -20,7 +20,7 @@ try:
     import zentorch
 
     # for pattern matcher
-    from zentorch._composite_ops_patterns import counters
+    from zentorch._utils import counters
 
     has_zentorch = True
 except ImportError:
@@ -535,6 +535,8 @@ class Test_MATMUL_IMPL_OP(Zentorch_TestCase):
                 self.data.input1d,
                 self.data.empty_bias,
                 self.data.result_m,
+                [],
+                [],
             ),
             atol=1e-3,
             rtol=1e-2,
@@ -547,6 +549,8 @@ class Test_MATMUL_IMPL_OP(Zentorch_TestCase):
                 self.data.input1d,
                 self.data.empty_bias,
                 self.data.result_1,
+                [],
+                [],
             ),
         )
 
@@ -1960,6 +1964,28 @@ class CustomModelMM_Diff_User_In_Btw(nn.Module):
         return res
 
 
+class CustomModel_LinearSiLUMul(nn.Module):
+    def __init__(self, data, bias):
+        super(CustomModel_LinearSiLUMul, self).__init__()
+        self.m = data.m
+        self.n = data.n
+        self.k = data.k
+        self.linear_1 = torch.nn.Linear(self.n, self.k, bias=bias)
+        self.linear_2 = torch.nn.Linear(self.n, self.k, bias=bias)
+        self.silu = torch.nn.SiLU()
+
+    def forward(self, inp):
+        inp_shape = inp.shape
+        inp_view = inp.view(inp_shape[0] * inp_shape[1], inp_shape[2])
+        inp1_view = inp.view(inp_shape[0] * inp_shape[1], inp_shape[2])
+        linear_silu = self.silu(self.linear_1(inp_view))
+        linear_silu_view = linear_silu.view(inp_shape[0], self.m, self.k)
+        linear = self.linear_2(inp1_view)
+        linear_view = linear.view(inp_shape[0], self.m, self.k)
+
+        return linear_silu_view * linear_view
+
+
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class TestMMRELU(Zentorch_TestCase):
 
@@ -2339,6 +2365,194 @@ class TestLinear_Gelu(Zentorch_TestCase):
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
+class TestLinear_SiLU(Zentorch_TestCase):
+
+    @parameterized.expand(supported_dtypes)
+    @torch.inference_mode()
+    def test_zentorch_linear_with_bias_silu(self, dtype):
+        self.data.create_data(dtype)
+        model = nn.Sequential(nn.Linear(self.data.n, self.data.m, bias=True), nn.SiLU())
+        if dtype == "bfloat16":
+            model = model.bfloat16()
+        model_output = model(self.data.input)
+        reset_dynamo()
+        compiled_graph = torch.compile(model, backend="zentorch")
+        compiled_graph_output = compiled_graph(self.data.input)
+        self.assertEqual(model_output, compiled_graph_output)
+
+    @parameterized.expand(supported_dtypes)
+    @torch.inference_mode()
+    def test_zentorch_linear_without_bias_silu(self, dtype):
+        self.data.create_data(dtype)
+        model = nn.Sequential(
+            nn.Linear(self.data.n, self.data.m, bias=False), nn.SiLU()
+        )
+        if dtype == "bfloat16":
+            model = model.bfloat16()
+        model_output = model(self.data.input)
+        reset_dynamo()
+        compiled_graph = torch.compile(model, backend="zentorch")
+        compiled_graph_output = compiled_graph(self.data.input)
+        self.assertEqual(model_output, compiled_graph_output)
+
+    @parameterized.expand(supported_dtypes)
+    @torch.inference_mode()
+    def test_zentorch_mm_silu(self, dtype):
+        self.data.create_data(dtype)
+        native_output = torch.nn.functional.silu(torch.matmul(self.data.x, self.data.y))
+        zentorch_output = torch.ops.zentorch.zentorch_mm_silu(self.data.x, self.data.y)
+
+        self.assertEqual(native_output, zentorch_output)
+
+    @parameterized.expand(supported_dtypes)
+    @torch.inference_mode()
+    def test_zentorch_addmm_silu(self, dtype):
+        self.data.create_data(dtype)
+        native_output = torch.nn.functional.silu(
+            torch.addmm(self.data.input, self.data.x, self.data.y)
+        )
+        zentorch_output = torch.ops.zentorch.zentorch_addmm_silu(
+            self.data.input, self.data.x, self.data.y
+        )
+
+        self.assertEqual(native_output, zentorch_output)
+
+
+@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
+class TestLinear_SiLU_Mul(Zentorch_TestCase):
+
+    @parameterized.expand(supported_dtypes)
+    @torch.inference_mode()
+    def test_zentorch_mm_silu_mul(self, dtype):
+        self.data.create_data(dtype)
+        native_output = (
+            torch.nn.functional.silu(torch.matmul(self.data.x, self.data.y))
+            * self.data.input
+        )
+        zentorch_output = torch.ops.zentorch.zentorch_mm_silu_mul(
+            self.data.x, self.data.y, self.data.input
+        )
+
+        self.assertEqual(native_output, zentorch_output)
+
+    @parameterized.expand(supported_dtypes)
+    @torch.inference_mode()
+    def test_zentorch_addmm_silu_mul(self, dtype):
+        self.data.create_data(dtype)
+        bias = self.data.input.clone()
+        native_output = (
+            torch.nn.functional.silu(torch.addmm(bias, self.data.x, self.data.y))
+            * self.data.input
+        )
+        zentorch_output = torch.ops.zentorch.zentorch_addmm_silu_mul(
+            bias, self.data.x, self.data.y, self.data.input
+        )
+
+        self.assertEqual(native_output, zentorch_output)
+
+    @parameterized.expand(supported_dtypes)
+    @torch.inference_mode()
+    def test_zentorch_linear_silu_mul_with_bias(self, dtype):
+        self.data.create_data(dtype)
+        model = CustomModel_LinearSiLUMul(self.data, bias=True)
+        if dtype == "bfloat16":
+            model = model.bfloat16()
+        model_input = self.data.input.view(1, self.data.m, self.data.n)
+        model_output = model(model_input)
+        reset_dynamo()
+        compiled_graph = torch.compile(model, backend="zentorch")
+        counters.clear()
+        self.assertEqual(
+            counters["zentorch"]["pattern_matcher_addmm_1dbias_silu_mul"], 0
+        )
+        compiled_graph_output = compiled_graph(model_input)
+        self.assertEqual(
+            counters["zentorch"]["pattern_matcher_addmm_1dbias_silu_mul"], 1
+        )
+        self.assertEqual(model_output, compiled_graph_output)
+
+    @parameterized.expand(supported_dtypes)
+    @torch.inference_mode()
+    def test_zentorch_linear_silu_mul_without_bias(self, dtype):
+        self.data.create_data(dtype)
+        model = CustomModel_LinearSiLUMul(self.data, bias=False)
+        if dtype == "bfloat16":
+            model = model.bfloat16()
+        model_input = self.data.input.view(1, self.data.m, self.data.n)
+        model_output = model(model_input)
+        reset_dynamo()
+        compiled_graph = torch.compile(model, backend="zentorch")
+        counters.clear()
+        self.assertEqual(counters["zentorch"]["pattern_matcher_mm_silu_mul"], 0)
+        compiled_graph_output = compiled_graph(model_input)
+        self.assertEqual(counters["zentorch"]["pattern_matcher_mm_silu_mul"], 1)
+        self.assertEqual(model_output, compiled_graph_output)
+
+    @parameterized.expand(supported_dtypes)
+    @torch.inference_mode()
+    def test_mm_silu_mul_mismatched_dimensions(self, dtype):
+        self.data.create_data(dtype)
+        with self.assertRaises(RuntimeError) as context:
+            torch.ops.zentorch.zentorch_mm_silu_mul(
+                self.data.x,
+                self.data.y,
+                torch.reshape(
+                    self.data.input,
+                    (1, list(self.data.input.shape)[0], list(self.data.input.shape)[1]),
+                ),
+            )
+        self.assertTrue(
+            "zentorch_mm_silu_mul: unsupported dims for mat1, mat2 and mat3"
+            in str(context.exception)
+        )
+
+    @parameterized.expand(supported_dtypes)
+    @torch.inference_mode()
+    def test_mm_silu_mul_mismatched_sizes(self, dtype):
+        self.data.create_data(dtype)
+        with self.assertRaises(RuntimeError) as context:
+            torch.ops.zentorch.zentorch_mm_silu_mul(
+                self.data.x, self.data.y, self.data.x
+            )
+        self.assertTrue(
+            "zentorch_mm_silu_mul: unsupported sizes for mat1, mat2 and mat3"
+            in str(context.exception)
+        )
+
+    @parameterized.expand(supported_dtypes)
+    @torch.inference_mode()
+    def test_addmm_silu_mul_mismatched_dimensions(self, dtype):
+        self.data.create_data(dtype)
+        with self.assertRaises(RuntimeError) as context:
+            torch.ops.zentorch.zentorch_addmm_silu_mul(
+                self.data.input,
+                self.data.x,
+                self.data.y,
+                torch.reshape(
+                    self.data.input,
+                    (1, list(self.data.input.shape)[0], list(self.data.input.shape)[1]),
+                ),
+            )
+        self.assertTrue(
+            "zentorch_addmm_silu_mul: unsupported dims for mat1, mat2 and mat3"
+            in str(context.exception)
+        )
+
+    @parameterized.expand(supported_dtypes)
+    @torch.inference_mode()
+    def test_addmm_silu_mul_mismatched_sizes(self, dtype):
+        self.data.create_data(dtype)
+        with self.assertRaises(RuntimeError) as context:
+            torch.ops.zentorch.zentorch_addmm_silu_mul(
+                self.data.input, self.data.x, self.data.y, self.data.x
+            )
+        self.assertTrue(
+            "zentorch_addmm_silu_mul: unsupported sizes for mat1, mat2 and mat3"
+            in str(context.exception)
+        )
+
+
+@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class TestBMMADD(Zentorch_TestCase):
 
     @parameterized.expand(supported_dtypes)
@@ -2415,9 +2629,40 @@ class BMMtoMM_Pattern_2(nn.Module):
         return bmm_0
 
 
+# mm silu pattern
+class AddmmSiLUMulPattern(torch.nn.Module):
+    def __init__(self):
+        super(AddmmSiLUMulPattern, self).__init__()
+
+    def forward(self, inp_0, inp_1, inp_2, bias_0):
+        view_0 = inp_0.view(inp_0.shape[0] * inp_0.shape[1], inp_0.shape[2])
+        mm_0 = torch.ops.zentorch.zentorch_addmm_silu.default(bias_0, view_0, inp_1)
+        view_1 = mm_0.view(inp_0.shape[0], inp_0.shape[1], inp_2.shape[-1])
+        view_2 = inp_2.view(inp_0.shape[0], inp_0.shape[1], inp_2.shape[-1])
+        mul_0 = torch.mul(view_1, view_2)
+        return mul_0
+
+
 # pattern matcher tests
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class TestPatternMatcher(Zentorch_TestCase):
+
+    @parameterized.expand(supported_dtypes)
+    def test_addmm_silu_mul_replacement(self, dtype):
+        decomp_mm_silu_model = AddmmSiLUMulPattern()
+        model = decomp_mm_silu_model.to("cpu").eval()
+        compiled_model = torch.compile(model, backend="zentorch")
+        amp_enabled = True if dtype == "bfloat16" else False
+        new_dtype = self.data.get_torch_type(dtype)
+        inp_0 = torch.rand((2, 2, 11), dtype=new_dtype)
+        inp_1 = torch.rand((11, 53), dtype=new_dtype)
+        inp_2 = torch.rand((4, 53), dtype=new_dtype)
+        counters.clear()
+        self.assertEqual(counters["zentorch"]["pattern_matcher_addmm_silu_mul"], 0)
+        with torch.inference_mode(), torch.cpu.amp.autocast(enabled=amp_enabled):
+            _ = compiled_model(inp_0, inp_1, inp_2, inp_2)
+            # test for both dtypes, two separate tests will be run
+            self.assertEqual(counters["zentorch"]["pattern_matcher_addmm_silu_mul"], 1)
 
     @parameterized.expand(supported_dtypes)
     def test_gelu_replacement(self, dtype):
@@ -2447,8 +2692,7 @@ class TestPatternMatcher(Zentorch_TestCase):
     @parameterized.expand(supported_dtypes)
     def test_bmm_to_mm_replacement(self, dtype):
         custom_expand_model = BMMtoMM_Pattern_1()
-        data = Test_Data()
-        new_dtype = data.get_torch_type(dtype)
+        new_dtype = self.data.get_torch_type(dtype)
         arg_0 = torch.empty((512, 1, 4096), dtype=new_dtype)
         arg_1 = torch.empty((4096, 4096), dtype=new_dtype)
         model = custom_expand_model.to("cpu").eval()
@@ -2466,8 +2710,7 @@ class TestPatternMatcher(Zentorch_TestCase):
     def test_bmm_to_mm_pattern_2_replacement(self, dtype):
         custom_expand_model = BMMtoMM_Pattern_2()
         model = custom_expand_model.to("cpu").eval()
-        data = Test_Data()
-        new_dtype = data.get_torch_type(dtype)
+        new_dtype = self.data.get_torch_type(dtype)
         arg_0 = torch.empty((512, 1, 4096), dtype=new_dtype)
         arg_1 = torch.empty((4096, 4096), dtype=new_dtype)
         counters.clear()

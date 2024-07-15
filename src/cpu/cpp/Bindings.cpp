@@ -17,6 +17,9 @@
    zentorch_<corresponding op name>.
 */
 
+// needs to be included only once in library.
+#include "Singletons.hpp"
+
 #include "Ops.hpp"
 #include "kernels/zen_cpukernels_ops.hpp"
 
@@ -40,6 +43,8 @@ TORCH_LIBRARY(zentorch, m) {
         "zentorch_op_name='zentorch::zentorch_mm_gelu_tanh') -> Tensor");
   m.def("zentorch_mm_gelu_erf(Tensor self, Tensor mat2, *, str "
         "zentorch_op_name='zentorch::zentorch_mm_gelu_erf') -> Tensor");
+  m.def("zentorch_mm_silu(Tensor self, Tensor mat2, *, str "
+        "zentorch_op_name='zentorch::zentorch_mm_silu') -> Tensor");
   m.def("zentorch_bmm(Tensor self, Tensor mat2, str "
         "zentorch_op_name='zentorch::zentorch_bmm') -> Tensor");
   m.def(
@@ -60,6 +65,11 @@ TORCH_LIBRARY(zentorch, m) {
         "Scalar alpha=1, str "
         "zentorch_op_name='zentorch::zentorch_addmm_gelu_erf') -> "
         "Tensor");
+  m.def("zentorch_addmm_silu(Tensor self, Tensor mat1, Tensor mat2, *, "
+        "Scalar beta=1, "
+        "Scalar alpha=1, str "
+        "zentorch_op_name='zentorch::zentorch_addmm_silu') -> "
+        "Tensor");
   // for 1d bias
   m.def("zentorch_addmm_1dbias(Tensor self, Tensor mat1, Tensor mat2, *, "
         "Scalar beta=1, Scalar alpha=1, str "
@@ -77,9 +87,24 @@ TORCH_LIBRARY(zentorch, m) {
         " *, Scalar beta=1, Scalar alpha=1, str "
         "zentorch_op_name='zentorch::zentorch_addmm_1dbias_gelu_erf') "
         "-> Tensor");
+  m.def("zentorch_addmm_1dbias_silu(Tensor self, Tensor mat1, Tensor mat2,"
+        " *, Scalar beta=1, Scalar alpha=1, str "
+        "zentorch_op_name='zentorch::zentorch_addmm_1dbias_silu') "
+        "-> Tensor");
   m.def("zentorch_baddbmm(Tensor self, Tensor mat1, Tensor mat2, *, Scalar "
         "beta=1, Scalar alpha=1, str "
         "zentorch_op_name='zentorch::zentorch_baddbmm') -> "
+        "Tensor");
+  m.def("zentorch_mm_silu_mul(Tensor mat1, Tensor mat2, Tensor mat3, "
+        "str zentorch_op_name='zentorch::zentorch_mm_silu_mul') -> "
+        "Tensor");
+  m.def("zentorch_addmm_silu_mul(Tensor bias, Tensor mat1, Tensor mat2, "
+        "Tensor mat3, Scalar beta=1, Scalar alpha=1, str "
+        "zentorch_op_name='zentorch::zentorch_addmm_silu_mul') -> "
+        "Tensor");
+  m.def("zentorch_addmm_1dbias_silu_mul(Tensor bias, Tensor mat1, Tensor "
+        "mat2, Tensor mat3, Scalar beta=1, Scalar alpha=1, str "
+        "zentorch_op_name='zentorch::zentorch_addmm_1dbias_silu_mul') -> "
         "Tensor");
   m.def("zentorch_horizontal_embedding_bag_group(Tensor[] weight, "
         "Tensor[] indices, Tensor[] offsets, int[] scale_grad_by_freq, "
@@ -127,20 +152,37 @@ TORCH_LIBRARY(zentorch, m) {
 TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
   m.impl("zentorch_embedding_bag", zentorch::zentorch_embedding_bag_impl);
   m.impl("zentorch_embedding", zentorch::zentorch_embedding_impl);
-  m.impl("zentorch_mm", zentorch::zentorch_mm<0>);
-  m.impl("zentorch_mm_relu", zentorch::zentorch_mm<1>);
-  m.impl("zentorch_mm_gelu_tanh", zentorch::zentorch_mm<2>);
-  m.impl("zentorch_mm_gelu_erf", zentorch::zentorch_mm<3>);
+  m.impl("zentorch_mm", zentorch::zentorch_mm<zentorch::POST_OP::NONE>);
+  m.impl("zentorch_mm_relu", zentorch::zentorch_mm<zentorch::POST_OP::RELU>);
+  m.impl("zentorch_mm_gelu_tanh",
+         zentorch::zentorch_mm<zentorch::POST_OP::GELU_TANH>);
+  m.impl("zentorch_mm_gelu_erf",
+         zentorch::zentorch_mm<zentorch::POST_OP::GELU_ERF>);
+  m.impl("zentorch_mm_silu", zentorch::zentorch_mm<zentorch::POST_OP::SILU>);
   m.impl("zentorch_bmm", zentorch::zentorch_bmm);
-  m.impl("zentorch_addmm", zentorch::zentorch_addmm<0>);
-  m.impl("zentorch_addmm_relu", zentorch::zentorch_addmm<1>);
-  m.impl("zentorch_addmm_gelu_tanh", zentorch::zentorch_addmm<2>);
-  m.impl("zentorch_addmm_gelu_erf", zentorch::zentorch_addmm<3>);
-  m.impl("zentorch_addmm_1dbias", zentorch::zentorch_addmm_1dbias<0>);
-  m.impl("zentorch_addmm_1dbias_relu", zentorch::zentorch_addmm_1dbias<1>);
-  m.impl("zentorch_addmm_1dbias_gelu_tanh", zentorch::zentorch_addmm_1dbias<2>);
-  m.impl("zentorch_addmm_1dbias_gelu_erf", zentorch::zentorch_addmm_1dbias<3>);
+  m.impl("zentorch_addmm", zentorch::zentorch_addmm<zentorch::POST_OP::NONE>);
+  m.impl("zentorch_addmm_relu",
+         zentorch::zentorch_addmm<zentorch::POST_OP::RELU>);
+  m.impl("zentorch_addmm_gelu_tanh",
+         zentorch::zentorch_addmm<zentorch::POST_OP::GELU_TANH>);
+  m.impl("zentorch_addmm_gelu_erf",
+         zentorch::zentorch_addmm<zentorch::POST_OP::GELU_ERF>);
+  m.impl("zentorch_addmm_silu",
+         zentorch::zentorch_addmm<zentorch::POST_OP::SILU>);
+  m.impl("zentorch_addmm_1dbias",
+         zentorch::zentorch_addmm_1dbias<zentorch::POST_OP::NONE>);
+  m.impl("zentorch_addmm_1dbias_relu",
+         zentorch::zentorch_addmm_1dbias<zentorch::POST_OP::RELU>);
+  m.impl("zentorch_addmm_1dbias_gelu_tanh",
+         zentorch::zentorch_addmm_1dbias<zentorch::POST_OP::GELU_TANH>);
+  m.impl("zentorch_addmm_1dbias_gelu_erf",
+         zentorch::zentorch_addmm_1dbias<zentorch::POST_OP::GELU_ERF>);
+  m.impl("zentorch_addmm_1dbias_silu",
+         zentorch::zentorch_addmm_1dbias<zentorch::POST_OP::SILU>);
   m.impl("zentorch_baddbmm", zentorch::zentorch_baddbmm);
+  m.impl("zentorch_mm_silu_mul", zentorch::zentorch_mm_silu_mul);
+  m.impl("zentorch_addmm_silu_mul", zentorch::zentorch_addmm_silu_mul);
+  m.impl("zentorch_addmm_1dbias_silu_mul", zentorch::zentorch_addmm_silu_mul);
   m.impl("zentorch_horizontal_embedding_bag_group",
          zentorch::zentorch_horizontal_embedding_bag_group);
   m.impl("zentorch_horizontal_embedding_group",
@@ -159,8 +201,10 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
 
   m.def("is_bf16_supported", zendnn::utils::zendnn_bf16_device_check);
 
-  m.def("zentorch_matmul_impl", zentorch::zentorch_matmul_impl, py::arg("mat1"),
-        py::arg("mat2"), py::arg("bias"), py::arg("self_or_result"),
-        py::arg("beta") = 0.0f, py::arg("alpha") = 1.0f, py::arg("fuse") = 0,
+  m.def("zentorch_matmul_impl", zentorch::zentorch_matmul_impl,
+        py::arg("input"), py::arg("weight"), py::arg("bias"),
+        py::arg("self_or_result"), py::arg("post_op_ids"),
+        py::arg("post_op_buffers"), py::arg("beta") = 0.0f,
+        py::arg("alpha") = 1.0f,
         py::arg("zentorch_op_name") = "zentorch::zendnn_matmul_impl");
 }

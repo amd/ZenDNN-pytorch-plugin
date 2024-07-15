@@ -5,6 +5,9 @@
 
 from torch.fx import passes
 from os import environ
+import collections
+
+counters = collections.defaultdict(collections.Counter)
 
 
 def save_graph(fx_graph, graph_name):

@@ -22,13 +22,13 @@ matcher_pass = PatternMatcherPass()
 # for fake tensors
 @init_once_fakemode
 def lazy_init():
-    from ._composite_ops_patterns import _replace_init
+    from ._graph_preprocess_patterns import _replace_init
 
     _replace_init()
 
 
 # applies the registered patterns to fx_graph
-def replace_with_composite_ops(gm: torch.fx.GraphModule):
+def preprocess_graph_pass(gm: torch.fx.GraphModule):
     lazy_init()
     count = 0
     if config.pattern_matcher:
