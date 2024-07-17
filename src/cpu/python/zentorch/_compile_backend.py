@@ -11,6 +11,7 @@ from typing import Callable, List, Optional
 from ._logging import get_logger
 from torch._functorch.aot_autograd import aot_module_simplified
 from torch.torch_version import TorchVersion
+
 torch_version = TorchVersion(torch.__version__)
 '''
 Pytorch 2.0 has mkldnn_fuse_fx but 2.1 and above Pytorch deprecated \
@@ -36,6 +37,7 @@ if torch_version < '2.1':
 else:
     from torch._decomp import remove_decompositions
     from torch._inductor.decomposition import decompositions
+
     REMOVE_DECOMP = True
 
 disable_inductor_flag = False
@@ -128,7 +130,13 @@ def zentorch(model, inputs):
     if REMOVE_DECOMP:
         remove_decompositions(
             decompositions,
-            [torch.ops.aten.gelu_, torch.ops.aten.gelu],
+            [
+                torch.ops.aten.gelu_,
+                torch.ops.aten.gelu,
+                torch.ops.aten.silu_,
+                torch.ops.aten.silu,
+                torch.ops.aten.native_layer_norm,
+            ],
         )
     if disable_inductor_flag:
         logger.info(
