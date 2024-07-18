@@ -14,6 +14,7 @@ logger = get_logger(__name__)
 # This set contains the strings found in the model.config.architectures[0], for
 # a valid huggingface transformer model
 SUPPORTED_MODELS = {
+    "ChatGLMModel",
     "GPTJForCausalLM",
     "LlamaForCausalLM",
     "PhiForCausalLM",

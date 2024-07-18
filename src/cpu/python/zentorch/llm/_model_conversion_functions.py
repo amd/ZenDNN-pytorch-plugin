@@ -171,3 +171,24 @@ def get_ntk_alpha(self, true_seq_len):
     ntk_alpha = 2 ** math.ceil(context_value) - 1
     ntk_alpha = max(ntk_alpha, 1)
     return ntk_alpha
+
+
+# Customize Model by applying modification based on the architecture
+def customize_model(model):
+    # Replace get_ntk_alpha() from transformers with a custom version.
+    # To mitigate the symfloat error with zentorch.
+    if model.config.architectures[0] == "QWenLMHeadModel":
+        model.transformer.get_ntk_alpha = get_ntk_alpha.__get__(
+            model.transformer, model.transformer.__class__
+        )
+    # Over riding forward class of ChatGLM by modifying the Rope op
+    # to address the dimensionality error with compile flow.
+    if model.config.architectures[0] == "ChatGLMModel":
+        from intel_extension_for_pytorch.transformers.models.reference.modules import (
+            attentions,
+        )
+        from ._custom_model_forward import _GLM2Attention_forward
+        attentions._GLM2Attention_forward = (
+            _GLM2Attention_forward
+        )
+    return model
