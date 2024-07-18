@@ -2305,6 +2305,30 @@ class GeluErfPattern(torch.nn.Module):
         return mul_2
 
 
+class BMMtoMM_Pattern_1(nn.Module):
+    def __init__(self):
+        super(BMMtoMM_Pattern_1, self).__init__()
+
+    def forward(self, arg_0, arg_1):
+        exp_0 = arg_0.expand(arg_0.size())
+        exp_1 = arg_1.expand(arg_0.size(0), arg_1.size(0), arg_1.size(1))
+        bmm_0 = torch.bmm(exp_0, exp_1)
+        return bmm_0
+
+
+class BMMtoMM_Pattern_2(nn.Module):
+    def __init__(self):
+        super(BMMtoMM_Pattern_2, self).__init__()
+
+    def forward(self, arg_0, arg_1):
+        # Expand and view arg_0_
+        exp_0 = arg_0.expand(arg_0.size())
+        view_0 = exp_0.view(arg_0.size())
+        exp_1 = arg_1.expand(arg_0.size(0), arg_1.size(0), arg_1.size(1))
+        bmm_0 = torch.bmm(view_0, exp_1)
+        return bmm_0
+
+
 # pattern matcher tests
 class TestPatternMatcher(TestCase):
     def setUp(self):
@@ -2335,6 +2359,42 @@ class TestPatternMatcher(TestCase):
         with torch.inference_mode(), torch.cpu.amp.autocast():
             _ = compiled_model(inp)
             self.assertEqual(counters["zentorch"]["pattern_matcher_gelu"], 1)
+
+    @parameterized.expand(supported_dtypes)
+    def test_bmm_to_mm_replacement(self, dtype):
+        custom_expand_model = BMMtoMM_Pattern_1()
+        data = Test_Data()
+        new_dtype = data.get_torch_type(dtype)
+        arg_0 = torch.empty((512, 1, 4096), dtype=new_dtype)
+        arg_1 = torch.empty((4096, 4096), dtype=new_dtype)
+        model = custom_expand_model.to("cpu").eval()
+        native_output = model(arg_0, arg_1)
+        reset_dynamo()
+        compiled_model = torch.compile(model, backend="zentorch")
+        counters.clear()
+        self.assertEqual(counters["zentorch"]["pattern_matcher_bmm_to_mm"], 0)
+        with torch.inference_mode():
+            zentorch_graph_output = compiled_model(arg_0, arg_1)
+            self.assertEqual(counters["zentorch"]["pattern_matcher_bmm_to_mm"], 1)
+            self.assertEqual(native_output, zentorch_graph_output)
+
+    @parameterized.expand(supported_dtypes)
+    def test_bmm_to_mm_pattern_2_replacement(self, dtype):
+        custom_expand_model = BMMtoMM_Pattern_2()
+        model = custom_expand_model.to("cpu").eval()
+        data = Test_Data()
+        new_dtype = data.get_torch_type(dtype)
+        arg_0 = torch.empty((512, 1, 4096), dtype=new_dtype)
+        arg_1 = torch.empty((4096, 4096), dtype=new_dtype)
+        counters.clear()
+        native_output = model(arg_0, arg_1)
+        reset_dynamo()
+        compiled_model = torch.compile(model, backend="zentorch")
+        self.assertEqual(counters["zentorch"]["pattern_matcher_bmm_to_mm"], 0)
+        with torch.inference_mode():
+            zentorch_graph_output = compiled_model(arg_0, arg_1)
+            self.assertEqual(counters["zentorch"]["pattern_matcher_bmm_to_mm"], 1)
+            self.assertEqual(native_output, zentorch_graph_output)
 
 
 # small testcase for rope, does not have all combinations
