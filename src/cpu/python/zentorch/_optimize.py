@@ -26,6 +26,8 @@ from ._custom_op_replacement import (
     eb_group_mlp_group_fusion,
 )
 
+from ._composite_ops_matcher import replace_with_composite_ops
+
 # make a logger for this file
 logger = get_logger(__name__)
 
@@ -44,6 +46,11 @@ def optimize(fx_graph):
     save_graph(fx_graph, "native_model")
 
     logger.info("Optimizing the fx_graph with zentorch ops.")
+
+    # pattern-matcher pass for aten to aten replacement
+    # for now we have just composite ops replacement (in older models)
+    # for example, some models use decomposed gelu instead of the op directly.
+    pattern_matched_model = replace_with_composite_ops(fx_graph)
 
     # Replacing ops with zentorch ops
     # first we check if ipex has been imported anywhere in the code,
@@ -64,7 +71,7 @@ def optimize(fx_graph):
         }
         op_dict_lst.append(ipex_to_zen_op_dict)
     op_dict_lst.append(zen_to_zen_op_dict)
-    optimized_graph = replace_with_zentorch_ops(fx_graph, op_dict_lst)
+    optimized_graph = replace_with_zentorch_ops(pattern_matched_model, op_dict_lst)
 
     # Op fusions supported by zentorch
     optimized_graph = zentorch_op_fusion(optimized_graph)

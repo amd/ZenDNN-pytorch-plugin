@@ -18,6 +18,9 @@ from test_zentorch_llm import MaskedMHATest
 try:
     import zentorch
 
+    # for pattern matcher
+    from zentorch._composite_ops_patterns import counters
+
     has_zentorch = True
 except ImportError:
     has_zentorch = False
@@ -2287,6 +2290,41 @@ class TestBMMADD(TestCase):
         compiled_graph = torch.compile(model, backend="zentorch")
         compiled_graph_output = compiled_graph(data.M3, data.x2[0], data.y2[0])
         self.assertEqual(model_output, compiled_graph_output, atol=1e-5, rtol=1e-3)
+
+
+class GeluErfPattern(torch.nn.Module):
+    def __init__(self):
+        super(GeluErfPattern, self).__init__()
+
+    def forward(self, input):
+        mul_0 = torch.mul(input, 0.5)
+        mul_1 = torch.mul(input, 0.7071067811865476)
+        erf_0 = torch.erf(mul_1)
+        add_0 = torch.add(erf_0, 1)
+        mul_2 = torch.mul(mul_0, add_0)
+        return mul_2
+
+
+# pattern matcher tests
+class TestPatternMatcher(TestCase):
+    def setUp(self):
+        torch.manual_seed(SEED)
+
+    def test_gelu_replacement(self):
+        decomp_gelu_model = GeluErfPattern()
+        model = decomp_gelu_model.to("cpu").eval()
+        compiled_model = torch.compile(model, backend="zentorch")
+        inp = torch.empty((4, 11))
+        counters.clear()
+        self.assertEqual(counters["zentorch"]["pattern_matcher_gelu"], 0)
+        with torch.no_grad():
+            _ = compiled_model(inp)
+            # test for fp32
+            self.assertEqual(counters["zentorch"]["pattern_matcher_gelu"], 1)
+            with torch.cpu.amp.autocast():
+                _ = compiled_model(inp)
+                # test for bf16
+                self.assertEqual(counters["zentorch"]["pattern_matcher_gelu"], 2)
 
 
 # small testcase for rope, does not have all combinations
