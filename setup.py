@@ -86,7 +86,7 @@ def subproc_communicate(cmd):
 
 # Define env values
 PACKAGE_NAME = "zentorch"
-PACKAGE_VERSION = "4.2.0"
+PACKAGE_VERSION = "5.0.0"
 PT_VERSION = __version__
 
 

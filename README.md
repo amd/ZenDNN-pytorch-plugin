@@ -30,7 +30,7 @@ Table of Contents
 
 **EARLY ACCESS:** The ZenDNN PyTorch* Plugin (zentorch) extends PyTorch* with an innovative upgrade that's set to revolutionize performance on AMD hardware.
 
-As of version 4.2, AMD is unveiling a game-changing upgrade to ZenDNN, introducing a cutting-edge plug-in mechanism and an enhanced architecture under the hood. This isn't just about extensions; ZenDNN's aggressive AMD-specific optimizations operate at every level. It delves into comprehensive graph optimizations, including pattern identification, graph reordering, and seeking opportunities for graph fusions. At the operator level, ZenDNN boasts enhancements with microkernels, mempool optimizations, and efficient multi-threading on the large number of AMD EPYC cores. Microkernel optimizations further exploit all possible low-level math libraries, including AOCL BLIS.
+As of version 5.0, AMD is unveiling a game-changing upgrade to ZenDNN, introducing a cutting-edge plug-in mechanism and an enhanced architecture under the hood. This isn't just about extensions; ZenDNN's aggressive AMD-specific optimizations operate at every level. It delves into comprehensive graph optimizations, including pattern identification, graph reordering, and seeking opportunities for graph fusions. At the operator level, ZenDNN boasts enhancements with microkernels, mempool optimizations, and efficient multi-threading on the large number of AMD EPYC cores. Microkernel optimizations further exploit all possible low-level math libraries, including AOCL BLIS.
 
 The result? Enhanced performance with respect to baseline PyTorch*. zentorch leverages torch.compile, the latest PyTorch enhancement for accelerated performance. torch.compile makes PyTorch code run faster by JIT-compiling PyTorch code into optimized kernels, all while requiring minimal code changes and unlocking unprecedented speed and efficiency.
 
@@ -98,7 +98,7 @@ conda install pytorch==2.1.2 cpuonly -c pytorch
 
 Using pip utility
 ```bash
-pip install zentorch==4.2.0
+pip install zentorch==5.0.0
 ```
 or
 
@@ -109,9 +109,9 @@ Using the release package.
 > Run the following commands to unzip the package and install the binary.
 
 ```bash
-unzip ZENTORCH_v4.2.0_Python_v3.8.zip
-cd ZENTORCH_v4.2.0_Python_v3.8/
-pip install zentorch-4.2.0-cp38-cp38-manylinux2014_x86_64.whl
+unzip ZENTORCH_v5.0.0_Python_v3.8.zip
+cd ZENTORCH_v5.0.0_Python_v3.8/
+pip install zentorch-5.0.0-cp38-cp38-manylinux2014_x86_64.whl
 ```
 >Note:
 * While importing zentorch, if you get an undefined symbol error such as:
@@ -127,9 +127,9 @@ Run the following commands:
 git clone https://github.com/amd/ZenDNN-pytorch-plugin.git
 cd ZenDNN_PyTorch_Plugin/
 ```
->Note: Repository defaults to master branch, to build the version 4.2 checkout the branch r4.2.
+>Note: Repository defaults to master branch, to build the version 5.0 checkout the branch r5.0.
 ```bash
-git checkout r4.2
+git checkout r5.0
 ```
 
 ### 2.2.1. Preparing third party repositories
@@ -285,7 +285,7 @@ TORCH_COMPILE_DEBUG=1 python test.py
 For more information about TORCH_COMPILE_DEBUG refer to the official PyTorch documentaion available.
 
 # 5. Performance tuning and Benchmarking
-zentorch v4.2.0 is supported with ZenDNN v4.2. Please see the **Tuning Guidelines** section of ZenDNN User Guide for performance tuning. ZenDNN User Guide can be downloaded from [here](https://developer.amd.com/zendnn)
+zentorch v5.0.0 is supported with ZenDNN v5.0. Please see the **Tuning Guidelines** section of ZenDNN User Guide for performance tuning. ZenDNN User Guide can be downloaded from [here](https://developer.amd.com/zendnn)
 
 # 6. Additional Utilities:
 
