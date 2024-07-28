@@ -15,6 +15,10 @@ Table of Contents
   - [From Binaries](#21-from-binaries)
   - [From Source](#22-from-source)
 - [Usage](#3-usage)
+  - [General Usage](#31-general-usage)
+  - [CNN Models](#32-cnn-models)
+  - [HuggingFace NLP models](#33-huggingface-nlp-models)
+  - [HuggingFace Generative LLM models](#34-huggingface-generative-llm-models)
 - [Logging and Debugging](#4-logging-and-debugging)
   - [ZenDNN logs](#41-zendnn-logs)
   - [_zentorch_ logs](#42-zentorch-logs)
@@ -36,7 +40,7 @@ The result? Enhanced performance with respect to baseline PyTorch*. zentorch lev
 
 The _zentorch_ extension to PyTorch enables inference optimizations for deep learning workloads on AMD EPYC&trade; CPUs. It uses  the ZenDNN library, which contains deep learning operators tailored for high performance on AMD EPYC&trade; CPUs. Multiple passes of graph level optimizations run on the torch.fx graph provide further performance acceleration. All _zentorch_ optimizations can be enabled by a call to torch.compile with zentorch as the backend.
 
-The ZenDNN PyTorch plugin is compatible with PyTorch version 2.1.2.
+The ZenDNN PyTorch plugin is compatible with PyTorch version 2.3.0.
 
 ## Support
 
@@ -91,9 +95,9 @@ _zentorch_ can be installed using binary wheel file or can be built from source 
 ```bash
 pip uninstall zentorch
 ```
-* Install Pytorch v2.1.2
+* Install Pytorch v2.3.0
 ```bash
-conda install pytorch==2.1.2 cpuonly -c pytorch
+conda install pytorch==2.3.0 cpuonly -c pytorch
 ```
 * Use one of two methods to install zentorch:
 
@@ -112,14 +116,14 @@ Using the release package.
 ```bash
 unzip ZENTORCH_v5.0.0_Python_v3.8.zip
 cd ZENTORCH_v5.0.0_Python_v3.8/
-pip install zentorch-5.0.0-cp38-cp38-manylinux2014_x86_64.whl
+pip install zentorch-5.0.0-cp38-cp38-manylinux_2_28_x86_64.whl
 ```
 >Note:
 * While importing zentorch, if you get an undefined symbol error such as:
 ImportError: <anaconda_install_path>/envs/<your-env>/lib/python3.x/site-packages/
 zentorch/_C.cpython-3x-x86_64-linux-gnu.so : undefined symbol: <some string>,
 it could be due to version differences with PyTorch. Verify that you are using PyTorch version
-2.1.2 only.
+which is similar to the PyTorch version which was used to build the wheel file.
 * Dependent packages 'numpy' and 'torch' will be installed by '_zentorch_' if not already present.
 
 ## 2.2. From Source
@@ -135,33 +139,7 @@ git checkout r5.0
 
 ### 2.2.1. Preparing third party repositories
 
-Build setup downloads the ZenDNN, AOCL BLIS , FBGEMM and LIBXSMM repos into `third_party` folder. It can alternatively use local copies of ZenDNN, AOCL BLIS , FBGEMM and LIBXSMM. This is very useful for day to day development scenarios, where developer may be interested in using recent version of repositories. Build setup will switch between local and remote copies of ZenDNN, AOCL BLIS , FBGEMM and LIBXSMM with environmental variables `ZENTORCH_USE_LOCAL_ZENDNN` , `ZENTORCH_USE_LOCAL_BLIS` , `ZENTORCH_USE_LOCAL_FBGEMM` and `ZENTORCH_USE_LOCAL_LIBXSMM` respectively. To use local copies of ZenDNN , AOCL BLIS , FBGEMM or LIBXSMM, set `ZENTORCH_USE_LOCAL_ZENDNN` , `ZENTORCH_USE_LOCAL_BLIS` , `ZENTORCH_USE_LOCAL_FBGEMM` `ZENTORCH_USE_LOCAL_LIBXSMM` to 1 respectively. The source repositories should be downloaded/cloned in the directory where `ZenDNN_PyTorch_Plugin` is cloned for local setting. Folder structure may look like below.
-
-```
-<parent folder>
-    |
-    |------><AOCL BLIS repo>
-    |
-    |------><ZenDNN repo>
-    |
-    |------><FBGEMM repo>
-    |
-    |------><LIBXSMM repo>
-    |
-    |------><ZenDNN_PyTorch_Plugin>
-```
->NOTE:
-> 1. The recommended values of `ZENTORCH_USE_LOCAL_ZENDNN` , `ZENTORCH_USE_LOCAL_BLIS` , `ZENTORCH_USE_LOCAL_FBGEMM` and `ZENTORCH_USE_LOCAL_LIBXSMM ` are 0 , 0 , 0 and 0 respectively. Default values are the same as recommended values.
->```bash
->export ZENTORCH_USE_LOCAL_ZENDNN=0
->export ZENTORCH_USE_LOCAL_BLIS=0
->export ZENTORCH_USE_LOCAL_FBGEMM=0
->export ZENTORCH_USE_LOCAL_LIBXSMM=0
->```
-> 2. ZenDNN repository can be cloned using command<br> `git clone https://github.com/amd/ZenDNN.git`
-> 3. AOCL BLIS can be cloned using command<br> `git clone https://github.com/amd/blis.git`
-> 4. FBGEMM can be cloned using command<br> `git clone https://github.com/pytorch/FBGEMM.git`
-> 5. LIBXSMM can be cloned using command<br> `git clone https://github.com/libxsmm/libxsmm.git`
+Build setup downloads the ZenDNN, AOCL BLIS , FBGEMM and LIBXSMM repos into `third_party` folder.
 
 ### 2.2.2. Linux build
 #### 2.2.2.1. Create conda environment for the build
@@ -172,12 +150,12 @@ conda activate pt-zentorch
 #### 2.2.2.2. You can install torch using 'conda' or 'pip'
 ```bash
 # Pip command
-pip install torch==2.1.2 --index-url https://download.pytorch.org/whl/cpu
+pip install torch==2.3.0 --index-url https://download.pytorch.org/whl/cpu
 ```
 or
 ```bash
 # Conda command
-conda install pytorch==2.1.2 cpuonly -c pytorch
+conda install pytorch==2.3.0 cpuonly -c pytorch
 ```
 
 >Note: The CPU version of torch/pytorch only supports CPU version of torchvision.
@@ -205,7 +183,7 @@ python test/test_zentorch.py --seed seed_value
 python setup.py clean --all
 ```
 # 3. Usage
-General Usage
+## 3.1 General Usage
 ```python
 # Using torch.compile with 'zentorch' as backend
 import torch
@@ -219,6 +197,7 @@ with torch.no_grad():
 
 >Note: _zentorch_ is able to do the zentorch op replacements in both non-inference and inference modes. But some of the _zentorch_ optimizations are only supported for the inference mode, so it is recommended to use `torch.no_grad()` if you are running the model for inference only.
 
+## 3.2 CNN Models
 For CNN models, set `dynamic=False` when calling for `torch.compile` as below:
 ```python
 model = torch.compile(model, backend='zentorch', dynamic=False)
@@ -226,16 +205,32 @@ with torch.no_grad():
     output = model(input)
 ```
 
-For hugging face NLP models, optimize them as below:
+## 3.3 HuggingFace NLP models
+For HuggingFace NLP models, optimize them as below:
 ```python
 model = torch.compile(model, backend='zentorch')
 with torch.no_grad():
     output = model(input)
 ```
 
-For hugging face LLM models, optimize them as below:
+## 3.4 HuggingFace Generative LLM models
+For HuggingFace Generative LLM models, usage of zentorch.llm.optimize is recommended. All the optimizations included in this API are specifically targeted for Generative Large Language Models from HuggingFace. If a model which is not a valid Generative Large Language Model from HuggingFace, the following warning will be displayed and zentorch.llm.optimize will act as a dummy with no optimizations being applied to the model that is passed: “Cannot detect the model transformers family by model.config.architectures. Please pass a valid HuggingFace LLM model to the zentorch.llm.optimize API.” This check confirms the presence of the "config" and "architectures" attributes of the model to get the model id. Considering the check, two scenarios the zentorch.llm.optimize can still act as a dummy function:
+1.  HuggingFace has a plethora of models, of which Generative LLMs are a subset of. So, even if the model has the attributes of "config" and "architectures", the model id might not be yet present in the supported models list from zentorch. In this case zentorch.llm.optimize will act as a dummy function.
+2. A model can be a valid generative LLM from HuggingFace or not, might miss the "config" and "architectures" attributes. In this case also, the zentorch.llm.optimize API will act as a dummy function.
+
+If the model passed is valid, all the supported optimizations will be applied, and performant execution is ensured.
+To check the supported models, run the following command:
+```bash
+python -c 'import zentorch; print("\n".join([f"{i+1:3}. {item}" for i, item in enumerate(zentorch.llm.SUPPORTED_MODELS)]))'
+```
+
+If a model id other than the listed above are passed, zentorch.llm.optimize will not apply the above specific optimizations to the model and a warning will be displayed as follows: “Complete set of optimizations are currently unavailable for this model.” Control will pass to the zentorch custom backend to torch.compile for applying optimizations.
+
+The PyTorch version for performant execution of supported LLMs should be greater than or equal to 2.3.0.
+
 1. If output is generated through a call to direct `model`, optimize it as below:
 ```python
+model = zentorch.llm.optimize(model, dtype)
 model = torch.compile(model, backend='zentorch')
 with torch.no_grad():
     output = model(input)
@@ -243,6 +238,7 @@ with torch.no_grad():
 
 2. If output is generated through a call to `model.forward`, optimize it as below:
 ```python
+model = zentorch.llm.optimize(model, dtype)
 model.forward = torch.compile(model.forward, backend='zentorch')
 with torch.no_grad():
     output = model.forward(input)
@@ -252,6 +248,7 @@ with torch.no_grad():
     - Optimize the `model.forward` with torch.compile instead of `model.generate`.
     - But still generate the output through a call to `model.generate`.
 ```python
+model = zentorch.llm.optimize(model, dtype)
 model.forward = torch.compile(model.forward, backend='zentorch')
 with torch.no_grad():
     output = model.generate(input)

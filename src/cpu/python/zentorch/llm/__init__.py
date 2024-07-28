@@ -4,3 +4,4 @@
 # ******************************************************************************
 
 from ._optimize import optimize  # noqa
+from ._checks import SUPPORTED_MODELS # noqa
