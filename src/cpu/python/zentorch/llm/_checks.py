@@ -21,16 +21,20 @@ SUPPORTED_MODELS = {
 }
 
 
-def get_ipex_version():
-    from pip._internal.operations.freeze import freeze
-    modules = freeze(local_only=True)
+def get_installed_ipex_version():
+    # Previous approach made use of freeze API from pip._internal.operations
+    # This caused the script to error out in certain cases. This was due to
+    # conflicts in imports of distutils used in pip and setuptools. To avoid
+    # the above situation, the usage of importlib.metadata.version is done. The
+    # usage of importlib.metadata is the recommended way of achieving this.
+    # This will not actually import module, but will find the version from
+    # metadata stored in dist-info or egg-info.
 
-    for module in modules:
-        maybe_name_version = module.split("==")
-        if len(maybe_name_version) == 2:
-            name, version = maybe_name_version
-            if name == "intel-extension-for-pytorch":
-                return version
+    from importlib.metadata import version, PackageNotFoundError
+    try:
+        return version("intel_extension_for_pytorch")
+    except PackageNotFoundError:
+        return None
 
 
 def essential_checks(model, dtype):
@@ -38,7 +42,7 @@ def essential_checks(model, dtype):
         is_well_supported_model = model.config.architectures[0] in SUPPORTED_MODELS
 
         if is_well_supported_model:
-            installed_ipex_version = get_ipex_version()
+            installed_ipex_version = get_installed_ipex_version()
             if installed_ipex_version:
                 # Zentorch will work with IPEX of atleast 2.3
                 min_version = TorchVersion("2.3")

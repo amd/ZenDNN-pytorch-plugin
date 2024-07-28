@@ -1,7 +1,6 @@
 cmake>=3.13.0
 expecttest==0.1.6
 hypothesis
-intel-extension-for-pytorch
 ninja
 numpy
 parameterized
