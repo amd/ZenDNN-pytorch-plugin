@@ -69,16 +69,17 @@ We have registered a custom backend to torch.compile called _zentorch_. This bac
 The static libraries for ZenDNN, AOCL BLIS and the cpp Extension modules that bind the ZenDNN operators with Python are built using `setup.py` script.
 
 #### 1.2.3.1. CMake Based Build: ZenDNN , AOCL BLIS and FBGEMM
-CMake downloads the ZenDNN , AOCL BLIS and FBGEMM during configure stage. It generates a config.h with GIT hashes of ZenDNN , AOCL BLIS and FBGEMM. It builds ZenDNN , AOCL BLIS and FBGEMM as static libraries.
+CMake downloads the ZenDNN , AOCL BLIS , FBGEMM and LIBXSMM during configure stage. It generates a config.h with GIT hashes of ZenDNN , AOCL BLIS , FBGEMM and LIBXSMM. It builds ZenDNN , AOCL BLIS , FBGEMM and LIBXSMM as static libraries.
 
 #### 1.2.3.2. Packaging into a Wheel File
-The CPP code, being an extension module, is built through CppExtension. It takes static libraries of the ZenDNN , AOCL BLIS and FBGEMM libraries. `setup.py` also adds in various attributes to the _zentorch_ for debugging and providing additional information.
+The CPP code, being an extension module, is built through CppExtension. It takes static libraries of the ZenDNN , AOCL BLIS , FBGEMM and LIBXSMM libraries. `setup.py` also adds in various attributes to the _zentorch_ for debugging and providing additional information.
 
 ## 1.3. Third Party Libraries
 _zentorch_ uses following libraries for its functionality.
   * [ZenDNN](https://github.com/amd/ZenDNN)
   * [AOCL BLIS](https://github.com/amd/blis)
   * [FBGEMM](https://github.com/pytorch/FBGEMM)
+  * [LIBXSMM](https://github.com/libxsmm/libxsmm.git)
 
 # 2. Installation
 
@@ -134,7 +135,7 @@ git checkout r5.0
 
 ### 2.2.1. Preparing third party repositories
 
-Build setup downloads the ZenDNN, AOCL BLIS and FBGEMM repos into `third_party` folder. It can alternatively use local copies of ZenDNN, AOCL BLIS and FBGEMM. This is very useful for day to day development scenarios, where developer may be interested in using recent version of repositories. Build setup will switch between local and remote copies of ZenDNN, AOCL BLIS and FBGEMM with environmental variables `ZENTORCH_USE_LOCAL_ZENDNN` , `ZENTORCH_USE_LOCAL_BLIS` and `ZENTORCH_USE_LOCAL_FBGEMM` respectively. To use local copies of ZenDNN , AOCL BLIS or FBGEMM, set `ZENTORCH_USE_LOCAL_ZENDNN` , `ZENTORCH_USE_LOCAL_BLIS` or `ZENTORCH_USE_LOCAL_FBGEMM` to 1 respectively. The source repositories should be downloaded/cloned in the directory where `ZenDNN_PyTorch_Plugin` is cloned for local setting. Folder structure may look like below.
+Build setup downloads the ZenDNN, AOCL BLIS , FBGEMM and LIBXSMM repos into `third_party` folder. It can alternatively use local copies of ZenDNN, AOCL BLIS , FBGEMM and LIBXSMM. This is very useful for day to day development scenarios, where developer may be interested in using recent version of repositories. Build setup will switch between local and remote copies of ZenDNN, AOCL BLIS , FBGEMM and LIBXSMM with environmental variables `ZENTORCH_USE_LOCAL_ZENDNN` , `ZENTORCH_USE_LOCAL_BLIS` , `ZENTORCH_USE_LOCAL_FBGEMM` and `ZENTORCH_USE_LOCAL_LIBXSMM` respectively. To use local copies of ZenDNN , AOCL BLIS , FBGEMM or LIBXSMM, set `ZENTORCH_USE_LOCAL_ZENDNN` , `ZENTORCH_USE_LOCAL_BLIS` , `ZENTORCH_USE_LOCAL_FBGEMM` `ZENTORCH_USE_LOCAL_LIBXSMM` to 1 respectively. The source repositories should be downloaded/cloned in the directory where `ZenDNN_PyTorch_Plugin` is cloned for local setting. Folder structure may look like below.
 
 ```
 <parent folder>
@@ -145,18 +146,22 @@ Build setup downloads the ZenDNN, AOCL BLIS and FBGEMM repos into `third_party` 
     |
     |------><FBGEMM repo>
     |
+    |------><LIBXSMM repo>
+    |
     |------><ZenDNN_PyTorch_Plugin>
 ```
 >NOTE:
-> 1. The recommended values of `ZENTORCH_USE_LOCAL_ZENDNN` , `ZENTORCH_USE_LOCAL_BLIS` and `ZENTORCH_USE_LOCAL_FBGEMM` are 0 , 0 and 0 respectively. Default values are the same as recommended values.
+> 1. The recommended values of `ZENTORCH_USE_LOCAL_ZENDNN` , `ZENTORCH_USE_LOCAL_BLIS` , `ZENTORCH_USE_LOCAL_FBGEMM` and `ZENTORCH_USE_LOCAL_LIBXSMM ` are 0 , 0 , 0 and 0 respectively. Default values are the same as recommended values.
 >```bash
 >export ZENTORCH_USE_LOCAL_ZENDNN=0
 >export ZENTORCH_USE_LOCAL_BLIS=0
 >export ZENTORCH_USE_LOCAL_FBGEMM=0
+>export ZENTORCH_USE_LOCAL_LIBXSMM=0
 >```
 > 2. ZenDNN repository can be cloned using command<br> `git clone https://github.com/amd/ZenDNN.git`
 > 3. AOCL BLIS can be cloned using command<br> `git clone https://github.com/amd/blis.git`
 > 4. FBGEMM can be cloned using command<br> `git clone https://github.com/pytorch/FBGEMM.git`
+> 5. LIBXSMM can be cloned using command<br> `git clone https://github.com/libxsmm/libxsmm.git`
 
 ### 2.2.2. Linux build
 #### 2.2.2.1. Create conda environment for the build

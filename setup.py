@@ -26,8 +26,11 @@ class CustomBuildExtension(BuildExtension):
             os.environ["ZENTORCH_USE_LOCAL_ZENDNN"] = "0"
         if "ZENTORCH_USE_LOCAL_FBGEMM" not in os.environ:
             os.environ["ZENTORCH_USE_LOCAL_FBGEMM"] = "0"
+        if "ZENTORCH_USE_LOCAL_LIBXSMM" not in os.environ:
+            os.environ["ZENTORCH_USE_LOCAL_LIBXSMM"] = "0"
 
-        os.makedirs(self.build_temp, exist_ok=True)
+        #  self.build_temp is created as part of following line
+        os.makedirs(os.path.join(self.build_temp, "lib"), exist_ok=True)
 
         rc, out, err = subproc_communicate("which python")
         if rc == 0:
@@ -69,6 +72,9 @@ class CustomBuildExtension(BuildExtension):
             Path(project_root_dir, self.build_temp, "lib", "libfbgemm.a"),
             Path(project_root_dir, self.build_temp, "lib", "libasmjit.a"),
             Path(project_root_dir, self.build_temp, "lib", "libCPUkernels.a"),
+            Path(project_root_dir, self.build_temp, "lib", "libxsmm.a"),
+            Path(project_root_dir, self.build_temp, "lib", "libxsmmext.a"),
+            Path(project_root_dir, self.build_temp, "lib", "libxsmmnoblas.a"),
         ]
 
         extension.extra_objects.extend(extra_objects)
@@ -139,6 +145,7 @@ sources = glob.glob(Path(project_root_dir, "src", "cpu", "cpp", "*.cpp"))
 include_dirs = [
     Path(project_root_dir, "third_party", "ZenDNN", "inc"),
     Path(project_root_dir, "third_party", "FBGEMM", "include"),
+    Path(project_root_dir, "third_party", "libxsmm", "include"),
     Path(project_root_dir, "third_party", "blis", "include", "amdzen"),
 ]
 

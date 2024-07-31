@@ -117,6 +117,49 @@ if(NOT GIT_FOUND OR RESULT)
         set(FBGEMM_VERSION_HASH "N/A")
 endif()
 
+# Download/Copy LIBXSMM
+###############################################################################
+
+IF("$ENV{ZENTORCH_USE_LOCAL_LIBXSMM}" EQUAL 0)
+    FetchContent_Declare(libxsmm
+    GIT_REPOSITORY https://github.com/libxsmm/libxsmm.git
+    GIT_TAG 939f11042fc9ae4bbe975cedb2330d4f9f4bb26e
+    SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/libxsmm"
+    )
+    FetchContent_GetProperties(libxsmm)
+    if(NOT libxsmm_POPULATED)
+        FetchContent_Populate(libxsmm)
+    endif()
+ELSE()
+    IF(NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/third_party/libxsmm)
+        IF(EXISTS ${PLUGIN_PARENT_DIR}/libxsmm)
+            file(COPY ${PLUGIN_PARENT_DIR}/libxsmm DESTINATION "${CMAKE_CURRENT_SOURCE_DIR}/third_party")
+        ELSE()
+            message( FATAL_ERROR "Copying of libxsmm library from local failed, CMake will exit." )
+        ENDIF()
+    ENDIF()
+ENDIF()
+
+# To get LIBXSMM Git Hash
+# Check if the directory is a Git repository by verifying the existence of the .git directory
+if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/libxsmm/.git")
+	set(LIBXSMM_VERSION_HASH "N/A")
+elseif(GIT_FOUND)
+    execute_process(COMMAND ${GIT_EXECUTABLE} describe --tags --abbrev=0
+            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/third_party/libxsmm
+        RESULT_VARIABLE RESULT
+	OUTPUT_VARIABLE LIBXSMM_VERSION_TAG
+        OUTPUT_STRIP_TRAILING_WHITESPACE)
+    execute_process(COMMAND ${GIT_EXECUTABLE} -c log.showSignature=false log --no-abbrev-commit --oneline -1 --format=%H
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/third_party/libxsmm
+        RESULT_VARIABLE RESULT
+	OUTPUT_VARIABLE LIBXSMM_VERSION_HASH
+        OUTPUT_STRIP_TRAILING_WHITESPACE)
+endif()
+
+if(NOT GIT_FOUND OR RESULT)
+	set(LIBXSMM_VERSION_HASH "N/A")
+endif()
 
 # Download/Copy ZENDNN
 ###############################################################################
@@ -175,7 +218,7 @@ add_custom_command(
    COMMAND
        make clean && make distclean && CC=gcc ./configure -a aocl_gemm --prefix=${CMAKE_CURRENT_BINARY_DIR}/blis_gcc_build  --enable-threading=openmp --disable-blas --disable-cblas amdzen && make -j install CMAKE_BUILD_TYPE==${CMAKE_BUILD_TYPE}
    COMMAND
-       mkdir -p ${CMAKE_CURRENT_BINARY_DIR}/lib/ && cp ${CMAKE_CURRENT_BINARY_DIR}/blis_gcc_build/lib/libblis-mt.a ${CMAKE_CURRENT_BINARY_DIR}/lib/
+       cp ${CMAKE_CURRENT_BINARY_DIR}/blis_gcc_build/lib/libblis-mt.a ${CMAKE_CURRENT_BINARY_DIR}/lib/
    COMMAND
        cp -r ${CMAKE_CURRENT_BINARY_DIR}/blis_gcc_build/include/blis/* ${CMAKE_CURRENT_BINARY_DIR}/blis_gcc_build/include
 )
@@ -224,6 +267,39 @@ MARK_AS_ADVANCED(
         fbgemm
 )
 
+# Build libxsmm
+###############################################################################
+add_custom_target(libxsmm ALL
+    DEPENDS
+        ${CMAKE_CURRENT_BINARY_DIR}/lib/libxsmm.a
+)
+
+
+add_custom_command(
+    OUTPUT
+       ${CMAKE_CURRENT_BINARY_DIR}/lib/libxsmm.a
+   WORKING_DIRECTORY
+       ${CMAKE_CURRENT_SOURCE_DIR}/third_party/libxsmm
+   COMMAND
+   make STATIC=1
+   COMMAND
+       mkdir -p ${CMAKE_CURRENT_BINARY_DIR}/libxsmm && cp -r lib/* ${CMAKE_CURRENT_BINARY_DIR}/libxsmm
+   COMMAND
+   cp ${CMAKE_CURRENT_BINARY_DIR}/libxsmm/libxsmm.a ${CMAKE_CURRENT_BINARY_DIR}/lib && cp ${CMAKE_CURRENT_BINARY_DIR}/libxsmm/libxsmmext.a ${CMAKE_CURRENT_BINARY_DIR}/lib && cp ${CMAKE_CURRENT_BINARY_DIR}/libxsmm/libxsmmnoblas.a ${CMAKE_CURRENT_BINARY_DIR}/lib
+)
+
+SET(LIBXSMM_INCLUDE_DIR
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/libxsmm/include
+)
+
+LIST(APPEND LIBXSMM_LIBRARIES ${CMAKE_CURRENT_BINARY_DIR}/lib/libxsmm.a)
+
+MARK_AS_ADVANCED(
+        LIBXSMM_INCLUDE_DIR
+        LIBXSMM_LIBRARIES
+        xsmm
+)
+
 
 
 file(GLOB zendnn_src_common_cpp "${CMAKE_CURRENT_SOURCE_DIR}/third_party/ZenDNN/src/common/*.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/third_party/ZenDNN/src/cpu/*.cpp"
@@ -254,7 +330,7 @@ add_custom_command(
     WORKING_DIRECTORY
         ${CMAKE_CURRENT_SOURCE_DIR}/third_party/ZenDNN
     COMMAND
-        make -j ZENDNN_BLIS_PATH=${CMAKE_CURRENT_BINARY_DIR}/blis_gcc_build AOCC=0 LPGEMM=1 LPGEMM_V4_2=1 LPGEMM_V5_0=1 BLIS_API=1 FBGEMM_INSTALL_PATH=${CMAKE_CURRENT_SOURCE_DIR}/third_party/FBGEMM FBGEMM_ENABLE=1 ARCHIVE=1 RELEASE=${BUILD_FLAG}
+        make -j ZENDNN_BLIS_PATH=${CMAKE_CURRENT_BINARY_DIR}/blis_gcc_build AOCC=0 LPGEMM=1 LPGEMM_V4_2=1 LPGEMM_V5_0=1 BLIS_API=1 FBGEMM_INSTALL_PATH=${CMAKE_CURRENT_SOURCE_DIR}/third_party/FBGEMM FBGEMM_ENABLE=1 ARCHIVE=1 RELEASE=${BUILD_FLAG} ZENDNN_LIBXSMM_PATH=${CMAKE_CURRENT_SOURCE_DIR}/third_party/libxsmm ZENDNN_ENABLE_TPP=1
     COMMAND
         cp _out/lib/libamdZenDNN.a ${CMAKE_CURRENT_BINARY_DIR}/lib/
     DEPENDS
