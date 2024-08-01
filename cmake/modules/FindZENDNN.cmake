@@ -205,7 +205,7 @@ add_custom_command(
    WORKING_DIRECTORY
        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/FBGEMM
    COMMAND
-   mkdir build && cd build && cmake -DFBGEMM_LIBRARY_TYPE=static -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DPYTHON_EXECUTABLE=$ENV{PYTHON_PATH} .. && make -j VERBOSE=1
+   mkdir build && cd build && cmake -DFBGEMM_LIBRARY_TYPE=static -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DCMAKE_C_FLAGS=\"-Wno-error=maybe-uninitialized -Wno-error=uninitialized\" -DCMAKE_CXX_FLAGS=\"-Wno-error=maybe-uninitialized -Wno-error=uninitialized\" -DPYTHON_EXECUTABLE=$ENV{PYTHON_PATH} .. && make -j VERBOSE=1
    COMMAND
        mkdir -p ${CMAKE_CURRENT_BINARY_DIR}/fbgemm_build && cp -r include/ build/* ${CMAKE_CURRENT_BINARY_DIR}/fbgemm_build
    COMMAND
