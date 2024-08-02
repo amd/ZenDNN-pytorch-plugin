@@ -37,6 +37,7 @@ if torch_version < '2.1':
 else:
     from torch._decomp import remove_decompositions
     from torch._inductor.decomposition import decompositions
+    from torch._inductor.lowering import make_fallback
 
     REMOVE_DECOMP = True
 
@@ -128,16 +129,25 @@ def zentorch_compiler_noinductor(gm, sample_inputs):
 @register_backend
 def zentorch(model, inputs):
     if REMOVE_DECOMP:
+        REMOVE_DECOMP_LIST = [
+            torch.ops.aten.gelu_,
+            torch.ops.aten.gelu,
+            torch.ops.aten.silu_,
+            torch.ops.aten.silu,
+            torch.ops.aten.native_layer_norm,
+        ]
         remove_decompositions(
             decompositions,
-            [
-                torch.ops.aten.gelu_,
-                torch.ops.aten.gelu,
-                torch.ops.aten.silu_,
-                torch.ops.aten.silu,
-                torch.ops.aten.native_layer_norm,
-            ],
+            REMOVE_DECOMP_LIST
         )
+        # PT will throw an error if CI env variable is set
+        # This looks like a bug in PT as this check is unnecessary
+        # before registering the fallback
+        # This can be avoided by calling the API with the warning mode
+        # set to False (torch/_inductor/lowering.py)
+        for op in REMOVE_DECOMP_LIST:
+            make_fallback(op, warn=False)
+
     if disable_inductor_flag:
         logger.info(
             "Inductor Compilation has been disabled."
