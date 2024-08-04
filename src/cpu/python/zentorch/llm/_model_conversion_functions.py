@@ -6,6 +6,8 @@
 # https://github.com/intel/intel-extension-for-pytorch/blob/v2.3.0%2Bcpu/intel_extension_for_pytorch/transformers/optimize.py
 # ****************************************************************************************************************************
 
+import math
+from torch._dynamo.utils import guard_if_dyn
 from ._checks import essential_checks
 
 
@@ -158,3 +160,14 @@ def model_convert_lowering(
             )
 
     return _model
+
+
+# Custom version of get_ntk_alpha() for Qwen 7B.
+# Created to resolve symfloat issue with zentorch.
+
+def get_ntk_alpha(self, true_seq_len):
+    # Guard to convert SymNodeVariable to ConstantVariable
+    context_value = math.log(guard_if_dyn(true_seq_len / self.seq_length), 2) + 1
+    ntk_alpha = 2 ** math.ceil(context_value) - 1
+    ntk_alpha = max(ntk_alpha, 1)
+    return ntk_alpha

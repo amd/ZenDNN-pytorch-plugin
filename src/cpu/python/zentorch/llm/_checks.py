@@ -19,6 +19,7 @@ SUPPORTED_MODELS = {
     "PhiForCausalLM",
     "Phi3ForCausalLM",
     "MistralForCausalLM",
+    "QWenLMHeadModel",
 }
 
 
