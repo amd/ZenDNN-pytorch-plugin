@@ -15,9 +15,9 @@ import torch
 import torch.nn as nn
 from itertools import product
 from typing import Tuple
-from torch.testing._internal.common_utils import TestCase
 from parameterized import parameterized
 import zentorch  # noqa
+from torch.testing._internal.common_utils import TestCase, run_tests
 
 skip_test_pt_2_3 = False
 if torch.__version__[:3] < "2.3":
@@ -37,7 +37,6 @@ class FusedROPETester(TestCase):
         self.head_size = 256
         self.num_heads = 16
         self.hidden_size = self.head_size * self.num_heads
-        return super().setUp()
 
     def create_sinusoidal_positions(self, num_pos: int, dim: int) -> torch.Tensor:
         inv_freq = 1.0 / (10000 ** (torch.arange(0, dim, 2) / dim))
@@ -671,7 +670,9 @@ class MaskedMHATest(TestCase):
                             True,
                             torch.tensor(offset),
                         )
-                        self.assertEqual(naive_output, indirect_access_kv_cache_output)
+                        self.assertEqual(
+                            naive_output, indirect_access_kv_cache_output
+                        )
                         self.assertEqual(
                             key_cache.transpose(0, 1)[offset],
                             key_cache_iakv[offset, :, :, :],
@@ -800,7 +801,9 @@ class MaskedMHATest(TestCase):
                             True,
                             torch.tensor(offset),
                         )
-                        self.assertEqual(naive_output, indirect_access_kv_cache_output)
+                        self.assertEqual(
+                            naive_output, indirect_access_kv_cache_output
+                        )
                         self.assertEqual(
                             key_cache.transpose(0, 1)[offset],
                             key_cache_iakv[offset, :, :, :],
@@ -884,4 +887,4 @@ class MaskedMHATest(TestCase):
 
 
 if __name__ == "__main__":
-    test = unittest.main()
+    run_tests()
