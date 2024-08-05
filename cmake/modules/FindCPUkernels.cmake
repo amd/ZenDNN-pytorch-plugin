@@ -11,7 +11,10 @@ set(mha_512 "${CMAKE_CURRENT_SOURCE_DIR}/src/cpu/cpp/kernels/zen_MaskedMultiHead
 set(mha_ref "${CMAKE_CURRENT_SOURCE_DIR}/src/cpu/cpp/kernels/zen_MaskedMultiHeadAttention_ref.cpp")
 
 # setting necessary flags for zen_MaskedMultiHeadAttention.cpp file
-set(FLAGS "-Wall -Werror -Wno-unknown-pragmas -fPIC -fopenmp -fno-math-errno -fno-trapping-math -O2 -std=c++17 -D_GLIBCXX_USE_CXX11_ABI=0")
+set(FLAGS "-Wall -Werror -Wno-unknown-pragmas -Wno-error=maybe-uninitialized -Wno-error=uninitialized \
+          -Wno-error=maybe-uninitialized -Wno-error=uninitialized -fPIC -fopenmp -fno-math-errno \
+          -fno-trapping-math -O2 -std=c++17 -D_GLIBCXX_USE_CXX11_ABI=0")
+
 set(FLAGS_512 "-mavx512f -mavx512bf16 -mavx512vl -DCPU_CAPABILITY_AVX512")
 
 set_source_files_properties(${mha_512} PROPERTIES COMPILE_FLAGS "${FLAGS} ${FLAGS_512}")
