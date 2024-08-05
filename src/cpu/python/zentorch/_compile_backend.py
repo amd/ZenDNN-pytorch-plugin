@@ -50,6 +50,7 @@ def zentorch_compile_fx_inner(
     gm: torch.fx.GraphModule,
     example_inputs: List[torch.Tensor],
     cudagraphs=None,
+    static_input_idxs: Optional[List[int]] = None,
     num_fixed: int = 0,
     is_backward: bool = False,
     graph_id: Optional[int] = None,
@@ -65,14 +66,26 @@ def zentorch_compile_fx_inner(
     zen_gm = optimize(gm)
     # zentorch Optimized Implemention ends here###
     logger.info("Model is passed to compile_fx_inner.")
-    return compile_fx_inner(
-        zen_gm,
-        example_inputs,
-        cudagraphs=cudagraphs,
-        num_fixed=num_fixed,
-        is_backward=is_backward,
-        graph_id=graph_id,
-    )
+    # From PT2.4, compile_fx_inner introduced the optional static_input_idxs
+    # argument and deprecated the optional num_fixed argument.
+    if torch_version < '2.4':
+        return compile_fx_inner(
+            zen_gm,
+            example_inputs,
+            cudagraphs=cudagraphs,
+            num_fixed=num_fixed,
+            is_backward=is_backward,
+            graph_id=graph_id,
+        )
+    else:
+        return compile_fx_inner(
+            zen_gm,
+            example_inputs,
+            cudagraphs=cudagraphs,
+            static_input_idxs=static_input_idxs,
+            is_backward=is_backward,
+            graph_id=graph_id,
+        )
 
 
 def zentorch_compile(
