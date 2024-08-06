@@ -23,9 +23,13 @@ except ImportError:
     has_zentorch = False
 
 skip_test_pt_2_0 = False
+skip_test_pt_2_3 = False
 
 if torch.__version__[:3] == "2.0":
     skip_test_pt_2_0 = True
+
+if torch.__version__[:3] < "2.3":
+    skip_test_pt_2_3 = True
 
 supported_dtypes = ["float32"]
 if zentorch._C.is_bf16_supported():
@@ -2286,6 +2290,9 @@ class TestBMMADD(TestCase):
 
 
 # small testcase for rope, does not have all combinations
+@unittest.skipIf(
+    skip_test_pt_2_3, "Skipping test as OP support available from PyTorch 2.3"
+)
 class MiniRoPETester(TestCase):
     def setUp(self):
         self.max_seq_len = 512
@@ -2514,6 +2521,9 @@ class MiniRoPETester(TestCase):
             )
 
 
+@unittest.skipIf(
+    skip_test_pt_2_3, "Skipping test as OP support available from PyTorch 2.3"
+)
 class MiniMHATester(TestCase):
     def test_mha(self):
         mha = MaskedMHATest()

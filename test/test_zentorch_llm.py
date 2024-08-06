@@ -19,10 +19,17 @@ from torch.testing._internal.common_utils import TestCase
 from parameterized import parameterized
 import zentorch  # noqa
 
+skip_test_pt_2_3 = False
+if torch.__version__[:3] < "2.3":
+    skip_test_pt_2_3 = True
+
 batch_sz_lst = [1, 2, 4, 8, 16, 32, 64]
 seq_ln_lst = [32, 64, 128, 256, 512]
 
 
+@unittest.skipIf(
+    skip_test_pt_2_3, "Skipping test as OP support available from PyTorch 2.3"
+)
 class FusedROPETester(TestCase):
     def setUp(self):
         self.max_seq_len = 512
@@ -372,6 +379,9 @@ class MaskedMHA(torch.nn.Module):
             return attention_output, None, key_cache, value_cache, None
 
 
+@unittest.skipIf(
+    skip_test_pt_2_3, "Skipping test as OP support available from PyTorch 2.3"
+)
 class MaskedMHATest(TestCase):
     def assertEqual(self, x, y, prec=None, message="", allow_inf=False):
         if isinstance(prec, str) and message == "":

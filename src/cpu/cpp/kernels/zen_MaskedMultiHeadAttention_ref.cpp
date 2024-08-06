@@ -481,11 +481,10 @@ first_token_masked_mha_ref(at::Tensor query, at::Tensor key, at::Tensor value,
     query = query.transpose(1, 2);
     key = key.transpose(1, 2);
     value = value.transpose(1, 2);
-    attn_outputs =
-        std::get<0>(at::native::_scaled_dot_product_flash_attention_cpu(
-            query, key, value,
-            /* dropout */ 0.0,
-            /* is_causal*/ false, attention_mask, 1. / scale_attn));
+    attn_outputs = at::native::scaled_dot_product_attention(
+        query, key, value, attention_mask,
+        /* dropout */ 0.0,
+        /* is_causal*/ false, 1. / scale_attn);
   } else {
     key = key.permute({0, 2, 1, 3});
     query = query.permute({0, 2, 1, 3});
