@@ -23,7 +23,6 @@ from ._op_replacement import (
 # TODO: Add support for horizontal_mlp_fusion
 from ._custom_op_replacement import (
     emb_ops_horizontal_fusion,
-    vertical_mlp_fusion,
     eb_group_mlp_group_fusion,
 )
 
@@ -74,7 +73,9 @@ def optimize(fx_graph):
     optimized_graph = emb_ops_horizontal_fusion(optimized_graph)
 
     # Vertical fusion of Consecutive MLP layers
-    optimized_graph = vertical_mlp_fusion(optimized_graph)
+    # TODO : Add support for Vertical Fusion
+    # TODO : Fix inconsistent results with unit tests
+    # optimized_graph = vertical_mlp_fusion(optimized_graph)
 
     # Fusion of parallel MLP layers
     # TODO: Add Addtional Support for Horizontal Fusion
