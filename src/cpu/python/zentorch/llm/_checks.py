@@ -19,7 +19,16 @@ SUPPORTED_MODELS = {
     "PhiForCausalLM",
     "Phi3ForCausalLM",
     "MistralForCausalLM",
+    "GPTNeoXForCausalLM",
+    "OPTForCausalLM",
+    "BloomForCausalLM",
+    "CodeGenForCausalLM",
+    "GPTBigCodeForCausalLM",
+    "StableLmForCausalLM",
+    "GitForCausalLM"
+    "MixtralForCausalLM",
     "QWenLMHeadModel",
+    "YuanForCausalLM",
 }
 
 
