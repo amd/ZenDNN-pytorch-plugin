@@ -17,6 +17,9 @@
 
 #include "vec/add_softmax.h"
 #include "zen_MaskedMultiHeadAttention.hpp"
+
+#define AVX512_BF16_COMPUTE_ENABLE 1
+
 namespace zentorch {
 
 template <typename T>
@@ -38,13 +41,20 @@ void reduce_head(const float *q_ptr_start, const float *k_ptr_start,
   auto hsi = 0;
   auto vec_size = 16; // 512/32
   auto qk_sum_vec = _mm512_setzero_ps();
-  for (hsi = 0; hsi <= head_size - vec_size; hsi += vec_size) {
-    auto q_vec = _mm512_loadu_ps(q_ptr_start + hsi);
-    auto k_vec = _mm512_loadu_ps(k_ptr_start + hsi);
-    if (store_key) {
+
+  if (store_key) {
+    for (hsi = 0; hsi <= head_size - vec_size; hsi += vec_size) {
+      auto q_vec = _mm512_loadu_ps(q_ptr_start + hsi);
+      auto k_vec = _mm512_loadu_ps(k_ptr_start + hsi);
       _mm512_storeu_ps(k_cache_start + hsi, k_vec);
+      qk_sum_vec = _mm512_fmadd_ps(q_vec, k_vec, qk_sum_vec);
     }
-    qk_sum_vec = _mm512_fmadd_ps(q_vec, k_vec, qk_sum_vec);
+  } else {
+    for (hsi = 0; hsi <= head_size - vec_size; hsi += vec_size) {
+      auto q_vec = _mm512_loadu_ps(q_ptr_start + hsi);
+      auto k_vec = _mm512_loadu_ps(k_ptr_start + hsi);
+      qk_sum_vec = _mm512_fmadd_ps(q_vec, k_vec, qk_sum_vec);
+    }
   }
   attn_w_pos[0] += _mm512_reduce_add_ps(qk_sum_vec);
   for (; hsi < head_size; hsi++) {
@@ -60,9 +70,29 @@ void reduce_head(const at::BFloat16 *q_ptr_start,
                  int64_t head_size, bool store_key,
                  at::BFloat16 *k_cache_start) {
   auto hsi = 0;
-  auto vec_size = 16; // 512/32
+  auto vec_size = 32; // 512/16
   auto qk_sum_vec = _mm512_setzero_ps();
+#if AVX512_BF16_COMPUTE_ENABLE
+  if (store_key) {
+    for (hsi = 0; hsi <= head_size - vec_size; hsi += vec_size) {
+      auto q_vec_bf16 = (__m512bh)_mm512_loadu_si512(q_ptr_start + hsi);
+      auto k_vec_bf16 = (__m512bh)_mm512_loadu_si512(k_ptr_start + hsi);
+      _mm512_storeu_si512(k_cache_start + hsi, (__m512i)k_vec_bf16);
+      qk_sum_vec = _mm512_dpbf16_ps(qk_sum_vec, q_vec_bf16, k_vec_bf16);
+    }
+  } else {
+    for (hsi = 0; hsi <= head_size - vec_size; hsi += vec_size) {
+      auto q_vec_bf16 = (__m512bh)_mm512_loadu_si512(q_ptr_start + hsi);
+      auto k_vec_bf16 = (__m512bh)_mm512_loadu_si512(k_ptr_start + hsi);
+      qk_sum_vec = _mm512_dpbf16_ps(qk_sum_vec, q_vec_bf16, k_vec_bf16);
+    }
+  }
+  vec_size = 16;
+  for (; hsi <= head_size - vec_size; hsi += vec_size) {
+#else
+  vec_size = 16; // 512/32
   for (hsi = 0; hsi <= head_size - vec_size; hsi += vec_size) {
+#endif
     // load 16 bfloat16 query from q_ptr_start and convert to 16 float32 values
     auto q_vec_bf16 = _mm256_loadu_si256((__m256i *)(q_ptr_start + hsi));
     auto q_vec_fp32 = zentorch::convert_bf16_to_fp32(q_vec_bf16);
@@ -76,7 +106,8 @@ void reduce_head(const at::BFloat16 *q_ptr_start,
   }
   attn_w_pos[0] += (at::BFloat16)_mm512_reduce_add_ps(qk_sum_vec);
   for (; hsi < head_size; hsi++) {
-    k_cache_start[hsi] = k_ptr_start[hsi]; // cat the key into the key_cache.
+    if (store_key)
+      k_cache_start[hsi] = k_ptr_start[hsi]; // cat the key into the key_cache.
     attn_w_pos[0] += q_ptr_start[hsi] * k_ptr_start[hsi];
   }
   return;
@@ -155,36 +186,93 @@ void mul_attenion_weights_and_value_of_head(float &attn_w,
                                             bool accumulate) {
   auto hsi = 0;
   auto vec_size = 16; // 512/32
-  for (hsi = 0; hsi <= head_size - vec_size; hsi += vec_size) {
-    // get 1 bfloat16 values from attn_w_ptr_start and broadcast to 16 float32
-    // values
-    auto attn_w_vec_fp32 = _mm512_set1_ps(attn_w);
-    // load 16 bfloat16 values from v_ptr_start and convert to 16 float32 values
-    auto v_vec_bf16 = _mm256_loadu_si256((__m256i *)(v_ptr_start + hsi));
-    auto v_vec_fp32 = zentorch::convert_bf16_to_fp32(v_vec_bf16);
-    if (accumulate) {
-      // load 16 bfloat16 values from attn_out_start and convert to 16 float32
-      // values
-      auto attn_out_vec_fp32 = zentorch::convert_bf16_to_fp32(
-          _mm256_loadu_si256((__m256i *)(attn_out_start + hsi)));
-      // calculate the new attn_out_vec_fp32 and convert to bfloat16
-      auto attn_out_vec_new =
-          _mm512_fmadd_ps(attn_w_vec_fp32, v_vec_fp32, attn_out_vec_fp32);
-      auto attn_out_vec_new_bf16 = cvt_fp32_to_bf16(attn_out_vec_new); //_m256i
-      // store the new attn_out_vec_new_bf16 to attn_outs
-      _mm256_storeu_si256((__m256i *)(attn_out_start + hsi),
-                          attn_out_vec_new_bf16);
-    } else {
-      // calculate the new attn_out_vec_fp32 and convert to bfloat16
-      auto attn_out_vec_new = _mm512_mul_ps(attn_w_vec_fp32, v_vec_fp32);
-      auto attn_out_vec_new_bf16 = cvt_fp32_to_bf16(attn_out_vec_new); //_m256i
-      // store the new attn_out_vec_new_bf16 to attn_outs
-      _mm256_storeu_si256((__m256i *)(attn_out_start + hsi),
-                          attn_out_vec_new_bf16);
-    }
-    // store the v_vec_bf16 to v_cache
+
+  // TODO Enable AVX512  BF16 load, store and compute
+  if (accumulate) {
     if (store_value) {
-      _mm256_storeu_si256((__m256i *)(v_cache_start + hsi), v_vec_bf16);
+      for (hsi = 0; hsi <= head_size - vec_size; hsi += vec_size) {
+        // get 1 bfloat16 values from attn_w_ptr_start and broadcast to 16
+        // float32 values
+        auto attn_w_vec_fp32 = _mm512_set1_ps(attn_w);
+        // load 16 bfloat16 values from v_ptr_start and convert to 16 float32
+        // values
+        auto v_vec_bf16 = _mm256_loadu_si256((__m256i *)(v_ptr_start + hsi));
+        auto v_vec_fp32 = zentorch::convert_bf16_to_fp32(v_vec_bf16);
+        // load 16 bfloat16 values from attn_out_start and convert to 16 float32
+        // values
+        auto attn_out_vec_fp32 = zentorch::convert_bf16_to_fp32(
+            _mm256_loadu_si256((__m256i *)(attn_out_start + hsi)));
+        // calculate the new attn_out_vec_fp32 and convert to bfloat16
+        auto attn_out_vec_new =
+            _mm512_fmadd_ps(attn_w_vec_fp32, v_vec_fp32, attn_out_vec_fp32);
+        auto attn_out_vec_new_bf16 =
+            cvt_fp32_to_bf16(attn_out_vec_new); //_m256i
+        // store the new attn_out_vec_new_bf16 to attn_outs
+        _mm256_storeu_si256((__m256i *)(attn_out_start + hsi),
+                            attn_out_vec_new_bf16);
+        // store the v_vec_bf16 to v_cache
+        _mm256_storeu_si256((__m256i *)(v_cache_start + hsi), v_vec_bf16);
+      }
+    } else {
+      for (hsi = 0; hsi <= head_size - vec_size; hsi += vec_size) {
+        // get 1 bfloat16 values from attn_w_ptr_start and broadcast to 16
+        // float32 values
+        auto attn_w_vec_fp32 = _mm512_set1_ps(attn_w);
+        // load 16 bfloat16 values from v_ptr_start and convert to 16 float32
+        // values
+        auto v_vec_bf16 = _mm256_loadu_si256((__m256i *)(v_ptr_start + hsi));
+        auto v_vec_fp32 = zentorch::convert_bf16_to_fp32(v_vec_bf16);
+        // load 16 bfloat16 values from attn_out_start and convert to 16 float32
+        // values
+        auto attn_out_vec_fp32 = zentorch::convert_bf16_to_fp32(
+            _mm256_loadu_si256((__m256i *)(attn_out_start + hsi)));
+        // calculate the new attn_out_vec_fp32 and convert to bfloat16
+        auto attn_out_vec_new =
+            _mm512_fmadd_ps(attn_w_vec_fp32, v_vec_fp32, attn_out_vec_fp32);
+        auto attn_out_vec_new_bf16 =
+            cvt_fp32_to_bf16(attn_out_vec_new); //_m256i
+        // store the new attn_out_vec_new_bf16 to attn_outs
+        _mm256_storeu_si256((__m256i *)(attn_out_start + hsi),
+                            attn_out_vec_new_bf16);
+      }
+    }
+  } else {
+    if (store_value) {
+      for (hsi = 0; hsi <= head_size - vec_size; hsi += vec_size) {
+        // get 1 bfloat16 values from attn_w_ptr_start and broadcast to 16
+        // float32 values
+        auto attn_w_vec_fp32 = _mm512_set1_ps(attn_w);
+        // load 16 bfloat16 values from v_ptr_start and convert to 16 float32
+        // values
+        auto v_vec_bf16 = _mm256_loadu_si256((__m256i *)(v_ptr_start + hsi));
+        auto v_vec_fp32 = zentorch::convert_bf16_to_fp32(v_vec_bf16);
+        // calculate the new attn_out_vec_fp32 and convert to bfloat16
+        auto attn_out_vec_new = _mm512_mul_ps(attn_w_vec_fp32, v_vec_fp32);
+        auto attn_out_vec_new_bf16 =
+            cvt_fp32_to_bf16(attn_out_vec_new); //_m256i
+        // store the new attn_out_vec_new_bf16 to attn_outs
+        _mm256_storeu_si256((__m256i *)(attn_out_start + hsi),
+                            attn_out_vec_new_bf16);
+        // store the v_vec_bf16 to v_cache
+        _mm256_storeu_si256((__m256i *)(v_cache_start + hsi), v_vec_bf16);
+      }
+    } else {
+      for (hsi = 0; hsi <= head_size - vec_size; hsi += vec_size) {
+        // get 1 bfloat16 values from attn_w_ptr_start and broadcast to 16
+        // float32 values
+        auto attn_w_vec_fp32 = _mm512_set1_ps(attn_w);
+        // load 16 bfloat16 values from v_ptr_start and convert to 16 float32
+        // values
+        auto v_vec_bf16 = _mm256_loadu_si256((__m256i *)(v_ptr_start + hsi));
+        auto v_vec_fp32 = zentorch::convert_bf16_to_fp32(v_vec_bf16);
+        // calculate the new attn_out_vec_fp32 and convert to bfloat16
+        auto attn_out_vec_new = _mm512_mul_ps(attn_w_vec_fp32, v_vec_fp32);
+        auto attn_out_vec_new_bf16 =
+            cvt_fp32_to_bf16(attn_out_vec_new); //_m256i
+        // store the new attn_out_vec_new_bf16 to attn_outs
+        _mm256_storeu_si256((__m256i *)(attn_out_start + hsi),
+                            attn_out_vec_new_bf16);
+      }
     }
   }
   for (; hsi < head_size; hsi++) {
@@ -209,27 +297,70 @@ void mul_attenion_weights_and_value_of_head(float &attn_w,
                                             bool accumulate) {
   auto hsi = 0;
   auto vec_size = 16; // 512/32
-  for (hsi = 0; hsi <= head_size - vec_size; hsi += vec_size) {
-    // get 1 bfloat16 values from attn_w_ptr_start and broadcast to 16 float32
-    // values
-    auto attn_w_vec_fp32 = _mm512_set1_ps(attn_w);
-    // load 16 bfloat16 values from v_ptr_start and convert to 16 float32 values
-    auto v_vec_bf16 = _mm256_loadu_si256((__m256i *)(v_ptr_start + hsi));
-    auto v_vec_fp32 = zentorch::convert_bf16_to_fp32(v_vec_bf16);
-    if (accumulate) {
-      auto attn_out_vec_fp32 = _mm512_loadu_ps(attn_out_start + hsi);
-      // calculate the new attn_out_vec_fp32 and convert to bfloat16
-      auto attn_out_vec_new =
-          _mm512_fmadd_ps(attn_w_vec_fp32, v_vec_fp32, attn_out_vec_fp32);
-      _mm512_storeu_ps(attn_out_start + hsi, attn_out_vec_new);
-    } else {
-      // calculate the new attn_out_vec_fp32 and convert to bfloat16
-      auto attn_out_vec_new = _mm512_mul_ps(attn_w_vec_fp32, v_vec_fp32);
-      _mm512_storeu_ps(attn_out_start + hsi, attn_out_vec_new);
-    }
-    // store the v_vec_bf16 to v_cache
+
+  if (accumulate) {
     if (store_value) {
-      _mm256_storeu_si256((__m256i *)(v_cache_start + hsi), v_vec_bf16);
+      for (hsi = 0; hsi <= head_size - vec_size; hsi += vec_size) {
+        // get 1 bfloat16 values from attn_w_ptr_start and broadcast to 16
+        // float32 values
+        auto attn_w_vec_fp32 = _mm512_set1_ps(attn_w);
+        // load 16 bfloat16 values from v_ptr_start and convert to 16 float32
+        // values
+        auto v_vec_bf16 = _mm256_loadu_si256((__m256i *)(v_ptr_start + hsi));
+        auto v_vec_fp32 = zentorch::convert_bf16_to_fp32(v_vec_bf16);
+        auto attn_out_vec_fp32 = _mm512_loadu_ps(attn_out_start + hsi);
+        // calculate the new attn_out_vec_fp32 and convert to bfloat16
+        auto attn_out_vec_new =
+            _mm512_fmadd_ps(attn_w_vec_fp32, v_vec_fp32, attn_out_vec_fp32);
+        _mm512_storeu_ps(attn_out_start + hsi, attn_out_vec_new);
+        // store the v_vec_bf16 to v_cache
+        _mm256_storeu_si256((__m256i *)(v_cache_start + hsi), v_vec_bf16);
+      }
+    } else {
+      for (hsi = 0; hsi <= head_size - vec_size; hsi += vec_size) {
+        // get 1 bfloat16 values from attn_w_ptr_start and broadcast to 16
+        // float32 values
+        auto attn_w_vec_fp32 = _mm512_set1_ps(attn_w);
+        // load 16 bfloat16 values from v_ptr_start and convert to 16 float32
+        // values
+        auto v_vec_bf16 = _mm256_loadu_si256((__m256i *)(v_ptr_start + hsi));
+        auto v_vec_fp32 = zentorch::convert_bf16_to_fp32(v_vec_bf16);
+        auto attn_out_vec_fp32 = _mm512_loadu_ps(attn_out_start + hsi);
+        // calculate the new attn_out_vec_fp32 and convert to bfloat16
+        auto attn_out_vec_new =
+            _mm512_fmadd_ps(attn_w_vec_fp32, v_vec_fp32, attn_out_vec_fp32);
+        _mm512_storeu_ps(attn_out_start + hsi, attn_out_vec_new);
+      }
+    }
+  } else {
+    if (store_value) {
+      for (hsi = 0; hsi <= head_size - vec_size; hsi += vec_size) {
+        // get 1 bfloat16 values from attn_w_ptr_start and broadcast to 16
+        // float32 values
+        auto attn_w_vec_fp32 = _mm512_set1_ps(attn_w);
+        // load 16 bfloat16 values from v_ptr_start and convert to 16 float32
+        // values
+        auto v_vec_bf16 = _mm256_loadu_si256((__m256i *)(v_ptr_start + hsi));
+        auto v_vec_fp32 = zentorch::convert_bf16_to_fp32(v_vec_bf16);
+        // calculate the new attn_out_vec_fp32 and convert to bfloat16
+        auto attn_out_vec_new = _mm512_mul_ps(attn_w_vec_fp32, v_vec_fp32);
+        _mm512_storeu_ps(attn_out_start + hsi, attn_out_vec_new);
+        // store the v_vec_bf16 to v_cache
+        _mm256_storeu_si256((__m256i *)(v_cache_start + hsi), v_vec_bf16);
+      }
+    } else {
+      for (hsi = 0; hsi <= head_size - vec_size; hsi += vec_size) {
+        // get 1 bfloat16 values from attn_w_ptr_start and broadcast to 16
+        // float32 values
+        auto attn_w_vec_fp32 = _mm512_set1_ps(attn_w);
+        // load 16 bfloat16 values from v_ptr_start and convert to 16 float32
+        // values
+        auto v_vec_bf16 = _mm256_loadu_si256((__m256i *)(v_ptr_start + hsi));
+        auto v_vec_fp32 = zentorch::convert_bf16_to_fp32(v_vec_bf16);
+        // calculate the new attn_out_vec_fp32 and convert to bfloat16
+        auto attn_out_vec_new = _mm512_mul_ps(attn_w_vec_fp32, v_vec_fp32);
+        _mm512_storeu_ps(attn_out_start + hsi, attn_out_vec_new);
+      }
     }
   }
   for (; hsi < head_size; hsi++) {
@@ -341,14 +472,21 @@ scale_dot_product_for_indirect_access_kv_cache(
   auto attn_w_ptr = attn_weights.data_ptr<float>();
   long new_beam_idx[beam_batch][offset + query.size(1) + 1];
   auto b_ptr = beam_idx.data_ptr<long>();
+  auto thread_numbers = omp_get_max_threads();
   if (offset > 0) {
     // according to the last decoded token to get the target beam for the past
     // token
-    for (int i = 0; i < bs; i++) {
-      new_beam_idx[i][offset - 1] = b_ptr[(offset - 1) * bs + i];
-      for (int j = offset - 2; j >= 0;
-           j--) { // for the token of input, the target beam is alwarys 0
-        new_beam_idx[i][j] = b_ptr[j * bs + new_beam_idx[i][j + 1]];
+    unsigned int threads = thread_numbers < bs ? bs : thread_numbers;
+#pragma omp parallel num_threads(threads)
+    {
+      unsigned int i = omp_get_thread_num();
+      // TODO: Nested parallelism to utilize all the available threads
+      if (i < bs) {
+        new_beam_idx[i][offset - 1] = b_ptr[(offset - 1) * bs + i];
+        for (int j = offset - 2; j >= 0;
+             j--) { // for the token of input, the target beam is alwarys 0
+          new_beam_idx[i][j] = b_ptr[j * bs + new_beam_idx[i][j + 1]];
+        }
       }
     }
   }
@@ -361,7 +499,7 @@ scale_dot_product_for_indirect_access_kv_cache(
         for (auto hi = 0; hi < head_num; hi++) {
           for (auto query_ti = 0; query_ti < cur_len; query_ti++) {
             auto kv_hi = hi / group_size; // maping the query head to key/value
-                                          // head to support MGA/MQA
+            // head to support MGA/MQA
             auto q_ptr_start =
                 q_ptr + (bi * cur_len + query_ti) * head_num * head_size +
                 hi * head_size;
@@ -372,11 +510,11 @@ scale_dot_product_for_indirect_access_kv_cache(
             auto kc_token_start = ti * kc_token_stride;
             auto kc_t_beam_start = kc_token_start;
             if (ti > query_ti + offset) { // only caculate the innerproduct for
-                                          // the past token and current token
+              // the past token and current token
               attn_w_pos[0] = -10000.0f;
             } else if (ti == query_ti + offset) { // caculate the innerproduct
-                                                  // for the current token and
-                                                  // store the key
+              // for the current token and
+              // store the key
               if (cur_len > 1) { // this may occur for processing the promt
                 auto beam_size = beam_batch / bs;
                 // need to store key accross beam
@@ -473,7 +611,7 @@ scale_dot_product_for_indirect_access_kv_cache(
       }
     }
   }
-  auto thread_numbers = omp_get_max_threads();
+
   auto private_attn_outs =
       at::empty({thread_numbers, bs, head_num, cur_len, head_size}, at::kFloat);
   auto private_attn_out_flag =
@@ -485,6 +623,7 @@ scale_dot_product_for_indirect_access_kv_cache(
   {
     RECORD_FUNCTION("zentorch::iakv_sdp::matmul(attn_w, value)",
                     c10::ArrayRef<c10::IValue>({}));
+// TODO Enable BF16 compute for mul_attenion_weights_and_value_of_head
 #pragma omp parallel for collapse(3)
     for (auto vi = 0; vi < seq_len; vi++) {
       for (auto bi = 0; bi < bs; bi++) {
@@ -492,7 +631,7 @@ scale_dot_product_for_indirect_access_kv_cache(
           auto thread_id = omp_get_thread_num();
           for (auto query_ti = 0; query_ti < cur_len; query_ti++) {
             auto kv_hi = hi / group_size; // maping the query head to key/value
-                                          // head to support MGA/MQA
+            // head to support MGA/MQA
             auto attn_w_stride = (bi * head_num + hi) * cur_len * seq_len;
             auto attn_w_query_start =
                 attn_w_ptr + attn_w_stride + query_ti * seq_len;
@@ -506,7 +645,7 @@ scale_dot_product_for_indirect_access_kv_cache(
 
             auto vc_token_start = vi * kc_token_stride;
             if (vi == query_ti + offset) { // caculate the attention values
-                                           // for the current token
+              // for the current token
               auto vc_t_beam_start = vc_token_start;
               if (cur_len > 1) { // this may occur for processing the promt
                 auto beam_size = beam_batch / bs;
@@ -527,8 +666,8 @@ scale_dot_product_for_indirect_access_kv_cache(
                   head_size, true, v_cache_head_start,
                   flag_access[thread_id][bi][hi]);
             } else if (vi < query_ti + offset) { // caculate attention
-                                                 // values for the past
-                                                 // token
+              // values for the past
+              // token
               if (vi >= offset) {
                 auto v_ptr_start =
                     v_ptr + (bi * cur_len + vi - offset) * kv_head * head_size +
@@ -552,15 +691,18 @@ scale_dot_product_for_indirect_access_kv_cache(
               }
             }
           }
-          if (flag_access[thread_id][bi][hi] == 0)
+          if (flag_access[thread_id][bi][hi] == 0) {
             flag_access[thread_id][bi][hi] = 1;
+          }
         }
       }
     }
   }
+
   {
     RECORD_FUNCTION("zentorch::iakv_sdp::reduction_private_result",
                     c10::ArrayRef<c10::IValue>({}));
+    // TODO Enable AVX512  BF16 load, store and add for add and move kernel
 #pragma omp parallel for collapse(3)
     for (auto bi = 0; bi < bs; bi++) {
       for (auto hi = 0; hi < head_num; hi++) {
@@ -604,20 +746,24 @@ zero_copy_kv_cache_masked_multihead_self_attention_kernel_impl(
   assert(key.scalar_type() == at::kBFloat16 ||
          key.scalar_type() == at::kFloat || key.scalar_type() == at::kHalf);
   if (query.scalar_type() == at::kFloat && value.scalar_type() == at::kFloat) {
+
     return scale_dot_product_for_indirect_access_kv_cache<float, float>(
         query, key, value, key_cache, value_cache, beam_idx, offset, scale_attn,
         attention_mask);
   } else if (query.scalar_type() == at::kFloat &&
              value.scalar_type() == at::kBFloat16) {
+
     return scale_dot_product_for_indirect_access_kv_cache<float, at::BFloat16>(
         query, key, value, key_cache, value_cache, beam_idx, offset, scale_attn,
         attention_mask);
   } else if (key.scalar_type() == at::kBFloat16 &&
              value.scalar_type() == at::kFloat) {
+
     return scale_dot_product_for_indirect_access_kv_cache<at::BFloat16, float>(
         query, key, value, key_cache, value_cache, beam_idx, offset, scale_attn,
         attention_mask);
   }
+
   return scale_dot_product_for_indirect_access_kv_cache<at::BFloat16,
                                                         at::BFloat16>(
       query, key, value, key_cache, value_cache, beam_idx, offset, scale_attn,
@@ -739,7 +885,7 @@ masked_multihead_self_attention_kernel_impl_512(
   auto attention_mask_v = attention_mask.value().contiguous();
   attention_mask_v = attention_mask_v.to(query.dtype());
   auto beam_batch = beam_idx.size(1); // need to prepare the fake beam_idx as
-                                      // (max_position, bs) for the first token
+  // (max_position, bs) for the first token
   auto offset = seq_info.data_ptr<long>()[0];
   auto cache_size = key_cache.size(0);
   auto cur_len = query.size(1);
