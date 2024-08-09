@@ -2310,21 +2310,31 @@ class TestPatternMatcher(TestCase):
     def setUp(self):
         torch.manual_seed(SEED)
 
-    def test_gelu_replacement(self):
+    @parameterized.expand(supported_dtypes)
+    def test_gelu_replacement(self, dtype):
         decomp_gelu_model = GeluErfPattern()
         model = decomp_gelu_model.to("cpu").eval()
         compiled_model = torch.compile(model, backend="zentorch")
-        inp = torch.empty((4, 11))
+        data = Test_Data()
+        new_dtype = data.get_torch_type(dtype)
+        inp = torch.empty((4, 11), dtype=new_dtype)
         counters.clear()
         self.assertEqual(counters["zentorch"]["pattern_matcher_gelu"], 0)
-        with torch.no_grad():
+        with torch.inference_mode():
             _ = compiled_model(inp)
-            # test for fp32
+            # test for both dtypes, two separate tests will be run
             self.assertEqual(counters["zentorch"]["pattern_matcher_gelu"], 1)
-            with torch.cpu.amp.autocast():
-                _ = compiled_model(inp)
-                # test for bf16
-                self.assertEqual(counters["zentorch"]["pattern_matcher_gelu"], 2)
+
+    def test_gelu_replacement_autocast(self):
+        decomp_gelu_model = GeluErfPattern()
+        model = decomp_gelu_model.to("cpu").eval()
+        compiled_model = torch.compile(model, backend="zentorch")
+        inp = torch.empty((5, 13))
+        counters.clear()
+        self.assertEqual(counters["zentorch"]["pattern_matcher_gelu"], 0)
+        with torch.inference_mode(), torch.cpu.amp.autocast():
+            _ = compiled_model(inp)
+            self.assertEqual(counters["zentorch"]["pattern_matcher_gelu"], 1)
 
 
 # small testcase for rope, does not have all combinations

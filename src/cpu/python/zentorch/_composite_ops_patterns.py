@@ -6,6 +6,7 @@
 import torch
 import collections
 import functools
+from ._compile_backend import torch_version
 
 # Brief steps:
 # 1. define both patterns
@@ -96,7 +97,6 @@ def _dummy_extra_check(match):
 def _get_pattern_with_replacement():
     # get the matcher_pass to register with
     from ._composite_ops_matcher import matcher_pass
-    from torch._inductor.pattern_matcher import fwd_only
 
     arg_1 = functools.partial(torch.empty, (3, 15), device="cpu", requires_grad=True)
     a_1 = functools.partial(arg_1, dtype=torch.float)
@@ -135,15 +135,32 @@ def _get_pattern_with_replacement():
         assert isinstance(workaround, dict)
         name = pattern.__name__
         inference_name = name + "_inference"
-        yield inference_name, {
-            "search_fn": pattern,
-            "replace_fn": replacement,
-            "example_inputs": args,
-            "trace_fn": fwd_only,
-            "pass_dicts": matcher_pass,
-            "extra_check": extra_check,
-            "scalar_workaround": workaround,
-        }
+        # pre 2.2 PT versions use a different name for fwd-tracer
+        # remove the if block when deprecating support for PT <= 2.1.x
+        if torch_version < "2.2":
+            from torch._inductor.pattern_matcher import inference_graph
+
+            yield inference_name, {
+                "search_fn": pattern,
+                "replace_fn": replacement,
+                "example_inputs": args,
+                "trace_fn": inference_graph,
+                "pass_dict": matcher_pass,
+                "extra_check": extra_check,
+                "scalar_workaround": workaround,
+            }
+        else:
+            from torch._inductor.pattern_matcher import fwd_only
+
+            yield inference_name, {
+                "search_fn": pattern,
+                "replace_fn": replacement,
+                "example_inputs": args,
+                "trace_fn": fwd_only,  # tracer for forward function
+                "pass_dicts": matcher_pass,
+                "extra_check": extra_check,
+                "scalar_workaround": workaround,
+            }
 
 
 @functools.lru_cache(None)
@@ -155,4 +172,4 @@ def _replace_init():
         # TODO: try to use use gen_register_replacement for generating the patterns
         # for PT >= 2.4, do the following
         # gen_register_replacement(key, **register_replacement_kwargs)
-        register_replacement(**register_replacement_kwargs, search_fn_pattern=None)
+        register_replacement(**register_replacement_kwargs)
