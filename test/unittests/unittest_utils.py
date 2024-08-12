@@ -54,6 +54,8 @@ q_linear_dtype_opt = [
 ]
 conv_stride = [[1, 1], [2, 2]]
 conv_padding = [[0, 0], [1, 1]]
+seq_length_opt = [384, 512]
+batch_size_opt = [1, 4, 8]
 
 at_ops = torch.ops.aten
 zt_ops = torch.ops.zentorch

@@ -124,6 +124,17 @@ def is_convolution_op_replaceable(fx_graph, node):
     return False
 
 
+def is_sdpa_replacable(fx_graph, node):
+    op_name = "zentorch::zentorch_sdpa"
+    dispatch_key = "CPU"
+    # Check kernel availability
+    has_impl = torch._C._dispatch_has_kernel_for_dispatch_key(op_name, dispatch_key)
+    if has_impl:
+        return True
+    else:
+        return False
+
+
 def is_bias_1d_tensor(fx_graph, node):
     # checks if self/bias tensor is 1-d or not
     # returns true if 1d bias tensor
@@ -146,6 +157,10 @@ at_to_zen_op_dict = {
     at_ops.convolution.default: (
         zt_ops.zentorch_convolution.default,
         is_convolution_op_replaceable,
+    ),
+    at_ops._scaled_dot_product_flash_attention_for_cpu.default: (
+        zt_ops.zentorch_sdpa.default,
+        is_sdpa_replacable,
     ),
 }
 

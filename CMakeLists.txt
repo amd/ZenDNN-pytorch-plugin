@@ -1,5 +1,5 @@
 #******************************************************************************
-# Copyright (c) 2023-2024 Advanced Micro Devices, Inc.
+# Copyright (c) 2023-2025 Advanced Micro Devices, Inc.
 # All rights reserved.
 #******************************************************************************
 
@@ -14,6 +14,8 @@ find_package(ZENDNN REQUIRED)
 
 # build mha kernel
 find_package(CPUkernels REQUIRED)
+
+add_dependencies(CPUkernels libamdZenDNN)
 
 configure_file ("${CMAKE_CURRENT_SOURCE_DIR}/src/cpu/cpp/Config.hpp.in"
             "${CMAKE_CURRENT_SOURCE_DIR}/src/cpu/cpp/Config.hpp" )
