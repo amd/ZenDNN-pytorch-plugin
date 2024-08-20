@@ -10,8 +10,15 @@ import math
 from torch._dynamo.utils import guard_if_dyn
 from ._checks import essential_checks
 
+from .._logging import get_logger
+
+# make a logger for this file
+logger = get_logger(__name__)
+
 
 # model_convert_lowering is inspired from IPEX 2.3.0 (commit id: d3c5244)
+# Added an extra argument 'cache_weight_for_large_batch' to make the
+# function compatible for IPEX 2.4.0s
 def model_convert_lowering(
     _model,
     device,
@@ -20,9 +27,30 @@ def model_convert_lowering(
     deployment_mode,
     is_quantization=False,
     woq=False,
+    cache_weight_for_large_batch=False,
 ):
     if not essential_checks(_model, dtype):
         return _model
+    if cache_weight_for_large_batch:
+        logger.warning(
+            "cache_weight_for_large_batch is not "
+            "supported in zentorch_llm_optimize"
+        )
+    if woq:
+        logger.warning(
+            "woq is not supported in "
+            "zentorch_llm_optimize"
+        )
+    if is_quantization:
+        logger.warning(
+            "is_quantization is not supported in "
+            "zentorch_llm_optimize"
+        )
+    if deployment_mode:
+        logger.warning(
+            "deployment_mode is not supported in "
+            "zentorch_llm_optimize"
+        )
 
     import intel_extension_for_pytorch as ipex
 
