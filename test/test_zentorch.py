@@ -20,7 +20,7 @@ try:
     import zentorch
 
     # for pattern matcher
-    from zentorch._counters import counters
+    from zentorch._composite_ops_patterns import counters
 
     has_zentorch = True
 except ImportError:
@@ -1031,28 +1031,18 @@ class TEST_HORIZONTAL_MLP(Zentorch_TestCase):
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
     def test_horizontal_mlp(self, dtype):
+
         self.data.create_data(dtype)
         model = Custom_Horizontal_GroupMLP_Model(self.data.get_torch_type(dtype))
-        native_output = model(self.data.x2[0], self.data.y2[0])
-        reset_dynamo()
-        compiled_graph = torch.compile(model, backend="zentorch")
-        compiled_output = compiled_graph(self.data.x2[0], self.data.y2[0])
-        self.assertEqual(native_output, compiled_output)
 
-    @parameterized.expand(supported_dtypes)
-    @torch.inference_mode()
-    def test_horizontal_mlp_multi_mm(self, dtype):
-        self.data.create_data(dtype)
-        model = Custom_Horizontal_GroupMLP_multi_mm_Model(
-            self.data.get_torch_type(dtype)
-        )
-        reset_dynamo()
-        counters.clear()
-        self.assertEqual(counters["zentorch"]["qkv_fusion"], 0)
-        compiled_graph = torch.compile(model, backend="zentorch")
-        with torch.inference_mode():
-            _ = compiled_graph(self.data.x2[0], self.data.y2[0])
-            self.assertEqual(counters["zentorch"]["qkv_fusion"], 1)
+        for i in range(len(self.data.x2)):
+            for j in range(len(self.data.y2)):
+                native_output = model(self.data.x2[i], self.data.y2[j])
+                reset_dynamo()
+                compiled_graph = torch.compile(model, backend="zentorch")
+
+                compiled_output = compiled_graph(self.data.x2[i], self.data.y2[j])
+                self.assertEqual(native_output, compiled_output)
 
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
@@ -1067,24 +1057,9 @@ class TEST_HORIZONTAL_MLP(Zentorch_TestCase):
                 native_output = model(self.data.x2[i], self.data.y2[j])
                 reset_dynamo()
                 compiled_graph = torch.compile(model, backend="zentorch")
+
                 compiled_output = compiled_graph(self.data.x2[i], self.data.y2[j])
                 self.assertEqual(native_output, compiled_output)
-
-    @parameterized.expand(supported_dtypes)
-    @torch.inference_mode()
-    def test_horizontal_mlp_multi_level(self, dtype):
-
-        self.data.create_data(dtype)
-        model = Custom_Horizontal_GroupMLP_multi_level_Model(
-            self.data.get_torch_type(dtype)
-        )
-        reset_dynamo()
-        counters.clear()
-        self.assertEqual(counters["zentorch"]["qkv_fusion"], 0)
-        compiled_graph = torch.compile(model, backend="zentorch")
-        with torch.inference_mode():
-            _ = compiled_graph(self.data.x2[0], self.data.y2[0])
-            self.assertEqual(counters["zentorch"]["qkv_fusion"], 1)
 
     @parameterized.expand(supported_dtypes)
     def test_horizontal_mlp_unsupported_dims_1(self, dtype):
@@ -1502,42 +1477,6 @@ class CustomModel_Group_EB_MLP_Model_multiple_groups(torch.nn.Module):
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
-class Custom_Horizontal_GroupMLP_multi_level_Model(nn.Module):
-    def __init__(self, dtype):
-        super(Custom_Horizontal_GroupMLP_multi_level_Model, self).__init__()
-        self.linear1 = nn.Linear(60, 50, dtype=dtype)
-        self.linear2 = nn.Linear(50, 60, dtype=dtype)
-        self.linear3 = nn.Linear(60, 50, dtype=dtype)
-
-    def forward(self, batch1, batch2):
-        bmm_output = torch.bmm(batch1, batch2)
-
-        # Perform three separate view operations
-        view1 = bmm_output.view(-1, 60)
-        view2 = bmm_output.view(-1, 50)
-        view3 = bmm_output.view(-1, 60)
-
-        # Perform three separate view operations
-        view4 = view1.view(-1, 60)
-        view5 = view2.view(-1, 50)
-        view6 = view3.view(-1, 60)
-
-        # Pass through linear layers
-        linear1_output = self.linear1(view1)
-        linear2_output = self.linear2(view2)
-        linear3_output = self.linear3(view3)
-
-        view4 = linear1_output.view(-1, 50)
-        view5 = linear2_output.view(-1, 50)
-        view6 = linear3_output.view(-1, 50)
-        output = torch.cat(
-            (view4, view5, view6),
-        )
-
-        return output
-
-
-@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class Custom_Horizontal_GroupMLP_Model(nn.Module):
     def __init__(self, dtype):
         super(Custom_Horizontal_GroupMLP_Model, self).__init__()
@@ -1564,42 +1503,6 @@ class Custom_Horizontal_GroupMLP_Model(nn.Module):
         view6 = linear3_output.view(-1, 50)
         output = torch.cat(
             (view4, view5, view6),
-        )
-
-        return output
-
-
-@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
-class Custom_Horizontal_GroupMLP_multi_mm_Model(nn.Module):
-    def __init__(self, dtype):
-        super(Custom_Horizontal_GroupMLP_multi_mm_Model, self).__init__()
-        self.linear1 = nn.Linear(60, 50, dtype=dtype)
-        self.linear2 = nn.Linear(50, 60, dtype=dtype)
-        self.linear3 = nn.Linear(60, 50, dtype=dtype)
-        self.linear4 = nn.Linear(60, 50, dtype=dtype)
-
-    def forward(self, batch1, batch2):
-        bmm_output = torch.bmm(batch1, batch2)
-
-        # Perform three separate view operations
-        view1 = bmm_output.view(-1, 60)
-        view2 = bmm_output.view(-1, 50)
-        view3 = bmm_output.view(-1, 60)
-        view4 = bmm_output.view(-1, 60)
-
-        # Pass through linear layers
-        linear1_output = self.linear1(view1)
-        linear2_output = self.linear2(view2)
-        linear3_output = self.linear3(view3)
-        linear4_output = self.linear4(view4)
-
-        view5 = linear1_output.view(-1, 50)
-        view6 = linear2_output.view(-1, 50)
-        view7 = linear3_output.view(-1, 50)
-        view8 = linear4_output.view(-1, 50)
-
-        output = torch.cat(
-            (view5, view6, view7, view8),
         )
 
         return output

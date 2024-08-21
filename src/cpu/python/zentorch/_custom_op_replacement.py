@@ -4,9 +4,7 @@
 # ******************************************************************************
 
 import torch
-from torch._inductor.pattern_matcher import stable_topological_sort
 import operator
-from ._counters import counters
 
 # import the custom logging module
 from ._logging import get_logger
@@ -247,16 +245,16 @@ def get_fuse_val(target):
 
 horizontal_mlp_targets = {
     "mm": [
-        zt_ops.zentorch_mm.default,
-        zt_ops.zentorch_mm_relu.default,
-        zt_ops.zentorch_mm_gelu_tanh.default,
-        zt_ops.zentorch_mm_gelu_erf.default,
+        zt_ops.zentorch_mm,
+        zt_ops.zentorch_mm_relu,
+        zt_ops.zentorch_mm_gelu_tanh,
+        zt_ops.zentorch_mm_gelu_erf,
     ],
     "addmm_1dbias": [
-        zt_ops.zentorch_addmm_1dbias.default,
-        zt_ops.zentorch_addmm_1dbias_relu.default,
-        zt_ops.zentorch_addmm_1dbias_gelu_tanh.default,
-        zt_ops.zentorch_addmm_1dbias_gelu_erf.default,
+        zt_ops.zentorch_addmm_1dbias,
+        zt_ops.zentorch_addmm_1dbias_relu,
+        zt_ops.zentorch_addmm_1dbias_gelu_tanh,
+        zt_ops.zentorch_addmm_1dbias_gelu_erf,
     ],
 }
 
@@ -386,29 +384,38 @@ def vertical_mlp_fusion(fx_graph):
     return fx_graph
 
 
-def qkv_fusion(fx_g):
+def horizontal_mlp_fusion(fx_g):
     # Fusing parallel matmuls in attention block which constitute
     # key query value pair for LLM's.
-    logger.info("Detecting and executing horizontal MLP ops.")
+    logger.info("Fusing horizontal Matmul ops.")
     groups = {}
-
+    user_node_list = []
     for node in fx_g.graph.nodes:
         node_name = node.name
         # Pattern check begins with finding the common node
         # for the horizontal matmul pattern
-        if len(node.users) >= 3 and node.op != 'placeholder':
+        if len(node.users) >= 3:
             for user in node.users.keys():
                 # Skipping if there are no users present or if the user is a return node
                 if not bool(user.users.keys()):
                     continue
-                user_node = list(user.users)[0]
-                # Adding the condition check to find the pattern where
-                # the node with number of users > 3 is linked via a
-                # convert element and a view to a matmul.
-                # Hence, 2 levels of check is required to reach matmul nodes.
-                if user_node.target == torch.ops.aten.view.default:
-                    user_node = list(user_node.users)[0]
-
+                user_node = list(user.users.keys())[0]
+                # Skipping fusion if args of view are not placeholders or constants.
+                view_arg_check = False
+                if user.target == torch.ops.aten.view.default:
+                    for node_arg in user.args[1]:
+                        if (
+                            type(node_arg) is torch.fx.node.Node
+                            and node_arg.op != "placeholder"
+                        ):
+                            view_arg_check = True
+                            logger.warning(
+                                "GroupMLP fusion not possible with the current "
+                                + "arg list of view node as args of view are not "
+                                + "constants or placeholders."
+                            )
+                if view_arg_check:
+                    continue
                 # Append addmm/mm nodes to group
                 # Check if addmm/mm is unique to the dictionary
                 node_values = get_group_attr(user_node.target)
@@ -416,27 +423,22 @@ def qkv_fusion(fx_g):
                     groups.setdefault(node_name, {"nodes": []})["nodes"].append(
                         user_node
                     )
+                    groups[node_name].update(node_values)
+                    user_node_list.append(user_node)
 
     # Perform fusion and optimization
     for group in groups.values():
         # Check for attention block matmuls
-        # fuse only the first 3 matmuls: Query, Key, Value
-        group['nodes'] = group['nodes'][:3]
-
         # Validate if all K,Q,V are of same target value
         target_values = [(group["nodes"][i]).target for i in range(len(group["nodes"]))]
-        same_target = set(target_values)
-
+        same_target = set(target_values).issubset(horizontal_mlp_targets["mm"]) or set(
+            target_values
+        ).issubset(horizontal_mlp_targets["addmm_1dbias"])
         # Checking only for K,Q,V pair hence hardcoded to 3
-        if len(same_target) == 1:
+        if len(group["nodes"]) == 3 and same_target:
             group_op_args = [[] for _ in range(7)]
             first_node = group["nodes"][0]
-
-            # Update the group attributes
-            node_values = get_group_attr(first_node.target)
-            group.update(node_values)
-
-            # Check if node is zentorch_addmm_1d_bias or zentorch_mm.
+            # Check if node is zentorch_addmm or zentorch_mm.
             # zentorch_mm has only 2 arguments, whereas zentorch_addmm has 3.
             # create an empty node to replicate the arg structure of addmm.
             if len(first_node.args) == 2:
@@ -459,6 +461,11 @@ def qkv_fusion(fx_g):
                         group_op_args[i + 1].append(arg)
                     else:
                         group_op_args[i].append(arg)
+                    if arg.target in (
+                        torch.ops.aten.view.default,
+                        torch.ops.aten.permute.default,
+                    ):
+                        first_node.prepend(arg)
                 # iterate through kwargs to append node's value, if present in graph,
                 # else append the default value
                 for kwarg in ["alpha", "beta", "is_zentorch_mm"]:
@@ -476,9 +483,6 @@ def qkv_fusion(fx_g):
             )
             first_node.prepend(group_node)
 
-            # Incrementing the fusion counter
-            counters["zentorch"]["qkv_fusion"] += 1
-
             # Creating getitem nodes to parse the output vector.
             getitem_nodes = []
             for getitem_num in range(3):
@@ -493,10 +497,6 @@ def qkv_fusion(fx_g):
             for i, node in enumerate(group["nodes"]):
                 node.replace_all_uses_with(getitem_nodes[i])
                 fx_g.graph.erase_node(node)
-
-            # sort graph topologically
-            stable_topological_sort(fx_g.graph)
-            fx_g.graph.lint()
         else:
             logger.info(
                 "Horizontal Group fusion not possible with the current \
