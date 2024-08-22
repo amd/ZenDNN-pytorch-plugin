@@ -26,7 +26,7 @@ SUPPORTED_MODELS = {
     "CodeGenForCausalLM",
     "GPTBigCodeForCausalLM",
     "StableLmForCausalLM",
-    "GitForCausalLM"
+    "GitForCausalLM",
     "MixtralForCausalLM",
     "QWenLMHeadModel",
     "YuanForCausalLM",
