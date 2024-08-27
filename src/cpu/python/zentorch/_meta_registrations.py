@@ -311,8 +311,8 @@ def meta_zentorch_vertical_mlp_group(self, inputs, weight, betas, alphas, fuse):
     return inputs.new_empty(inputs.size())
 
 
-@register_meta("zentorch_attn_horizontal_mlp_group")
-def meta_zentorch_attn_horizontal_mlp_group(
+@register_meta("zentorch_attn_qkv_fusion")
+def meta_zentorch_attn_qkv_fusion(
     self, inputs, weights, betas, alphas, fuse, is_zentorch_mm
 ):
     output_list = []
@@ -440,7 +440,7 @@ make_fallback(torch.ops.zentorch.zentorch_mm_gelu_erf)
 make_fallback(torch.ops.zentorch.zentorch_horizontal_embedding_bag_group)
 make_fallback(torch.ops.zentorch.zentorch_horizontal_embedding_group)
 make_fallback(torch.ops.zentorch.zentorch_vertical_mlp_group)
-make_fallback(torch.ops.zentorch.zentorch_attn_horizontal_mlp_group)
+make_fallback(torch.ops.zentorch.zentorch_attn_qkv_fusion)
 make_fallback(torch.ops.zentorch.zentorch_fused_eb_mlp)
 make_fallback(torch.ops.zentorch.zentorch_rope)
 make_fallback(torch.ops.zentorch.zentorch_masked_multihead_self_attention)

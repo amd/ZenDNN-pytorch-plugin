@@ -122,11 +122,11 @@ TORCH_LIBRARY(zentorch, m) {
         "int[] fuse, str zentorch_op_name = "
         "'zentorch::zentorch_vertical_mlp_group') -> "
         "Tensor");
-  m.def("zentorch_attn_horizontal_mlp_group(Tensor[] self, Tensor[] inputs, "
+  m.def("zentorch_attn_qkv_fusion(Tensor[] self, Tensor[] inputs, "
         "Tensor[] weights, "
         "float[] betas, float[] alphas, int[] fuse, int[] is_zentorchmm, str "
         "zentorch_op_name = "
-        "'zentorch::zentorch_attn_horizontal_mlp_group') -> "
+        "'zentorch::zentorch_attn_qkv_fusion') -> "
         "Tensor[]");
   m.def(
       "zentorch_fused_eb_mlp(Tensor[] eb_weight, Tensor[] eb_indices, "
@@ -188,8 +188,7 @@ TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
   m.impl("zentorch_horizontal_embedding_group",
          zentorch::zentorch_horizontal_embedding_group);
   m.impl("zentorch_vertical_mlp_group", zentorch::zentorch_vertical_mlp_group);
-  m.impl("zentorch_attn_horizontal_mlp_group",
-         zentorch::zentorch_attn_horizontal_mlp_group);
+  m.impl("zentorch_attn_qkv_fusion", zentorch::zentorch_attn_qkv_fusion);
   m.impl("zentorch_fused_eb_mlp", zentorch::zentorch_fused_eb_mlp);
   m.impl("zentorch_rope", zentorch::zentorch_rope_impl);
   m.impl("zentorch_masked_multihead_self_attention",

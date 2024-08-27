@@ -181,70 +181,70 @@ std::vector<at::Tensor> zentorch_matmul_group_impl(
 
   // If TORCH_CHECK() fails, then the pragma omp parallel for cannot be used
   // we will use at::parallel_for from pytorch instead
-  at::parallel_for(0, num_ops, 0, [&](int64_t start, int64_t end) {
-    for (auto i = start; i < end; i++) {
-      alphas_vector[i] = static_cast<float>(alphas[i]);
-      betas_vector[i] = static_cast<float>(betas[i]);
-      if (self_vector[i].sizes() ==
-          c10::IntArrayRef(get_matmul_output_sizes(inputs[i], weights[i]))) {
-        TORCH_CHECK(
-            (self_vector[i].dim() == 2 && inputs[i].dim() == 2 &&
-             weights[i].dim() == 2), // aten::addmm
-            "zentorch_addmm:  unsupported dims for self, mat1 and mat2");
-        const at::Tensor empty_bias; // dummy empty bias
-        bias_vector[i] = empty_bias;
-        self_or_result_vector[i] = self_vector[i];
-      } else {
-        TORCH_CHECK((self_vector[i].dim() == 1 && inputs[i].dim() == 2 &&
-                     weights[i].dim() == 2), // aten::addmm
-                    "zentorch_addmm: unsupported dims for self, mat1 and mat2");
-        // Array access is faster than .size(n)
-        const auto mat1_sizes = inputs[i].sizes();
-        const auto mat2_sizes = weights[i].sizes();
-        const auto self_sizes = self_vector[i].sizes();
-        TORCH_CHECK(
-            self_sizes[0] == mat2_sizes[1] && mat1_sizes[1] == mat2_sizes[0],
-            "input shape is incompatible with matrix multiplication (",
-            mat1_sizes[0], "x", mat1_sizes[1], " @ ", mat2_sizes[0], "x",
-            mat2_sizes[1], " != ", mat1_sizes[0], "x", self_sizes[0], ")");
+  // Disabling at::parallel as a workaround to fix inconsistency in unit tests.
+  // TODO : Need to debug why at::parallel is not stable.
+  // at::parallel_for(0, num_ops, 0, [&](int64_t start, int64_t end) {
+  for (int i = 0; i < num_ops; i++) {
+    alphas_vector[i] = static_cast<float>(alphas[i]);
+    betas_vector[i] = static_cast<float>(betas[i]);
+    if (self_vector[i].sizes() ==
+        c10::IntArrayRef(get_matmul_output_sizes(inputs[i], weights[i]))) {
+      TORCH_CHECK((self_vector[i].dim() == 2 && inputs[i].dim() == 2 &&
+                   weights[i].dim() == 2), // aten::addmm
+                  "zentorch_addmm:  unsupported dims for self, mat1 and mat2");
+      const at::Tensor empty_bias; // dummy empty bias
+      bias_vector[i] = empty_bias;
+      self_or_result_vector[i] = self_vector[i];
+    } else {
+      TORCH_CHECK((self_vector[i].dim() == 1 && inputs[i].dim() == 2 &&
+                   weights[i].dim() == 2), // aten::addmm
+                  "zentorch_addmm: unsupported dims for self, mat1 and mat2");
+      // Array access is faster than .size(n)
+      const auto mat1_sizes = inputs[i].sizes();
+      const auto mat2_sizes = weights[i].sizes();
+      const auto self_sizes = self_vector[i].sizes();
+      TORCH_CHECK(
+          self_sizes[0] == mat2_sizes[1] && mat1_sizes[1] == mat2_sizes[0],
+          "input shape is incompatible with matrix multiplication (",
+          mat1_sizes[0], "x", mat1_sizes[1], " @ ", mat2_sizes[0], "x",
+          mat2_sizes[1], " != ", mat1_sizes[0], "x", self_sizes[0], ")");
 
-        at::Tensor result =
-            at::empty(get_matmul_output_sizes(inputs[i], weights[i]),
-                      inputs[i].options());
-        bias_vector[i] = self_vector[i];
-        self_or_result_vector[i] = result;
-      }
-
-      at::Tensor self_or_result_unsqueezed, mat1_, mat2_, beta_bias;
-
-      std::tie(self_or_result_unsqueezed, mat1_, mat2_, beta_bias) =
-          matmul_tensors_to_memory(
-              inputs[i], weights[i], self_or_result_vector[i], bias_vector[i],
-              beta_bias, z_mat1_vector[i], z_mat2_vector[i], z_bias_vector[i],
-              z_result_vector[i], betas_vector[i], alphas_vector[i]);
-
-      // Populating the bias_defined_vector with the bool equivalent values
-      // based on the number of elements in the bias.
-      bias_defined_vector[i] = bias_vector[i].numel();
-
-      if (betas[i] != 0.0f && !bias_defined_vector[i]) {
-        // sets post_ops as add or sum
-        LOG(INFO) << "Setting add or sum as post op";
-      }
-      if (alphas[i] != 1.0f) {
-        if (bias_defined_vector[i]) {
-          // TODO: add support for alpha when bias is defined
-          TORCH_CHECK(
-              !(inputs[i].scalar_type() == c10::ScalarType::BFloat16 ||
-                weights[i].scalar_type() == c10::ScalarType::BFloat16),
-              "zentorch_matmul: zentorch_matmul is not supported for bf16 "
-              "tensors when bias is defined and alpha != 1");
-        }
-        LOG(INFO) << "Setting output scales with alpha = " << alphas[i];
-      }
-      fuse_vector[i] = fuse[i];
+      at::Tensor result = at::empty(
+          get_matmul_output_sizes(inputs[i], weights[i]), inputs[i].options());
+      bias_vector[i] = self_vector[i];
+      self_or_result_vector[i] = result;
     }
-  });
+
+    at::Tensor self_or_result_unsqueezed, mat1_, mat2_, beta_bias;
+
+    std::tie(self_or_result_unsqueezed, mat1_, mat2_, beta_bias) =
+        matmul_tensors_to_memory(
+            inputs[i], weights[i], self_or_result_vector[i], bias_vector[i],
+            beta_bias, z_mat1_vector[i], z_mat2_vector[i], z_bias_vector[i],
+            z_result_vector[i], betas_vector[i], alphas_vector[i]);
+
+    // Populating the bias_defined_vector with the bool equivalent values
+    // based on the number of elements in the bias.
+    bias_defined_vector[i] = bias_vector[i].numel();
+
+    if (betas[i] != 0.0f && !bias_defined_vector[i]) {
+      // sets post_ops as add or sum
+      LOG(INFO) << "Setting add or sum as post op";
+    }
+    if (alphas[i] != 1.0f) {
+      if (bias_defined_vector[i]) {
+        // TODO: add support for alpha when bias is defined
+        TORCH_CHECK(
+            !(inputs[i].scalar_type() == c10::ScalarType::BFloat16 ||
+              weights[i].scalar_type() == c10::ScalarType::BFloat16),
+            "zentorch_matmul: zentorch_matmul is not supported for bf16 "
+            "tensors when bias is defined and alpha != 1");
+      }
+      LOG(INFO) << "Setting output scales with alpha = " << alphas[i];
+    }
+    fuse_vector[i] = fuse[i];
+  }
+  // });
 
   if (is_horizontal) {
 
@@ -550,7 +550,7 @@ at::Tensor zentorch_vertical_mlp_group(const at::TensorList &self,
   return output_vector[num_ops - 1];
 }
 
-std::vector<at::Tensor> zentorch_attn_horizontal_mlp_group(
+std::vector<at::Tensor> zentorch_attn_qkv_fusion(
     const at::TensorList &self, const at::TensorList &inputs,
     const at::TensorList &weights, const at::ArrayRef<double> &betas,
     const at::ArrayRef<double> &alphas, const at::IntArrayRef &fuse,

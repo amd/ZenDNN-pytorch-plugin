@@ -95,7 +95,7 @@ at::Tensor zentorch_vertical_mlp_group(const at::TensorList &self,
                                        const at::IntArrayRef &fuse,
                                        std::string zentorch_op_name);
 
-std::vector<at::Tensor> zentorch_attn_horizontal_mlp_group(
+std::vector<at::Tensor> zentorch_attn_qkv_fusion(
     const at::TensorList &self, const at::TensorList &inputs,
     const at::TensorList &weights, const at::ArrayRef<double> &betas,
     const at::ArrayRef<double> &alphas, const at::IntArrayRef &fuse,

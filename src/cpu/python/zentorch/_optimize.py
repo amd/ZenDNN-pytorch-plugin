@@ -16,10 +16,10 @@ from ._op_replacement import (
     zen_to_zen_op_dict,
 )
 
-# TODO: Add support for horizontal_mlp_fusion
 from ._custom_op_replacement import (
     emb_ops_horizontal_fusion,
     eb_group_mlp_group_fusion,
+    qkv_fusion,
 )
 from ._eltwise_fusions import zentorch_eltwise_fusions
 from ._graph_preprocess_matcher import preprocess_graph_pass
@@ -85,9 +85,8 @@ def optimize(fx_graph):
     # TODO: Fix inconsistent results with unit tests
     # optimized_graph = vertical_mlp_fusion(optimized_graph)
 
-    # Fusion of parallel MLP layers
-    # TODO: Add Addtional Support for Horizontal Fusion
-    # optimized_graph = horizontal_mlp_fusion(optimized_graph)
+    # Fusion of parallel QKV layers
+    optimized_graph = qkv_fusion(optimized_graph)
 
     # Horizontal fusion of parallel Group EB op and Group MLP op
     optimized_graph = eb_group_mlp_group_fusion(optimized_graph)
