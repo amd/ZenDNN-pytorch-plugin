@@ -127,6 +127,15 @@ inline bool is_fused_qkv(at::Tensor &t_in, int64_t hidden_size) {
       in_stride_s = t_in.size(2);
     }
   }
+  // handle the false positive case when one of the
+  // first two dimensions is 1
+  if (t_in.size(0) == 1 || t_in.size(1) == 1) {
+    if (t_in.dim() == 4) {
+      in_stride_s = t_in.size(2) * t_in.size(3);
+    } else if (t_in.dim() == 3) {
+      in_stride_s = t_in.size(2);
+    }
+  }
   if (in_stride_s > hidden_size) {
     return true;
   }

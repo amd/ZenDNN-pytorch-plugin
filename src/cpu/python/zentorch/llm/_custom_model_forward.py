@@ -89,12 +89,6 @@ def _GLM2Attention_forward(
         k_shape = key_layer.shape
         q_shape = query_layer.shape
 
-        if k_shape[1] == 1 and q_shape[1] == 1:
-            key_layer = key_layer.view(k_shape[0], k_shape[1], k_shape[2] * k_shape[3])
-            query_layer = query_layer.view(
-                q_shape[0], q_shape[1], q_shape[2] * q_shape[3]
-            )
-
         key_layer = self._IPEXROPE(
             key_layer,
             torch.tensor(past_len),
@@ -111,11 +105,6 @@ def _GLM2Attention_forward(
             1,
             64,
         )
-        if k_shape[1] == 1 and q_shape[1] == 1:
-            key_layer = key_layer.view(k_shape[0], k_shape[1], k_shape[2], k_shape[3])
-            query_layer = query_layer.view(
-                q_shape[0], q_shape[1], q_shape[2], q_shape[3]
-            )
 
     if attention_mask is None:
         attention_mask = torch.ones(

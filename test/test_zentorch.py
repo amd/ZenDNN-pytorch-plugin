@@ -3754,6 +3754,26 @@ class MiniRoPETester(TestCase):
                 offset,
                 rotary_dim,
             )
+            # test for chatglm fix
+            q_t = torch.rand(1, 8, self.num_heads, self.head_size).transpose(0, 1)
+            embed_pos = self.create_sinusoidal_positions(2048, 64)
+            q_z, _, _ = torch.ops.zentorch.zentorch_rope(
+                q_t,
+                embed_pos,
+                position_ids_s,
+                self.num_heads,
+                self.head_size,
+                1,
+                64,
+            )
+            q_hf, _ = hf_forward(
+                q_t,
+                key,
+                position_ids_s,
+                embed_pos,
+                1,
+                64,
+            )
 
             atol = 1e-5 if dtype == torch.float32 else 5e-3
 
@@ -3768,6 +3788,7 @@ class MiniRoPETester(TestCase):
             upcast_and_assert(key_hf, key_zentorch_no_concat, atol=atol)
             upcast_and_assert(query_hf, query_zentorch, atol=atol)
             upcast_and_assert(key_hf, key_zentorch, atol=atol)
+            upcast_and_assert(q_z, q_hf, atol=atol)
 
             self.assertEqual(
                 value_zentorch,
