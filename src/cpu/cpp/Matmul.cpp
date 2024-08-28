@@ -41,11 +41,7 @@ at::Tensor zentorch_matmul_impl(
   post_ops po;
 
   bool bias_defined = bias.numel();
-  if (beta != 0.0f && !bias_defined) {
-    // sets post_ops as add or sum
-    LOG(INFO) << "Setting add or sum as post op";
-    po.append_sum(beta);
-  }
+
   // If alpha = 0, does not need to actually do gemm computation
   if (alpha == 0) {
     if (beta == 0.0f) {
@@ -71,8 +67,7 @@ at::Tensor zentorch_matmul_impl(
   std::unordered_map<int, memory> execute_args;
   int post_op_buffer_idx = 0;
   for (int i = 0; i < post_op_ids_size; i++) {
-    int arg_position, idx;
-    idx = (beta != 0.0f && !bias_defined) ? i + 1 : i;
+    int arg_position;
     if (post_op_buffers_size > 0 && post_op_buffer_idx < post_op_buffers_size) {
       z_post_op_buffers[post_op_buffer_idx] =
           zen_memory(post_op_buffers[post_op_buffer_idx]);
@@ -102,17 +97,18 @@ at::Tensor zentorch_matmul_impl(
       LOG(INFO) << "Setting mul as post op";
       po.append_binary(algorithm::binary_mul,
                        z_post_op_buffers[post_op_buffer_idx].get_desc());
-      arg_position = ZENDNN_ARG_ATTR_MULTIPLE_POST_OP(idx) | ZENDNN_ARG_SRC_1;
+      // argument for postop at index=idx in ZenDNN OP primitive.
+      arg_position = ZENDNN_ARG_ATTR_MULTIPLE_POST_OP(i) | ZENDNN_ARG_SRC_1;
       execute_args.insert(
           {arg_position, z_post_op_buffers[post_op_buffer_idx]});
       post_op_buffer_idx++;
       break;
     case POST_OP::ADD:
-
       LOG(INFO) << "Setting add as post op";
       po.append_binary(algorithm::binary_add,
                        z_post_op_buffers[post_op_buffer_idx].get_desc());
-      arg_position = ZENDNN_ARG_ATTR_MULTIPLE_POST_OP(idx) | ZENDNN_ARG_SRC_1;
+      // argument for postop at index=idx in ZenDNN OP primitive.
+      arg_position = ZENDNN_ARG_ATTR_MULTIPLE_POST_OP(i) | ZENDNN_ARG_SRC_1;
       execute_args.insert(
           {arg_position, z_post_op_buffers[post_op_buffer_idx]});
       post_op_buffer_idx++;
@@ -298,11 +294,10 @@ at::Tensor zentorch_addmm_1dbias(const at::Tensor &self, const at::Tensor &mat1,
   at::Tensor result =
       at::empty(get_matmul_output_sizes(mat1, mat2), mat1.options());
 
-  LOG(INFO) << "Calling zentorch_matmul_impl from " << __FUNCTION__ << "!\n";
-
   std::vector<at::Tensor> post_op_buffers = {};
   std::vector<int64_t> post_op_ids = {fuse};
 
+  LOG(INFO) << "Calling zentorch_matmul_impl from " << __FUNCTION__ << "!\n";
   return zentorch_matmul_impl(mat1, mat2, self, result, post_op_ids,
                               post_op_buffers, beta.to<float>(),
                               alpha.to<float>(), zentorch_op_name);
@@ -327,11 +322,10 @@ zentorch_addmm_1dbias_add(const at::Tensor &self, const at::Tensor &mat1,
               "zentorch_addmm:  unsupported dims for self, mat1 and mat2");
   at::Tensor result = at::empty(add_input.sizes(), add_input.options());
 
-  LOG(INFO) << "Calling zentorch_matmul_impl from " << __FUNCTION__ << "!\n";
-
   std::vector<at::Tensor> post_op_buffers = {add_input};
   std::vector<int64_t> post_op_ids = {POST_OP::ADD};
 
+  LOG(INFO) << "Calling zentorch_matmul_impl from " << __FUNCTION__ << "!\n";
   return zentorch_matmul_impl(mat1, mat2, self, result, post_op_ids,
                               post_op_buffers, beta.to<float>(),
                               alpha.to<float>(), zentorch_op_name);
@@ -359,11 +353,10 @@ at::Tensor zentorch_addmm_1dbias_add_add(
               "zentorch_addmm:  unsupported dims for self, mat1 and mat2");
   at::Tensor result = at::empty(add1_input.sizes(), add1_input.options());
 
-  LOG(INFO) << "Calling zentorch_matmul_impl from " << __FUNCTION__ << "!\n";
-
   std::vector<at::Tensor> post_op_buffers = {add1_input, add2_input};
   std::vector<int64_t> post_op_ids = {POST_OP::ADD, POST_OP::ADD};
 
+  LOG(INFO) << "Calling zentorch_matmul_impl from " << __FUNCTION__ << "!\n";
   return zentorch_matmul_impl(mat1, mat2, self, result, post_op_ids,
                               post_op_buffers, beta.to<float>(),
                               alpha.to<float>(), zentorch_op_name);
@@ -375,32 +368,61 @@ at::Tensor zentorch_addmm(const at::Tensor &self, const at::Tensor &mat1,
                           const at::Scalar &alpha,
                           std::string zentorch_op_name) {
 
+  // if alpha is zero, return beta * self directly from here itself.
+  // Dont enter the matmul impl.
+
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
+
   // Here the if condition checks if the matrices are compatible for matrix
   // multiplication and bias addition for any general n-d case. But the
   // TORCH_CHECK conditions specifically checks for the dimensionality
   // conditions which are supported by either zentorch_addmm or
   // zentorch_addmm_1dbias
+
   if (self.sizes() == c10::IntArrayRef(get_matmul_output_sizes(mat1, mat2))) {
     TORCH_CHECK(
         (self.dim() == 2 && mat1.dim() == 2 && mat2.dim() == 2), // aten::addmm
         "zentorch_addmm:  unsupported dims for self, mat1 and mat2");
 
     const at::Tensor empty_bias; // dummy empty bias
-    LOG(INFO) << "Calling zentorch_matmul_impl from " << __FUNCTION__ << "!\n";
-    std::vector<at::Tensor> post_op_buffers = {};
-    std::vector<int64_t> post_op_ids = {fuse};
+    float beta_float = beta.to<float>();
+    float alpha_float = alpha.to<float>();
 
-    return zentorch_matmul_impl(
-        mat1, mat2, empty_bias, const_cast<at::Tensor &>(self), post_op_ids,
-        post_op_buffers, beta.to<float>(), alpha.to<float>(), zentorch_op_name);
+    // When alpha is 0, no matrix multiplication is needed, and bias (here
+    // self), multiplied by beta can be returned.
+    if (alpha_float == 0.0f) {
+      return self.mul(beta_float);
+    }
+
+    // Sending the self tensor (this represents the bias in the nn.Module
+    // level) as a post op. Since we were passing self directly to matmul impl,
+    // this can cause a problem when we are using
+    // torch.ops.zentorch.zentorch_addmm directly at the python side with same
+    // bias matrix but different inputs. The bias gets corrupted after the
+    // first addmm and the subsequent addmms use the corrupted bias tensor,
+    // which ultimately results in wrong outputs.
+
+    std::vector<at::Tensor> post_op_buffers = {};
+    std::vector<int64_t> post_op_ids = {POST_OP::ADD, fuse};
+    at::Tensor result =
+        at::empty(get_matmul_output_sizes(mat1, mat2), mat1.options());
+    if (beta_float != 1.0f) {
+      post_op_buffers.push_back(self.mul(beta_float));
+    } else {
+      post_op_buffers.push_back(self);
+    }
+
+    LOG(INFO) << "Calling zentorch_matmul_impl from " << __FUNCTION__ << "!\n";
+    return zentorch_matmul_impl(mat1, mat2, empty_bias, result, post_op_ids,
+                                post_op_buffers, beta.to<float>(),
+                                alpha.to<float>(), zentorch_op_name);
   } else {
     TORCH_CHECK(
         (self.dim() == 1 && mat1.dim() == 2 && mat2.dim() == 2), // aten::addmm
         "zentorch_addmm: unsupported dims for self, mat1 and mat2");
 
-    LOG(INFO) << "Calling zendnn_addmm_1dbias from " << __FUNCTION__ << "!\n";
+    LOG(INFO) << "Calling zentorch_addmm_1dbias from " << __FUNCTION__ << "!\n";
     return zentorch_addmm_1dbias<fuse>(self, mat1, mat2, beta, alpha,
                                        zentorch_op_name);
   }
@@ -433,15 +455,38 @@ at::Tensor zentorch_baddbmm(const at::Tensor &self, const at::Tensor &batch1,
       batch2_sizes[0], "x", batch2_sizes[1], "x", batch2_sizes[2],
       " != ", self_sizes[0], "x", self_sizes[1], "x", self_sizes[2], ")");
   const at::Tensor empty_bias; // dummy empty bias
+  float beta_float = beta.to<float>();
+  float alpha_float = alpha.to<float>();
 
-  LOG(INFO) << "Calling zentorch_matmul_impl from " << __FUNCTION__ << "!\n";
+  // When alpha is 0, no matrix multiplication is needed, and bias (here
+  // self), multiplied by beta can be returned.
+  if (alpha_float == 0.0f) {
+    return self.mul(beta_float);
+  }
+
+  // Sending the self tensor (this represents the bias in the nn.Module
+  // level) as a post op. Since we were passing self directly to matmul impl,
+  // this can cause a problem when we are using
+  // torch.ops.zentorch.zentorch_addmm directly at the python side with same
+  // bias matrix but different inputs. The bias gets corrupted after the
+  // first addmm and the subsequent addmms use the corrupted bias tensor,
+  // which ultimately results in wrong outputs.
 
   std::vector<at::Tensor> post_op_buffers = {};
-  std::vector<int64_t> post_op_ids = {POST_OP::NONE};
+  std::vector<int64_t> post_op_ids = {POST_OP::ADD, POST_OP::NONE};
+  at::Tensor result =
+      at::empty(get_matmul_output_sizes(batch1, batch2), batch1.options());
 
-  return zentorch_matmul_impl(
-      batch1, batch2, empty_bias, const_cast<at::Tensor &>(self), post_op_ids,
-      post_op_buffers, beta.to<float>(), alpha.to<float>(), zentorch_op_name);
+  if (beta_float != 1.0f) {
+    post_op_buffers.push_back(self.mul(beta_float));
+  } else {
+    post_op_buffers.push_back(self);
+  }
+
+  LOG(INFO) << "Calling zentorch_matmul_impl from " << __FUNCTION__ << "!\n";
+  return zentorch_matmul_impl(batch1, batch2, empty_bias, result, post_op_ids,
+                              post_op_buffers, beta.to<float>(),
+                              alpha.to<float>(), zentorch_op_name);
 }
 
 // zentorch_mm function does not broadcast
@@ -453,17 +498,20 @@ at::Tensor zentorch_mm(const at::Tensor &self, const at::Tensor &mat2,
   TORCH_CHECK((self.dim() == 2 && mat2.dim() == 2), // aten::mm
               "zentorch_mm:  unsupported dims for self and mat2");
 
+  at::Tensor empty_bias;
   at::Tensor out =
       at::empty(get_matmul_output_sizes(self, mat2), self.options());
+  std::vector<at::Tensor> post_op_buffers = {};
+  std::vector<int64_t> post_op_ids = {fuse};
   const float beta = 0.0f;
   const float alpha = 1.0f;
 
-  LOG(INFO) << "Calling zentorch_addmm from " << __FUNCTION__ << "!\n";
-
-  return zentorch_addmm<fuse>(out, self, mat2, beta, alpha, zentorch_op_name);
+  LOG(INFO) << "Calling zentorch_matmul_impl from " << __FUNCTION__ << "!\n";
+  return zentorch_matmul_impl(self, mat2, empty_bias, out, post_op_ids,
+                              post_op_buffers, beta, alpha, zentorch_op_name);
 }
 
-// zendnn_bmm function does not broadcast
+// zentorch_bmm function does not broadcast
 at::Tensor zentorch_bmm(const at::Tensor &self, const at::Tensor &mat2,
                         std::string zentorch_op_name) {
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
@@ -471,14 +519,17 @@ at::Tensor zentorch_bmm(const at::Tensor &self, const at::Tensor &mat2,
   TORCH_CHECK((self.dim() == 3 && mat2.dim() == 3), // aten::bmm
               "zentorch_bmm:  unsupported dims for self and mat2");
 
+  at::Tensor empty_bias;
   at::Tensor out =
       at::empty(get_matmul_output_sizes(self, mat2), self.options());
+  std::vector<at::Tensor> post_op_buffers = {};
+  std::vector<int64_t> post_op_ids = {};
   const float beta = 0.0f;
   const float alpha = 1.0f;
 
-  LOG(INFO) << "Calling zentorch_baddbmm from " << __FUNCTION__ << "!\n";
-
-  return zentorch_baddbmm(out, self, mat2, beta, alpha, zentorch_op_name);
+  LOG(INFO) << "Calling zentorch_matmul_impl from " << __FUNCTION__ << "!\n";
+  return zentorch_matmul_impl(self, mat2, empty_bias, out, post_op_ids,
+                              post_op_buffers, beta, alpha, zentorch_op_name);
 }
 
 at::Tensor
@@ -488,7 +539,11 @@ zentorch_addmm_silu_mul(const at::Tensor &bias, const at::Tensor &mat1,
                         std::string zentorch_op_name) {
   at::Tensor matmul_impl_bias; // dummy empty bias, it will be assigned to bias
                                // for 1D case
-  at::Tensor matmul_impl_self_or_result;
+  at::Tensor out;
+
+  std::vector<at::Tensor> post_op_buffers;
+  std::vector<int64_t> post_op_ids;
+  float beta_float = beta.to<float>();
 
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
@@ -512,7 +567,21 @@ zentorch_addmm_silu_mul(const at::Tensor &bias, const at::Tensor &mat1,
         (bias.dim() == 2 && mat1.dim() == 2 && mat2.dim() == 2), // aten::addmm
         "zentorch_addmm:  unsupported dims for bias, mat1 and mat2");
 
-    matmul_impl_self_or_result = bias;
+    // Sending the self tensor (this represents the bias in the nn.Module
+    // level) as a post op. Since we were passing self directly to matmul impl,
+    // this can cause a problem when we are using
+    // torch.ops.zentorch.zentorch_addmm directly at the python side with same
+    // bias matrix but different inputs. The bias gets corrupted after the
+    // first addmm and the subsequent addmms use the corrupted bias tensor,
+    // which ultimately results in wrong outputs.
+
+    if (beta_float != 1.0f) {
+      post_op_buffers.push_back(bias.mul(beta_float));
+    } else {
+      post_op_buffers.push_back(bias);
+    }
+
+    post_op_ids.push_back(POST_OP::ADD);
   } else {
     TORCH_CHECK(
         (bias.dim() == 1 && mat1.dim() == 2 && mat2.dim() == 2), // aten::addmm
@@ -529,18 +598,23 @@ zentorch_addmm_silu_mul(const at::Tensor &bias, const at::Tensor &mat1,
                 mat1_sizes[0], "x", mat1_sizes[1], " @ ", mat2_sizes[0], "x",
                 mat2_sizes[1], " != ", mat1_sizes[0], "x", bias_sizes[0], ")");
 
-    matmul_impl_self_or_result =
-        at::empty(get_matmul_output_sizes(mat1, mat2), mat1.options());
-    matmul_impl_bias = bias;
+    if (beta_float != 1.0f) {
+      matmul_impl_bias = bias.mul(beta_float);
+    } else {
+      matmul_impl_bias = bias;
+    }
   }
 
-  std::vector<at::Tensor> post_op_buffers = {mat3};
-  std::vector<int64_t> post_op_ids = {4, 5};
+  out = at::empty(get_matmul_output_sizes(mat1, mat2), mat1.options());
 
-  return zentorch_matmul_impl(
-      mat1, mat2, matmul_impl_bias,
-      const_cast<at::Tensor &>(matmul_impl_self_or_result), post_op_ids,
-      post_op_buffers, beta.to<float>(), alpha.to<float>(), zentorch_op_name);
+  post_op_buffers.push_back(mat3);
+  post_op_ids.push_back(POST_OP::SILU);
+  post_op_ids.push_back(POST_OP::MUL);
+
+  LOG(INFO) << "Calling zentorch_matmul_impl from " << __FUNCTION__ << "!\n";
+  return zentorch_matmul_impl(mat1, mat2, matmul_impl_bias, out, post_op_ids,
+                              post_op_buffers, beta.to<float>(),
+                              alpha.to<float>(), zentorch_op_name);
 }
 
 at::Tensor zentorch_mm_silu_mul(const at::Tensor &mat1, const at::Tensor &mat2,
@@ -560,13 +634,15 @@ at::Tensor zentorch_mm_silu_mul(const at::Tensor &mat1, const at::Tensor &mat2,
       (mat3.sizes() == c10::IntArrayRef(get_matmul_output_sizes(mat1, mat2))),
       "zentorch_mm_silu_mul: unsupported sizes for mat1, mat2 and mat3");
 
+  at::Tensor empty_bias;
   at::Tensor out =
       at::empty(get_matmul_output_sizes(mat1, mat2), mat1.options());
+  std::vector<at::Tensor> post_op_buffers = {mat3};
+  std::vector<int64_t> post_op_ids = {POST_OP::SILU, POST_OP::MUL};
 
-  LOG(INFO) << "Calling zentorch_addmm_silu_mul from " << __FUNCTION__ << "!\n";
-
-  return zentorch_addmm_silu_mul(out, mat1, mat2, mat3, beta, alpha,
-                                 zentorch_op_name);
+  LOG(INFO) << "Calling zentorch_matmul_impl from " << __FUNCTION__ << "!\n";
+  return zentorch_matmul_impl(mat1, mat2, empty_bias, out, post_op_ids,
+                              post_op_buffers, beta, alpha, zentorch_op_name);
 }
 
 at::Tensor zentorch_vertical_mlp_group(const at::TensorList &self,
@@ -631,7 +707,6 @@ std::vector<at::Tensor> zentorch_attn_qkv_fusion(
 }
 
 // Template instantiations.
-// The "mm" instantiations, in-turn instantiate "addmm" and "addmm_1dbias".
 // No post-op.
 template at::Tensor zentorch_mm<POST_OP::NONE>(const at::Tensor &self,
                                                const at::Tensor &mat2,
@@ -652,5 +727,60 @@ zentorch_mm<POST_OP::GELU_ERF>(const at::Tensor &self, const at::Tensor &mat2,
 template at::Tensor zentorch_mm<POST_OP::SILU>(const at::Tensor &self,
                                                const at::Tensor &mat2,
                                                std::string zentorch_op_name);
-
+// No post-op.
+template at::Tensor zentorch_addmm<POST_OP::NONE>(const at::Tensor &self,
+                                                  const at::Tensor &mat1,
+                                                  const at::Tensor &mat2,
+                                                  const at::Scalar &beta,
+                                                  const at::Scalar &alpha,
+                                                  std::string zentorch_op_name);
+// ReLU.
+template at::Tensor zentorch_addmm<POST_OP::RELU>(const at::Tensor &self,
+                                                  const at::Tensor &mat1,
+                                                  const at::Tensor &mat2,
+                                                  const at::Scalar &beta,
+                                                  const at::Scalar &alpha,
+                                                  std::string zentorch_op_name);
+// GELU Tanh.
+template at::Tensor zentorch_addmm<POST_OP::GELU_TANH>(
+    const at::Tensor &self, const at::Tensor &mat1, const at::Tensor &mat2,
+    const at::Scalar &beta, const at::Scalar &alpha,
+    std::string zentorch_op_name);
+// GELU Erf.
+template at::Tensor zentorch_addmm<POST_OP::GELU_ERF>(
+    const at::Tensor &self, const at::Tensor &mat1, const at::Tensor &mat2,
+    const at::Scalar &beta, const at::Scalar &alpha,
+    std::string zentorch_op_name);
+// SiLU.
+template at::Tensor zentorch_addmm<POST_OP::SILU>(const at::Tensor &self,
+                                                  const at::Tensor &mat1,
+                                                  const at::Tensor &mat2,
+                                                  const at::Scalar &beta,
+                                                  const at::Scalar &alpha,
+                                                  std::string zentorch_op_name);
+// No post-op.
+template at::Tensor zentorch_addmm_1dbias<POST_OP::NONE>(
+    const at::Tensor &self, const at::Tensor &mat1, const at::Tensor &mat2,
+    const at::Scalar &beta, const at::Scalar &alpha,
+    std::string zentorch_op_name);
+// ReLU.
+template at::Tensor zentorch_addmm_1dbias<POST_OP::RELU>(
+    const at::Tensor &self, const at::Tensor &mat1, const at::Tensor &mat2,
+    const at::Scalar &beta, const at::Scalar &alpha,
+    std::string zentorch_op_name);
+// GELU Tanh.
+template at::Tensor zentorch_addmm_1dbias<POST_OP::GELU_TANH>(
+    const at::Tensor &self, const at::Tensor &mat1, const at::Tensor &mat2,
+    const at::Scalar &beta, const at::Scalar &alpha,
+    std::string zentorch_op_name);
+// GELU Erf.
+template at::Tensor zentorch_addmm_1dbias<POST_OP::GELU_ERF>(
+    const at::Tensor &self, const at::Tensor &mat1, const at::Tensor &mat2,
+    const at::Scalar &beta, const at::Scalar &alpha,
+    std::string zentorch_op_name);
+// SiLU.
+template at::Tensor zentorch_addmm_1dbias<POST_OP::SILU>(
+    const at::Tensor &self, const at::Tensor &mat1, const at::Tensor &mat2,
+    const at::Scalar &beta, const at::Scalar &alpha,
+    std::string zentorch_op_name);
 } // namespace zentorch

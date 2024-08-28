@@ -501,6 +501,8 @@ class Test_BADDBMM_OP(Zentorch_TestCase):
             torch.ops.zentorch.zentorch_baddbmm(
                 self.data.input3d, self.data.x3d, self.data.y3d, beta=1.4
             ),
+            atol=1e-2,
+            rtol=1e-2,
         )
 
         self.assertEqual(
@@ -509,6 +511,21 @@ class Test_BADDBMM_OP(Zentorch_TestCase):
             ),
             torch.ops.zentorch.zentorch_baddbmm(
                 self.data.input3d, self.data.x3d, self.data.y3d, alpha=1.4, beta=1.3
+            ),
+            atol=1e-2,
+            rtol=1e-2,
+        )
+
+    @parameterized.expand(supported_dtypes)
+    def test_baddbmm_with_zero_alpha(self, dtype):
+
+        self.data.create_data(dtype)
+        self.assertEqual(
+            torch._C._VariableFunctions.baddbmm(
+                self.data.input3d, self.data.x3d, self.data.y3d, alpha=0.0
+            ),
+            torch.ops.zentorch.zentorch_baddbmm(
+                self.data.input3d, self.data.x3d, self.data.y3d, alpha=0.0
             ),
         )
 
@@ -1072,6 +1089,94 @@ class test_qkv_fusion(Zentorch_TestCase):
             self.assertEqual(counters["zentorch"]["qkv_fusion"], 1)
 
     @parameterized.expand(supported_dtypes)
+    def test_addmm_with_same_params(self, dtype):
+        self.data.create_data(dtype)
+        model = CustomModelParallelAddMM()
+
+        self_tensor = self.data.input
+        mat1_tensors = [self.data.x, self.data.x * 2, self.data.x * 3]
+        mat2_tensor = self.data.y
+
+        native_output = model(self_tensor, mat1_tensors, mat2_tensor)
+
+        reset_dynamo()
+        compiled_graph = torch.compile(model, backend="zentorch")
+
+        compiled_output = compiled_graph(self_tensor, mat1_tensors, mat2_tensor)
+
+        self.assertEqual(native_output, compiled_output)
+
+    @parameterized.expand(supported_dtypes)
+    @torch.inference_mode()
+    def test_baddbmm_with_same_params(self, dtype):
+        self.data.create_data(dtype)
+        model = CustomModelParallelBaddBMM()
+
+        self_tensor = self.data.input3d
+        mat1_tensors = [self.data.x3d, self.data.x3d * 2, self.data.x3d * 3]
+        mat2_tensor = self.data.y3d
+
+        native_output = model(self_tensor, mat1_tensors, mat2_tensor)
+
+        reset_dynamo()
+        compiled_graph = torch.compile(model, backend="zentorch")
+
+        compiled_output = compiled_graph(self_tensor, mat1_tensors, mat2_tensor)
+        self.assertEqual(native_output, compiled_output)
+
+    @parameterized.expand(supported_dtypes)
+    @torch.inference_mode()
+    def test_addmm_silu_mul_with_same_params(self, dtype):
+        self.data.create_data(dtype)
+        self_tensor = self.data.input
+        mul_tensors = [self.data.input, self.data.input * 2, self.data.input * 3]
+        mat1_tensors = [self.data.x, self.data.x * 2, self.data.x * 3]
+        mat2_tensor = self.data.y
+
+        native_addmm_silu_mul_0 = (
+            torch.nn.functional.silu(
+                torch.addmm(self_tensor, mat1_tensors[0], mat2_tensor)
+            )
+            * mul_tensors[0]
+        )
+        native_addmm_silu_mul_1 = (
+            torch.nn.functional.silu(
+                torch.addmm(self_tensor, mat1_tensors[1], mat2_tensor)
+            )
+            * mul_tensors[1]
+        )
+        native_addmm_silu_mul_2 = (
+            torch.nn.functional.silu(
+                torch.addmm(self_tensor, mat1_tensors[2], mat2_tensor)
+            )
+            * mul_tensors[2]
+        )
+
+        native_output = torch.cat(
+            [native_addmm_silu_mul_0, native_addmm_silu_mul_1, native_addmm_silu_mul_2]
+        )
+
+        zentorch_addmm_silu_mul_0 = torch.ops.zentorch.zentorch_addmm_silu_mul(
+            self_tensor, mat1_tensors[0], mat2_tensor, mul_tensors[0]
+        )
+        zentorch_addmm_silu_mul_1 = torch.ops.zentorch.zentorch_addmm_silu_mul(
+            self_tensor, mat1_tensors[1], mat2_tensor, mul_tensors[1]
+        )
+        zentorch_addmm_silu_mul_2 = torch.ops.zentorch.zentorch_addmm_silu_mul(
+            self_tensor, mat1_tensors[2], mat2_tensor, mul_tensors[2]
+        )
+
+        zentorch_output = torch.cat(
+            [
+                zentorch_addmm_silu_mul_0,
+                zentorch_addmm_silu_mul_1,
+                zentorch_addmm_silu_mul_2,
+            ]
+        )
+
+        self.assertEqual(native_output, zentorch_output)
+
+    @parameterized.expand(supported_dtypes)
     def test_qkv_fusion_unsupported_dims_1(self, dtype):
 
         self.data.create_data(dtype)
@@ -1481,6 +1586,42 @@ class CustomModel_Group_EB_MLP_Model_multiple_groups(torch.nn.Module):
             outputs.append(tmlp_outputs)
 
         return outputs
+
+
+@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
+class CustomModelParallelAddMM(nn.Module):
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.addmm_0 = torch.addmm
+        self.addmm_1 = torch.addmm
+        self.addmm_2 = torch.addmm
+
+    def forward(self, self_tensor, mat1_tensors, mat2_tensor):
+        return torch.cat(
+            [
+                self.addmm_0(self_tensor, mat1_tensors[0], mat2_tensor),
+                self.addmm_1(self_tensor, mat1_tensors[1], mat2_tensor),
+                self.addmm_2(self_tensor, mat1_tensors[2], mat2_tensor),
+            ]
+        )
+
+
+@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
+class CustomModelParallelBaddBMM(nn.Module):
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.baddbmm_0 = torch.baddbmm
+        self.baddbmm_1 = torch.baddbmm
+        self.baddbmm_2 = torch.baddbmm
+
+    def forward(self, self_tensor, mat1_tensors, mat2_tensor):
+        return torch.cat(
+            [
+                self.baddbmm_0(self_tensor, mat1_tensors[0], mat2_tensor),
+                self.baddbmm_1(self_tensor, mat1_tensors[1], mat2_tensor),
+                self.baddbmm_2(self_tensor, mat1_tensors[2], mat2_tensor),
+            ]
+        )
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
