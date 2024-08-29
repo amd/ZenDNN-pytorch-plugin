@@ -98,8 +98,9 @@ std::vector<at::Tensor> zentorch_fused_eb_mlp(
     else
       mlp_input = dummy_output;
 
-    dummy_output = at::empty(get_matmul_output_sizes(mlp_input, mlp_weights[i]),
-                             mlp_input.options());
+    dummy_output =
+        at::empty(get_matmul_and_linear_output_sizes(mlp_input, mlp_weights[i]),
+                  mlp_input.options());
 
     alphas_vector[i] = static_cast<float>(mlp_alphas[i]);
     betas_vector[i] = static_cast<float>(mlp_betas[i]);
@@ -111,7 +112,8 @@ std::vector<at::Tensor> zentorch_fused_eb_mlp(
     // zentorch_addmm_1dbias
 
     if (mlp_self[i].sizes() ==
-        c10::IntArrayRef(get_matmul_output_sizes(mlp_input, mlp_weights[i]))) {
+        c10::IntArrayRef(
+            get_matmul_and_linear_output_sizes(mlp_input, mlp_weights[i]))) {
       TORCH_CHECK((mlp_self[i].dim() == 2 && mlp_input.dim() == 2 &&
                    mlp_weights[i].dim() == 2), // aten::addmm
                   "zentorch_addmm:  unsupported dims for self, mat1 and mat2");
@@ -139,9 +141,9 @@ std::vector<at::Tensor> zentorch_fused_eb_mlp(
           mat1_sizes[0], "x", mat1_sizes[1], " @ ", mat2_sizes[0], "x",
           mat2_sizes[1], " != ", mat1_sizes[0], "x", self_sizes[0], ")");
 
-      at::Tensor result =
-          at::empty(get_matmul_output_sizes(mlp_input, mlp_weights[i]),
-                    mlp_input.options());
+      at::Tensor result = at::empty(
+          get_matmul_and_linear_output_sizes(mlp_input, mlp_weights[i]),
+          mlp_input.options());
 
       bias_vector[i] = mlp_self[i];
       self_or_result_vector[i] = result;

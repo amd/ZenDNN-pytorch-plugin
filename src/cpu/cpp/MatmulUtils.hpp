@@ -48,14 +48,35 @@ inline bool is_zendnn_optimized_format(const at::Tensor &t) {
   }
 }
 
-inline std::vector<int64_t> get_matmul_output_sizes(const at::Tensor &tensor1,
-                                                    const at::Tensor &tensor2) {
-  const int64_t dim = tensor1.dim();
-  std::vector<int64_t> output_size(dim);
-  for (auto i = 0; i < dim - 1; i++) {
-    output_size[i] = tensor1.size(i);
-  }
-  output_size[dim - 1] = tensor2.size(dim - 1);
+// this function returns the output size for matrix multiplication of two
+// tensors - tensor1 @ tensor2 and also it returns the output size for
+// linear operation of these two tensors, and if tensor2 is packed on the
+// last dim it will support the unpacking the size of last dim of tensor2
+inline std::vector<int64_t>
+get_matmul_and_linear_output_sizes(const at::Tensor &tensor1,
+                                   const at::Tensor &tensor2,
+                                   const int64_t unpacking_ratio = 1) {
+  auto tensor1_size = tensor1.sizes();
+  std::vector<int64_t> output_size(tensor1_size.begin(),
+                                   tensor1_size.end() - 1);
+
+  auto tensor2_last_dim_size = tensor2.size(tensor2.dim() - 1);
+  auto calculated_last_dim_size = tensor2_last_dim_size * unpacking_ratio;
+  output_size.push_back(calculated_last_dim_size);
+  return output_size;
+}
+
+// this function returns the 2-d size for n-d inp_tensor,
+// also if inp_tensor is packed on the last dim it will
+// support the unpacking the size of last dim of inp_tensor
+inline std::vector<int64_t>
+get_2d_size_for_tensor(const at::Tensor &inp_tensor,
+                       const int64_t unpacking_ratio = 1) {
+  const int64_t dim = inp_tensor.dim();
+  std::vector<int64_t> output_size(2);
+
+  output_size[0] = inp_tensor.numel() / inp_tensor.size(dim - 1);
+  output_size[1] = inp_tensor.size(dim - 1) * unpacking_ratio;
   return output_size;
 }
 
@@ -158,6 +179,32 @@ matmul_tensors_to_memory(const at::Tensor &mat1, const at::Tensor &mat2,
   out = std::make_tuple(self_or_result_unsqueezed, mat1_, mat2_, beta_bias);
 
   return out;
+}
+
+inline void zentorch_matmul_execute(
+    std::unordered_map<int, memory> &execute_args, const memory &src,
+    const memory &weight, const memory &bias, const memory &dst,
+    const zendnn::primitive_attr &op_attr, const bool &bias_defined) {
+
+  matmul::desc matmul_desc =
+      bias_defined
+          ? matmul::desc(src.get_desc(), weight.get_desc(), bias.get_desc(),
+                         dst.get_desc())
+          : matmul::desc(src.get_desc(), weight.get_desc(), dst.get_desc());
+
+  matmul::primitive_desc pd =
+      matmul::primitive_desc(matmul_desc, op_attr, utils::engine::cpu_engine());
+
+  execute_args.insert({ZENDNN_ARG_SRC, src});
+  execute_args.insert({ZENDNN_ARG_WEIGHTS, weight});
+  if (bias_defined) {
+    execute_args.insert({ZENDNN_ARG_BIAS, bias});
+  }
+  execute_args.insert({ZENDNN_ARG_DST, dst});
+
+  LOG(INFO) << "MatMul compute in progress...";
+  matmul(pd).execute(utils::stream::default_stream(), execute_args);
+  LOG(INFO) << "Finished executing: " << __FUNCTION__ << "!\n";
 }
 
 } // namespace zentorch

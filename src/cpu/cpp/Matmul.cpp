@@ -40,7 +40,7 @@ at::Tensor zentorch_matmul_impl(
   zendnn::primitive_attr op_attr;
   post_ops po;
 
-  bool bias_defined = bias.numel();
+  const bool bias_defined = bias.numel();
 
   // If alpha = 0, does not need to actually do gemm computation
   if (alpha == 0) {
@@ -122,23 +122,9 @@ at::Tensor zentorch_matmul_impl(
 
   op_attr.set_plugin_op_name(zentorch_op_name);
 
-  execute_args.insert({ZENDNN_ARG_SRC, z_input});
-  execute_args.insert({ZENDNN_ARG_WEIGHTS, z_weight});
-  if (bias_defined) {
-    execute_args.insert({ZENDNN_ARG_BIAS, z_bias});
-  }
-  execute_args.insert({ZENDNN_ARG_DST, z_result});
-
-  matmul::desc pdesc =
-      bias_defined ? matmul::desc(z_input.get_desc(), z_weight.get_desc(),
-                                  z_bias.get_desc(), z_result.get_desc())
-                   : matmul::desc(z_input.get_desc(), z_weight.get_desc(),
-                                  z_result.get_desc());
-
-  matmul::primitive_desc pd =
-      matmul::primitive_desc(pdesc, op_attr, utils::engine::cpu_engine());
-  LOG(INFO) << "MatMul compute in progress...";
-  matmul(pd).execute(utils::stream::default_stream(), execute_args);
+  // execute the zendnn::matmul kernel
+  zentorch_matmul_execute(execute_args, z_input, z_weight, z_bias, z_result,
+                          op_attr, bias_defined);
 
   if (weight.dim() == 1) {
     if (input.dim() == 2) {
@@ -185,7 +171,8 @@ std::vector<at::Tensor> zentorch_matmul_group_impl(
     alphas_vector[i] = static_cast<float>(alphas[i]);
     betas_vector[i] = static_cast<float>(betas[i]);
     if (self_vector[i].sizes() ==
-        c10::IntArrayRef(get_matmul_output_sizes(inputs[i], weights[i]))) {
+        c10::IntArrayRef(
+            get_matmul_and_linear_output_sizes(inputs[i], weights[i]))) {
       TORCH_CHECK((self_vector[i].dim() == 2 && inputs[i].dim() == 2 &&
                    weights[i].dim() == 2), // aten::addmm
                   "zentorch_addmm:  unsupported dims for self, mat1 and mat2");
@@ -206,8 +193,9 @@ std::vector<at::Tensor> zentorch_matmul_group_impl(
           mat1_sizes[0], "x", mat1_sizes[1], " @ ", mat2_sizes[0], "x",
           mat2_sizes[1], " != ", mat1_sizes[0], "x", self_sizes[0], ")");
 
-      at::Tensor result = at::empty(
-          get_matmul_output_sizes(inputs[i], weights[i]), inputs[i].options());
+      at::Tensor result =
+          at::empty(get_matmul_and_linear_output_sizes(inputs[i], weights[i]),
+                    inputs[i].options());
       bias_vector[i] = self_vector[i];
       self_or_result_vector[i] = result;
     }
@@ -292,7 +280,7 @@ at::Tensor zentorch_addmm_1dbias(const at::Tensor &self, const at::Tensor &mat1,
               mat2_sizes[1], " != ", mat1_sizes[0], "x", self_sizes[0], ")");
 
   at::Tensor result =
-      at::empty(get_matmul_output_sizes(mat1, mat2), mat1.options());
+      at::empty(get_matmul_and_linear_output_sizes(mat1, mat2), mat1.options());
 
   std::vector<at::Tensor> post_op_buffers = {};
   std::vector<int64_t> post_op_ids = {fuse};
@@ -313,10 +301,11 @@ zentorch_addmm_1dbias_add(const at::Tensor &self, const at::Tensor &mat1,
   TORCH_CHECK((add_input.dim() == 2 && mat1.dim() == 2 && mat2.dim() == 2),
               "zentorch_addmm_1dbias_add: unsupported dims for mat1, mat2 and "
               "add_input");
-  TORCH_CHECK((add_input.sizes() ==
-               c10::IntArrayRef(get_matmul_output_sizes(mat1, mat2))),
-              "zentorch_addmm_1dbias_add: unsupported sizes for mat1, mat2 and "
-              "add_input");
+  TORCH_CHECK(
+      (add_input.sizes() ==
+       c10::IntArrayRef(get_matmul_and_linear_output_sizes(mat1, mat2))),
+      "zentorch_addmm_1dbias_add: unsupported sizes for mat1, mat2 and "
+      "add_input");
 
   TORCH_CHECK((self.dim() == 1),
               "zentorch_addmm:  unsupported dims for self, mat1 and mat2");
@@ -344,9 +333,9 @@ at::Tensor zentorch_addmm_1dbias_add_add(
               "add1_input and add2_input");
   TORCH_CHECK(
       (add1_input.sizes() ==
-           c10::IntArrayRef(get_matmul_output_sizes(mat1, mat2)) &&
+           c10::IntArrayRef(get_matmul_and_linear_output_sizes(mat1, mat2)) &&
        add2_input.sizes() ==
-           c10::IntArrayRef(get_matmul_output_sizes(mat1, mat2))),
+           c10::IntArrayRef(get_matmul_and_linear_output_sizes(mat1, mat2))),
       "zentorch_addmm_1dbias_add_add: unsupported sizes for mat1, mat2, "
       "add1_input and add2_input");
   TORCH_CHECK((self.dim() == 1),
@@ -379,11 +368,11 @@ at::Tensor zentorch_addmm(const at::Tensor &self, const at::Tensor &mat1,
   // TORCH_CHECK conditions specifically checks for the dimensionality
   // conditions which are supported by either zentorch_addmm or
   // zentorch_addmm_1dbias
-
-  if (self.sizes() == c10::IntArrayRef(get_matmul_output_sizes(mat1, mat2))) {
+  if (self.sizes() ==
+      c10::IntArrayRef(get_matmul_and_linear_output_sizes(mat1, mat2))) {
     TORCH_CHECK(
         (self.dim() == 2 && mat1.dim() == 2 && mat2.dim() == 2), // aten::addmm
-        "zentorch_addmm:  unsupported dims for self, mat1 and mat2");
+        "zentorch_addmm: unsupported dims for self, mat1 and mat2");
 
     const at::Tensor empty_bias; // dummy empty bias
     float beta_float = beta.to<float>();
@@ -405,8 +394,8 @@ at::Tensor zentorch_addmm(const at::Tensor &self, const at::Tensor &mat1,
 
     std::vector<at::Tensor> post_op_buffers = {};
     std::vector<int64_t> post_op_ids = {POST_OP::ADD, fuse};
-    at::Tensor result =
-        at::empty(get_matmul_output_sizes(mat1, mat2), mat1.options());
+    at::Tensor result = at::empty(
+        get_matmul_and_linear_output_sizes(mat1, mat2), mat1.options());
     if (beta_float != 1.0f) {
       post_op_buffers.push_back(self.mul(beta_float));
     } else {
@@ -449,7 +438,8 @@ at::Tensor zentorch_baddbmm(const at::Tensor &self, const at::Tensor &batch1,
   const auto self_sizes = self.sizes();
 
   TORCH_CHECK(
-      self_sizes == c10::IntArrayRef(get_matmul_output_sizes(batch1, batch2)),
+      self_sizes ==
+          c10::IntArrayRef(get_matmul_and_linear_output_sizes(batch1, batch2)),
       "input shape is incompatible with matrix multiplication (",
       batch1_sizes[0], "x", batch1_sizes[1], "x", batch1_sizes[2], " @ ",
       batch2_sizes[0], "x", batch2_sizes[1], "x", batch2_sizes[2],
@@ -474,8 +464,8 @@ at::Tensor zentorch_baddbmm(const at::Tensor &self, const at::Tensor &batch1,
 
   std::vector<at::Tensor> post_op_buffers = {};
   std::vector<int64_t> post_op_ids = {POST_OP::ADD, POST_OP::NONE};
-  at::Tensor result =
-      at::empty(get_matmul_output_sizes(batch1, batch2), batch1.options());
+  at::Tensor result = at::empty(
+      get_matmul_and_linear_output_sizes(batch1, batch2), batch1.options());
 
   if (beta_float != 1.0f) {
     post_op_buffers.push_back(self.mul(beta_float));
@@ -500,7 +490,7 @@ at::Tensor zentorch_mm(const at::Tensor &self, const at::Tensor &mat2,
 
   at::Tensor empty_bias;
   at::Tensor out =
-      at::empty(get_matmul_output_sizes(self, mat2), self.options());
+      at::empty(get_matmul_and_linear_output_sizes(self, mat2), self.options());
   std::vector<at::Tensor> post_op_buffers = {};
   std::vector<int64_t> post_op_ids = {fuse};
   const float beta = 0.0f;
@@ -521,7 +511,7 @@ at::Tensor zentorch_bmm(const at::Tensor &self, const at::Tensor &mat2,
 
   at::Tensor empty_bias;
   at::Tensor out =
-      at::empty(get_matmul_output_sizes(self, mat2), self.options());
+      at::empty(get_matmul_and_linear_output_sizes(self, mat2), self.options());
   std::vector<at::Tensor> post_op_buffers = {};
   std::vector<int64_t> post_op_ids = {};
   const float beta = 0.0f;
@@ -559,10 +549,12 @@ zentorch_addmm_silu_mul(const at::Tensor &bias, const at::Tensor &mat1,
       (mat3.dim() == 2 && mat1.dim() == 2 && mat2.dim() == 2),
       "zentorch_addmm_silu_mul: unsupported dims for mat1, mat2 and mat3");
   TORCH_CHECK(
-      (mat3.sizes() == c10::IntArrayRef(get_matmul_output_sizes(mat1, mat2))),
+      (mat3.sizes() ==
+       c10::IntArrayRef(get_matmul_and_linear_output_sizes(mat1, mat2))),
       "zentorch_addmm_silu_mul: unsupported sizes for mat1, mat2 and mat3");
 
-  if (bias.sizes() == c10::IntArrayRef(get_matmul_output_sizes(mat1, mat2))) {
+  if (bias.sizes() ==
+      c10::IntArrayRef(get_matmul_and_linear_output_sizes(mat1, mat2))) {
     TORCH_CHECK(
         (bias.dim() == 2 && mat1.dim() == 2 && mat2.dim() == 2), // aten::addmm
         "zentorch_addmm:  unsupported dims for bias, mat1 and mat2");
@@ -605,7 +597,8 @@ zentorch_addmm_silu_mul(const at::Tensor &bias, const at::Tensor &mat1,
     }
   }
 
-  out = at::empty(get_matmul_output_sizes(mat1, mat2), mat1.options());
+  out =
+      at::empty(get_matmul_and_linear_output_sizes(mat1, mat2), mat1.options());
 
   post_op_buffers.push_back(mat3);
   post_op_ids.push_back(POST_OP::SILU);
@@ -631,12 +624,13 @@ at::Tensor zentorch_mm_silu_mul(const at::Tensor &mat1, const at::Tensor &mat2,
   TORCH_CHECK((mat3.dim() == 2 && mat1.dim() == 2 && mat2.dim() == 2),
               "zentorch_mm_silu_mul: unsupported dims for mat1, mat2 and mat3");
   TORCH_CHECK(
-      (mat3.sizes() == c10::IntArrayRef(get_matmul_output_sizes(mat1, mat2))),
+      (mat3.sizes() ==
+       c10::IntArrayRef(get_matmul_and_linear_output_sizes(mat1, mat2))),
       "zentorch_mm_silu_mul: unsupported sizes for mat1, mat2 and mat3");
 
   at::Tensor empty_bias;
   at::Tensor out =
-      at::empty(get_matmul_output_sizes(mat1, mat2), mat1.options());
+      at::empty(get_matmul_and_linear_output_sizes(mat1, mat2), mat1.options());
   std::vector<at::Tensor> post_op_buffers = {mat3};
   std::vector<int64_t> post_op_ids = {POST_OP::SILU, POST_OP::MUL};
 
@@ -669,8 +663,9 @@ at::Tensor zentorch_vertical_mlp_group(const at::TensorList &self,
     else
       mlp_input = dummy_output;
 
-    dummy_output = at::empty(get_matmul_output_sizes(mlp_input, weights[i]),
-                             input.options());
+    dummy_output =
+        at::empty(get_matmul_and_linear_output_sizes(mlp_input, weights[i]),
+                  input.options());
     input_vector[i] = mlp_input;
     self_vector[i] = self[i];
   }
@@ -697,8 +692,9 @@ std::vector<at::Tensor> zentorch_attn_qkv_fusion(
   for (int i = 0; i < num_ops; i++) {
     input_vector[i] = inputs[i];
     if (is_zentorch_mm[i] == 1)
-      self_vector[i] = at::empty(get_matmul_output_sizes(inputs[i], weights[i]),
-                                 inputs[i].options());
+      self_vector[i] =
+          at::empty(get_matmul_and_linear_output_sizes(inputs[i], weights[i]),
+                    inputs[i].options());
     else
       self_vector[i] = self[i];
   }

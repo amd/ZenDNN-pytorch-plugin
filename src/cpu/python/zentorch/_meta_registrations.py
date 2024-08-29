@@ -440,6 +440,27 @@ def meta_masked_multihead_self_attention(
     return (attn_output, attn_weights, key_cache_out, value_cache_out, beam_idx_out)
 
 
+@register_meta("zentorch_woq_linear")
+def meta_zentorch_woq_linear(
+    input,
+    qweight,
+    weight_scales,
+    weight_zero_point,
+    bias,
+    group_size=-1,
+    weight_bits=4,
+    compute_dtype='bfloat16',
+):
+    out_dim = list(input.size())
+    unpacking_ratio = 1
+    if qweight.dtype == torch.int32:
+        bits_in_1_byte = 8
+        total_bits = qweight.element_size() * bits_in_1_byte
+        unpacking_ratio = total_bits // weight_bits
+    out_dim[-1] = qweight.size(1) * unpacking_ratio
+    return input.new_empty(out_dim)
+
+
 make_fallback(torch.ops.zentorch.zentorch_addmm)
 make_fallback(torch.ops.zentorch.zentorch_addmm_relu)
 make_fallback(torch.ops.zentorch.zentorch_addmm_silu)
@@ -471,3 +492,4 @@ make_fallback(torch.ops.zentorch.zentorch_attn_qkv_fusion)
 make_fallback(torch.ops.zentorch.zentorch_fused_eb_mlp)
 make_fallback(torch.ops.zentorch.zentorch_rope)
 make_fallback(torch.ops.zentorch.zentorch_masked_multihead_self_attention)
+make_fallback(torch.ops.zentorch.zentorch_woq_linear)

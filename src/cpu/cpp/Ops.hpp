@@ -131,4 +131,14 @@ zentorch_rope_impl(at::Tensor &t_in, at::Tensor &t_emb_pos, at::Tensor &t_pos,
                    int64_t N, int64_t H, int64_t offset, int64_t rotary_dim,
                    std::string zentorch_op_name);
 
+template <POST_OP fuse = POST_OP::NONE>
+at::Tensor
+zentorch_woq_linear(const at::Tensor &input, const at::Tensor &qweight,
+                    const at::Tensor &weight_scales,
+                    const c10::optional<at::Tensor> &weight_zero_point,
+                    const c10::optional<at::Tensor> &bias,
+                    const int64_t &group_size, const int64_t &weight_bits,
+                    const std::string &compute_dtype,
+                    std::string zentorch_op_name);
+
 } // namespace zentorch

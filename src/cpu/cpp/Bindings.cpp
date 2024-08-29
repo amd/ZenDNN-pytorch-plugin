@@ -157,6 +157,11 @@ TORCH_LIBRARY(zentorch, m) {
         "add_casual_mask=None, str zentorch_op_name = "
         "'zentorch::zentorch_masked_multihead_self_attention')-> (Tensor, "
         "Tensor, Tensor, Tensor, Tensor)");
+  m.def(
+      "zentorch_woq_linear(Tensor input, Tensor qweight, Tensor weight_scales, "
+      "Tensor? weight_zero_point, Tensor? bias, int group_size=-1, "
+      "int weight_bits=4, str compute_dtype = 'bfloat16', str zentorch_op_name "
+      "= 'zentorch::zentorch_woq_linear') -> Tensor");
 }
 
 TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
@@ -206,6 +211,8 @@ TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
   m.impl("zentorch_rope", zentorch::zentorch_rope_impl);
   m.impl("zentorch_masked_multihead_self_attention",
          zentorch::zentorch_masked_multihead_self_attention_impl);
+  m.impl("zentorch_woq_linear",
+         zentorch::zentorch_woq_linear<zentorch::POST_OP::NONE>);
 }
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
