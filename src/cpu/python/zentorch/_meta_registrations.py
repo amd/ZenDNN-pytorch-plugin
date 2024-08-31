@@ -99,6 +99,31 @@ def meta_zentorch_addmm_1dbias(
     return input.new_empty((input.shape[0], weight.shape[-1]))
 
 
+@register_meta("zentorch_addmm_1dbias_add")
+def meta_zentorch_addmm_1dbias_add(
+    bias,
+    input,
+    weight,
+    add_input,
+    alpha=1,
+    beta=1,
+):
+    return input.new_empty((input.shape[0], weight.shape[-1]))
+
+
+@register_meta("zentorch_addmm_1dbias_add_add")
+def meta_zentorch_addmm_1dbias_add_add(
+    bias,
+    input,
+    weight,
+    add1_input,
+    add2_input,
+    alpha=1,
+    beta=1,
+):
+    return input.new_empty((input.shape[0], weight.shape[-1]))
+
+
 @register_meta("zentorch_addmm_1dbias_relu")
 def meta_zentorch_addmm_1dbias_relu(
     bias,
@@ -425,6 +450,8 @@ make_fallback(torch.ops.zentorch.zentorch_addmm_1dbias_relu)
 make_fallback(torch.ops.zentorch.zentorch_addmm_1dbias_silu)
 make_fallback(torch.ops.zentorch.zentorch_addmm_1dbias_gelu_tanh)
 make_fallback(torch.ops.zentorch.zentorch_addmm_1dbias_gelu_erf)
+make_fallback(torch.ops.zentorch.zentorch_addmm_1dbias_add)
+make_fallback(torch.ops.zentorch.zentorch_addmm_1dbias_add_add)
 make_fallback(torch.ops.zentorch.zentorch_mm_silu_mul)
 make_fallback(torch.ops.zentorch.zentorch_addmm_silu_mul)
 make_fallback(torch.ops.zentorch.zentorch_addmm_1dbias_silu_mul)

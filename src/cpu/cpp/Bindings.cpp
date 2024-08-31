@@ -75,6 +75,16 @@ TORCH_LIBRARY(zentorch, m) {
         "Scalar beta=1, Scalar alpha=1, str "
         "zentorch_op_name='zentorch::zentorch_addmm_1dbias_relu') -> "
         "Tensor");
+  m.def("zentorch_addmm_1dbias_add( Tensor self, Tensor mat1, "
+        "Tensor mat2,Tensor add_input, *, "
+        "Scalar beta=1, Scalar alpha=1, str "
+        "zentorch_op_name='zentorch::zentorch_addmm_1dbias_add') -> "
+        "Tensor");
+  m.def("zentorch_addmm_1dbias_add_add( Tensor self, "
+        "Tensor mat1, Tensor mat2, Tensor add1_input, Tensor add2_input, *,"
+        "Scalar beta=1, Scalar alpha=1, str "
+        "zentorch_op_name='zentorch::zentorch_addmm_1dbias_add_add') -> "
+        "Tensor");
   m.def("zentorch_addmm_1dbias_relu(Tensor self, Tensor mat1, Tensor mat2, *, "
         "Scalar beta=1, Scalar alpha=1, str "
         "zentorch_op_name='zentorch::zentorch_addmm_1dbias_relu') -> "
@@ -171,6 +181,9 @@ TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
          zentorch::zentorch_addmm<zentorch::POST_OP::SILU>);
   m.impl("zentorch_addmm_1dbias",
          zentorch::zentorch_addmm_1dbias<zentorch::POST_OP::NONE>);
+  m.impl("zentorch_addmm_1dbias_add", zentorch::zentorch_addmm_1dbias_add);
+  m.impl("zentorch_addmm_1dbias_add_add",
+         zentorch::zentorch_addmm_1dbias_add_add);
   m.impl("zentorch_addmm_1dbias_relu",
          zentorch::zentorch_addmm_1dbias<zentorch::POST_OP::RELU>);
   m.impl("zentorch_addmm_1dbias_gelu_tanh",

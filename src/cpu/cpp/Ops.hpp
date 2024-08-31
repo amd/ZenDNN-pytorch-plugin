@@ -51,6 +51,18 @@ at::Tensor zentorch_addmm_1dbias(const at::Tensor &self, const at::Tensor &mat1,
                                  const at::Scalar &alpha,
                                  std::string zentorch_op_name);
 
+at::Tensor
+zentorch_addmm_1dbias_add(const at::Tensor &self, const at::Tensor &mat1,
+                          const at::Tensor &mat2, const at::Tensor &add,
+                          const at::Scalar &beta, const at::Scalar &alpha,
+                          std::string zentorch_op_name);
+
+at::Tensor zentorch_addmm_1dbias_add_add(
+    const at::Tensor &self, const at::Tensor &mat1, const at::Tensor &mat2,
+    const at::Tensor &add1_input, const at::Tensor &add2_input,
+    const at::Scalar &beta, const at::Scalar &alpha,
+    std::string zentorch_op_name);
+
 at::Tensor zentorch_baddbmm(const at::Tensor &self, const at::Tensor &batch1,
                             const at::Tensor &batch2, const at::Scalar &beta,
                             const at::Scalar &alpha,

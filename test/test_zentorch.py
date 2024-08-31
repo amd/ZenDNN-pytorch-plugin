@@ -68,7 +68,6 @@ class Singleton(type):
 
 
 class Test_Data(metaclass=Singleton):
-
     def create_data(self, dtype):
         torch_type = self.get_torch_type(dtype)
         self.b = torch.randint(1, 11, (1,)).item()
@@ -106,7 +105,7 @@ class Test_Data(metaclass=Singleton):
             torch.randn(60, 30).type(torch_type),
             torch.randn(30).type(torch_type),
         ]
-
+        self.T1 = [torch.randn(2, 30, 30).type(torch_type)]
         self.x1 = [
             torch.randn(60, 40).type(torch_type),
             torch.randn(40, 60).transpose(0, 1).type(torch_type),
@@ -153,7 +152,6 @@ class Zentorch_TestCase(TestCase):
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class Test_MM_OP(Zentorch_TestCase):
-
     @parameterized.expand(supported_dtypes)
     @unittest.skipIf(skip_test_pt_2_0, "Skipping test due to PT2.0 instability")
     def test_matmul_variants(self, dtype):
@@ -223,7 +221,6 @@ class Test_MM_OP(Zentorch_TestCase):
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class Test_ADDMM_OP(Zentorch_TestCase):
-
     @parameterized.expand(supported_dtypes)
     @unittest.skipIf(skip_test_pt_2_0, "Skipping test due to PT2.0 instability")
     def test_addmm_variants(self, dtype):
@@ -293,7 +290,6 @@ class Test_ADDMM_OP(Zentorch_TestCase):
 
     @parameterized.expand(supported_dtypes)
     def test_addmm_mismatched_dimensions(self, dtype):
-
         self.data.create_data(dtype)
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_addmm(
@@ -304,7 +300,6 @@ class Test_ADDMM_OP(Zentorch_TestCase):
                     (list(self.data.x.shape)[0], list(self.data.x.shape)[1], 1),
                 ),
             )
-
         self.assertTrue(
             "zentorch_addmm:  unsupported dims for self, mat1 and mat2"
             in str(context.exception)
@@ -405,7 +400,6 @@ class Test_ADDMM_OP(Zentorch_TestCase):
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class Test_BMM_OP(Zentorch_TestCase):
-
     @parameterized.expand(supported_dtypes)
     @unittest.skipIf(skip_test_pt_2_0, "Skipping test due to PT2.0 instability")
     def test_bmm_variants(self, dtype):
@@ -443,7 +437,6 @@ class Test_BMM_OP(Zentorch_TestCase):
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class Test_BADDBMM_OP(Zentorch_TestCase):
-
     @parameterized.expand(supported_dtypes)
     @unittest.skipIf(skip_test_pt_2_0, "Skipping test due to PT2.0 instability")
     def test_baddbmm_variants(self, dtype):
@@ -522,7 +515,6 @@ class Test_BADDBMM_OP(Zentorch_TestCase):
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class Test_MATMUL_IMPL_OP(Zentorch_TestCase):
-
     @parameterized.expand(supported_dtypes)
     def test_zentorch_matmul_impl_for_mv_and_dot(self, dtype):
 
@@ -557,7 +549,6 @@ class Test_MATMUL_IMPL_OP(Zentorch_TestCase):
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class TEST_EMBEDDING_BAG(Zentorch_TestCase):
-
     @parameterized.expand(supported_dtypes)
     def test_embedding_bag_zendnn(self, dtype):
 
@@ -683,7 +674,6 @@ class TEST_EMBEDDING_BAG(Zentorch_TestCase):
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class TEST_EMBEDDING(Zentorch_TestCase):
-
     @parameterized.expand(supported_dtypes)
     def test_embedding_zendnn(self, dtype):
         self.data.create_data(dtype)
@@ -762,7 +752,6 @@ class TEST_EMBEDDING(Zentorch_TestCase):
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class TEST_EMBEDDING_BAG_GROUP(Zentorch_TestCase):
-
     @parameterized.expand(
         product(
             supported_dtypes,
@@ -878,7 +867,6 @@ class TEST_EMBEDDING_BAG_GROUP(Zentorch_TestCase):
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class TEST_EMBEDDING_GROUP(Zentorch_TestCase):
-
     @parameterized.expand(supported_dtypes)
     def test_embedding_group_zendnn(self, dtype):
 
@@ -1031,7 +1019,6 @@ class TEST_EMBEDDING_GROUP(Zentorch_TestCase):
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class test_qkv_fusion(Zentorch_TestCase):
-
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
     def test_qkv_fusion(self, dtype):
@@ -1047,9 +1034,7 @@ class test_qkv_fusion(Zentorch_TestCase):
     @torch.inference_mode()
     def test_qkv_fusion_multi_mm(self, dtype):
         self.data.create_data(dtype)
-        model = Custom_QKV_Fusion_multi_mm_Model(
-            self.data.get_torch_type(dtype)
-        )
+        model = Custom_QKV_Fusion_multi_mm_Model(self.data.get_torch_type(dtype))
         reset_dynamo()
         counters.clear()
         self.assertEqual(counters["zentorch"]["qkv_fusion"], 0)
@@ -1063,9 +1048,7 @@ class test_qkv_fusion(Zentorch_TestCase):
     def test_qkv_fusion_multi_user(self, dtype):
 
         self.data.create_data(dtype)
-        model = Custom_QKV_Fusion_multi_user_Model(
-            -1, self.data.get_torch_type(dtype)
-        )
+        model = Custom_QKV_Fusion_multi_user_Model(-1, self.data.get_torch_type(dtype))
         for i in range(len(self.data.x2)):
             for j in range(len(self.data.y2)):
                 native_output = model(self.data.x2[i], self.data.y2[j])
@@ -1079,9 +1062,7 @@ class test_qkv_fusion(Zentorch_TestCase):
     def test_qkv_fusion_multi_level(self, dtype):
 
         self.data.create_data(dtype)
-        model = Custom_QKV_Fusion_multi_level_Model(
-            self.data.get_torch_type(dtype)
-        )
+        model = Custom_QKV_Fusion_multi_level_Model(self.data.get_torch_type(dtype))
         reset_dynamo()
         counters.clear()
         self.assertEqual(counters["zentorch"]["qkv_fusion"], 0)
@@ -1164,7 +1145,6 @@ class test_qkv_fusion(Zentorch_TestCase):
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class TEST_GROUP_MLP(Zentorch_TestCase):
-
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
     def test_group_mlp_model(self, dtype):
@@ -1277,7 +1257,6 @@ class TEST_GROUP_MLP(Zentorch_TestCase):
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class TEST_GROUP_EB_MLP(Zentorch_TestCase):
-
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
     def test_group_eb_mlp_model(self, dtype):
@@ -1355,7 +1334,6 @@ class TEST_GROUP_EB_MLP(Zentorch_TestCase):
 # To test the above scenario, the following testcases are added.
 # Both the group ops are being tested here, with the heterogeneous op being sum
 class TEST_GROUP_EMBED_OPS_WITH_SUM_OPS(Zentorch_TestCase):
-
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
     def test_group_eb_with_sum(self, dtype):
@@ -2048,6 +2026,45 @@ class CustomModelMM_View_Unary_OP(nn.Module):
         return GELU1_res
 
 
+class CustomModelLinear_View_Add(nn.Module):
+    def __init__(self, input_size, output_size, dtype):
+        super(CustomModelLinear_View_Add, self).__init__()
+        self.linear1 = nn.Linear(input_size, output_size, dtype=dtype)
+
+    def forward(self, input, batch1):
+        # Forward pass with mm and ReLU fused
+        x = self.linear1(batch1)
+        mm_res = x.view(input.size())
+        add_res = torch.add(mm_res, input)
+        return add_res
+
+
+class CustomModelLinear_Add(nn.Module):
+    def __init__(self, input_size, output_size, dtype):
+        super(CustomModelLinear_Add, self).__init__()
+        self.linear1 = nn.Linear(input_size, output_size, dtype=dtype)
+
+    def forward(self, input, batch1):
+        # Forward pass with mm and ReLU fused
+        x = self.linear1(batch1)
+        add_res = torch.add(x, input)
+        return add_res
+
+
+class CustomModelLinear_View_Add_Add(nn.Module):
+    def __init__(self, input_size, output_size, dtype):
+        super(CustomModelLinear_View_Add_Add, self).__init__()
+        self.linear1 = nn.Linear(input_size, output_size, dtype=dtype)
+
+    def forward(self, input, batch1):
+        # Forward pass with mm and ReLU fused
+        x = self.linear1(batch1)
+        mm_res = x.view(input.size())
+        add_res = torch.add(mm_res, input)
+        add_res_2 = torch.add(add_res, input)
+        return add_res_2
+
+
 # The node being cloned will not always be previous node
 # While removing clone op from graph we can encounter this scenario
 class CustomModelMM_Diff_User_In_Btw(nn.Module):
@@ -2085,7 +2102,6 @@ class CustomModel_LinearSiLUMul(nn.Module):
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class TestMMRELU(Zentorch_TestCase):
-
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
     def test_mm_relu_optimize(self, dtype):
@@ -2143,7 +2159,6 @@ class TestMMRELU(Zentorch_TestCase):
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class TestMMADD(Zentorch_TestCase):
-
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
     def test_mm_add_optimize(self, dtype):
@@ -2248,7 +2263,6 @@ class TestMMADD(Zentorch_TestCase):
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class TestADDMM_GELU(Zentorch_TestCase):
-
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
     def test_zentorch_addmm_gelu_tanh(self, dtype):
@@ -2347,7 +2361,6 @@ class TestADDMM_GELU(Zentorch_TestCase):
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class TestADDMM_RELU(Zentorch_TestCase):
-
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
     def test_zentorch_addmm_relu(self, dtype):
@@ -2404,7 +2417,6 @@ class TestADDMM_RELU(Zentorch_TestCase):
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class TestLinear_Relu(Zentorch_TestCase):
-
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
     def test_zentorch_linear_relu(self, dtype):
@@ -2427,7 +2439,6 @@ class TestLinear_Relu(Zentorch_TestCase):
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class TestLinear_Gelu(Zentorch_TestCase):
-
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
     def test_zentorch_linear_gelu_tanh(self, dtype):
@@ -2463,7 +2474,6 @@ class TestLinear_Gelu(Zentorch_TestCase):
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class TestLinear_SiLU(Zentorch_TestCase):
-
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
     def test_zentorch_linear_with_bias_silu(self, dtype):
@@ -2517,7 +2527,6 @@ class TestLinear_SiLU(Zentorch_TestCase):
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class TestLinear_SiLU_Mul(Zentorch_TestCase):
-
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
     def test_zentorch_mm_silu_mul(self, dtype):
@@ -2651,7 +2660,6 @@ class TestLinear_SiLU_Mul(Zentorch_TestCase):
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class TestBMMADD(Zentorch_TestCase):
-
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
     def test_zentorch_bmm_baddbmm(self, dtype):
@@ -2743,7 +2751,6 @@ class AddmmSiLUMulPattern(torch.nn.Module):
 # pattern matcher tests
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class TestPatternMatcher(Zentorch_TestCase):
-
     @parameterized.expand(supported_dtypes)
     def test_addmm_silu_mul_replacement(self, dtype):
         decomp_mm_silu_model = AddmmSiLUMulPattern()
@@ -2819,6 +2826,176 @@ class TestPatternMatcher(Zentorch_TestCase):
             zentorch_graph_output = compiled_model(arg_0, arg_1)
             self.assertEqual(counters["zentorch"]["pattern_matcher_bmm_to_mm"], 1)
             self.assertEqual(native_output, zentorch_graph_output)
+
+
+@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
+class TestLinear_Add(Zentorch_TestCase):
+    @parameterized.expand(supported_dtypes)
+    @torch.inference_mode()
+    def test_linear_view_add(self, dtype):
+        self.data.create_data(dtype)
+        model = CustomModelLinear_View_Add(
+            40, 30, self.data.get_torch_type(dtype)
+        ).eval()
+        zentorch_model = copy.deepcopy(model)
+        for inp in self.data.T1:
+            for i in range(len(self.data.x1)):
+                model_output = model(inp, self.data.x1[i])
+                reset_dynamo()
+                compiled_graph = torch.compile(zentorch_model, backend="zentorch")
+                counters.clear()
+                self.assertEqual(
+                    counters["zentorch"]["pattern_matcher_addmm_1dbias_add"], 0
+                )
+                compiled_graph_output = compiled_graph(inp, self.data.x1[i])
+                self.assertEqual(
+                    counters["zentorch"]["pattern_matcher_addmm_1dbias_add"], 1
+                )
+                self.assertEqual(
+                    model_output, compiled_graph_output, atol=1e-2, rtol=1e-2
+                )
+
+    @parameterized.expand(supported_dtypes)
+    @torch.inference_mode()
+    def test_3d_linear_3d_add(self, dtype):
+        new_dtype = self.data.get_torch_type(dtype)
+        arg_1 = torch.randn((2, 20, 30), dtype=new_dtype)
+        arg_2 = torch.randn((2, 20, 40), dtype=new_dtype)
+        reset_dynamo()
+        model = CustomModelLinear_Add(40, 30, self.data.get_torch_type(dtype)).eval()
+        zentorch_model = copy.deepcopy(model)
+        model_output = model(arg_1, arg_2)
+        compiled_graph = torch.compile(zentorch_model, backend="zentorch")
+        compiled_graph_output = compiled_graph(arg_1, arg_2)
+        self.assertEqual(model_output, compiled_graph_output, atol=1e-2, rtol=1e-2)
+
+    @parameterized.expand(supported_dtypes)
+    @torch.inference_mode()
+    def test_zentorch_addmm_1dbias_add_op_level(self, dtype):
+        new_dtype = self.data.get_torch_type(dtype)
+        arg_0 = torch.randn((30), dtype=new_dtype)
+        arg_1 = torch.randn((20, 40), dtype=new_dtype)
+        arg_2 = torch.randn((30, 40), dtype=new_dtype)
+        arg_3 = torch.randn((20, 30), dtype=new_dtype)
+        reset_dynamo()
+        output_1 = torch.add(torch.nn.functional.linear(arg_1, arg_2, arg_0), arg_3)
+        output_2 = torch.ops.zentorch.zentorch_addmm_1dbias_add(
+            arg_0, arg_1, arg_2.t(), arg_3
+        )
+        self.assertEqual(output_1, output_2, atol=1e-2, rtol=1e-2)
+
+    @parameterized.expand(supported_dtypes)
+    @torch.inference_mode()
+    def test_addmm_1dbias_add_mismatched_dimensions(self, dtype):
+        self.data.create_data(dtype)
+        with self.assertRaises(RuntimeError) as context:
+            torch.ops.zentorch.zentorch_addmm_1dbias_add(
+                self.data.input,
+                self.data.x,
+                self.data.y,
+                torch.reshape(
+                    self.data.input,
+                    (1, list(self.data.input.shape)[0], list(self.data.input.shape)[1]),
+                ),
+            )
+        self.assertTrue(
+            "zentorch_addmm_1dbias_add: unsupported dims for mat1, mat2 and add_input"
+            in str(context.exception)
+        )
+
+    @parameterized.expand(supported_dtypes)
+    @torch.inference_mode()
+    def test_addmm_1dbias_add_mismatched_sizes(self, dtype):
+        self.data.create_data(dtype)
+        with self.assertRaises(RuntimeError) as context:
+            torch.ops.zentorch.zentorch_addmm_1dbias_add(
+                self.data.input, self.data.x, self.data.y, self.data.x
+            )
+        self.assertTrue(
+            "zentorch_addmm_1dbias_add: unsupported sizes for mat1, mat2 and add_input"
+            in str(context.exception)
+        )
+
+    @parameterized.expand(supported_dtypes)
+    @torch.inference_mode()
+    def test_linear_view_add_add(self, dtype):
+        self.data.create_data(dtype)
+        model = CustomModelLinear_View_Add_Add(
+            40, 30, self.data.get_torch_type(dtype)
+        ).eval()
+        zentorch_model = copy.deepcopy(model)
+        for inp in self.data.T1:
+            for i in range(len(self.data.x1)):
+                model_output = model(inp, self.data.x1[i])
+                reset_dynamo()
+                compiled_graph = torch.compile(zentorch_model, backend="zentorch")
+                counters.clear()
+                self.assertEqual(
+                    counters["zentorch"]["pattern_matcher_addmm_1dbias_add_add"], 0
+                )
+                compiled_graph_output = compiled_graph(inp, self.data.x1[i])
+                self.assertEqual(
+                    counters["zentorch"]["pattern_matcher_addmm_1dbias_add_add"], 1
+                )
+                self.assertEqual(
+                    model_output, compiled_graph_output, atol=1e-2, rtol=1e-2
+                )
+
+    @parameterized.expand(supported_dtypes)
+    @torch.inference_mode()
+    def test_addmm_1dbias_add_add_mismatched_dimensions(self, dtype):
+        self.data.create_data(dtype)
+        with self.assertRaises(RuntimeError) as context:
+            torch.ops.zentorch.zentorch_addmm_1dbias_add_add(
+                self.data.input,
+                self.data.x,
+                self.data.y,
+                torch.reshape(
+                    self.data.input,
+                    (1, list(self.data.input.shape)[0], list(self.data.input.shape)[1]),
+                ),
+                torch.reshape(
+                    self.data.input,
+                    (1, list(self.data.input.shape)[0], list(self.data.input.shape)[1]),
+                ),
+            )
+        self.assertTrue(
+            "zentorch_addmm_1dbias_add_add: unsupported dims for mat1, mat2,"
+            + " add1_input and add2_input"
+            in str(context.exception)
+        )
+
+    @parameterized.expand(supported_dtypes)
+    @torch.inference_mode()
+    def test_addmm_1dbias_add_add_mismatched_sizes(self, dtype):
+        self.data.create_data(dtype)
+        with self.assertRaises(RuntimeError) as context:
+            torch.ops.zentorch.zentorch_addmm_1dbias_add_add(
+                self.data.input, self.data.x, self.data.y, self.data.x, self.data.x
+            )
+        print(str(context.exception))
+        self.assertTrue(
+            "zentorch_addmm_1dbias_add_add: unsupported sizes for mat1, mat2,"
+            + " add1_input and add2_input"
+            in str(context.exception)
+        )
+
+    @parameterized.expand(supported_dtypes)
+    @torch.inference_mode()
+    def test_zentorch_addmm_1dbias_add_add_op_level(self, dtype):
+        new_dtype = self.data.get_torch_type(dtype)
+        arg_0 = torch.rand((30), dtype=new_dtype)
+        arg_1 = torch.rand((20, 40), dtype=new_dtype)
+        arg_2 = torch.rand((30, 40), dtype=new_dtype)
+        arg_3 = torch.rand((20, 30), dtype=new_dtype)
+        reset_dynamo()
+        output_1 = torch.add(
+            torch.add(torch.nn.functional.linear(arg_1, arg_2, arg_0), arg_3), arg_3
+        )
+        output_2 = torch.ops.zentorch.zentorch_addmm_1dbias_add_add(
+            arg_0, arg_1, arg_2.t(), arg_3, arg_3
+        )
+        self.assertEqual(output_1, output_2, atol=1e-2, rtol=1e-2)
 
 
 # small testcase for rope, does not have all combinations

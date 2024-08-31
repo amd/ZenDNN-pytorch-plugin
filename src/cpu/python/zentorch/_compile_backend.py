@@ -62,13 +62,13 @@ def zentorch_compile_fx_inner(
     layout_opt: Optional[bool] = None,
 ):
     logger.info("Optimizing the model with zentorch ops.")
-    # zentorch Optimized Implemention starts here###
+    # zentorch Optimized Implemention starts here
     zen_gm = optimize(gm)
     # zentorch Optimized Implemention ends here###
     logger.info("Model is passed to compile_fx_inner.")
     # From PT2.4, compile_fx_inner introduced the optional static_input_idxs
     # argument and deprecated the optional num_fixed argument.
-    if torch_version < '2.4':
+    if torch_version < "2.4":
         return compile_fx_inner(
             zen_gm,
             example_inputs,
@@ -126,7 +126,6 @@ def zentorch_compile(
 
 
 def zentorch_compiler_noinductor(gm, sample_inputs):
-
     def zentorch_compiler_noinductor_impl(gm, sample_inputs):
 
         # Applying zentorch optimizations here.
@@ -149,10 +148,7 @@ def zentorch(model, inputs):
             torch.ops.aten.silu,
             torch.ops.aten.native_layer_norm,
         ]
-        remove_decompositions(
-            decompositions,
-            REMOVE_DECOMP_LIST
-        )
+        remove_decompositions(decompositions, REMOVE_DECOMP_LIST)
         # PT will throw an error if CI env variable is set
         # This looks like a bug in PT as this check is unnecessary
         # before registering the fallback
