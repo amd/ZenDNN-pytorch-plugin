@@ -25,3 +25,6 @@ from ._meta_registrations import * # noqa
 
 # llm optimizations
 from . import llm  # noqa
+
+# model reload utility for woq models
+from ._woq_model_reload import load_woq_model # noqa
