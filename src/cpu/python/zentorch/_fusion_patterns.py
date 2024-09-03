@@ -96,92 +96,163 @@ def _addmm_1dbias_silu_mul_replacement(arg_0, arg_1, arg_2, bias_0):
     return (out_0,)
 
 
-def _addmm_1dbias_add_pattern(arg_0, arg_1, add1, bias_0):
+def _addmm_1dbias_add_pattern(arg_0, arg_1, add_1, bias_0):
     # bias_0: bias
     # arg_0_: mat1
     # arg_1_: mat2
-    # add1: add
+    # add_1: add
     addmm = zt_ops.zentorch_addmm_1dbias(bias_0, arg_0, arg_1)
-    if add1.dim() != 2:
-        view = at_ops.view.default(addmm, add1.size())
-        add_res = at_ops.add(view, add1)
+    if add_1.dim() != 2:
+        view = at_ops.view.default(addmm, add_1.size())
+        add_res = at_ops.add(view, add_1)
     else:
-        add_res = at_ops.add(addmm, add1)
+        add_res = at_ops.add(addmm, add_1)
     return add_res
 
 
-def _addmm_1dbias_add_replacement(arg_0, arg_1, add1, bias_0):
+def _addmm_1dbias_add_replacement(arg_0, arg_1, add_1, bias_0):
     counters["zentorch"]["pattern_matcher_addmm_1dbias_add"] += 1
     shape_0 = arg_0.size()
     shape_1 = arg_1.size()
-    shape_2 = add1.size()
-    if add1.dim() != 2:
-        view_0 = at_ops.view.default(add1, [shape_0[0], shape_1[1]])
+    shape_2 = add_1.size()
+    if add_1.dim() != 2:
+        view_0 = at_ops.view.default(add_1, [shape_0[0], shape_1[1]])
         add_0 = zt_ops.zentorch_addmm_1dbias_add.default(bias_0, arg_0, arg_1, view_0)
         out_0 = at_ops.view.default(add_0, shape_2)
     else:
-        out_0 = zt_ops.zentorch_addmm_1dbias_add.default(bias_0, arg_0, arg_1, add1)
+        out_0 = zt_ops.zentorch_addmm_1dbias_add.default(bias_0, arg_0, arg_1, add_1)
     return (out_0,)
 
 
-def _addmm_1dbias_view_add_add_pattern(arg_0, arg_1, add1, add2, bias_0):
+def _addmm_1dbias_view_add_add_pattern(arg_0, arg_1, add_1, add_2, bias_0):
     # bias_0: bias
     # arg_0: mat1
     # arg_1: mat2
-    # add1: add
-    # add2: 2nd add
+    # add_1: add
+    # add_2: 2nd add
     addmm = zt_ops.zentorch_addmm_1dbias(bias_0, arg_0, arg_1)
-    if add1.dim() != 2:
-        view = at_ops.view.default(addmm, add1.size())
-        add_res = at_ops.add(view, add1)
+    if add_1.dim() != 2:
+        view = at_ops.view.default(addmm, add_1.size())
+        add_res = at_ops.add(view, add_1)
     else:
-        add_res = at_ops.add(addmm, add1)
-    add_res_2 = at_ops.add(add_res, add2)
+        add_res = at_ops.add(addmm, add_1)
+    add_res_2 = at_ops.add(add_res, add_2)
     return add_res_2
 
 
-def _addmm_1dbias_view_add_add_replacement(arg_0, arg_1, add1, add2, bias_0):
+def _addmm_1dbias_view_add_add_replacement(arg_0, arg_1, add_1, add_2, bias_0):
     counters["zentorch"]["pattern_matcher_addmm_1dbias_add_add"] += 1
     shape_0 = arg_0.size()
     shape_1 = arg_1.size()
-    shape_2 = add1.size()
+    shape_2 = add_1.size()
     # set of conditions is possible for this (for now, we have just 2)
-    if add1.dim() != 2 and add2.dim() != 2:
-        view_0 = at_ops.view.default(add1, [shape_0[0], shape_1[1]])
-        view_1 = at_ops.view.default(add2, [shape_0[0], shape_1[1]])
+    if add_1.dim() != 2 and add_2.dim() != 2:
+        view_0 = at_ops.view.default(add_1, [shape_0[0], shape_1[1]])
+        view_1 = at_ops.view.default(add_2, [shape_0[0], shape_1[1]])
         linear_add = zt_ops.zentorch_addmm_1dbias_add_add.default(
             bias_0, arg_0, arg_1, view_0, view_1
         )
         out_0 = at_ops.view.default(linear_add, shape_2)
     else:
         out_0 = zt_ops.zentorch_addmm_1dbias_add_add.default(
-            bias_0, arg_0, arg_1, add1, add2
+            bias_0, arg_0, arg_1, add_1, add_2
         )
     return out_0
 
 
-def _mm_add_pattern(arg_0, arg_1, add1):
+def _mm_add_pattern(arg_0, arg_1, add_1):
     mm = zt_ops.zentorch_mm(arg_0, arg_1)
-    if add1.dim() != 2:
-        view = at_ops.view.default(mm, add1.size())
-        add_res = at_ops.add(view, add1)
+    if add_1.dim() != 2:
+        view = at_ops.view.default(mm, add_1.size())
+        add_res = at_ops.add(view, add_1)
     else:
-        add_res = at_ops.add(mm, add1)
+        add_res = at_ops.add(mm, add_1)
     return add_res
 
 
-def _mm_add_replacement(arg_0, arg_1, add1):
+def _mm_add_replacement(arg_0, arg_1, add_1):
     counters["zentorch"]["pattern_matcher_mm_add"] += 1
     shape_0 = arg_0.size()
     shape_1 = arg_1.size()
-    shape_2 = add1.size()
+    shape_2 = add_1.size()
 
-    if add1.dim() != 2:
-        view_0 = at_ops.view.default(add1, [shape_0[0], shape_1[1]])
+    if add_1.dim() != 2:
+        view_0 = at_ops.view.default(add_1, [shape_0[0], shape_1[1]])
         addmm = zt_ops.zentorch_addmm.default(view_0, arg_0, arg_1)
         out_0 = at_ops.view.default(addmm, shape_2)
     else:
-        out_0 = zt_ops.zentorch_addmm.default(add1, arg_0, arg_1)
+        out_0 = zt_ops.zentorch_addmm.default(add_1, arg_0, arg_1)
+    return (out_0,)
+
+
+# Adding 2 Isometric patterns for linear+add fusion
+def _woq_linear_add_pattern_1(arg_0, arg_1, arg_2, arg_3, bias_0, add_1):
+    # arg_0 : input_tensor (n-d)
+    # arg_1 : qweight
+    # arg_2 : weight_scales
+    # arg_3 : weight_zero_point
+    # bias_0 : bias
+    # add_1 : add_tensor
+    woq_linear_out = zt_ops.zentorch_woq_linear(arg_0, arg_1, arg_2, arg_3, bias_0)
+    add_res = at_ops.add(add_1, woq_linear_out)
+    return add_res
+
+
+def _woq_linear_add_pattern_2(arg_0, arg_1, arg_2, arg_3, bias_0, add_1):
+    woq_linear_out = zt_ops.zentorch_woq_linear(arg_0, arg_1, arg_2, arg_3, bias_0)
+    add_res = at_ops.add(woq_linear_out, add_1)
+    return add_res
+
+
+def _woq_linear_add_replacement(arg_0, arg_1, arg_2, arg_3, bias_0, add_1):
+    counters["zentorch"]["pattern_matcher_woq_add"] += 1
+    out_0 = zt_ops.zentorch_woq_linear_add.default(
+        arg_0, arg_1, arg_2, arg_3, bias_0, add_1
+    )
+    return (out_0,)
+
+
+# Adding 4 Isometric pattern for linear+add+add fusion
+def _woq_linear_add_add_pattern_1(arg_0, arg_1, arg_2, arg_3, bias_0, add_1, add_2):
+    # arg_0 : input_tensor (n-d)
+    # arg_1 : qweight
+    # arg_2 : weight_scales
+    # arg_3 : weight_zero_point
+    # bias_0 : bias
+    # add_1 : add_tensor
+    # add_2 : add_tensor
+    woq_linear_out = zt_ops.zentorch_woq_linear(arg_0, arg_1, arg_2, arg_3, bias_0)
+    add1_res = at_ops.add(woq_linear_out, add_1)
+    add_res = at_ops.add(add1_res, add_2)
+    return add_res
+
+
+def _woq_linear_add_add_pattern_2(arg_0, arg_1, arg_2, arg_3, bias_0, add_1, add_2):
+    woq_linear_out = zt_ops.zentorch_woq_linear(arg_0, arg_1, arg_2, arg_3, bias_0)
+    add1_res = at_ops.add(add_1, woq_linear_out)
+    add_res = at_ops.add(add1_res, add_2)
+    return add_res
+
+
+def _woq_linear_add_add_pattern_3(arg_0, arg_1, arg_2, arg_3, bias_0, add_1, add_2):
+    woq_linear_out = zt_ops.zentorch_woq_linear(arg_0, arg_1, arg_2, arg_3, bias_0)
+    add1_res = at_ops.add(woq_linear_out, add_1)
+    add_res = at_ops.add(add_2, add1_res)
+    return add_res
+
+
+def _woq_linear_add_add_pattern_4(arg_0, arg_1, arg_2, arg_3, bias_0, add_1, add_2):
+    woq_linear_out = zt_ops.zentorch_woq_linear(arg_0, arg_1, arg_2, arg_3, bias_0)
+    add1_res = at_ops.add(add_1, woq_linear_out)
+    add_res = at_ops.add(add_2, add1_res)
+    return add_res
+
+
+def _woq_linear_add_add_replacement(arg_0, arg_1, arg_2, arg_3, bias_0, add_1, add_2):
+    counters["zentorch"]["pattern_matcher_woq_add_add"] += 1
+    out_0 = zt_ops.zentorch_woq_linear_add_add.default(
+        arg_0, arg_1, arg_2, arg_3, bias_0, add_1, add_2
+    )
     return (out_0,)
 
 
@@ -203,18 +274,41 @@ def _matmul_dtypes_check(match):
     is_bf16 = True
     is_fp32 = True
     for k, v in match.kwargs.items():
-        if not torch.is_tensor(v.meta["val"]) or k in ("add1", "add2"):
+        if not torch.is_tensor(v.meta["val"]) or k in ("add_1", "add_2"):
             continue
         is_bf16 = is_bf16 and (v.meta["val"].dtype == torch.bfloat16)
         is_fp32 = is_fp32 and (v.meta["val"].dtype == torch.float)
     return is_bf16 ^ is_fp32
 
 
+def _woq_check(match):
+    expected_dtype = {
+        "arg_0": torch.bfloat16,
+        "arg_1": torch.int32,
+        "arg_2": torch.float32,
+        "arg_3": torch.int32,
+        "bias_0": torch.bfloat16,
+    }
+    for k, v in match.kwargs.items():
+        if not (torch.is_tensor(v.meta["val"]) and k in expected_dtype.keys()):
+            continue
+        if expected_dtype[str(k)] != v.meta["val"].dtype:
+            return False
+    return True
+
+
 def _dim_check(match):
-    if match.kwargs["add1"].meta["val"].shape != match.kwargs["add2"].meta["val"].shape:
+    if (
+        match.kwargs["add_1"].meta["val"].shape
+        != match.kwargs["add_2"].meta["val"].shape
+    ):
         return False
     is_dtype_same = _matmul_dtypes_check(match)
     return is_dtype_same
+
+
+def _dummy_check_(match):
+    return True
 
 
 def _get_pattern_with_replacement():
@@ -243,6 +337,33 @@ def _get_pattern_with_replacement():
     # add
     arg_6 = partial(
         torch.empty, (4, 64, 512), device="cpu", requires_grad=True, dtype=torch.float
+    )
+
+    inp = partial(
+        torch.empty,
+        (4, 32, 32),
+        device="cpu",
+        requires_grad=False,
+        dtype=torch.bfloat16,
+    )
+    qweight = partial(
+        torch.empty, (32, 4), device="cpu", requires_grad=False, dtype=torch.int32
+    )
+    woq_scales = partial(
+        torch.empty, (1, 32), device="cpu", requires_grad=False, dtype=torch.float32
+    )
+    woq_qzeros = partial(
+        torch.empty, (1, 4), device="cpu", requires_grad=False, dtype=torch.int32
+    )
+    woq_bias = partial(
+        torch.empty, (32), device="cpu", requires_grad=False, dtype=torch.bfloat16
+    )
+    woq_add = partial(
+        torch.empty,
+        (4, 32, 32),
+        device="cpu",
+        requires_grad=False,
+        dtype=torch.bfloat16,
     )
 
     # TODO: Add kwargs later to the patterns when removing
@@ -326,6 +447,81 @@ def _get_pattern_with_replacement():
             [arg_1(), arg_2(), arg_6()],
             {},
             _matmul_dtypes_check,
+        ),
+        # TODO : check the appropriate order required for different fusions.
+        (
+            _woq_linear_add_add_pattern_1,
+            _woq_linear_add_add_replacement,
+            [
+                inp(),
+                qweight(),
+                woq_scales(),
+                woq_qzeros(),
+                woq_bias(),
+                woq_add(),
+                woq_add(),
+            ],
+            {},
+            _woq_check,
+        ),
+        (
+            _woq_linear_add_add_pattern_2,
+            _woq_linear_add_add_replacement,
+            [
+                inp(),
+                qweight(),
+                woq_scales(),
+                woq_qzeros(),
+                woq_bias(),
+                woq_add(),
+                woq_add(),
+            ],
+            {},
+            _woq_check,
+        ),
+        (
+            _woq_linear_add_add_pattern_3,
+            _woq_linear_add_add_replacement,
+            [
+                inp(),
+                qweight(),
+                woq_scales(),
+                woq_qzeros(),
+                woq_bias(),
+                woq_add(),
+                woq_add(),
+            ],
+            {},
+            _woq_check,
+        ),
+        (
+            _woq_linear_add_add_pattern_4,
+            _woq_linear_add_add_replacement,
+            [
+                inp(),
+                qweight(),
+                woq_scales(),
+                woq_qzeros(),
+                woq_bias(),
+                woq_add(),
+                woq_add(),
+            ],
+            {},
+            _woq_check,
+        ),
+        (
+            _woq_linear_add_pattern_1,
+            _woq_linear_add_replacement,
+            [inp(), qweight(), woq_scales(), woq_qzeros(), woq_bias(), woq_add()],
+            {},
+            _woq_check,
+        ),
+        (
+            _woq_linear_add_pattern_2,
+            _woq_linear_add_replacement,
+            [inp(), qweight(), woq_scales(), woq_qzeros(), woq_bias(), woq_add()],
+            {},
+            _woq_check,
         ),
     ]
     for pattern, replacement, args, workaround, extra_check in candidates:

@@ -553,6 +553,37 @@ def meta_zentorch_woq_linear_gelu_tanh(
     )
 
 
+@register_meta("zentorch_woq_linear_add")
+def meta_zentorch_woq_linear_add(
+    input,
+    qweight,
+    weight_scales,
+    weight_zero_point,
+    bias,
+    add_input,
+    group_size=-1,
+    weight_bits=4,
+    compute_dtype="bfloat16",
+):
+    return add_input.new_empty((add_input.size()))
+
+
+@register_meta("zentorch_woq_linear_add_add")
+def meta_zentorch_woq_linear_add_add(
+    input,
+    qweight,
+    weight_scales,
+    weight_zero_point,
+    bias,
+    add1_input,
+    add2_input,
+    group_size=-1,
+    weight_bits=4,
+    compute_dtype="bfloat16",
+):
+    return add2_input.new_empty((add2_input.size()))
+
+
 make_fallback(torch.ops.zentorch.zentorch_addmm)
 make_fallback(torch.ops.zentorch.zentorch_addmm_relu)
 make_fallback(torch.ops.zentorch.zentorch_addmm_silu)
@@ -589,3 +620,5 @@ make_fallback(torch.ops.zentorch.zentorch_woq_linear_relu)
 make_fallback(torch.ops.zentorch.zentorch_woq_linear_silu)
 make_fallback(torch.ops.zentorch.zentorch_woq_linear_gelu_erf)
 make_fallback(torch.ops.zentorch.zentorch_woq_linear_gelu_tanh)
+make_fallback(torch.ops.zentorch.zentorch_woq_linear_add)
+make_fallback(torch.ops.zentorch.zentorch_woq_linear_add_add)

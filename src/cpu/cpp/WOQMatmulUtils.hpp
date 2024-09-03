@@ -123,4 +123,20 @@ inline bool are_all_zeros(const at::Tensor &inp_tensor) {
   return non_zero_tensor.size(0) == 0;
 }
 
+// unpacking_ratio is utilized for unpacking the packed tensors to their
+// original size where weight_bits is original quantized size of element of
+// tensor while it is packed into the tensor element of larger size
+inline int64_t get_unpacking_ratio(const at::Tensor &qweight,
+                                   const int64_t &weight_bits) {
+  int64_t unpacking_ratio;
+  if ((qweight.scalar_type() == c10::kInt) && (weight_bits == 4)) {
+    const int64_t bits_in_1_byte = 8;
+    const int64_t total_bits = qweight.element_size() * bits_in_1_byte;
+    unpacking_ratio = total_bits / weight_bits; // unpacking_ratio = 8
+  } else {
+    TORCH_CHECK(false, "get_unpacking_ratio: only int4 woq is supported "
+                       "currently with qweight packed into int32");
+  }
+  return unpacking_ratio;
+}
 } // namespace zentorch

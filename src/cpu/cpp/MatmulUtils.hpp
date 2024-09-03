@@ -210,11 +210,10 @@ inline void zentorch_matmul_execute(
   LOG(INFO) << "Finished executing: " << __FUNCTION__ << "!\n";
 }
 
-inline void
-zentorch_post_ops_selection(post_ops &po,
-                            std::unordered_map<int, memory> &execute_args,
-                            const std::vector<int64_t> &post_op_ids,
-                            const std::vector<at::Tensor> &post_op_buffers) {
+inline void zentorch_post_ops_selection(
+    post_ops &po, std::unordered_map<int, memory> &execute_args,
+    const std::vector<int64_t> &post_op_ids,
+    const std::vector<at::Tensor> &post_op_buffers, const bool &woq = false) {
 
   int post_op_ids_size = post_op_ids.size();
   int post_op_buffers_size = post_op_buffers.size();
@@ -223,31 +222,44 @@ zentorch_post_ops_selection(post_ops &po,
   for (int i = 0; i < post_op_ids_size; i++) {
     int arg_position;
     if (post_op_buffers_size > 0 && post_op_buffer_idx < post_op_buffers_size) {
-      z_post_op_buffers[post_op_buffer_idx] =
-          zen_memory(post_op_buffers[post_op_buffer_idx]);
+      if (woq) {
+        // for woq we expect n-d post_op_buffers
+        // creating 2d memory for n-d post_op_buffers
+        // matmul kernel only supports 2d memory
+        const memory::format_tag &memory_2d_tag = memory::format_tag::ab;
+        const memory::desc &post_op_buffer_2d_desc = memory::desc(
+            {get_2d_size_for_tensor(post_op_buffers[post_op_buffer_idx]),
+             get_ztype_from_aten(post_op_buffers[post_op_buffer_idx]),
+             memory_2d_tag});
+        z_post_op_buffers[post_op_buffer_idx] = zen_memory(
+            post_op_buffers[post_op_buffer_idx], post_op_buffer_2d_desc);
+      } else {
+        z_post_op_buffers[post_op_buffer_idx] =
+            zen_memory(post_op_buffers[post_op_buffer_idx]);
+      }
       LOG(INFO) << "post_op_buffer dimensions: "
                 << post_op_buffers[post_op_buffer_idx].sizes();
     }
     // set the post-ops or fusion-ops;
-    // by default, fuse = POST_OP::NONE,
+    // by default, fuse = UNARY_POST_OP::NONE,
     switch (post_op_ids[i]) {
-    case POST_OP::RELU:
+    case UNARY_POST_OP::RELU:
       LOG(INFO) << "Setting relu as post op";
       po.append_eltwise(1.0f, algorithm::eltwise_relu, 0.f, 0.f);
       break;
-    case POST_OP::GELU_TANH:
+    case UNARY_POST_OP::GELU_TANH:
       LOG(INFO) << "Setting gelu_tanh as post op";
       po.append_eltwise(1.0f, algorithm::eltwise_gelu_tanh, 1.f, 0.f);
       break;
-    case POST_OP::GELU_ERF:
+    case UNARY_POST_OP::GELU_ERF:
       LOG(INFO) << "Setting gelu_erf as post op";
       po.append_eltwise(1.0f, algorithm::eltwise_gelu_erf, 1.f, 0.f);
       break;
-    case POST_OP::SILU:
+    case UNARY_POST_OP::SILU:
       LOG(INFO) << "Setting silu as post op";
       po.append_eltwise(1.0f, algorithm::eltwise_swish, 1.f, 0.f);
       break;
-    case POST_OP::MUL:
+    case BINARY_POST_OP::MUL:
       LOG(INFO) << "Setting mul as post op";
       po.append_binary(algorithm::binary_mul,
                        z_post_op_buffers[post_op_buffer_idx].get_desc());
@@ -257,7 +269,7 @@ zentorch_post_ops_selection(post_ops &po,
           {arg_position, z_post_op_buffers[post_op_buffer_idx]});
       post_op_buffer_idx++;
       break;
-    case POST_OP::ADD:
+    case BINARY_POST_OP::ADD:
       LOG(INFO) << "Setting add as post op";
       po.append_binary(algorithm::binary_add,
                        z_post_op_buffers[post_op_buffer_idx].get_desc());

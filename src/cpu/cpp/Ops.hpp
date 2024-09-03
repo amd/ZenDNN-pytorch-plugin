@@ -11,8 +11,21 @@
 
 namespace zentorch {
 
-enum POST_OP { NONE, RELU, GELU_TANH, GELU_ERF, SILU, MUL, ADD };
-
+enum UNARY_POST_OP {
+  // add unary post ops here
+  POST_OP_NONE,
+  RELU,
+  GELU_TANH,
+  GELU_ERF,
+  SILU,
+  // add unary post op before this
+  // if you add any post op
+  // update UNARY_OP_COUNT by that post op
+  UNARY_OP_COUNT = SILU
+};
+// initializing the first enum in BINARY_POST_OP so that all post ops will have
+// unique
+enum BINARY_POST_OP { MUL = UNARY_POST_OP::UNARY_OP_COUNT + 1, ADD };
 // EmbedBag
 std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor>
 zentorch_embedding_bag_impl(
@@ -38,14 +51,14 @@ at::Tensor zentorch_matmul_impl(
     const std::vector<at::Tensor> &post_op_buffers, const float &beta,
     const float &alpha, std::string zentorch_op_name);
 
-template <POST_OP fuse = POST_OP::NONE>
+template <UNARY_POST_OP fuse = UNARY_POST_OP::POST_OP_NONE>
 at::Tensor zentorch_addmm(const at::Tensor &self, const at::Tensor &mat1,
                           const at::Tensor &mat2, const at::Scalar &beta,
                           const at::Scalar &alpha,
                           std::string zentorch_op_name);
 
 // for 1d bias
-template <POST_OP fuse = POST_OP::NONE>
+template <UNARY_POST_OP fuse = UNARY_POST_OP::POST_OP_NONE>
 at::Tensor zentorch_addmm_1dbias(const at::Tensor &self, const at::Tensor &mat1,
                                  const at::Tensor &mat2, const at::Scalar &beta,
                                  const at::Scalar &alpha,
@@ -68,7 +81,7 @@ at::Tensor zentorch_baddbmm(const at::Tensor &self, const at::Tensor &batch1,
                             const at::Scalar &alpha,
                             std::string zentorch_op_name);
 
-template <POST_OP fuse = POST_OP::NONE>
+template <UNARY_POST_OP fuse = UNARY_POST_OP::POST_OP_NONE>
 at ::Tensor zentorch_mm(const at::Tensor &self, const at::Tensor &mat2,
                         std::string zentorch_op_name);
 
@@ -131,7 +144,7 @@ zentorch_rope_impl(at::Tensor &t_in, at::Tensor &t_emb_pos, at::Tensor &t_pos,
                    int64_t N, int64_t H, int64_t offset, int64_t rotary_dim,
                    std::string zentorch_op_name);
 
-template <POST_OP fuse = POST_OP::NONE>
+template <UNARY_POST_OP fuse = UNARY_POST_OP::POST_OP_NONE>
 at::Tensor
 zentorch_woq_linear(const at::Tensor &input, const at::Tensor &qweight,
                     const at::Tensor &weight_scales,
@@ -140,5 +153,23 @@ zentorch_woq_linear(const at::Tensor &input, const at::Tensor &qweight,
                     const int64_t &group_size, const int64_t &weight_bits,
                     const std::string &compute_dtype,
                     std::string zentorch_op_name);
+
+template <BINARY_POST_OP fuse = BINARY_POST_OP::ADD>
+at::Tensor zentorch_woq_linear_binary(
+    const at::Tensor &input, const at::Tensor &qweight,
+    const at::Tensor &weight_scales,
+    const c10::optional<at::Tensor> &weight_zero_point,
+    const c10::optional<at::Tensor> &bias, const at::Tensor &binary_input,
+    const int64_t &group_size, const int64_t &weight_bits,
+    const std::string &compute_dtype, std::string zentorch_op_name);
+
+at::Tensor zentorch_woq_linear_add_add(
+    const at::Tensor &input, const at::Tensor &qweight,
+    const at::Tensor &weight_scales,
+    const c10::optional<at::Tensor> &weight_zero_point,
+    const c10::optional<at::Tensor> &bias, const at::Tensor &add1_input,
+    const at::Tensor &add2_input, const int64_t &group_size,
+    const int64_t &weight_bits, const std::string &compute_dtype,
+    std::string zentorch_op_name);
 
 } // namespace zentorch

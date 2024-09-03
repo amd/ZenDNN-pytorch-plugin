@@ -203,7 +203,7 @@ std::vector<at::Tensor> zentorch_matmul_group_impl(
 
 // for 1d bias
 // This template is taking care of only unary post op
-template <POST_OP fuse>
+template <UNARY_POST_OP fuse>
 at::Tensor zentorch_addmm_1dbias(const at::Tensor &self, const at::Tensor &mat1,
                                  const at::Tensor &mat2, const at::Scalar &beta,
                                  const at::Scalar &alpha,
@@ -258,7 +258,7 @@ zentorch_addmm_1dbias_add(const at::Tensor &self, const at::Tensor &mat1,
   at::Tensor result = at::empty(add_input.sizes(), add_input.options());
 
   std::vector<at::Tensor> post_op_buffers = {add_input};
-  std::vector<int64_t> post_op_ids = {POST_OP::ADD};
+  std::vector<int64_t> post_op_ids = {BINARY_POST_OP::ADD};
 
   LOG(INFO) << "Calling zentorch_matmul_impl from " << __FUNCTION__ << "!\n";
   return zentorch_matmul_impl(mat1, mat2, self, result, post_op_ids,
@@ -289,7 +289,7 @@ at::Tensor zentorch_addmm_1dbias_add_add(
   at::Tensor result = at::empty(add1_input.sizes(), add1_input.options());
 
   std::vector<at::Tensor> post_op_buffers = {add1_input, add2_input};
-  std::vector<int64_t> post_op_ids = {POST_OP::ADD, POST_OP::ADD};
+  std::vector<int64_t> post_op_ids = {BINARY_POST_OP::ADD, BINARY_POST_OP::ADD};
 
   LOG(INFO) << "Calling zentorch_matmul_impl from " << __FUNCTION__ << "!\n";
   return zentorch_matmul_impl(mat1, mat2, self, result, post_op_ids,
@@ -297,7 +297,7 @@ at::Tensor zentorch_addmm_1dbias_add_add(
                               alpha.to<float>(), zentorch_op_name);
 }
 
-template <POST_OP fuse>
+template <UNARY_POST_OP fuse>
 at::Tensor zentorch_addmm(const at::Tensor &self, const at::Tensor &mat1,
                           const at::Tensor &mat2, const at::Scalar &beta,
                           const at::Scalar &alpha,
@@ -339,7 +339,7 @@ at::Tensor zentorch_addmm(const at::Tensor &self, const at::Tensor &mat1,
     // which ultimately results in wrong outputs.
 
     std::vector<at::Tensor> post_op_buffers = {};
-    std::vector<int64_t> post_op_ids = {POST_OP::ADD, fuse};
+    std::vector<int64_t> post_op_ids = {BINARY_POST_OP::ADD, fuse};
     at::Tensor result = at::empty(
         get_matmul_and_linear_output_sizes(mat1, mat2), self.options());
     if (beta_float != 1.0f) {
@@ -409,7 +409,8 @@ at::Tensor zentorch_baddbmm(const at::Tensor &self, const at::Tensor &batch1,
   // which ultimately results in wrong outputs.
 
   std::vector<at::Tensor> post_op_buffers = {};
-  std::vector<int64_t> post_op_ids = {POST_OP::ADD, POST_OP::NONE};
+  std::vector<int64_t> post_op_ids = {BINARY_POST_OP::ADD,
+                                      UNARY_POST_OP::POST_OP_NONE};
   at::Tensor result = at::empty(
       get_matmul_and_linear_output_sizes(batch1, batch2), self.options());
 
@@ -426,7 +427,7 @@ at::Tensor zentorch_baddbmm(const at::Tensor &self, const at::Tensor &batch1,
 }
 
 // zentorch_mm function does not broadcast
-template <POST_OP fuse>
+template <UNARY_POST_OP fuse>
 at::Tensor zentorch_mm(const at::Tensor &self, const at::Tensor &mat2,
                        std::string zentorch_op_name) {
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
@@ -519,7 +520,7 @@ zentorch_addmm_silu_mul(const at::Tensor &bias, const at::Tensor &mat1,
       post_op_buffers.push_back(bias);
     }
 
-    post_op_ids.push_back(POST_OP::ADD);
+    post_op_ids.push_back(BINARY_POST_OP::ADD);
   } else {
     TORCH_CHECK(
         (bias.dim() == 1 && mat1.dim() == 2 && mat2.dim() == 2), // aten::addmm
@@ -547,8 +548,8 @@ zentorch_addmm_silu_mul(const at::Tensor &bias, const at::Tensor &mat1,
       at::empty(get_matmul_and_linear_output_sizes(mat1, mat2), mat3.options());
 
   post_op_buffers.push_back(mat3);
-  post_op_ids.push_back(POST_OP::SILU);
-  post_op_ids.push_back(POST_OP::MUL);
+  post_op_ids.push_back(UNARY_POST_OP::SILU);
+  post_op_ids.push_back(BINARY_POST_OP::MUL);
 
   LOG(INFO) << "Calling zentorch_matmul_impl from " << __FUNCTION__ << "!\n";
   return zentorch_matmul_impl(mat1, mat2, matmul_impl_bias, out, post_op_ids,
@@ -578,7 +579,7 @@ at::Tensor zentorch_mm_silu_mul(const at::Tensor &mat1, const at::Tensor &mat2,
   at::Tensor out =
       at::empty(get_matmul_and_linear_output_sizes(mat1, mat2), mat3.options());
   std::vector<at::Tensor> post_op_buffers = {mat3};
-  std::vector<int64_t> post_op_ids = {POST_OP::SILU, POST_OP::MUL};
+  std::vector<int64_t> post_op_ids = {UNARY_POST_OP::SILU, BINARY_POST_OP::MUL};
 
   LOG(INFO) << "Calling zentorch_matmul_impl from " << __FUNCTION__ << "!\n";
   return zentorch_matmul_impl(mat1, mat2, empty_bias, out, post_op_ids,
@@ -650,78 +651,75 @@ std::vector<at::Tensor> zentorch_attn_qkv_fusion(
 
 // Template instantiations.
 // No post-op.
-template at::Tensor zentorch_mm<POST_OP::NONE>(const at::Tensor &self,
-                                               const at::Tensor &mat2,
-                                               std::string zentorch_op_name);
+template at::Tensor
+zentorch_mm<UNARY_POST_OP::POST_OP_NONE>(const at::Tensor &self,
+                                         const at::Tensor &mat2,
+                                         std::string zentorch_op_name);
 // ReLU.
-template at::Tensor zentorch_mm<POST_OP::RELU>(const at::Tensor &self,
-                                               const at::Tensor &mat2,
-                                               std::string zentorch_op_name);
+template at::Tensor
+zentorch_mm<UNARY_POST_OP::RELU>(const at::Tensor &self, const at::Tensor &mat2,
+                                 std::string zentorch_op_name);
 // GELU Tanh.
 template at::Tensor
-zentorch_mm<POST_OP::GELU_TANH>(const at::Tensor &self, const at::Tensor &mat2,
-                                std::string zentorch_op_name);
+zentorch_mm<UNARY_POST_OP::GELU_TANH>(const at::Tensor &self,
+                                      const at::Tensor &mat2,
+                                      std::string zentorch_op_name);
 // GELU Erf.
 template at::Tensor
-zentorch_mm<POST_OP::GELU_ERF>(const at::Tensor &self, const at::Tensor &mat2,
-                               std::string zentorch_op_name);
+zentorch_mm<UNARY_POST_OP::GELU_ERF>(const at::Tensor &self,
+                                     const at::Tensor &mat2,
+                                     std::string zentorch_op_name);
 // SiLU.
-template at::Tensor zentorch_mm<POST_OP::SILU>(const at::Tensor &self,
-                                               const at::Tensor &mat2,
-                                               std::string zentorch_op_name);
+template at::Tensor
+zentorch_mm<UNARY_POST_OP::SILU>(const at::Tensor &self, const at::Tensor &mat2,
+                                 std::string zentorch_op_name);
 // No post-op.
-template at::Tensor zentorch_addmm<POST_OP::NONE>(const at::Tensor &self,
-                                                  const at::Tensor &mat1,
-                                                  const at::Tensor &mat2,
-                                                  const at::Scalar &beta,
-                                                  const at::Scalar &alpha,
-                                                  std::string zentorch_op_name);
-// ReLU.
-template at::Tensor zentorch_addmm<POST_OP::RELU>(const at::Tensor &self,
-                                                  const at::Tensor &mat1,
-                                                  const at::Tensor &mat2,
-                                                  const at::Scalar &beta,
-                                                  const at::Scalar &alpha,
-                                                  std::string zentorch_op_name);
-// GELU Tanh.
-template at::Tensor zentorch_addmm<POST_OP::GELU_TANH>(
-    const at::Tensor &self, const at::Tensor &mat1, const at::Tensor &mat2,
-    const at::Scalar &beta, const at::Scalar &alpha,
-    std::string zentorch_op_name);
-// GELU Erf.
-template at::Tensor zentorch_addmm<POST_OP::GELU_ERF>(
-    const at::Tensor &self, const at::Tensor &mat1, const at::Tensor &mat2,
-    const at::Scalar &beta, const at::Scalar &alpha,
-    std::string zentorch_op_name);
-// SiLU.
-template at::Tensor zentorch_addmm<POST_OP::SILU>(const at::Tensor &self,
-                                                  const at::Tensor &mat1,
-                                                  const at::Tensor &mat2,
-                                                  const at::Scalar &beta,
-                                                  const at::Scalar &alpha,
-                                                  std::string zentorch_op_name);
-// No post-op.
-template at::Tensor zentorch_addmm_1dbias<POST_OP::NONE>(
+template at::Tensor zentorch_addmm<UNARY_POST_OP::POST_OP_NONE>(
     const at::Tensor &self, const at::Tensor &mat1, const at::Tensor &mat2,
     const at::Scalar &beta, const at::Scalar &alpha,
     std::string zentorch_op_name);
 // ReLU.
-template at::Tensor zentorch_addmm_1dbias<POST_OP::RELU>(
+template at::Tensor zentorch_addmm<UNARY_POST_OP::RELU>(
     const at::Tensor &self, const at::Tensor &mat1, const at::Tensor &mat2,
     const at::Scalar &beta, const at::Scalar &alpha,
     std::string zentorch_op_name);
 // GELU Tanh.
-template at::Tensor zentorch_addmm_1dbias<POST_OP::GELU_TANH>(
+template at::Tensor zentorch_addmm<UNARY_POST_OP::GELU_TANH>(
     const at::Tensor &self, const at::Tensor &mat1, const at::Tensor &mat2,
     const at::Scalar &beta, const at::Scalar &alpha,
     std::string zentorch_op_name);
 // GELU Erf.
-template at::Tensor zentorch_addmm_1dbias<POST_OP::GELU_ERF>(
+template at::Tensor zentorch_addmm<UNARY_POST_OP::GELU_ERF>(
     const at::Tensor &self, const at::Tensor &mat1, const at::Tensor &mat2,
     const at::Scalar &beta, const at::Scalar &alpha,
     std::string zentorch_op_name);
 // SiLU.
-template at::Tensor zentorch_addmm_1dbias<POST_OP::SILU>(
+template at::Tensor zentorch_addmm<UNARY_POST_OP::SILU>(
+    const at::Tensor &self, const at::Tensor &mat1, const at::Tensor &mat2,
+    const at::Scalar &beta, const at::Scalar &alpha,
+    std::string zentorch_op_name);
+// No post-op.
+template at::Tensor zentorch_addmm_1dbias<UNARY_POST_OP::POST_OP_NONE>(
+    const at::Tensor &self, const at::Tensor &mat1, const at::Tensor &mat2,
+    const at::Scalar &beta, const at::Scalar &alpha,
+    std::string zentorch_op_name);
+// ReLU.
+template at::Tensor zentorch_addmm_1dbias<UNARY_POST_OP::RELU>(
+    const at::Tensor &self, const at::Tensor &mat1, const at::Tensor &mat2,
+    const at::Scalar &beta, const at::Scalar &alpha,
+    std::string zentorch_op_name);
+// GELU Tanh.
+template at::Tensor zentorch_addmm_1dbias<UNARY_POST_OP::GELU_TANH>(
+    const at::Tensor &self, const at::Tensor &mat1, const at::Tensor &mat2,
+    const at::Scalar &beta, const at::Scalar &alpha,
+    std::string zentorch_op_name);
+// GELU Erf.
+template at::Tensor zentorch_addmm_1dbias<UNARY_POST_OP::GELU_ERF>(
+    const at::Tensor &self, const at::Tensor &mat1, const at::Tensor &mat2,
+    const at::Scalar &beta, const at::Scalar &alpha,
+    std::string zentorch_op_name);
+// SiLU.
+template at::Tensor zentorch_addmm_1dbias<UNARY_POST_OP::SILU>(
     const at::Tensor &self, const at::Tensor &mat1, const at::Tensor &mat2,
     const at::Scalar &beta, const at::Scalar &alpha,
     std::string zentorch_op_name);

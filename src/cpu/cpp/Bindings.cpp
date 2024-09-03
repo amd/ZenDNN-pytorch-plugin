@@ -186,41 +186,58 @@ TORCH_LIBRARY(zentorch, m) {
       "Tensor? weight_zero_point, Tensor? bias, int group_size=-1, "
       "int weight_bits=4, str compute_dtype = 'bfloat16', str zentorch_op_name "
       "= 'zentorch::zentorch_woq_linear_gelu_tanh') -> Tensor");
+  m.def(
+      "zentorch_woq_linear_add(Tensor input, Tensor qweight, Tensor "
+      "weight_scales, Tensor? weight_zero_point, Tensor? bias, Tensor "
+      "binary_input, "
+      "int group_size=-1, int weight_bits=4, str compute_dtype = 'bfloat16', "
+      "str zentorch_op_name = 'zentorch::zentorch_woq_linear_add') -> Tensor");
+  m.def("zentorch_woq_linear_add_add(Tensor input, Tensor qweight, Tensor "
+        "weight_scales, Tensor? weight_zero_point, Tensor? bias, Tensor "
+        "add1_input, Tensor add2_input, "
+        "int group_size=-1, int weight_bits=4, str compute_dtype = 'bfloat16', "
+        "str zentorch_op_name = 'zentorch::zentorch_woq_linear_add_add') -> "
+        "Tensor");
 }
 
 TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
   m.impl("zentorch_embedding_bag", zentorch::zentorch_embedding_bag_impl);
   m.impl("zentorch_embedding", zentorch::zentorch_embedding_impl);
-  m.impl("zentorch_mm", zentorch::zentorch_mm<zentorch::POST_OP::NONE>);
-  m.impl("zentorch_mm_relu", zentorch::zentorch_mm<zentorch::POST_OP::RELU>);
+  m.impl("zentorch_mm",
+         zentorch::zentorch_mm<zentorch::UNARY_POST_OP::POST_OP_NONE>);
+  m.impl("zentorch_mm_relu",
+         zentorch::zentorch_mm<zentorch::UNARY_POST_OP::RELU>);
   m.impl("zentorch_mm_gelu_tanh",
-         zentorch::zentorch_mm<zentorch::POST_OP::GELU_TANH>);
+         zentorch::zentorch_mm<zentorch::UNARY_POST_OP::GELU_TANH>);
   m.impl("zentorch_mm_gelu_erf",
-         zentorch::zentorch_mm<zentorch::POST_OP::GELU_ERF>);
-  m.impl("zentorch_mm_silu", zentorch::zentorch_mm<zentorch::POST_OP::SILU>);
+         zentorch::zentorch_mm<zentorch::UNARY_POST_OP::GELU_ERF>);
+  m.impl("zentorch_mm_silu",
+         zentorch::zentorch_mm<zentorch::UNARY_POST_OP::SILU>);
   m.impl("zentorch_bmm", zentorch::zentorch_bmm);
-  m.impl("zentorch_addmm", zentorch::zentorch_addmm<zentorch::POST_OP::NONE>);
+  m.impl("zentorch_addmm",
+         zentorch::zentorch_addmm<zentorch::UNARY_POST_OP::POST_OP_NONE>);
   m.impl("zentorch_addmm_relu",
-         zentorch::zentorch_addmm<zentorch::POST_OP::RELU>);
+         zentorch::zentorch_addmm<zentorch::UNARY_POST_OP::RELU>);
   m.impl("zentorch_addmm_gelu_tanh",
-         zentorch::zentorch_addmm<zentorch::POST_OP::GELU_TANH>);
+         zentorch::zentorch_addmm<zentorch::UNARY_POST_OP::GELU_TANH>);
   m.impl("zentorch_addmm_gelu_erf",
-         zentorch::zentorch_addmm<zentorch::POST_OP::GELU_ERF>);
+         zentorch::zentorch_addmm<zentorch::UNARY_POST_OP::GELU_ERF>);
   m.impl("zentorch_addmm_silu",
-         zentorch::zentorch_addmm<zentorch::POST_OP::SILU>);
-  m.impl("zentorch_addmm_1dbias",
-         zentorch::zentorch_addmm_1dbias<zentorch::POST_OP::NONE>);
+         zentorch::zentorch_addmm<zentorch::UNARY_POST_OP::SILU>);
+  m.impl(
+      "zentorch_addmm_1dbias",
+      zentorch::zentorch_addmm_1dbias<zentorch::UNARY_POST_OP::POST_OP_NONE>);
   m.impl("zentorch_addmm_1dbias_add", zentorch::zentorch_addmm_1dbias_add);
   m.impl("zentorch_addmm_1dbias_add_add",
          zentorch::zentorch_addmm_1dbias_add_add);
   m.impl("zentorch_addmm_1dbias_relu",
-         zentorch::zentorch_addmm_1dbias<zentorch::POST_OP::RELU>);
+         zentorch::zentorch_addmm_1dbias<zentorch::UNARY_POST_OP::RELU>);
   m.impl("zentorch_addmm_1dbias_gelu_tanh",
-         zentorch::zentorch_addmm_1dbias<zentorch::POST_OP::GELU_TANH>);
+         zentorch::zentorch_addmm_1dbias<zentorch::UNARY_POST_OP::GELU_TANH>);
   m.impl("zentorch_addmm_1dbias_gelu_erf",
-         zentorch::zentorch_addmm_1dbias<zentorch::POST_OP::GELU_ERF>);
+         zentorch::zentorch_addmm_1dbias<zentorch::UNARY_POST_OP::GELU_ERF>);
   m.impl("zentorch_addmm_1dbias_silu",
-         zentorch::zentorch_addmm_1dbias<zentorch::POST_OP::SILU>);
+         zentorch::zentorch_addmm_1dbias<zentorch::UNARY_POST_OP::SILU>);
   m.impl("zentorch_baddbmm", zentorch::zentorch_baddbmm);
   m.impl("zentorch_mm_silu_mul", zentorch::zentorch_mm_silu_mul);
   m.impl("zentorch_addmm_silu_mul", zentorch::zentorch_addmm_silu_mul);
@@ -236,15 +253,18 @@ TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
   m.impl("zentorch_masked_multihead_self_attention",
          zentorch::zentorch_masked_multihead_self_attention_impl);
   m.impl("zentorch_woq_linear",
-         zentorch::zentorch_woq_linear<zentorch::POST_OP::NONE>);
+         zentorch::zentorch_woq_linear<zentorch::UNARY_POST_OP::POST_OP_NONE>);
   m.impl("zentorch_woq_linear_relu",
-         zentorch::zentorch_woq_linear<zentorch::POST_OP::RELU>);
+         zentorch::zentorch_woq_linear<zentorch::UNARY_POST_OP::RELU>);
   m.impl("zentorch_woq_linear_silu",
-         zentorch::zentorch_woq_linear<zentorch::POST_OP::SILU>);
+         zentorch::zentorch_woq_linear<zentorch::UNARY_POST_OP::SILU>);
   m.impl("zentorch_woq_linear_gelu_erf",
-         zentorch::zentorch_woq_linear<zentorch::POST_OP::GELU_ERF>);
+         zentorch::zentorch_woq_linear<zentorch::UNARY_POST_OP::GELU_ERF>);
   m.impl("zentorch_woq_linear_gelu_tanh",
-         zentorch::zentorch_woq_linear<zentorch::POST_OP::GELU_TANH>);
+         zentorch::zentorch_woq_linear<zentorch::UNARY_POST_OP::GELU_TANH>);
+  m.impl("zentorch_woq_linear_add",
+         zentorch::zentorch_woq_linear_binary<zentorch::BINARY_POST_OP::ADD>);
+  m.impl("zentorch_woq_linear_add_add", zentorch::zentorch_woq_linear_add_add);
 }
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
