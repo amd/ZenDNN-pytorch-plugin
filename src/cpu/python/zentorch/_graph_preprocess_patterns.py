@@ -6,13 +6,13 @@
 import torch
 from ._compile_backend import torch_version
 from ._utils import counters
+from ._fusion_patterns import _same_dtypes_check
 import functools
 from functools import partial
 
 # Brief steps:
 # 1. define both patterns
-# 2. call pattermatcher pass and loop over dtypes for those
-#    and create functools.patrial versions
+# 2. call pattermatcher pass
 # 3. use yield keyword as in pytorch
 # 4. register both patterns
 # Note : Keep args different for F32 and BF16 patterns.
@@ -40,24 +40,6 @@ def _gelu_tanh_replacement(arg_0):
     return (gelu_0,)
 
 
-def _gelu_tanh_pattern_bf16(arg_0_):
-    mul_0 = at_ops.mul.Tensor(arg_0_, 0.5)
-    pow_0 = at_ops.pow.Tensor_Scalar(arg_0_, 3.0)
-    mul_1 = at_ops.mul.Tensor(pow_0, 0.044715)
-    add_0 = at_ops.add.Tensor(arg_0_, mul_1)
-    mul_2 = at_ops.mul.Tensor(add_0, 0.7978845608028654)
-    tanh_0 = at_ops.tanh.default(mul_2)
-    add_1 = at_ops.add.Tensor(tanh_0, 1.0)
-    mul_3 = at_ops.mul.Tensor(mul_0, add_1)
-    return (mul_3,)
-
-
-def _gelu_tanh_replacement_bf16(arg_0_):
-    counters["zentorch"]["pattern_matcher_gelu"] += 1
-    gelu_0 = at_ops.gelu.default(arg_0_, approximate="tanh")
-    return (gelu_0,)
-
-
 def _gelu_erf_pattern(arg_0):
     mul_0 = at_ops.mul.Tensor(arg_0, 0.5)
     mul_1 = at_ops.mul.Tensor(arg_0, 0.7071067811865476)
@@ -73,21 +55,6 @@ def _gelu_erf_replacement(arg_0):
     return (gelu_0,)
 
 
-def _gelu_erf_pattern_bf16(arg_0_):
-    mul_0 = at_ops.mul.Tensor(arg_0_, 0.5)
-    mul_1 = at_ops.mul.Tensor(arg_0_, 0.7071067811865476)
-    erf_0 = at_ops.erf.default(mul_1)
-    add_0 = at_ops.add.Tensor(erf_0, 1.0)
-    mul_2 = at_ops.mul.Tensor(mul_0, add_0)
-    return (mul_2,)
-
-
-def _gelu_erf_replacement_bf16(arg_0_):
-    counters["zentorch"]["pattern_matcher_gelu"] += 1
-    gelu_0 = at_ops.gelu.default(arg_0_)
-    return (gelu_0,)
-
-
 # Eliminate the copy overhead with first token
 # for ChatGLM3 with zentorch.llm.optimize.
 # AOT Autograd was doing an expand for the weights to
@@ -97,21 +64,6 @@ def _gelu_erf_replacement_bf16(arg_0_):
 # and squeezing the inputs to 2D to enable mm instead of bmm.
 # Pattern 1 : 2 Expands, 1 from input and 1 from weight
 # will be inputs to bmm node.
-def _bmm_to_mm_pattern_1_bf16(arg_0_, arg_1_):
-    shape_0 = arg_0_.size()
-    shape_1 = arg_1_.size()
-    exp_0 = at_ops.expand.default(arg_0_, [shape_0[0], 1, shape_0[-1]])
-    exp_1 = at_ops.expand.default(arg_1_, [shape_0[0], shape_1[0], shape_1[1]])
-    bmm_0 = at_ops.bmm.default(exp_0, exp_1)
-    return (bmm_0,)
-
-
-def _bmm_to_mm_replacement_1_bf16(arg_0_, arg_1_):
-    counters["zentorch"]["pattern_matcher_bmm_to_mm"] += 1
-    squeeze_0 = at_ops.squeeze.dim(arg_0_, 1)
-    mm_0 = at_ops.mm.default(squeeze_0, arg_1_)
-    unsqueeze_0 = at_ops.unsqueeze.default(mm_0, 1)
-    return (unsqueeze_0,)
 
 
 def _bmm_to_mm_pattern_1(arg_0, arg_1):
@@ -136,22 +88,6 @@ def _bmm_to_mm_replacement_1(arg_0, arg_1):
 # Expand for the weight will be args to bmm.
 # TODO: Validate and remove the pattern after
 # experimenting with 'remove_redundant_view'
-def _bmm_to_mm_pattern_2_bf16(arg_0_, arg_1_):
-    shape_0 = arg_0_.size()
-    shape_1 = arg_1_.size()
-    exp_0 = at_ops.expand.default(arg_0_, arg_0_.size())
-    view_0 = at_ops.view.default(exp_0, arg_0_.size())
-    exp_1 = at_ops.expand.default(arg_1_, [shape_0[0], shape_1[0], shape_1[1]])
-    bmm_0 = at_ops.bmm.default(view_0, exp_1)
-    return (bmm_0,)
-
-
-def _bmm_to_mm_replacement_2_bf16(arg_0_, arg_1_):
-    counters["zentorch"]["pattern_matcher_bmm_to_mm"] += 1
-    squeeze_0 = at_ops.squeeze.dim(arg_0_, 0)
-    mm_0 = at_ops.mm.default(squeeze_0, arg_1_)
-    unsqueeze_0 = at_ops.unsqueeze.default(mm_0, 1)
-    return (unsqueeze_0,)
 
 
 def _bmm_to_mm_pattern_2(arg_0, arg_1):
@@ -184,84 +120,56 @@ def _dummy_extra_check(match):
 # have only 1 user.
 # Check the shape of the input to be squeezable in the 2nd dimension.
 def _bmm_to_mm_check_1(match):
-    arg_key = "arg_0" if "arg_0" in match.kwargs else "arg_0_"
-    if match.kwargs[arg_key].meta["val"].shape[1] != 1:
+    if match.kwargs["arg_0"].meta["val"].shape[1] != 1:
         return False
-    return True
+    is_dtype_same = _same_dtypes_check(match)
+    return is_dtype_same
 
 
 def _bmm_to_mm_check_2(match):
-    arg_key = "arg_0" if "arg_0" in match.kwargs else "arg_0_"
-    if match.kwargs[arg_key].meta["val"].shape[0] != 1:
+    if match.kwargs["arg_0"].meta["val"].shape[0] != 1:
         return False
-    return True
+    is_dtype_same = _same_dtypes_check(match)
+    return is_dtype_same
 
 
 def _get_pattern_with_replacement():
     # get the matcher_pass to register with
     from ._graph_preprocess_matcher import matcher_pass
 
-    arg_1 = partial(torch.empty, (4096, 4096), device="cpu", requires_grad=True)
-    a_1 = partial(arg_1, dtype=torch.float)
-    a_1_bf16 = partial(arg_1, dtype=torch.bfloat16)
-    arg_2 = partial(torch.empty, (512, 1, 4096), device="cpu", requires_grad=True)
-    a_2 = partial(arg_2, dtype=torch.float)
-    a_2_bf16 = partial(arg_2, dtype=torch.bfloat16)
+    arg_1 = partial(
+        torch.empty, (64, 32), device="cpu", requires_grad=True, dtype=torch.float
+    )
+    arg_2 = partial(
+        torch.empty, (512, 1, 64), device="cpu", requires_grad=True, dtype=torch.float
+    )
 
     candidates = [
         (
             _gelu_tanh_pattern,
             _gelu_tanh_replacement,
-            [a_1()],  # used to pass arguments
+            [arg_1()],  # used to pass arguments
             {},  # this can be used to pass kwargs
             _dummy_extra_check,  # fake extra check, cannot be skipped
         ),
         (
-            _gelu_tanh_pattern_bf16,
-            _gelu_tanh_replacement_bf16,
-            [a_1_bf16()],
-            {},
-            _dummy_extra_check,
-        ),
-        (
             _gelu_erf_pattern,
             _gelu_erf_replacement,
-            [a_1()],
-            {},
-            _dummy_extra_check,
-        ),
-        (
-            _gelu_erf_pattern_bf16,
-            _gelu_erf_replacement_bf16,
-            [a_1_bf16()],
+            [arg_1()],
             {},
             _dummy_extra_check,
         ),
         (
             _bmm_to_mm_pattern_1,
             _bmm_to_mm_replacement_1,
-            [a_2(), a_1()],
-            {},
-            _bmm_to_mm_check_1,
-        ),
-        (
-            _bmm_to_mm_pattern_1_bf16,
-            _bmm_to_mm_replacement_1_bf16,
-            [a_2_bf16(), a_1_bf16()],
+            [arg_2(), arg_1()],
             {},
             _bmm_to_mm_check_1,
         ),
         (
             _bmm_to_mm_pattern_2,
             _bmm_to_mm_replacement_2,
-            [a_2(), a_1()],
-            {},
-            _bmm_to_mm_check_2,
-        ),
-        (
-            _bmm_to_mm_pattern_2_bf16,
-            _bmm_to_mm_replacement_2_bf16,
-            [a_2_bf16(), a_1_bf16()],
+            [arg_2(), arg_1()],
             {},
             _bmm_to_mm_check_2,
         ),

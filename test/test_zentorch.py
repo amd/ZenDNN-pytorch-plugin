@@ -2561,13 +2561,24 @@ class TestLinear_SiLU_Mul(Zentorch_TestCase):
     def test_zentorch_linear_silu_mul_with_bias(self, dtype):
         self.data.create_data(dtype)
         model = CustomModel_LinearSiLUMul(self.data, bias=True)
+        model_input = self.data.input.view(1, self.data.m, self.data.n)
         if dtype == "bfloat16":
             model = model.bfloat16()
-        model_input = self.data.input.view(1, self.data.m, self.data.n)
         model_output = model(model_input)
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
         counters.clear()
+        # autocast subtest
+        with self.subTest(dtype="float32"):
+            self.assertEqual(
+                counters["zentorch"]["pattern_matcher_addmm_1dbias_silu_mul"], 0
+            )
+            with torch.cpu.amp.autocast():
+                _ = compiled_graph(model_input)
+                self.assertEqual(
+                    counters["zentorch"]["pattern_matcher_addmm_1dbias_silu_mul"], 1
+                )
+                counters.clear()
         self.assertEqual(
             counters["zentorch"]["pattern_matcher_addmm_1dbias_silu_mul"], 0
         )
@@ -2582,13 +2593,20 @@ class TestLinear_SiLU_Mul(Zentorch_TestCase):
     def test_zentorch_linear_silu_mul_without_bias(self, dtype):
         self.data.create_data(dtype)
         model = CustomModel_LinearSiLUMul(self.data, bias=False)
+        model_input = self.data.input.view(1, self.data.m, self.data.n)
         if dtype == "bfloat16":
             model = model.bfloat16()
-        model_input = self.data.input.view(1, self.data.m, self.data.n)
         model_output = model(model_input)
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
         counters.clear()
+        # autocast subtest
+        with self.subTest(dtype="float32"):
+            self.assertEqual(counters["zentorch"]["pattern_matcher_mm_silu_mul"], 0)
+            with torch.cpu.amp.autocast():
+                _ = compiled_graph(model_input)
+                self.assertEqual(counters["zentorch"]["pattern_matcher_mm_silu_mul"], 1)
+                counters.clear()
         self.assertEqual(counters["zentorch"]["pattern_matcher_mm_silu_mul"], 0)
         compiled_graph_output = compiled_graph(model_input)
         self.assertEqual(counters["zentorch"]["pattern_matcher_mm_silu_mul"], 1)
@@ -2973,7 +2991,6 @@ class TestLinear_Add(Zentorch_TestCase):
             torch.ops.zentorch.zentorch_addmm_1dbias_add_add(
                 self.data.input, self.data.x, self.data.y, self.data.x, self.data.x
             )
-        print(str(context.exception))
         self.assertTrue(
             "zentorch_addmm_1dbias_add_add: unsupported sizes for mat1, mat2,"
             + " add1_input and add2_input"
