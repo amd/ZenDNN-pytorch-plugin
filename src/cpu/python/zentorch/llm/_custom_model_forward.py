@@ -4,6 +4,8 @@
 #
 # Was sourced from
 # https://github.com/intel/intel-extension-for-pytorch/blob/v2.3.0%2Bcpu/intel_extension_for_pytorch/transformers/models/reference/modules/attentions.py
+# RotaryEmbedding_forward was sourced from
+# https://github.com/intel/intel-extension-for-pytorch/blob/v2.4.0%2Bcpu/intel_extension_for_pytorch/transformers/models/reference/fusions/mha_fusion.py
 # *******************************************************************************************************************************************************
 import torch
 
@@ -144,3 +146,107 @@ def _GLM2Attention_forward(
     )
     # output = self.dense(context_layer)
     return output, present
+
+
+@torch.library.impl("zenops::longrope", "cpu")
+def longrope(
+    inv_freq,
+    max_seq_len_cached,
+    max_position_embeddings,
+    sin_cos,
+    sin_cached,
+    cos_cached,
+    sin_cos_long,
+    sin_cached_long,
+    cos_cached_long,
+    seq_len,
+    rope_type,
+):
+    if seq_len > max_seq_len_cached:
+        seq_len = torch.tensor(seq_len)
+        if rope_type == 1:  # Phi3ForCausalLM
+            return (
+                max_position_embeddings,
+                sin_cos_long,
+                sin_cached_long,
+                cos_cached_long,
+            )
+        elif rope_type == 2:  # Falcon
+            t = torch.arange(seq_len, dtype=inv_freq.dtype)
+            freqs = torch.einsum("i,j->ij", t, inv_freq)
+            sin_cos = torch.cat(
+                (freqs.sin().repeat(1, 2), freqs.cos().repeat(1, 2)), dim=-1
+            )
+            emb = torch.cat((freqs, freqs), dim=-1).float()
+            cos_cached = emb.cos()[None, :, :]
+            sin_cached = emb.sin()[None, :, :]
+            return seq_len, sin_cos, sin_cached, cos_cached
+        else:  # Default
+            t = torch.arange(seq_len, dtype=inv_freq.dtype)
+            freqs = torch.einsum("i,j->ij", t, inv_freq)
+            sin_cos = torch.cat((torch.sin(freqs), torch.cos(freqs)), dim=1)
+            emb = torch.cat((freqs, freqs), dim=-1)
+            cos_cached = emb.cos()[None, None, :, :]
+            sin_cached = emb.sin()[None, None, :, :]
+            return (
+                seq_len,
+                sin_cos,
+                sin_cached[:, :, :seq_len, ...],
+                cos_cached[:, :, :seq_len, ...],
+            )
+    return max_seq_len_cached, sin_cos, sin_cached, cos_cached
+
+
+torch.library.define(
+    "zenops::longrope",
+    "(Tensor inv_freq, int max_seq_len_cached, Tensor max_position_embeddings, "
+    + " Tensor sin_cos, Tensor sin_cached, Tensor cos_cached, "
+    + " Tensor? sin_cos_long, Tensor? sin_cached_long, Tensor? cos_cached_long,"
+    + " Tensor seq_len, Tensor rope_type) -> (int, Tensor, Tensor, Tensor)",
+)
+
+
+@torch.library.register_fake("zenops::longrope")
+def meta_longrope(
+    inv_freq,
+    max_seq_len_cached,
+    max_position_embeddings,
+    sin_cos,
+    sin_cached,
+    cos_cached,
+    sin_cos_long,
+    sin_cached_long,
+    cos_cached_long,
+    seq_len,
+    rope_type,
+):
+    sin_cos_ouput = torch.empty(sin_cos.shape)
+    sin_cached_ouput = torch.empty(sin_cached.shape)
+    cos_cached_ouput = torch.empty(cos_cached.shape)
+    return max_seq_len_cached, sin_cos_ouput, sin_cached_ouput, cos_cached_ouput
+
+
+def RotaryEmbedding_forward(self, seq_len=None):
+    rope_type = 0
+    if self.model_backbone == "Phi3ForCausalLM" and hasattr(self, "long_factor"):
+        rope_type = 1
+    elif self.model_backbone in ["FalconForCausalLM", "RWForCausalLM"]:
+        rope_type = 2
+    if seq_len is not None:
+        max_seq_len_cached, self.sin_cos, self.sin_cached, self.cos_cached = (
+            torch.ops.zenops.longrope(
+                torch.tensor(self.inv_freq).contiguous(),
+                self.max_seq_len_cached,
+                torch.tensor(self.max_position_embeddings).contiguous(),
+                self.sin_cos.contiguous(),
+                self.sin_cached.contiguous(),
+                self.cos_cached.contiguous(),
+                self.sin_cos_long.contiguous() if rope_type == 1 else None,
+                self.sin_cached_long.contiguous() if rope_type == 1 else None,
+                self.cos_cached_long.contiguous() if rope_type == 1 else None,
+                torch.tensor(seq_len).contiguous(),
+                torch.tensor(rope_type).contiguous(),
+            )
+        )
+        self.max_seq_len_cached = max_seq_len_cached
+    return self.sin_cos, self.sin_cached, self.cos_cached

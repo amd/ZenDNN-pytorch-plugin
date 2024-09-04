@@ -8,7 +8,8 @@
 
 import math
 from torch._dynamo.utils import guard_if_dyn
-from ._checks import essential_checks
+from ._checks import essential_checks, get_installed_ipex_version
+from torch.torch_version import TorchVersion
 
 from .._logging import get_logger
 
@@ -219,4 +220,15 @@ def customize_model(model):
         attentions._GLM2Attention_forward = (
             _GLM2Attention_forward
         )
+    # Over riding forward of RotaryEmbedding class for modifying
+    # the longrope op to address graph breaks for v2.4 and above.
+    installed_ipex_version = get_installed_ipex_version()
+    installed_ipex_version = TorchVersion(installed_ipex_version)
+    min_version = TorchVersion("2.4")
+    if installed_ipex_version >= min_version:
+        from intel_extension_for_pytorch.transformers.models.reference. \
+            fusions.mha_fusion import RotaryEmbedding
+        from ._custom_model_forward import RotaryEmbedding_forward
+        RotaryEmbedding.forward = RotaryEmbedding_forward
+
     return model
