@@ -231,21 +231,24 @@ at::Tensor zentorch_addmm_1dbias(const at::Tensor &self, const at::Tensor &mat1,
                               alpha.to<float>(), zentorch_op_name);
 }
 
-at::Tensor
-zentorch_addmm_1dbias_add(const at::Tensor &self, const at::Tensor &mat1,
-                          const at::Tensor &mat2, const at::Tensor &add_input,
-                          const at::Scalar &beta, const at::Scalar &alpha,
-                          std::string zentorch_op_name) {
+// unary-binary fusions and binary fusions will be handle by this
+template <UNARY_POST_OP fuse1, BINARY_POST_OP fuse2>
+at::Tensor zentorch_addmm_1dbias_unary_binary(
+    const at::Tensor &self, const at::Tensor &mat1, const at::Tensor &mat2,
+    const at::Tensor &binary_input, const at::Scalar &beta,
+    const at::Scalar &alpha, std::string zentorch_op_name) {
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
 
   ZENTORCH_CHECK(
       (self.dim() == 1 && mat1.dim() == 2 && mat2.dim() == 2), // aten::addmm
       "unsupported dims for self, mat1 and mat2");
-  at::Tensor result = at::empty(add_input.sizes(), add_input.options());
-
-  std::vector<at::Tensor> post_op_buffers = {add_input};
-  std::vector<int64_t> post_op_ids = {BINARY_POST_OP::ADD};
+  std::vector<at::Tensor> post_op_buffers{binary_input};
+  std::vector<int64_t> post_op_ids;
+  at::Tensor result = at::empty(binary_input.sizes(), binary_input.options());
+  if (fuse1 != UNARY_POST_OP::POST_OP_NONE)
+    post_op_ids.push_back(fuse1);
+  post_op_ids.push_back(fuse2);
 
   LOG(INFO) << "Calling zentorch_matmul_impl from " << __FUNCTION__ << "!\n";
   return zentorch_matmul_impl(mat1, mat2, self, result, post_op_ids,
@@ -253,21 +256,30 @@ zentorch_addmm_1dbias_add(const at::Tensor &self, const at::Tensor &mat1,
                               alpha.to<float>(), zentorch_op_name);
 }
 
-at::Tensor zentorch_addmm_1dbias_add_add(
+template <BINARY_POST_OP fuse1, BINARY_POST_OP fuse2>
+at::Tensor zentorch_addmm_1dbias_binary_binary(
     const at::Tensor &self, const at::Tensor &mat1, const at::Tensor &mat2,
-    const at::Tensor &add1_input, const at::Tensor &add2_input,
+    const at::Tensor &binary1_input, const at::Tensor &binary2_input,
     const at::Scalar &beta, const at::Scalar &alpha,
     std::string zentorch_op_name) {
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
-
+  ZENTORCH_CHECK((binary1_input.dim() == 2 && binary2_input.dim() == 2 &&
+                  mat1.dim() == 2 && mat2.dim() == 2),
+                 "unsupported dims for mat1, mat2, "
+                 "binary1_input and binary2_input");
   ZENTORCH_CHECK(
-      (self.dim() == 1 && mat1.dim() == 2 && mat2.dim() == 2), // aten::addmm
-      "unsupported dims for self, mat1 and mat2");
-  at::Tensor result = at::empty(add2_input.sizes(), add2_input.options());
+      (binary1_input.sizes() ==
+           c10::IntArrayRef(get_matmul_and_linear_output_sizes(mat1, mat2)) &&
+       binary2_input.sizes() ==
+           c10::IntArrayRef(get_matmul_and_linear_output_sizes(mat1, mat2))),
+      "unsupported sizes for mat1, mat2, "
+      "binary1_input and binary2_input");
+  ZENTORCH_CHECK((self.dim() == 1), "unsupported dims for self, mat1 and mat2");
+  at::Tensor result = at::empty(binary2_input.sizes(), binary2_input.options());
 
-  std::vector<at::Tensor> post_op_buffers = {add1_input, add2_input};
-  std::vector<int64_t> post_op_ids = {BINARY_POST_OP::ADD, BINARY_POST_OP::ADD};
+  std::vector<at::Tensor> post_op_buffers = {binary1_input, binary2_input};
+  std::vector<int64_t> post_op_ids = {fuse1, fuse2};
 
   LOG(INFO) << "Calling zentorch_matmul_impl from " << __FUNCTION__ << "!\n";
   return zentorch_matmul_impl(mat1, mat2, self, result, post_op_ids,
@@ -449,11 +461,12 @@ at::Tensor zentorch_bmm(const at::Tensor &self, const at::Tensor &mat2,
                               post_op_buffers, beta, alpha, zentorch_op_name);
 }
 
-at::Tensor
-zentorch_addmm_silu_mul(const at::Tensor &bias, const at::Tensor &mat1,
-                        const at::Tensor &mat2, const at::Tensor &mat3,
-                        const at::Scalar &beta, const at::Scalar &alpha,
-                        std::string zentorch_op_name) {
+// unary-binary fusions and binary fusions will be handle by this
+template <UNARY_POST_OP fuse1, BINARY_POST_OP fuse2>
+at::Tensor zentorch_addmm_unary_binary(
+    const at::Tensor &bias, const at::Tensor &mat1, const at::Tensor &mat2,
+    const at::Tensor &binary_input, const at::Scalar &beta,
+    const at::Scalar &alpha, std::string zentorch_op_name) {
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
 
@@ -470,10 +483,8 @@ zentorch_addmm_silu_mul(const at::Tensor &bias, const at::Tensor &mat1,
   // TORCH_CHECK conditions specifically checks for the dimensionality
   // conditions which are supported by either zentorch_addmm or
   // zentorch_addmm_1dbias
-
   ZENTORCH_CHECK((mat1.dim() == 2 && mat2.dim() == 2),
-                 "unsupported dims for mat1, mat2 and mat3");
-
+                 "unsupported dims for mat1, mat2");
   if (bias.sizes() ==
       c10::IntArrayRef(get_matmul_and_linear_output_sizes(mat1, mat2))) {
     // Sending the self tensor (this represents the bias in the nn.Module
@@ -499,12 +510,12 @@ zentorch_addmm_silu_mul(const at::Tensor &bias, const at::Tensor &mat1,
     }
   }
 
-  out =
-      at::empty(get_matmul_and_linear_output_sizes(mat1, mat2), mat3.options());
-
-  post_op_buffers.push_back(mat3);
-  post_op_ids.push_back(UNARY_POST_OP::SILU);
-  post_op_ids.push_back(BINARY_POST_OP::MUL);
+  out = at::empty(get_matmul_and_linear_output_sizes(mat1, mat2),
+                  binary_input.options());
+  post_op_buffers.push_back(binary_input);
+  if (fuse1 != UNARY_POST_OP::POST_OP_NONE)
+    post_op_ids.push_back(fuse1);
+  post_op_ids.push_back(fuse2);
 
   LOG(INFO) << "Calling zentorch_matmul_impl from " << __FUNCTION__ << "!\n";
   return zentorch_matmul_impl(mat1, mat2, matmul_impl_bias, out, post_op_ids,
@@ -512,9 +523,12 @@ zentorch_addmm_silu_mul(const at::Tensor &bias, const at::Tensor &mat1,
                               alpha.to<float>(), zentorch_op_name);
 }
 
-at::Tensor zentorch_mm_silu_mul(const at::Tensor &mat1, const at::Tensor &mat2,
-                                const at::Tensor &mat3,
-                                std::string zentorch_op_name) {
+// unary-binary fusions and binary fusions will be handle by this
+template <UNARY_POST_OP fuse1, BINARY_POST_OP fuse2>
+at::Tensor zentorch_mm_unary_binary(const at::Tensor &mat1,
+                                    const at::Tensor &mat2,
+                                    const at::Tensor &binary_input,
+                                    std::string zentorch_op_name) {
 
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
@@ -523,14 +537,16 @@ at::Tensor zentorch_mm_silu_mul(const at::Tensor &mat1, const at::Tensor &mat2,
   const float alpha = 1.0f;
 
   ZENTORCH_CHECK((mat1.dim() == 2 && mat2.dim() == 2),
-                 "unsupported dims for mat1 and mat2");
-
+                 "unsupported dims for mat1 and mat2")
   at::Tensor empty_bias;
-  at::Tensor out =
-      at::empty(get_matmul_and_linear_output_sizes(mat1, mat2), mat3.options());
+  at::Tensor out = at::empty(get_matmul_and_linear_output_sizes(mat1, mat2),
+                             binary_input.options());
 
-  std::vector<at::Tensor> post_op_buffers = {mat3};
-  std::vector<int64_t> post_op_ids = {UNARY_POST_OP::SILU, BINARY_POST_OP::MUL};
+  std::vector<at::Tensor> post_op_buffers{binary_input};
+  std::vector<int64_t> post_op_ids;
+  if (fuse1 != UNARY_POST_OP::POST_OP_NONE)
+    post_op_ids.push_back(fuse1);
+  post_op_ids.push_back(fuse2);
 
   LOG(INFO) << "Calling zentorch_matmul_impl from " << __FUNCTION__ << "!\n";
   return zentorch_matmul_impl(mat1, mat2, empty_bias, out, post_op_ids,
@@ -671,15 +687,15 @@ TORCH_LIBRARY_FRAGMENT(zentorch, m) {
         "beta=1, Scalar alpha=1, str "
         "zentorch_op_name='zentorch::zentorch_baddbmm') -> "
         "Tensor");
-  m.def("zentorch_mm_silu_mul(Tensor mat1, Tensor mat2, Tensor mat3, "
+  m.def("zentorch_mm_silu_mul(Tensor mat1, Tensor mat2, Tensor mul_input,"
         "str zentorch_op_name='zentorch::zentorch_mm_silu_mul') -> "
         "Tensor");
   m.def("zentorch_addmm_silu_mul(Tensor bias, Tensor mat1, Tensor mat2, "
-        "Tensor mat3, Scalar beta=1, Scalar alpha=1, str "
+        "Tensor mul_input, Scalar beta=1, Scalar alpha=1, str "
         "zentorch_op_name='zentorch::zentorch_addmm_silu_mul') -> "
         "Tensor");
   m.def("zentorch_addmm_1dbias_silu_mul(Tensor bias, Tensor mat1, Tensor "
-        "mat2, Tensor mat3, Scalar beta=1, Scalar alpha=1, str "
+        "mat2, Tensor mul_input, Scalar beta=1, Scalar alpha=1, str "
         "zentorch_op_name='zentorch::zentorch_addmm_1dbias_silu_mul') -> "
         "Tensor");
   m.def("zentorch_vertical_mlp_group(Tensor[] self, Tensor inputs, "
@@ -709,8 +725,12 @@ TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
   m.impl("zentorch_addmm_silu", zentorch_addmm<UNARY_POST_OP::SILU>);
   m.impl("zentorch_addmm_1dbias",
          zentorch_addmm_1dbias<UNARY_POST_OP::POST_OP_NONE>);
-  m.impl("zentorch_addmm_1dbias_add", zentorch_addmm_1dbias_add);
-  m.impl("zentorch_addmm_1dbias_add_add", zentorch_addmm_1dbias_add_add);
+  m.impl("zentorch_addmm_1dbias_add",
+         zentorch_addmm_1dbias_unary_binary<UNARY_POST_OP::POST_OP_NONE,
+                                            BINARY_POST_OP::ADD>);
+  m.impl("zentorch_addmm_1dbias_add_add",
+         zentorch_addmm_1dbias_binary_binary<BINARY_POST_OP::ADD,
+                                             BINARY_POST_OP::ADD>);
   m.impl("zentorch_addmm_1dbias_relu",
          zentorch_addmm_1dbias<UNARY_POST_OP::RELU>);
   m.impl("zentorch_addmm_1dbias_gelu_tanh",
@@ -720,9 +740,13 @@ TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
   m.impl("zentorch_addmm_1dbias_silu",
          zentorch_addmm_1dbias<UNARY_POST_OP::SILU>);
   m.impl("zentorch_baddbmm", zentorch_baddbmm);
-  m.impl("zentorch_mm_silu_mul", zentorch_mm_silu_mul);
-  m.impl("zentorch_addmm_silu_mul", zentorch_addmm_silu_mul);
-  m.impl("zentorch_addmm_1dbias_silu_mul", zentorch_addmm_silu_mul);
+  m.impl("zentorch_mm_silu_mul",
+         zentorch_mm_unary_binary<UNARY_POST_OP::SILU, BINARY_POST_OP::MUL>);
+  m.impl("zentorch_addmm_silu_mul",
+         zentorch_addmm_unary_binary<UNARY_POST_OP::SILU, BINARY_POST_OP::MUL>);
+  m.impl("zentorch_addmm_1dbias_silu_mul",
+         zentorch_addmm_1dbias_unary_binary<UNARY_POST_OP::SILU,
+                                            BINARY_POST_OP::MUL>);
   m.impl("zentorch_vertical_mlp_group", zentorch_vertical_mlp_group);
   m.impl("zentorch_attn_qkv_fusion", zentorch_attn_qkv_fusion);
 }

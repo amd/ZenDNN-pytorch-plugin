@@ -104,7 +104,8 @@ class Test_Addmm_1dbias_Add(Zentorch_TestCase):
                 ),
             )
         self.assertTrue(
-            "unsupported dims for mat1, mat2 and result buffer"
+            "unsupported dims for mat1, mat2, "
+            "binary1_input and binary2_input"
             in str(context.exception)
         )
 
@@ -117,7 +118,8 @@ class Test_Addmm_1dbias_Add(Zentorch_TestCase):
                 self.data.input1d, self.data.x, self.data.y, self.data.x, self.data.x
             )
         self.assertTrue(
-            "unsupported shapes for mat1, mat2 and result buffer"
+            "unsupported sizes for mat1, mat2, "
+            "binary1_input and binary2_input"
             in str(context.exception)
         )
 

@@ -33,7 +33,6 @@ class Test_Addmm_SiLU_Mul(Zentorch_TestCase):
         zentorch_output = torch.ops.zentorch.zentorch_addmm_silu_mul(
             bias, self.data.x, self.data.y, self.data.input
         )
-
         self.assertEqual(native_output, zentorch_output)
 
     @parameterized.expand(supported_dtypes)
@@ -51,7 +50,7 @@ class Test_Addmm_SiLU_Mul(Zentorch_TestCase):
                 ),
             )
         self.assertTrue(
-            "unsupported dims for mat1, mat2 and post op buffers"
+            "unsupported dims for mat1, mat2 and post op buffer"
             in str(context.exception)
         )
 
@@ -64,7 +63,7 @@ class Test_Addmm_SiLU_Mul(Zentorch_TestCase):
                 self.data.input, self.data.x, self.data.y, self.data.x
             )
         self.assertTrue(
-            "unsupported shapes for mat1, mat2 and " + "post op buffers"
+            "unsupported shapes for mat1, mat2 and post op buffer"
             in str(context.exception)
         )
 

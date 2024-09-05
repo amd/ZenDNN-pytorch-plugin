@@ -31,7 +31,6 @@ class Test_MM_SiLU_Mul(Zentorch_TestCase):
         zentorch_output = torch.ops.zentorch.zentorch_mm_silu_mul(
             self.data.x, self.data.y, self.data.input
         )
-
         self.assertEqual(native_output, zentorch_output)
 
     @parameterized.expand(supported_dtypes)
@@ -48,7 +47,7 @@ class Test_MM_SiLU_Mul(Zentorch_TestCase):
                 ),
             )
         self.assertTrue(
-            "unsupported dims for mat1, mat2 and post op buffers"
+            "unsupported dims for mat1, mat2 and post op buffer"
             in str(context.exception)
         )
 
