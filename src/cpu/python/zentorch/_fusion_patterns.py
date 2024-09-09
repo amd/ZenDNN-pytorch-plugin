@@ -160,6 +160,31 @@ def _addmm_1dbias_view_add_add_replacement(arg_0, arg_1, add1, add2, bias_0):
     return out_0
 
 
+def _mm_add_pattern(arg_0, arg_1, add1):
+    mm = zt_ops.zentorch_mm(arg_0, arg_1)
+    if add1.dim() != 2:
+        view = at_ops.view.default(mm, add1.size())
+        add_res = at_ops.add(view, add1)
+    else:
+        add_res = at_ops.add(mm, add1)
+    return add_res
+
+
+def _mm_add_replacement(arg_0, arg_1, add1):
+    counters["zentorch"]["pattern_matcher_mm_add"] += 1
+    shape_0 = arg_0.size()
+    shape_1 = arg_1.size()
+    shape_2 = add1.size()
+
+    if add1.dim() != 2:
+        view_0 = at_ops.view.default(add1, [shape_0[0], shape_1[1]])
+        addmm = zt_ops.zentorch_addmm.default(view_0, arg_0, arg_1)
+        out_0 = at_ops.view.default(addmm, shape_2)
+    else:
+        out_0 = zt_ops.zentorch_addmm.default(add1, arg_0, arg_1)
+    return (out_0,)
+
+
 # adding patterns completed #
 
 
@@ -215,9 +240,15 @@ def _get_pattern_with_replacement():
     arg_5 = partial(
         torch.empty, (1, 512), device="cpu", requires_grad=True, dtype=torch.float
     )
+    # add
+    arg_6 = partial(
+        torch.empty, (4, 64, 512), device="cpu", requires_grad=True, dtype=torch.float
+    )
+
     # TODO: Add kwargs later to the patterns when removing
     # support for PT 2.1
     # kwarg_beta_alpha = {"beta": 7.8, "alpha": -9.6}
+
     candidates = [
         (
             _mm_silu_mul_pattern,
@@ -288,6 +319,13 @@ def _get_pattern_with_replacement():
             [arg_1(), arg_2(), arg_4(), arg_4(), arg_5()],
             {},
             _dim_check,
+        ),
+        (
+            _mm_add_pattern,
+            _mm_add_replacement,
+            [arg_1(), arg_2(), arg_6()],
+            {},
+            _matmul_dtypes_check,
         ),
     ]
     for pattern, replacement, args, workaround, extra_check in candidates:

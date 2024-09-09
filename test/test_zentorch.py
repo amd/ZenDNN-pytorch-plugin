@@ -2190,9 +2190,9 @@ class CustomModelMM_View_Unary_OP(nn.Module):
 
 
 class CustomModelLinear_View_Add(nn.Module):
-    def __init__(self, input_size, output_size, dtype):
+    def __init__(self, input_size, output_size, dtype, bias=True):
         super(CustomModelLinear_View_Add, self).__init__()
-        self.linear1 = nn.Linear(input_size, output_size, dtype=dtype)
+        self.linear1 = nn.Linear(input_size, output_size, dtype=dtype, bias=bias)
 
     def forward(self, input, batch1):
         # Forward pass with mm and ReLU fused
@@ -2203,9 +2203,9 @@ class CustomModelLinear_View_Add(nn.Module):
 
 
 class CustomModelLinear_Add(nn.Module):
-    def __init__(self, input_size, output_size, dtype):
+    def __init__(self, input_size, output_size, dtype, bias=True):
         super(CustomModelLinear_Add, self).__init__()
-        self.linear1 = nn.Linear(input_size, output_size, dtype=dtype)
+        self.linear1 = nn.Linear(input_size, output_size, dtype=dtype, bias=bias)
 
     def forward(self, input, batch1):
         # Forward pass with mm and ReLU fused
@@ -2736,7 +2736,7 @@ class TestLinear_SiLU_Mul(Zentorch_TestCase):
             self.assertEqual(
                 counters["zentorch"]["pattern_matcher_addmm_1dbias_silu_mul"], 0
             )
-            with torch.cpu.amp.autocast():
+            with torch.autocast('cpu'):
                 _ = compiled_graph(model_input)
                 self.assertEqual(
                     counters["zentorch"]["pattern_matcher_addmm_1dbias_silu_mul"], 1
@@ -2766,7 +2766,7 @@ class TestLinear_SiLU_Mul(Zentorch_TestCase):
         # autocast subtest
         with self.subTest(dtype="float32"):
             self.assertEqual(counters["zentorch"]["pattern_matcher_mm_silu_mul"], 0)
-            with torch.cpu.amp.autocast():
+            with torch.autocast('cpu'):
                 _ = compiled_graph(model_input)
                 self.assertEqual(counters["zentorch"]["pattern_matcher_mm_silu_mul"], 1)
                 counters.clear()
@@ -2970,7 +2970,7 @@ class TestPatternMatcher(Zentorch_TestCase):
         compiled_model = torch.compile(model, backend="zentorch")
         counters.clear()
         self.assertEqual(counters["zentorch"]["pattern_matcher_gelu"], 0)
-        with torch.inference_mode(), torch.cpu.amp.autocast():
+        with torch.inference_mode(), torch.autocast('cpu'):
             _ = compiled_model(inp)
             self.assertEqual(counters["zentorch"]["pattern_matcher_gelu"], 1)
 
@@ -3013,10 +3013,10 @@ class TestPatternMatcher(Zentorch_TestCase):
 class TestLinear_Add(Zentorch_TestCase):
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
-    def test_linear_view_add(self, dtype):
+    def test_linear_view_add_with_bias(self, dtype):
         self.data.create_data(dtype)
         model = CustomModelLinear_View_Add(
-            40, 30, self.data.get_torch_type(dtype)
+            40, 30, self.data.get_torch_type(dtype), bias=True
         ).eval()
         zentorch_model = copy.deepcopy(model)
         for inp in self.data.T1:
@@ -3032,6 +3032,40 @@ class TestLinear_Add(Zentorch_TestCase):
                 self.assertEqual(
                     counters["zentorch"]["pattern_matcher_addmm_1dbias_add"], 1
                 )
+                self.assertEqual(
+                    model_output, compiled_graph_output, atol=1e-2, rtol=1e-2
+                )
+
+    @parameterized.expand(supported_dtypes)
+    @torch.inference_mode()
+    def test_linear_view_add_without_bias(self, dtype):
+        self.data.create_data(dtype)
+        model = CustomModelLinear_View_Add(
+            40, 30, self.data.get_torch_type(dtype), bias=False
+        ).eval()
+        zentorch_model = copy.deepcopy(model)
+        for inp in self.data.T1:
+            for i in range(len(self.data.x1)):
+                model_output = model(inp, self.data.x1[i])
+                reset_dynamo()
+                compiled_graph = torch.compile(zentorch_model, backend="zentorch")
+                counters.clear()
+                with self.subTest(dtype="float32"):
+                    self.assertEqual(
+                        counters["zentorch"]["pattern_matcher_mm_add"], 0
+                    )
+                    with torch.autocast('cpu'):
+                        _ = compiled_graph(inp, self.data.x1[i])
+                        self.assertEqual(
+                            counters["zentorch"][
+                                "pattern_matcher_mm_add"
+                            ],
+                            1,
+                        )
+                        counters.clear()
+                self.assertEqual(counters["zentorch"]["pattern_matcher_mm_add"], 0)
+                compiled_graph_output = compiled_graph(inp, self.data.x1[i])
+                self.assertEqual(counters["zentorch"]["pattern_matcher_mm_add"], 1)
                 self.assertEqual(
                     model_output, compiled_graph_output, atol=1e-2, rtol=1e-2
                 )
