@@ -183,9 +183,11 @@ def _same_dtypes_check(match):
     is_bf16 = True
     is_fp32 = True
     for _, v in match.kwargs.items():
+        if not torch.is_tensor(v.meta["val"]):
+            continue
         is_bf16 = is_bf16 and (v.meta["val"].dtype == torch.bfloat16)
         is_fp32 = is_fp32 and (v.meta["val"].dtype == torch.float)
-    return is_bf16 or is_fp32
+    return is_bf16 ^ is_fp32
 
 
 def _dim_check(match):
