@@ -362,6 +362,11 @@ def qkv_fusion(fx_graph):
         # for the horizontal matmul pattern
         if len(node.users) >= 3 and node.op != 'placeholder':
             for user in node.users.keys():
+                # This pattern is legit only if the output tensor of common node acts
+                # as input tensor of view ops, should not be used for specifying shape.
+                # HF models always have view before a matmul, hence harcoding the index.
+                if node is not user.args[0]:
+                    continue
                 # Skipping if there are no users present or if the user is a return node
                 if not bool(user.users.keys()):
                     continue
