@@ -33,11 +33,6 @@ at::Tensor zentorch_matmul_impl(const at::Tensor &input,
       matmul_tensors_to_memory(input, weight, result, bias, beta_bias, z_input,
                                z_weight, z_bias, z_result, beta, alpha);
 
-  int post_op_ids_size = post_op_ids.size();
-  int post_op_buffers_size = post_op_buffers.size();
-
-  std::vector<memory> z_post_op_buffers(post_op_buffers_size);
-
   zendnn::primitive_attr op_attr;
   post_ops po;
 
@@ -66,58 +61,8 @@ at::Tensor zentorch_matmul_impl(const at::Tensor &input,
   }
 
   std::unordered_map<int, memory> execute_args;
-  int post_op_buffer_idx = 0;
-  for (int i = 0; i < post_op_ids_size; i++) {
-    int arg_position;
-    if (post_op_buffers_size > 0 && post_op_buffer_idx < post_op_buffers_size) {
-      z_post_op_buffers[post_op_buffer_idx] =
-          zen_memory(post_op_buffers[post_op_buffer_idx]);
-      LOG(INFO) << "post_op_buffer dimensions: "
-                << post_op_buffers[post_op_buffer_idx].sizes();
-    }
-    // set the post-ops or fusion-ops;
-    // by default, fuse = POST_OP::NONE,
-    switch (post_op_ids[i]) {
-    case POST_OP::RELU:
-      LOG(INFO) << "Setting relu as post op";
-      po.append_eltwise(1.0f, algorithm::eltwise_relu, 0.f, 0.f);
-      break;
-    case POST_OP::GELU_TANH:
-      LOG(INFO) << "Setting gelu_tanh as post op";
-      po.append_eltwise(1.0f, algorithm::eltwise_gelu_tanh, 1.f, 0.f);
-      break;
-    case POST_OP::GELU_ERF:
-      LOG(INFO) << "Setting gelu_erf as post op";
-      po.append_eltwise(1.0f, algorithm::eltwise_gelu_erf, 1.f, 0.f);
-      break;
-    case POST_OP::SILU:
-      LOG(INFO) << "Setting silu as post op";
-      po.append_eltwise(1.0f, algorithm::eltwise_swish, 1.f, 0.f);
-      break;
-    case POST_OP::MUL:
-      LOG(INFO) << "Setting mul as post op";
-      po.append_binary(algorithm::binary_mul,
-                       z_post_op_buffers[post_op_buffer_idx].get_desc());
-      // argument for postop at index=idx in ZenDNN OP primitive.
-      arg_position = ZENDNN_ARG_ATTR_MULTIPLE_POST_OP(i) | ZENDNN_ARG_SRC_1;
-      execute_args.insert(
-          {arg_position, z_post_op_buffers[post_op_buffer_idx]});
-      post_op_buffer_idx++;
-      break;
-    case POST_OP::ADD:
-      LOG(INFO) << "Setting add as post op";
-      po.append_binary(algorithm::binary_add,
-                       z_post_op_buffers[post_op_buffer_idx].get_desc());
-      // argument for postop at index=idx in ZenDNN OP primitive.
-      arg_position = ZENDNN_ARG_ATTR_MULTIPLE_POST_OP(i) | ZENDNN_ARG_SRC_1;
-      execute_args.insert(
-          {arg_position, z_post_op_buffers[post_op_buffer_idx]});
-      post_op_buffer_idx++;
-      break;
-    default:
-      break;
-    }
-  }
+  // Setting Post ops
+  zentorch_post_ops_selection(po, execute_args, post_op_ids, post_op_buffers);
 
   op_attr.set_post_ops(po);
 

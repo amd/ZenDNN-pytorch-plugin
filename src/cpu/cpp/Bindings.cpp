@@ -162,6 +162,30 @@ TORCH_LIBRARY(zentorch, m) {
       "Tensor? weight_zero_point, Tensor? bias, int group_size=-1, "
       "int weight_bits=4, str compute_dtype = 'bfloat16', str zentorch_op_name "
       "= 'zentorch::zentorch_woq_linear') -> Tensor");
+  m.def(
+      "zentorch_woq_linear_relu(Tensor input, Tensor qweight, Tensor "
+      "weight_scales, "
+      "Tensor? weight_zero_point, Tensor? bias, int group_size=-1, "
+      "int weight_bits=4, str compute_dtype = 'bfloat16', str zentorch_op_name "
+      "= 'zentorch::zentorch_woq_linear_relu') -> Tensor");
+  m.def(
+      "zentorch_woq_linear_silu(Tensor input, Tensor qweight, Tensor "
+      "weight_scales, "
+      "Tensor? weight_zero_point, Tensor? bias, int group_size=-1, "
+      "int weight_bits=4, str compute_dtype = 'bfloat16', str zentorch_op_name "
+      "= 'zentorch::zentorch_woq_linear_silu') -> Tensor");
+  m.def(
+      "zentorch_woq_linear_gelu_erf(Tensor input, Tensor qweight, Tensor "
+      "weight_scales, "
+      "Tensor? weight_zero_point, Tensor? bias, int group_size=-1, "
+      "int weight_bits=4, str compute_dtype = 'bfloat16', str zentorch_op_name "
+      "= 'zentorch::zentorch_woq_linear_gelu_erf') -> Tensor");
+  m.def(
+      "zentorch_woq_linear_gelu_tanh(Tensor input, Tensor qweight, Tensor "
+      "weight_scales, "
+      "Tensor? weight_zero_point, Tensor? bias, int group_size=-1, "
+      "int weight_bits=4, str compute_dtype = 'bfloat16', str zentorch_op_name "
+      "= 'zentorch::zentorch_woq_linear_gelu_tanh') -> Tensor");
 }
 
 TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
@@ -213,6 +237,14 @@ TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
          zentorch::zentorch_masked_multihead_self_attention_impl);
   m.impl("zentorch_woq_linear",
          zentorch::zentorch_woq_linear<zentorch::POST_OP::NONE>);
+  m.impl("zentorch_woq_linear_relu",
+         zentorch::zentorch_woq_linear<zentorch::POST_OP::RELU>);
+  m.impl("zentorch_woq_linear_silu",
+         zentorch::zentorch_woq_linear<zentorch::POST_OP::SILU>);
+  m.impl("zentorch_woq_linear_gelu_erf",
+         zentorch::zentorch_woq_linear<zentorch::POST_OP::GELU_ERF>);
+  m.impl("zentorch_woq_linear_gelu_tanh",
+         zentorch::zentorch_woq_linear<zentorch::POST_OP::GELU_TANH>);
 }
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {

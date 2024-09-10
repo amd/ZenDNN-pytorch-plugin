@@ -17,6 +17,8 @@ zentorch_woq_linear_impl(const at::Tensor &input, const at::Tensor &qweight,
                          const at::Tensor &weight_scales,
                          const c10::optional<at::Tensor> &weight_zero_point,
                          const c10::optional<at::Tensor> &bias,
+                         const std::vector<int64_t> &post_op_ids,
+                         const std::vector<at::Tensor> &post_op_buffers,
                          const int64_t &group_size, const int64_t &weight_bits,
                          const std::string &compute_dtype,
                          std::string zentorch_op_name) {
@@ -93,6 +95,10 @@ zentorch_woq_linear_impl(const at::Tensor &input, const at::Tensor &qweight,
 
   std::unordered_map<int, memory> execute_args;
   zendnn::primitive_attr op_attr;
+  post_ops po;
+  // Setting Post ops
+  zentorch_post_ops_selection(po, execute_args, post_op_ids, post_op_buffers);
+  op_attr.set_post_ops(po);
   op_attr.set_plugin_op_name(zentorch_op_name);
 
   // set woq weight scales
@@ -129,14 +135,12 @@ zentorch_woq_linear(const at::Tensor &input, const at::Tensor &qweight,
 
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
-
-  TORCH_CHECK(
-      fuse == POST_OP::NONE,
-      "zentorch_woq_linear: fusions or post ops are not supported currrently");
-
+  std::vector<at::Tensor> post_op_buffers = {};
+  std::vector<int64_t> post_op_ids = {fuse};
   return zentorch_woq_linear_impl(input, qweight, weight_scales,
-                                  weight_zero_point, bias, group_size,
-                                  weight_bits, compute_dtype, zentorch_op_name);
+                                  weight_zero_point, bias, post_op_ids,
+                                  post_op_buffers, group_size, weight_bits,
+                                  compute_dtype, zentorch_op_name);
 }
 
 // Template instantiations
@@ -149,5 +153,36 @@ template at::Tensor zentorch_woq_linear<POST_OP::NONE>(
     const c10::optional<at::Tensor> &bias, const int64_t &group_size,
     const int64_t &weight_bits, const std::string &compute_dtype,
     std::string zentorch_op_name);
-
+// Post op RELU
+template at::Tensor zentorch_woq_linear<POST_OP::RELU>(
+    const at::Tensor &input, const at::Tensor &qweight,
+    const at::Tensor &weight_scales,
+    const c10::optional<at::Tensor> &weight_zero_point,
+    const c10::optional<at::Tensor> &bias, const int64_t &group_size,
+    const int64_t &weight_bits, const std::string &compute_dtype,
+    std::string zentorch_op_name);
+// Post op SILU
+template at::Tensor zentorch_woq_linear<POST_OP::SILU>(
+    const at::Tensor &input, const at::Tensor &qweight,
+    const at::Tensor &weight_scales,
+    const c10::optional<at::Tensor> &weight_zero_point,
+    const c10::optional<at::Tensor> &bias, const int64_t &group_size,
+    const int64_t &weight_bits, const std::string &compute_dtype,
+    std::string zentorch_op_name);
+// Post op GELU ERF
+template at::Tensor zentorch_woq_linear<POST_OP::GELU_ERF>(
+    const at::Tensor &input, const at::Tensor &qweight,
+    const at::Tensor &weight_scales,
+    const c10::optional<at::Tensor> &weight_zero_point,
+    const c10::optional<at::Tensor> &bias, const int64_t &group_size,
+    const int64_t &weight_bits, const std::string &compute_dtype,
+    std::string zentorch_op_name);
+// Post op GELU TANH
+template at::Tensor zentorch_woq_linear<POST_OP::GELU_TANH>(
+    const at::Tensor &input, const at::Tensor &qweight,
+    const at::Tensor &weight_scales,
+    const c10::optional<at::Tensor> &weight_zero_point,
+    const c10::optional<at::Tensor> &bias, const int64_t &group_size,
+    const int64_t &weight_bits, const std::string &compute_dtype,
+    std::string zentorch_op_name);
 } // namespace zentorch

@@ -42,6 +42,12 @@ eltwise_targets = {
         zt_ops.zentorch_addmm_1dbias_gelu_tanh.default,
         zt_ops.zentorch_addmm_1dbias_gelu_erf.default,
     ],
+    zt_ops.zentorch_woq_linear.default: [
+        zt_ops.zentorch_woq_linear_relu.default,
+        zt_ops.zentorch_woq_linear_silu.default,
+        zt_ops.zentorch_woq_linear_gelu_tanh.default,
+        zt_ops.zentorch_woq_linear_gelu_erf.default,
+    ],
 }
 
 supported_eltwise_ops = (

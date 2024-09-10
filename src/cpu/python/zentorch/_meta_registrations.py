@@ -449,7 +449,7 @@ def meta_zentorch_woq_linear(
     bias,
     group_size=-1,
     weight_bits=4,
-    compute_dtype='bfloat16',
+    compute_dtype="bfloat16",
 ):
     out_dim = list(input.size())
     unpacking_ratio = 1
@@ -459,6 +459,98 @@ def meta_zentorch_woq_linear(
         unpacking_ratio = total_bits // weight_bits
     out_dim[-1] = qweight.size(1) * unpacking_ratio
     return input.new_empty(out_dim)
+
+
+@register_meta("zentorch_woq_linear_relu")
+def meta_zentorch_woq_linear_relu(
+    input,
+    qweight,
+    weight_scales,
+    weight_zero_point,
+    bias,
+    group_size=-1,
+    weight_bits=4,
+    compute_dtype="bfloat16",
+):
+    return meta_zentorch_woq_linear(
+        input,
+        qweight,
+        weight_scales,
+        weight_zero_point,
+        bias,
+        group_size,
+        weight_bits,
+        compute_dtype,
+    )
+
+
+@register_meta("zentorch_woq_linear_silu")
+def meta_zentorch_woq_linear_silu(
+    input,
+    qweight,
+    weight_scales,
+    weight_zero_point,
+    bias,
+    group_size=-1,
+    weight_bits=4,
+    compute_dtype="bfloat16",
+):
+    return meta_zentorch_woq_linear(
+        input,
+        qweight,
+        weight_scales,
+        weight_zero_point,
+        bias,
+        group_size,
+        weight_bits,
+        compute_dtype,
+    )
+
+
+@register_meta("zentorch_woq_linear_gelu_erf")
+def meta_zentorch_woq_linear_gelu_erf(
+    input,
+    qweight,
+    weight_scales,
+    weight_zero_point,
+    bias,
+    group_size=-1,
+    weight_bits=4,
+    compute_dtype="bfloat16",
+):
+    return meta_zentorch_woq_linear(
+        input,
+        qweight,
+        weight_scales,
+        weight_zero_point,
+        bias,
+        group_size,
+        weight_bits,
+        compute_dtype,
+    )
+
+
+@register_meta("zentorch_woq_linear_gelu_tanh")
+def meta_zentorch_woq_linear_gelu_tanh(
+    input,
+    qweight,
+    weight_scales,
+    weight_zero_point,
+    bias,
+    group_size=-1,
+    weight_bits=4,
+    compute_dtype="bfloat16",
+):
+    return meta_zentorch_woq_linear(
+        input,
+        qweight,
+        weight_scales,
+        weight_zero_point,
+        bias,
+        group_size,
+        weight_bits,
+        compute_dtype,
+    )
 
 
 make_fallback(torch.ops.zentorch.zentorch_addmm)
@@ -493,3 +585,7 @@ make_fallback(torch.ops.zentorch.zentorch_fused_eb_mlp)
 make_fallback(torch.ops.zentorch.zentorch_rope)
 make_fallback(torch.ops.zentorch.zentorch_masked_multihead_self_attention)
 make_fallback(torch.ops.zentorch.zentorch_woq_linear)
+make_fallback(torch.ops.zentorch.zentorch_woq_linear_relu)
+make_fallback(torch.ops.zentorch.zentorch_woq_linear_silu)
+make_fallback(torch.ops.zentorch.zentorch_woq_linear_gelu_erf)
+make_fallback(torch.ops.zentorch.zentorch_woq_linear_gelu_tanh)
