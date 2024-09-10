@@ -6,6 +6,7 @@
 #pragma once
 
 #include "Memory.hpp"
+#include "Ops.hpp"
 
 namespace zentorch {
 
@@ -27,7 +28,6 @@ inline void check_scalar_type(const std::vector<at::Tensor> &tensor_vector) {
     is_bfloat16 =
         is_bfloat16 && (tensor.scalar_type() == c10::ScalarType::BFloat16);
   }
-
   TORCH_CHECK(
       is_float || is_bfloat16,
       "zentorch_matmul: zentorch_matmul only supports Float and BFloat16");
@@ -88,7 +88,7 @@ get_2d_size_for_tensor(const at::Tensor &inp_tensor,
 // function to have a aten tensor to point to the same space.
 inline std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor>
 matmul_tensors_to_memory(const at::Tensor &mat1, const at::Tensor &mat2,
-                         at::Tensor &self_or_result, const at::Tensor &bias,
+                         at::Tensor &result, const at::Tensor &bias,
                          at::Tensor &beta_bias, memory &z_mat1, memory &z_mat2,
                          memory &z_bias, memory &z_result, const float &beta,
                          const float &alpha) {
@@ -103,12 +103,16 @@ matmul_tensors_to_memory(const at::Tensor &mat1, const at::Tensor &mat2,
         "avx512bf16");
   }
 
-  std::vector<at::Tensor> tensor_vector(3);
-  tensor_vector[0] = mat1;
-  tensor_vector[1] = mat2;
-  tensor_vector[2] = self_or_result;
-
-  check_scalar_type(tensor_vector);
+  bool is_mat1_fp32 = (mat1.scalar_type() == c10::ScalarType::Float);
+  bool is_mat1_bf16 = (mat1.scalar_type() == c10::ScalarType::BFloat16);
+  bool is_mat2_fp32 = (mat2.scalar_type() == c10::ScalarType::Float);
+  bool is_mat2_bf16 = (mat2.scalar_type() == c10::ScalarType::BFloat16);
+  bool is_result_fp32 = (result.scalar_type() == c10::ScalarType::Float);
+  bool is_result_bf16 = (result.scalar_type() == c10::ScalarType::BFloat16);
+  TORCH_CHECK(
+      (is_mat1_fp32 && is_mat2_fp32 && is_result_fp32) ||
+          (is_mat1_bf16 && is_mat2_bf16 && (is_result_bf16 || is_result_fp32)),
+      "zentorch_matmul: zentorch_matmul only supports Float and BFloat16");
 
   // ZenDNN does not support 1-D tensors. So, whenever the tensors are of
   // 1 dimension, they are unsqueezed on the required dimension to make them
@@ -118,7 +122,7 @@ matmul_tensors_to_memory(const at::Tensor &mat1, const at::Tensor &mat2,
   const at::Tensor &mat2_unsqueezed =
       mat2.dim() == 1 ? mat2.unsqueeze(1) : mat2;
   at::Tensor &self_or_result_unsqueezed =
-      self_or_result.dim() == 1 ? self_or_result.unsqueeze_(1) : self_or_result;
+      result.dim() == 1 ? result.unsqueeze_(1) : result;
 
   // zendnn is only optimized for contiguous or transposed
   // (transpose last 2 dim if 3-D tensor) format now

@@ -11,26 +11,27 @@ namespace zentorch {
 
 using namespace zendnn;
 
-at::Tensor zentorch_matmul_impl(
-    const at::Tensor &input, const at::Tensor &weight, const at::Tensor &bias,
-    at::Tensor &self_or_result, const std::vector<int64_t> &post_op_ids,
-    const std::vector<at::Tensor> &post_op_buffers, const float &beta,
-    const float &alpha, std::string zentorch_op_name) {
+at::Tensor zentorch_matmul_impl(const at::Tensor &input,
+                                const at::Tensor &weight,
+                                const at::Tensor &bias, at::Tensor &result,
+                                const std::vector<int64_t> &post_op_ids,
+                                const std::vector<at::Tensor> &post_op_buffers,
+                                const float &beta, const float &alpha,
+                                std::string zentorch_op_name) {
 
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
   LOG(INFO) << "input dimensions: " << input.sizes();
   LOG(INFO) << "weight dimensions: " << weight.sizes();
-  LOG(INFO) << "self_or_result dimensions: " << self_or_result.sizes();
+  LOG(INFO) << "result dimensions: " << result.sizes();
   LOG(INFO) << "beta : " << beta << " and alpha : " << alpha;
 
   at::Tensor self_or_result_unsqueezed, input_, weight_, beta_bias;
   memory z_input, z_weight, z_result, z_bias;
 
   std::tie(self_or_result_unsqueezed, input_, weight_, beta_bias) =
-      matmul_tensors_to_memory(input, weight, self_or_result, bias, beta_bias,
-                               z_input, z_weight, z_bias, z_result, beta,
-                               alpha);
+      matmul_tensors_to_memory(input, weight, result, bias, beta_bias, z_input,
+                               z_weight, z_bias, z_result, beta, alpha);
 
   int post_op_ids_size = post_op_ids.size();
   int post_op_buffers_size = post_op_buffers.size();
@@ -395,7 +396,7 @@ at::Tensor zentorch_addmm(const at::Tensor &self, const at::Tensor &mat1,
     std::vector<at::Tensor> post_op_buffers = {};
     std::vector<int64_t> post_op_ids = {POST_OP::ADD, fuse};
     at::Tensor result = at::empty(
-        get_matmul_and_linear_output_sizes(mat1, mat2), mat1.options());
+        get_matmul_and_linear_output_sizes(mat1, mat2), self.options());
     if (beta_float != 1.0f) {
       post_op_buffers.push_back(self.mul(beta_float));
     } else {
@@ -465,7 +466,7 @@ at::Tensor zentorch_baddbmm(const at::Tensor &self, const at::Tensor &batch1,
   std::vector<at::Tensor> post_op_buffers = {};
   std::vector<int64_t> post_op_ids = {POST_OP::ADD, POST_OP::NONE};
   at::Tensor result = at::empty(
-      get_matmul_and_linear_output_sizes(batch1, batch2), batch1.options());
+      get_matmul_and_linear_output_sizes(batch1, batch2), self.options());
 
   if (beta_float != 1.0f) {
     post_op_buffers.push_back(self.mul(beta_float));
@@ -598,7 +599,7 @@ zentorch_addmm_silu_mul(const at::Tensor &bias, const at::Tensor &mat1,
   }
 
   out =
-      at::empty(get_matmul_and_linear_output_sizes(mat1, mat2), mat1.options());
+      at::empty(get_matmul_and_linear_output_sizes(mat1, mat2), mat3.options());
 
   post_op_buffers.push_back(mat3);
   post_op_ids.push_back(POST_OP::SILU);
@@ -630,7 +631,7 @@ at::Tensor zentorch_mm_silu_mul(const at::Tensor &mat1, const at::Tensor &mat2,
 
   at::Tensor empty_bias;
   at::Tensor out =
-      at::empty(get_matmul_and_linear_output_sizes(mat1, mat2), mat1.options());
+      at::empty(get_matmul_and_linear_output_sizes(mat1, mat2), mat3.options());
   std::vector<at::Tensor> post_op_buffers = {mat3};
   std::vector<int64_t> post_op_ids = {POST_OP::SILU, POST_OP::MUL};
 

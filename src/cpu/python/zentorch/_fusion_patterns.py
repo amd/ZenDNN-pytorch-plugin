@@ -96,73 +96,71 @@ def _addmm_1dbias_silu_mul_replacement(arg_0, arg_1, arg_2, bias_0):
     return (out_0,)
 
 
-def _addmm_1dbias_add_pattern(arg_0, arg_1, arg_2, bias_0):
+def _addmm_1dbias_add_pattern(arg_0, arg_1, add1, bias_0):
     # bias_0: bias
     # arg_0_: mat1
     # arg_1_: mat2
-    # arg_2_: add
+    # add1: add
     addmm = zt_ops.zentorch_addmm_1dbias(bias_0, arg_0, arg_1)
-    if arg_2.dim() != 2:
-        view = at_ops.view.default(addmm, arg_2.size())
-        add_res = at_ops.add(view, arg_2)
+    if add1.dim() != 2:
+        view = at_ops.view.default(addmm, add1.size())
+        add_res = at_ops.add(view, add1)
     else:
-        add_res = at_ops.add(addmm, arg_2)
+        add_res = at_ops.add(addmm, add1)
     return add_res
 
 
-def _addmm_1dbias_add_replacement(arg_0, arg_1, arg_2, bias_0):
+def _addmm_1dbias_add_replacement(arg_0, arg_1, add1, bias_0):
     counters["zentorch"]["pattern_matcher_addmm_1dbias_add"] += 1
     shape_0 = arg_0.size()
     shape_1 = arg_1.size()
-    shape_2 = arg_2.size()
-    if arg_2.dim() != 2:
-        view_0 = at_ops.view.default(arg_2, [shape_0[0], shape_1[1]])
+    shape_2 = add1.size()
+    if add1.dim() != 2:
+        view_0 = at_ops.view.default(add1, [shape_0[0], shape_1[1]])
         add_0 = zt_ops.zentorch_addmm_1dbias_add.default(bias_0, arg_0, arg_1, view_0)
         out_0 = at_ops.view.default(add_0, shape_2)
     else:
-        out_0 = zt_ops.zentorch_addmm_1dbias_add.default(bias_0, arg_0, arg_1, arg_2)
+        out_0 = zt_ops.zentorch_addmm_1dbias_add.default(bias_0, arg_0, arg_1, add1)
     return (out_0,)
 
 
-def _addmm_1dbias_view_add_add_pattern(arg_0, arg_1, arg_2, arg_3, bias_0):
+def _addmm_1dbias_view_add_add_pattern(arg_0, arg_1, add1, add2, bias_0):
     # bias_0: bias
     # arg_0: mat1
     # arg_1: mat2
-    # arg_2: add
-    # arg_3: 2nd add
+    # add1: add
+    # add2: 2nd add
     addmm = zt_ops.zentorch_addmm_1dbias(bias_0, arg_0, arg_1)
-    if arg_2.dim() != 2:
-        view = at_ops.view.default(addmm, arg_2.size())
-        add_res = at_ops.add(view, arg_2)
+    if add1.dim() != 2:
+        view = at_ops.view.default(addmm, add1.size())
+        add_res = at_ops.add(view, add1)
     else:
-        add_res = at_ops.add(addmm, arg_2)
-    add_res_2 = at_ops.add(add_res, arg_3)
+        add_res = at_ops.add(addmm, add1)
+    add_res_2 = at_ops.add(add_res, add2)
     return add_res_2
 
 
-def _addmm_1dbias_view_add_add_replacement(arg_0, arg_1, arg_2, arg_3, bias_0):
+def _addmm_1dbias_view_add_add_replacement(arg_0, arg_1, add1, add2, bias_0):
     counters["zentorch"]["pattern_matcher_addmm_1dbias_add_add"] += 1
     shape_0 = arg_0.size()
     shape_1 = arg_1.size()
-    shape_2 = arg_2.size()
+    shape_2 = add1.size()
     # set of conditions is possible for this (for now, we have just 2)
-    if arg_2.dim() != 2 and arg_3.dim() != 2:
-        view_0 = at_ops.view.default(arg_2, [shape_0[0], shape_1[1]])
-        view_1 = at_ops.view.default(arg_3, [shape_0[0], shape_1[1]])
+    if add1.dim() != 2 and add2.dim() != 2:
+        view_0 = at_ops.view.default(add1, [shape_0[0], shape_1[1]])
+        view_1 = at_ops.view.default(add2, [shape_0[0], shape_1[1]])
         linear_add = zt_ops.zentorch_addmm_1dbias_add_add.default(
             bias_0, arg_0, arg_1, view_0, view_1
         )
         out_0 = at_ops.view.default(linear_add, shape_2)
     else:
         out_0 = zt_ops.zentorch_addmm_1dbias_add_add.default(
-            bias_0, arg_0, arg_1, arg_2, view_1
+            bias_0, arg_0, arg_1, add1, add2
         )
     return out_0
 
 
 # adding patterns completed #
-
-# add required extra checks for patterns #
 
 
 def _same_dtypes_check(match):
@@ -176,13 +174,21 @@ def _same_dtypes_check(match):
     return is_bf16 ^ is_fp32
 
 
+def _matmul_dtypes_check(match):
+    is_bf16 = True
+    is_fp32 = True
+    for k, v in match.kwargs.items():
+        if not torch.is_tensor(v.meta["val"]) or k in ("add1", "add2"):
+            continue
+        is_bf16 = is_bf16 and (v.meta["val"].dtype == torch.bfloat16)
+        is_fp32 = is_fp32 and (v.meta["val"].dtype == torch.float)
+    return is_bf16 ^ is_fp32
+
+
 def _dim_check(match):
-    if (
-        match.kwargs["arg_2"].meta["val"].shape
-        != match.kwargs["arg_3"].meta["val"].shape
-    ):
+    if match.kwargs["add1"].meta["val"].shape != match.kwargs["add2"].meta["val"].shape:
         return False
-    is_dtype_same = _same_dtypes_check(match)
+    is_dtype_same = _matmul_dtypes_check(match)
     return is_dtype_same
 
 
@@ -260,14 +266,14 @@ def _get_pattern_with_replacement():
             _addmm_1dbias_add_replacement,
             [arg_1(), arg_2(), arg_3(), arg_5()],
             {},
-            _same_dtypes_check,
+            _matmul_dtypes_check,
         ),
         (
             _addmm_1dbias_add_pattern,
             _addmm_1dbias_add_replacement,
             [arg_1(), arg_2(), arg_4(), arg_5()],
             {},
-            _same_dtypes_check,
+            _matmul_dtypes_check,
         ),
         (
             _addmm_1dbias_view_add_add_pattern,

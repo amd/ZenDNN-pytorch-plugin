@@ -3067,6 +3067,21 @@ class TestLinear_Add(Zentorch_TestCase):
 
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
+    def test_zentorch_addmm_1dbias_add_mp(self, dtype):
+        # new_dtype = self.data.get_torch_type(dtype)
+        arg_0 = torch.randn((30), dtype=torch.bfloat16)
+        arg_1 = torch.randn((20, 40), dtype=torch.bfloat16)
+        arg_2 = torch.randn((30, 40), dtype=torch.bfloat16)
+        arg_3 = torch.randn((20, 30), dtype=torch.float32)
+        reset_dynamo()
+        output_1 = torch.add(torch.nn.functional.linear(arg_1, arg_2, arg_0), arg_3)
+        output_2 = torch.ops.zentorch.zentorch_addmm_1dbias_add(
+            arg_0, arg_1, arg_2.t(), arg_3
+        )
+        self.assertEqual(output_1, output_2, atol=1e-2, rtol=1e-2)
+
+    @parameterized.expand(supported_dtypes)
+    @torch.inference_mode()
     def test_addmm_1dbias_add_mismatched_dimensions(self, dtype):
         self.data.create_data(dtype)
         with self.assertRaises(RuntimeError) as context:

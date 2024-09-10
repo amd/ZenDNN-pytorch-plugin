@@ -63,7 +63,9 @@ def zentorch_compile_fx_inner(
 ):
     logger.info("Optimizing the model with zentorch ops.")
     # zentorch Optimized Implemention starts here
+
     zen_gm = optimize(gm)
+
     # zentorch Optimized Implemention ends here###
     logger.info("Model is passed to compile_fx_inner.")
     # From PT2.4, compile_fx_inner introduced the optional static_input_idxs
