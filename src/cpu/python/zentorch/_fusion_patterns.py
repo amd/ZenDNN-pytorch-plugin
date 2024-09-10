@@ -44,10 +44,8 @@ def _mm_silu_mul_replacement(arg_0, arg_1, arg_2):
     return (out_0,)
 
 
-def _addmm_silu_mul_pattern(arg_0, arg_1, arg_2, bias_0, beta, alpha):
-    mm_0 = zt_ops.zentorch_addmm_silu.default(
-        bias_0, arg_0, arg_1, beta=beta, alpha=alpha
-    )
+def _addmm_silu_mul_pattern(arg_0, arg_1, arg_2, bias_0):
+    mm_0 = zt_ops.zentorch_addmm_silu.default(bias_0, arg_0, arg_1)
     if arg_2.dim() != 2:
         view_0 = at_ops.view.default(mm_0, arg_2.size())
         mul_0 = at_ops.mul.Tensor(view_0, arg_2)
@@ -56,28 +54,22 @@ def _addmm_silu_mul_pattern(arg_0, arg_1, arg_2, bias_0, beta, alpha):
     return (mul_0,)
 
 
-def _addmm_silu_mul_replacement(arg_0, arg_1, arg_2, bias_0, beta, alpha):
+def _addmm_silu_mul_replacement(arg_0, arg_1, arg_2, bias_0):
     counters["zentorch"]["pattern_matcher_addmm_silu_mul"] += 1
     shape_0 = arg_0.size()
     shape_1 = arg_1.size()
     shape_2 = arg_2.size()
     if arg_2.dim() != 2:
         view_0 = at_ops.view.default(arg_2, [shape_0[0], shape_1[-1]])
-        mul_0 = zt_ops.zentorch_addmm_silu_mul.default(
-            bias_0, arg_0, arg_1, view_0, beta=beta, alpha=alpha
-        )
+        mul_0 = zt_ops.zentorch_addmm_silu_mul.default(bias_0, arg_0, arg_1, view_0)
         out_0 = at_ops.view.default(mul_0, shape_2)
     else:
-        out_0 = zt_ops.zentorch_addmm_silu_mul.default(
-            bias_0, arg_0, arg_1, arg_2, beta=beta, alpha=alpha
-        )
+        out_0 = zt_ops.zentorch_addmm_silu_mul.default(bias_0, arg_0, arg_1, arg_2)
     return (out_0,)
 
 
-def _addmm_1dbias_silu_mul_pattern(arg_0, arg_1, arg_2, bias_0, beta, alpha):
-    mm_0 = zt_ops.zentorch_addmm_1dbias_silu.default(
-        bias_0, arg_0, arg_1, beta=beta, alpha=alpha
-    )
+def _addmm_1dbias_silu_mul_pattern(arg_0, arg_1, arg_2, bias_0):
+    mm_0 = zt_ops.zentorch_addmm_1dbias_silu.default(bias_0, arg_0, arg_1)
     if arg_2.dim() != 2:
         view_0 = at_ops.view.default(mm_0, arg_2.size())
         mul_0 = at_ops.mul.Tensor(view_0, arg_2)
@@ -86,7 +78,7 @@ def _addmm_1dbias_silu_mul_pattern(arg_0, arg_1, arg_2, bias_0, beta, alpha):
     return (mul_0,)
 
 
-def _addmm_1dbias_silu_mul_replacement(arg_0, arg_1, arg_2, bias_0, beta, alpha):
+def _addmm_1dbias_silu_mul_replacement(arg_0, arg_1, arg_2, bias_0):
     counters["zentorch"]["pattern_matcher_addmm_1dbias_silu_mul"] += 1
     shape_0 = arg_0.size()
     shape_1 = arg_1.size()
@@ -94,22 +86,22 @@ def _addmm_1dbias_silu_mul_replacement(arg_0, arg_1, arg_2, bias_0, beta, alpha)
     if arg_2.dim() != 2:
         view_0 = at_ops.view.default(arg_2, [shape_0[0], shape_1[-1]])
         mul_0 = zt_ops.zentorch_addmm_1dbias_silu_mul.default(
-            bias_0, arg_0, arg_1, view_0, beta=beta, alpha=alpha
+            bias_0, arg_0, arg_1, view_0
         )
         out_0 = at_ops.view.default(mul_0, shape_2)
     else:
         out_0 = zt_ops.zentorch_addmm_1dbias_silu_mul.default(
-            bias_0, arg_0, arg_1, arg_2, beta=beta, alpha=alpha
+            bias_0, arg_0, arg_1, arg_2
         )
     return (out_0,)
 
 
-def _addmm_1dbias_add_pattern(arg_0, arg_1, arg_2, bias_0, beta, alpha):
+def _addmm_1dbias_add_pattern(arg_0, arg_1, arg_2, bias_0):
     # bias_0: bias
     # arg_0_: mat1
     # arg_1_: mat2
     # arg_2_: add
-    addmm = zt_ops.zentorch_addmm_1dbias(bias_0, arg_0, arg_1, beta=beta, alpha=alpha)
+    addmm = zt_ops.zentorch_addmm_1dbias(bias_0, arg_0, arg_1)
     if arg_2.dim() != 2:
         view = at_ops.view.default(addmm, arg_2.size())
         add_res = at_ops.add(view, arg_2)
@@ -118,31 +110,27 @@ def _addmm_1dbias_add_pattern(arg_0, arg_1, arg_2, bias_0, beta, alpha):
     return add_res
 
 
-def _addmm_1dbias_add_replacement(arg_0, arg_1, arg_2, bias_0, beta, alpha):
+def _addmm_1dbias_add_replacement(arg_0, arg_1, arg_2, bias_0):
     counters["zentorch"]["pattern_matcher_addmm_1dbias_add"] += 1
     shape_0 = arg_0.size()
     shape_1 = arg_1.size()
     shape_2 = arg_2.size()
     if arg_2.dim() != 2:
         view_0 = at_ops.view.default(arg_2, [shape_0[0], shape_1[1]])
-        add_0 = zt_ops.zentorch_addmm_1dbias_add.default(
-            bias_0, arg_0, arg_1, view_0, beta=beta, alpha=alpha
-        )
+        add_0 = zt_ops.zentorch_addmm_1dbias_add.default(bias_0, arg_0, arg_1, view_0)
         out_0 = at_ops.view.default(add_0, shape_2)
     else:
-        out_0 = zt_ops.zentorch_addmm_1dbias_add.default(
-            bias_0, arg_0, arg_1, arg_2, beta=beta, alpha=alpha
-        )
+        out_0 = zt_ops.zentorch_addmm_1dbias_add.default(bias_0, arg_0, arg_1, arg_2)
     return (out_0,)
 
 
-def _addmm_1dbias_view_add_add_pattern(arg_0, arg_1, arg_2, arg_3, bias_0, beta, alpha):
+def _addmm_1dbias_view_add_add_pattern(arg_0, arg_1, arg_2, arg_3, bias_0):
     # bias_0: bias
     # arg_0: mat1
     # arg_1: mat2
     # arg_2: add
     # arg_3: 2nd add
-    addmm = zt_ops.zentorch_addmm_1dbias(bias_0, arg_0, arg_1, beta=beta, alpha=alpha)
+    addmm = zt_ops.zentorch_addmm_1dbias(bias_0, arg_0, arg_1)
     if arg_2.dim() != 2:
         view = at_ops.view.default(addmm, arg_2.size())
         add_res = at_ops.add(view, arg_2)
@@ -152,9 +140,7 @@ def _addmm_1dbias_view_add_add_pattern(arg_0, arg_1, arg_2, arg_3, bias_0, beta,
     return add_res_2
 
 
-def _addmm_1dbias_view_add_add_replacement(
-    arg_0, arg_1, arg_2, arg_3, bias_0, beta, alpha
-):
+def _addmm_1dbias_view_add_add_replacement(arg_0, arg_1, arg_2, arg_3, bias_0):
     counters["zentorch"]["pattern_matcher_addmm_1dbias_add_add"] += 1
     shape_0 = arg_0.size()
     shape_1 = arg_1.size()
@@ -164,12 +150,12 @@ def _addmm_1dbias_view_add_add_replacement(
         view_0 = at_ops.view.default(arg_2, [shape_0[0], shape_1[1]])
         view_1 = at_ops.view.default(arg_3, [shape_0[0], shape_1[1]])
         linear_add = zt_ops.zentorch_addmm_1dbias_add_add.default(
-            bias_0, arg_0, arg_1, view_0, view_1, beta=beta, alpha=alpha
+            bias_0, arg_0, arg_1, view_0, view_1
         )
         out_0 = at_ops.view.default(linear_add, shape_2)
     else:
         out_0 = zt_ops.zentorch_addmm_1dbias_add_add.default(
-            bias_0, arg_0, arg_1, arg_2, view_1, beta=beta, alpha=alpha
+            bias_0, arg_0, arg_1, arg_2, view_1
         )
     return out_0
 
@@ -223,8 +209,9 @@ def _get_pattern_with_replacement():
     arg_5 = partial(
         torch.empty, (1, 512), device="cpu", requires_grad=True, dtype=torch.float
     )
-
-    kwarg_beta_alpha = {"beta": 7.8, "alpha": -9.6}
+    # TODO: Add kwargs later to the patterns when removing
+    # support for PT 2.1
+    # kwarg_beta_alpha = {"beta": 7.8, "alpha": -9.6}
     candidates = [
         (
             _mm_silu_mul_pattern,
@@ -244,56 +231,56 @@ def _get_pattern_with_replacement():
             _addmm_silu_mul_pattern,
             _addmm_silu_mul_replacement,
             [arg_1(), arg_2(), arg_3(), arg_4()],
-            kwarg_beta_alpha,
+            {},
             _same_dtypes_check,
         ),
         (
             _addmm_silu_mul_pattern,
             _addmm_silu_mul_replacement,
             [arg_1(), arg_2(), arg_4(), arg_4()],
-            kwarg_beta_alpha,
+            {},
             _same_dtypes_check,
         ),
         (
             _addmm_1dbias_silu_mul_pattern,
             _addmm_1dbias_silu_mul_replacement,
             [arg_1(), arg_2(), arg_3(), arg_5()],
-            kwarg_beta_alpha,
+            {},
             _same_dtypes_check,
         ),
         (
             _addmm_1dbias_silu_mul_pattern,
             _addmm_1dbias_silu_mul_replacement,
             [arg_1(), arg_2(), arg_4(), arg_5()],
-            kwarg_beta_alpha,
+            {},
             _same_dtypes_check,
         ),
         (
             _addmm_1dbias_add_pattern,
             _addmm_1dbias_add_replacement,
             [arg_1(), arg_2(), arg_3(), arg_5()],
-            kwarg_beta_alpha,
+            {},
             _same_dtypes_check,
         ),
         (
             _addmm_1dbias_add_pattern,
             _addmm_1dbias_add_replacement,
             [arg_1(), arg_2(), arg_4(), arg_5()],
-            kwarg_beta_alpha,
+            {},
             _same_dtypes_check,
         ),
         (
             _addmm_1dbias_view_add_add_pattern,
             _addmm_1dbias_view_add_add_replacement,
             [arg_1(), arg_2(), arg_3(), arg_3(), arg_5()],
-            kwarg_beta_alpha,
+            {},
             _dim_check,
         ),
         (
             _addmm_1dbias_view_add_add_pattern,
             _addmm_1dbias_view_add_add_replacement,
             [arg_1(), arg_2(), arg_4(), arg_4(), arg_5()],
-            kwarg_beta_alpha,
+            {},
             _dim_check,
         ),
     ]
