@@ -77,4 +77,23 @@ std::vector<at::Tensor> zentorch_horizontal_embedding_group(
 
   return output;
 }
+
+TORCH_LIBRARY_FRAGMENT(zentorch, m) {
+  m.def("zentorch_embedding(Tensor weight, Tensor indices, "
+        "int padding_idx=-1, bool scale_grad_by_freq=False, "
+        "bool sparse=False, str "
+        "zentorch_op_name='zentorch::zentorch_embedding') -> "
+        "Tensor");
+  m.def(
+      "zentorch_horizontal_embedding_group(Tensor[] weight, Tensor[] indices, "
+      "int[] padding_idx, int[] scale_grad_by_freq, "
+      "int[] sparse, str zentorch_op_name = "
+      "'zentorch::zentorch_horizontal_embedding_group') -> Tensor[]");
+}
+
+TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
+  m.impl("zentorch_embedding", zentorch_embedding_impl);
+  m.impl("zentorch_horizontal_embedding_group",
+         zentorch_horizontal_embedding_group);
+}
 } // namespace zentorch

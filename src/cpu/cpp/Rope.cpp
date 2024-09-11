@@ -35,4 +35,14 @@ zentorch_rope_impl(at::Tensor &t_in, at::Tensor &t_emb_pos, at::Tensor &t_pos,
   }
 }
 
+TORCH_LIBRARY_FRAGMENT(zentorch, m) {
+  m.def("zentorch_rope(Tensor t_in, Tensor t_emb_pos, Tensor t_pos, int N, int "
+        "H, int offset, int rotary_dim, str zentorch_op_name = "
+        "'zentorch::zentorch_rope') -> (Tensor, Tensor, Tensor)");
+}
+
+TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
+  m.impl("zentorch_rope", zentorch_rope_impl);
+}
+
 } // namespace zentorch

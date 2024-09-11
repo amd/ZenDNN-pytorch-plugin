@@ -230,9 +230,7 @@ class Test_MM_OP(Zentorch_TestCase):
                     (1, list(self.data.x.shape)[0], list(self.data.x.shape)[1]),
                 ),
             )
-        self.assertTrue(
-            "unsupported dims for self and mat2" in str(context.exception)
-        )
+        self.assertTrue("unsupported dims for self and mat2" in str(context.exception))
 
     @parameterized.expand([("int",)])
     def test_mm_unsupported_dtype(self, dtype):
@@ -241,8 +239,7 @@ class Test_MM_OP(Zentorch_TestCase):
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_mm(self.data.x, self.data.y)
         self.assertTrue(
-            "zentorch_matmul only supports Float and BFloat16"
-            in str(context.exception)
+            "zentorch_matmul only supports Float and BFloat16" in str(context.exception)
         )
 
     @parameterized.expand(supported_dtypes)
@@ -340,8 +337,7 @@ class Test_ADDMM_OP(Zentorch_TestCase):
                 ),
             )
         self.assertTrue(
-            "unsupported dims for self, mat1 and mat2"
-            in str(context.exception)
+            "unsupported dims for self, mat1 and mat2" in str(context.exception)
         )
 
     @parameterized.expand(["int"])
@@ -352,8 +348,7 @@ class Test_ADDMM_OP(Zentorch_TestCase):
             torch.ops.zentorch.zentorch_addmm(self.data.input, self.data.x, self.data.y)
 
         self.assertTrue(
-            "zentorch_matmul only supports Float and BFloat16"
-            in str(context.exception)
+            "zentorch_matmul only supports Float and BFloat16" in str(context.exception)
         )
 
     def test_float_addmm_bfloat16_postop(self):
@@ -363,8 +358,7 @@ class Test_ADDMM_OP(Zentorch_TestCase):
             torch.ops.zentorch.zentorch_addmm(bias_as_postop, self.data.x, self.data.y)
 
         self.assertTrue(
-            "zentorch_matmul only supports Float and BFloat16"
-            in str(context.exception)
+            "zentorch_matmul only supports Float and BFloat16" in str(context.exception)
         )
 
     def test_float_addmm_float_postop(self):
@@ -379,6 +373,11 @@ class Test_ADDMM_OP(Zentorch_TestCase):
         )
 
     def test_bfloat16_addmm_int_postop(self):
+        if not zentorch._C.is_bf16_supported():
+            self.skipTest(
+                "Warning: Skipping Bfloat16 Testcases since they are not "
+                + "supported on this hardware"
+            )
         self.data.create_data("bfloat16")
         with self.assertRaises(RuntimeError) as context_int:
             bias_as_postop = self.data.input.clone().to(torch.int)
@@ -390,6 +389,11 @@ class Test_ADDMM_OP(Zentorch_TestCase):
         )
 
     def test_bfloat16_addmm_bfloat16_postop(self):
+        if not zentorch._C.is_bf16_supported():
+            self.skipTest(
+                "Warning: Skipping Bfloat16 Testcases since they are not "
+                + "supported on this hardware"
+            )
         self.data.create_data("bfloat16")
         self.assertEqual(
             torch._C._VariableFunctions.addmm(
@@ -511,10 +515,7 @@ class Test_BMM_OP(Zentorch_TestCase):
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_bmm(self.data.x, self.data.y)
 
-        self.assertTrue(
-            "unsupported dims for self and mat2"
-            in str(context.exception)
-        )
+        self.assertTrue("unsupported dims for self and mat2" in str(context.exception))
 
     @parameterized.expand([("int",)])
     def test_bmm_unsupported_dtype(self, dtype):
@@ -524,8 +525,7 @@ class Test_BMM_OP(Zentorch_TestCase):
             torch.ops.zentorch.zentorch_bmm(self.data.x3d, self.data.y3d)
 
         self.assertTrue(
-            "zentorch_matmul only supports Float and BFloat16"
-            in str(context.exception)
+            "zentorch_matmul only supports Float and BFloat16" in str(context.exception)
         )
 
 
@@ -555,8 +555,7 @@ class Test_BADDBMM_OP(Zentorch_TestCase):
             )
 
         self.assertTrue(
-            "zentorch_matmul only supports Float and BFloat16"
-            in str(context.exception)
+            "zentorch_matmul only supports Float and BFloat16" in str(context.exception)
         )
 
     @parameterized.expand(supported_dtypes)
@@ -632,11 +631,15 @@ class Test_BADDBMM_OP(Zentorch_TestCase):
             )
 
         self.assertTrue(
-            "zentorch_matmul only supports Float and BFloat16"
-            in str(context.exception)
+            "zentorch_matmul only supports Float and BFloat16" in str(context.exception)
         )
 
     def test_bfloat16_baddbmm_int_postop(self):
+        if not zentorch._C.is_bf16_supported():
+            self.skipTest(
+                "Warning: Skipping Bfloat16 Testcases since they are not "
+                + "supported on this hardware"
+            )
         self.data.create_data("bfloat16")
         with self.assertRaises(RuntimeError) as context_int:
             bias_as_postop = self.data.input3d.clone().to(torch.int)
@@ -716,6 +719,11 @@ class Test_MATMUL_IMPL_OP(Zentorch_TestCase):
         )
 
     def test_zentorch_matmul_impl_int_postop(self):
+        if not zentorch._C.is_bf16_supported():
+            self.skipTest(
+                "Warning: Skipping Bfloat16 Testcases since they are not "
+                + "supported on this hardware"
+            )
         self.data.create_data("bfloat16")
         with self.assertRaises(RuntimeError) as context_int:
             bias_as_postop = self.data.x.clone().to(torch.int)
@@ -1373,7 +1381,7 @@ class test_qkv_fusion(Zentorch_TestCase):
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_attn_qkv_fusion(
                 [self.data.x1[0]] * 3,
-                [self.data.y1[0]] * 3,
+                [self.data.x1[0]] * 3,
                 [self.data.y1[0]] * 3,
                 [0.0] * 3,
                 [1.0] * 3,
@@ -1381,8 +1389,7 @@ class test_qkv_fusion(Zentorch_TestCase):
                 [1],
             )
         self.assertTrue(
-            "unsupported dims for self, mat1 and mat2"
-            in str(context.exception)
+            "unsupported dims for self, mat1 and mat2" in str(context.exception)
         )
 
     @parameterized.expand(supported_dtypes)
@@ -1392,7 +1399,7 @@ class test_qkv_fusion(Zentorch_TestCase):
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_attn_qkv_fusion(
                 [self.data.y2[0]] * 3,
-                [self.data.y2[0]] * 3,
+                [self.data.x2[0]] * 3,
                 [self.data.y2[0]] * 3,
                 [0.0] * 3,
                 [1.0] * 3,
@@ -1400,8 +1407,7 @@ class test_qkv_fusion(Zentorch_TestCase):
                 [1],
             )
         self.assertTrue(
-            "unsupported dims for self, mat1 and mat2"
-            in str(context.exception)
+            "unsupported dims for self, mat1 and mat2" in str(context.exception)
         )
 
     @parameterized.expand(supported_dtypes)
@@ -1419,13 +1425,17 @@ class test_qkv_fusion(Zentorch_TestCase):
                 [1],
             )
         self.assertTrue(
-            "input shape is incompatible with matrix multiplication "
+            "Tensor shapes incompatible for matrix multiplication"
             in str(context.exception)
         )
 
     @torch.inference_mode()
     def test_bf16_alpha_not_1(self):
-
+        if not zentorch._C.is_bf16_supported():
+            self.skipTest(
+                "Warning: Skipping Bfloat16 Testcases since they are not "
+                + "supported on this hardware"
+            )
         self.data.create_data("bfloat16")
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_addmm(
@@ -1498,8 +1508,7 @@ class TEST_GROUP_MLP(Zentorch_TestCase):
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_addmm(self.data.x3d, self.data.x, self.data.x)
             self.assertTrue(
-                "unsupported dims for self, mat1 and mat2!"
-                in str(context.exception)
+                "unsupported dims for self, mat1 and mat2!" in str(context.exception)
             )
 
         with self.assertRaises(RuntimeError) as context:
@@ -1507,8 +1516,7 @@ class TEST_GROUP_MLP(Zentorch_TestCase):
                 self.data.x, self.data.x, self.data.x
             )
             self.assertTrue(
-                "unsupported dims for self, mat1 and mat2!"
-                in str(context.exception)
+                "unsupported dims for self, mat1 and mat2!" in str(context.exception)
             )
 
         with self.assertRaises(RuntimeError) as context:
@@ -1523,30 +1531,13 @@ class TEST_GROUP_MLP(Zentorch_TestCase):
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_mm(self.data.x3d, self.data.x3d)
             self.assertTrue(
-                "unsupported dims for self and mat2!"
-                in str(context.exception)
+                "unsupported dims for self and mat2!" in str(context.exception)
             )
 
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_bmm(self.data.x, self.data.x)
             self.assertTrue(
-                "unsupported dims for self and mat2!"
-                in str(context.exception)
-            )
-
-    @torch.inference_mode()
-    def test_bf16_alpha_not_1(self):
-
-        self.data.create_data("bfloat16")
-
-        with self.assertRaises(RuntimeError) as context:
-            torch.ops.zentorch.zentorch_addmm(
-                self.data.input1d, self.data.x, self.data.y, alpha=1.7
-            )
-            self.assertTrue(
-                "zentorch_matmul is not supported for bf16 \
-                tensors when bias is defined and alpha is not equal to 1"
-                in str(context.exception)
+                "unsupported dims for self and mat2!" in str(context.exception)
             )
 
 
@@ -2893,8 +2884,13 @@ class TestLinear_SiLU_Mul(Zentorch_TestCase):
         self.data.create_data(dtype)
         model = CustomModel_LinearSiLUMul(self.data, bias=True)
         model_input = self.data.input.view(1, self.data.m, self.data.n)
-        if dtype == "bfloat16":
+        if dtype == "bfloat16" and zentorch._C.is_bf16_supported():
             model = model.bfloat16()
+        else:
+            self.skipTest(
+                "Warning: Skipping Bfloat16 Testcases since they are not "
+                + "supported on this hardware"
+            )
         model_output = model(model_input)
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
@@ -2925,8 +2921,13 @@ class TestLinear_SiLU_Mul(Zentorch_TestCase):
         self.data.create_data(dtype)
         model = CustomModel_LinearSiLUMul(self.data, bias=False)
         model_input = self.data.input.view(1, self.data.m, self.data.n)
-        if dtype == "bfloat16":
+        if dtype == "bfloat16" and zentorch._C.is_bf16_supported():
             model = model.bfloat16()
+        else:
+            self.skipTest(
+                "Warning: Skipping Bfloat16 Testcases since they are not "
+                + "supported on this hardware"
+            )
         model_output = model(model_input)
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
@@ -2957,7 +2958,7 @@ class TestLinear_SiLU_Mul(Zentorch_TestCase):
                 ),
             )
         self.assertTrue(
-            "unsupported dims for mat1, mat2 and mat3"
+            "unsupported dims for mat1, mat2 and post op buffers"
             in str(context.exception)
         )
 
@@ -2970,7 +2971,7 @@ class TestLinear_SiLU_Mul(Zentorch_TestCase):
                 self.data.x, self.data.y, self.data.x
             )
         self.assertTrue(
-            "unsupported sizes for mat1, mat2 and mat3"
+            "unsupported shapes for mat1, mat2 and post op buffers"
             in str(context.exception)
         )
 
@@ -2989,7 +2990,7 @@ class TestLinear_SiLU_Mul(Zentorch_TestCase):
                 ),
             )
         self.assertTrue(
-            "unsupported dims for mat1, mat2 and mat3"
+            "unsupported dims for mat1, mat2 and post op buffers"
             in str(context.exception)
         )
 
@@ -3002,7 +3003,7 @@ class TestLinear_SiLU_Mul(Zentorch_TestCase):
                 self.data.input, self.data.x, self.data.y, self.data.x
             )
         self.assertTrue(
-            "unsupported sizes for mat1, mat2 and mat3"
+            "unsupported shapes for mat1, mat2 and " + "post op buffers"
             in str(context.exception)
         )
 
@@ -3104,6 +3105,11 @@ class TEST_PatternMatcherTestWithDifferentDtypes(Zentorch_TestCase):
 
     @torch.inference_mode()
     def test_bfloat16_addmm_silu_float32_mul(self):
+        if not zentorch._C.is_bf16_supported():
+            self.skipTest(
+                "Warning: Skipping Bfloat16 Testcases since they are not "
+                + "supported on this hardware"
+            )
         self.data.create_data("bfloat16")
         model = CustomModelPatternMatcherModelLinearSiLUMul(self.data, bias=True)
 
@@ -3125,6 +3131,11 @@ class TEST_PatternMatcherTestWithDifferentDtypes(Zentorch_TestCase):
 
     @torch.inference_mode()
     def test_bfloat16_addmm_silu_bfloat16_mul(self):
+        if not zentorch._C.is_bf16_supported():
+            self.skipTest(
+                "Warning: Skipping Bfloat16 Testcases since they are not "
+                + "supported on this hardware"
+            )
         self.data.create_data("bfloat16")
         model = CustomModelPatternMatcherModelLinearSiLUMul(self.data, bias=True)
         mul_tensor = torch.reshape(self.data.x, (1, self.data.m, self.data.k)).to(
@@ -3178,6 +3189,11 @@ class TEST_PatternMatcherTestWithDifferentDtypes(Zentorch_TestCase):
 
     @torch.inference_mode()
     def test_bfloat16_mm_silu_float32_mul(self):
+        if not zentorch._C.is_bf16_supported():
+            self.skipTest(
+                "Warning: Skipping Bfloat16 Testcases since they are not "
+                + "supported on this hardware"
+            )
         self.data.create_data("bfloat16")
         model = CustomModelPatternMatcherModelLinearSiLUMul(self.data, bias=False)
 
@@ -3195,6 +3211,11 @@ class TEST_PatternMatcherTestWithDifferentDtypes(Zentorch_TestCase):
 
     @torch.inference_mode()
     def test_bfloat16_mm_silu_bfloat16_mul(self):
+        if not zentorch._C.is_bf16_supported():
+            self.skipTest(
+                "Warning: Skipping Bfloat16 Testcases since they are not "
+                + "supported on this hardware"
+            )
         self.data.create_data("bfloat16")
         model = CustomModelPatternMatcherModelLinearSiLUMul(self.data, bias=False)
         mul_tensor = torch.reshape(self.data.x, (1, self.data.m, self.data.k)).to(
@@ -3443,7 +3464,7 @@ class TestLinear_Add(Zentorch_TestCase):
         self.data.create_data(dtype)
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_addmm_1dbias_add(
-                self.data.input,
+                self.data.input1d,
                 self.data.x,
                 self.data.y,
                 torch.reshape(
@@ -3452,7 +3473,7 @@ class TestLinear_Add(Zentorch_TestCase):
                 ),
             )
         self.assertTrue(
-            "unsupported dims for mat1, mat2 and add_input"
+            "unsupported dims for mat1, mat2 and result buffer"
             in str(context.exception)
         )
 
@@ -3462,10 +3483,10 @@ class TestLinear_Add(Zentorch_TestCase):
         self.data.create_data(dtype)
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_addmm_1dbias_add(
-                self.data.input, self.data.x, self.data.y, self.data.x
+                self.data.input1d, self.data.x, self.data.y, self.data.x
             )
         self.assertTrue(
-            "unsupported sizes for mat1, mat2 and add_input"
+            "unsupported shapes for mat1, mat2 and result buffer"
             in str(context.exception)
         )
 
@@ -3500,7 +3521,7 @@ class TestLinear_Add(Zentorch_TestCase):
         self.data.create_data(dtype)
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_addmm_1dbias_add_add(
-                self.data.input,
+                self.data.input1d,
                 self.data.x,
                 self.data.y,
                 torch.reshape(
@@ -3513,7 +3534,7 @@ class TestLinear_Add(Zentorch_TestCase):
                 ),
             )
         self.assertTrue(
-            "unsupported dims for mat1, mat2, add1_input and add2_input"
+            "unsupported dims for mat1, mat2 and result buffer"
             in str(context.exception)
         )
 
@@ -3523,10 +3544,10 @@ class TestLinear_Add(Zentorch_TestCase):
         self.data.create_data(dtype)
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_addmm_1dbias_add_add(
-                self.data.input, self.data.x, self.data.y, self.data.x, self.data.x
+                self.data.input1d, self.data.x, self.data.y, self.data.x, self.data.x
             )
         self.assertTrue(
-            "unsupported sizes for mat1, mat2, add1_input and add2_input"
+            "unsupported shapes for mat1, mat2 and result buffer"
             in str(context.exception)
         )
 
@@ -3957,7 +3978,7 @@ class Test_WOQ_Linear(Zentorch_TestCase):
         self.assertEqual(counters["zentorch"]["pattern_matcher_woq_add"], 0)
 
         self.assertTrue(
-            "currently only bfloat16 input "
+            "only bfloat16 datatype "
             "is supported as of now" in str(context.exception)
         )
 
@@ -4083,8 +4104,8 @@ class Test_WOQ_Linear(Zentorch_TestCase):
                 "float32",  # incorrect compute_dtype
             )
         self.assertTrue(
-            "only bfloat16 compute_dtype is "
-            "supported as of now, but the compute_dtype received is float32."
+            "only bfloat16 compute_dtype is supported as of now, but the "
+            + "compute_dtype received is float32."
             in str(context.exception)
         )
 
@@ -4100,8 +4121,8 @@ class Test_WOQ_Linear(Zentorch_TestCase):
                 8,  # incorrect weight_bits
             )
         self.assertTrue(
-            "only int4 woq is supported "
-            "currently with qweight packed into int32" in str(context.exception)
+            "only int4 woq is supported currently with qweight packed into int32"
+            in str(context.exception)
         )
 
         # group_size check
@@ -4131,7 +4152,7 @@ class Test_WOQ_Linear(Zentorch_TestCase):
                 self.data.woq_bias[woq_bias_idx],
             )
         self.assertTrue(
-            "currently only bfloat16 input "
+            "only bfloat16 datatype "
             "is supported as of now" in str(context.exception)
         )
 
@@ -4187,8 +4208,7 @@ class Test_WOQ_Linear(Zentorch_TestCase):
                 self.data.woq_bias[woq_bias_idx],
             )
         self.assertTrue(
-            "unsupported sizes for input and qweight"
-            in str(context.exception)
+            "unsupported sizes for input and qweight" in str(context.exception)
         )
 
         # unsupported qweight and scales check
@@ -4229,8 +4249,7 @@ class Test_WOQ_Linear(Zentorch_TestCase):
                 self.data.woq_bias[woq_bias_idx],
             )
         self.assertTrue(
-            "incorrect dimensions/shape "
-            "for weight_scales" in str(context.exception)
+            "incorrect dimensions/shape " "for weight_scales" in str(context.exception)
         )
 
         # unsupported qzero shape check
@@ -4257,8 +4276,7 @@ class Test_WOQ_Linear(Zentorch_TestCase):
                 self.data.input1d,  # bias with incorrect shape
             )
         self.assertTrue(
-            "incorrect dimensions/shape "
-            "for bias" in str(context.exception)
+            "incorrect dimensions/shape " "for bias" in str(context.exception)
         )
 
         # unsupported qweight dim check

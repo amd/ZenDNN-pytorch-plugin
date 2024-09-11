@@ -6,22 +6,172 @@
 #pragma once
 
 #include "Memory.hpp"
-#include "Ops.hpp"
 namespace zentorch {
-
 using namespace zendnn;
 
-inline void check_valid_sizes(const at::Tensor &mat1, const at::Tensor &mat2) {
-  ZENTORCH_CHECK(
-      ((mat1.dim() <= 3 && mat2.dim() <= 3) &&  // dimensionality check
-       ((mat1.dim() == 2 && mat2.dim() == 1) || // specific case for aten::mv
-        (mat1.dim() == mat2.dim()))), // general check for matrix multiplication
-      "unsupported dims for mat1 and mat2");
+// this function returns the output size for matrix multiplication of two
+// tensors - tensor1 @ tensor2 and also it returns the output size for
+// linear operation of these two tensors, and if tensor2 is packed on the
+// last dim it will support the unpacking the size of last dim of tensor2
+inline std::vector<int64_t>
+get_matmul_and_linear_output_sizes(const at::Tensor &tensor1,
+                                   const at::Tensor &tensor2,
+                                   const int64_t unpacking_ratio = 1) {
+  auto tensor1_size = tensor1.sizes();
+  std::vector<int64_t> output_size(tensor1_size.begin(),
+                                   tensor1_size.end() - 1);
+
+  auto tensor2_last_dim_size = tensor2.size(tensor2.dim() - 1);
+  auto calculated_last_dim_size = tensor2_last_dim_size * unpacking_ratio;
+  output_size.push_back(calculated_last_dim_size);
+  return output_size;
 }
 
-inline void check_valid_dtypes(const at::Tensor &mat1, const at::Tensor &mat2,
-                               const at::Tensor &bias, const at::Tensor &result,
-                               const std::vector<at::Tensor> &post_op_buffers) {
+inline void
+check_valid_sizes_for_matmul(const at::Tensor &mat1, const at::Tensor &mat2,
+                             const at::Tensor &bias, const at::Tensor &result,
+                             const std::vector<at::Tensor> &post_op_buffers) {
+
+  // The flow of this check is as follows:
+  // -> Generic dim check for the mat1 and mat2. The functionality of aten::mv
+  //    is covered here.
+  // -> Next the result shape is checked to be compatible with the matrix
+  //    multiplication shape. This is done at the second stage as rest of the
+  //    tensors can be optional, and irrespective of the other tensors, the
+  //    matrix multiplication of mat1 and mat2 will happen.
+  // -> Bias being optional in the addmm variants, needs to be checked if it is
+  //    a defined tensor or not, and based on that shape of bias is checked.
+  //    Here, only 1-D bias case is checked, as bias if 2-D or 3-D will be
+  //    passed as post op and checked in the post op checks.
+  // -> Based on the post op buffer vector size, the shapes of all the post ops
+  //    are determined. Again here, all the post op buffers must be of the same
+  //    shape as the matmul product shape or result tensor shape.
+
+  const int mat1_dim = mat1.dim();
+  const int mat2_dim = mat2.dim();
+
+  ZENTORCH_CHECK(
+      ((mat1_dim == 3 &&
+        mat2_dim == 3) || // dimensionality check for matrix multiplication
+       (mat1_dim == 2 &&
+        mat2_dim == 2) || // dimensionality check for matrix multiplication
+       (mat1_dim == 2 && mat2_dim == 1) || // specific case for aten::mv
+       (mat1_dim == 1 && mat2_dim == 1)    // specific case for aten::dot
+       ),
+      "unsupported dims for mat1 and mat2");
+
+  // Array access is faster than .size(n)
+  const auto mat1_sizes = mat1.sizes();
+  const auto mat2_sizes = mat2.sizes();
+
+  if (mat1_dim == 2 && mat2_dim == 1) {
+    LOG(INFO) << "Special case of aten::mv";
+    ZENTORCH_CHECK(
+        post_op_buffers.size() == 0,
+        "Post Op support currently unavailable for aten::mv via ZenTorch");
+    // TODO
+    // Need to understand how to the result is in these cases and need to add a
+    // check for the result buffer as well.
+    return;
+  }
+  if (mat1_dim == 1 && mat2_dim == 1) {
+    LOG(INFO) << "Special case of aten::dot";
+    ZENTORCH_CHECK(
+        post_op_buffers.size() == 0,
+        "Post Op support currently unavailable for aten::dot via ZenTorch");
+    // TODO
+    // Need to understand how to the result is in these cases and need to add a
+    // check for the result buffer as well.
+    return;
+  }
+
+  // matmul shape compatibility check
+  // Eg:
+  // If mat1_sizes was (2, 5, 6) and mat2_sizes was (2, 6, 5)
+  // Then the mat1_dim equals 3 in value
+  // mat1_dim - 1 would point to the last dimension in both the sizes vector.
+  // So, mat1_sizes[mat1_dim - 1] == mat2_sizes[mat1_dim - 2]
+  //                6             ==            6
+  // pass
+
+  // If mat1_sizes was (2, 5, 6) and mat2_sizes was (2, 5, 6)
+  // Then the mat1_dim equals 3 in value
+  // mat1_dim - 1 would point to the last dimension in both the sizes vector.
+  // So, mat1_sizes[mat1_dim - 1] == mat2_sizes[mat1_dim - 2]
+  //                6             ==            5
+  // fail
+
+  if (mat1_dim == 3) {
+    ZENTORCH_CHECK(
+        mat1_sizes[0] == mat2_sizes[0],
+        "Tensor shapes incompatible for batch matrix multiplication");
+  }
+
+  ZENTORCH_CHECK(mat1_sizes[mat1_dim - 1] == mat2_sizes[mat1_dim - 2],
+                 "Tensor shapes incompatible for matrix multiplication");
+
+  ZENTORCH_CHECK(result.dim() == mat1_dim,
+                 "unsupported dims for mat1, mat2 and "
+                 "result buffer");
+  ZENTORCH_CHECK(
+      result.sizes() ==
+          c10::IntArrayRef(get_matmul_and_linear_output_sizes(mat1, mat2)),
+      "unsupported shapes for mat1, mat2 and "
+      "result buffer");
+
+  const bool is_bias_defined = bias.numel();
+  if (is_bias_defined) {
+    if (bias.dim() == 1) {
+      const auto bias_sizes = bias.sizes();
+      if (mat1_dim == 2) {
+        ZENTORCH_CHECK(
+            bias_sizes[0] == mat2_sizes[1],
+            "input/bias/self shape is incompatible for addition with "
+            "matrix multiplication product (",
+            mat1_sizes[0], "x", mat1_sizes[1], " @ ", mat2_sizes[0], "x",
+            mat2_sizes[1], " != ", mat1_sizes[0], "x", bias_sizes[0], ")");
+      } else if (mat1_dim == 3) {
+        ZENTORCH_CHECK(
+            bias_sizes[0] == mat2_sizes[2],
+            "input/bias/self shape is incompatible for addition with "
+            "matrix multiplication product (",
+            mat1_sizes[0], "x", mat1_sizes[1], "x", mat1_sizes[2], " @ ",
+            mat2_sizes[0], "x", mat2_sizes[1], "x", mat2_sizes[2],
+            " != ", mat1_sizes[0], "x", mat1_sizes[1], "x", bias_sizes[0], ")");
+      }
+    } else {
+      ZENTORCH_CHECK(false, "unsupported dimensions for input/bias/self");
+    }
+  }
+
+  if (post_op_buffers.size() != 0) {
+    bool are_postops_dim_compatible = true;
+    bool are_postops_shape_compatible = true;
+
+    for (const at::Tensor &buffer : post_op_buffers) {
+      are_postops_dim_compatible =
+          are_postops_dim_compatible && (buffer.dim() == mat1_dim);
+      are_postops_shape_compatible =
+          are_postops_shape_compatible &&
+          (buffer.sizes() ==
+           c10::IntArrayRef(get_matmul_and_linear_output_sizes(mat1, mat2)));
+    }
+
+    ZENTORCH_CHECK(are_postops_dim_compatible,
+                   "unsupported dims for mat1, mat2 and "
+                   "post op buffers");
+    ZENTORCH_CHECK(are_postops_shape_compatible,
+                   "unsupported shapes for mat1, mat2 and "
+                   "post op buffers");
+  } else {
+    LOG(INFO) << "Post Op buffers are not present!\n";
+  }
+}
+
+inline void
+check_valid_dtypes_for_matmul(const at::Tensor &mat1, const at::Tensor &mat2,
+                              const at::Tensor &bias, const at::Tensor &result,
+                              const std::vector<at::Tensor> &post_op_buffers) {
 
   // The flow of this check is as follows:
   // -> The individual datatypes of the tensors are inferred.
@@ -113,24 +263,6 @@ inline bool is_zendnn_optimized_format(const at::Tensor &t) {
   }
 }
 
-// this function returns the output size for matrix multiplication of two
-// tensors - tensor1 @ tensor2 and also it returns the output size for
-// linear operation of these two tensors, and if tensor2 is packed on the
-// last dim it will support the unpacking the size of last dim of tensor2
-inline std::vector<int64_t>
-get_matmul_and_linear_output_sizes(const at::Tensor &tensor1,
-                                   const at::Tensor &tensor2,
-                                   const int64_t unpacking_ratio = 1) {
-  auto tensor1_size = tensor1.sizes();
-  std::vector<int64_t> output_size(tensor1_size.begin(),
-                                   tensor1_size.end() - 1);
-
-  auto tensor2_last_dim_size = tensor2.size(tensor2.dim() - 1);
-  auto calculated_last_dim_size = tensor2_last_dim_size * unpacking_ratio;
-  output_size.push_back(calculated_last_dim_size);
-  return output_size;
-}
-
 // this function returns the 2-d size for n-d inp_tensor,
 // also if inp_tensor is packed on the last dim it will
 // support the unpacking the size of last dim of inp_tensor
@@ -160,10 +292,8 @@ matmul_tensors_to_memory(const at::Tensor &mat1, const at::Tensor &mat2,
                          memory &z_result, const float &beta,
                          const float &alpha) {
 
-  // TODO: Extend the check_valid_sizes function to check the sizes of bias,
-  // result and post_op_buffers.
-  check_valid_sizes(mat1, mat2);
-  check_valid_dtypes(mat1, mat2, bias, result, post_op_buffers);
+  check_valid_dtypes_for_matmul(mat1, mat2, bias, result, post_op_buffers);
+  check_valid_sizes_for_matmul(mat1, mat2, bias, result, post_op_buffers);
 
   // ZenDNN does not support 1-D tensors. So, whenever the tensors are of
   // 1 dimension, they are unsqueezed on the required dimension to make them

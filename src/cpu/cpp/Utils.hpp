@@ -22,6 +22,24 @@
   TORCH_CHECK(condition, __FILE__, ":", __LINE__, " ", __FUNCTION__, " : ",    \
               ##__VA_ARGS__)
 
+namespace zentorch {
+enum UNARY_POST_OP {
+  // add unary post ops here
+  POST_OP_NONE,
+  RELU,
+  GELU_TANH,
+  GELU_ERF,
+  SILU,
+  // add unary post op before this
+  // if you add any post op
+  // update UNARY_OP_COUNT by that post op
+  UNARY_OP_COUNT = SILU
+};
+// initializing the first enum in BINARY_POST_OP so that all post ops will have
+// unique
+enum BINARY_POST_OP { MUL = UNARY_POST_OP::UNARY_OP_COUNT + 1, ADD };
+} // namespace zentorch
+
 namespace zendnn {
 
 using kind = zendnn::primitive::kind;

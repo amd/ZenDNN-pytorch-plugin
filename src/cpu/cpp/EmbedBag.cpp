@@ -5,6 +5,7 @@
 
 #include "EmbedUtils.hpp"
 #include "Memory.hpp"
+
 #include <ATen/ParallelOpenMP.h>
 #define ZENDNN_EMBED_BAG_THRDS 16
 
@@ -171,6 +172,27 @@ std::vector<at::Tensor> zentorch_horizontal_embedding_bag_group(
   LOG(INFO) << "Finished executing: " << __FUNCTION__ << "!\n";
 
   return out_vec;
+}
+
+TORCH_LIBRARY_FRAGMENT(zentorch, m) {
+  m.def("zentorch_embedding_bag(Tensor weight, Tensor indices, Tensor offsets, "
+        "bool scale_grad_by_freq=False, int mode=0, bool sparse=False, Tensor? "
+        "per_sample_weights=None, bool include_last_offset=False, int "
+        "padding_idx=-1, str "
+        "zentorch_op_name='zentorch::zentorch_embedding_bag') -> "
+        "(Tensor, Tensor, Tensor, Tensor)");
+  m.def("zentorch_horizontal_embedding_bag_group(Tensor[] weight, "
+        "Tensor[] indices, Tensor[] offsets, int[] scale_grad_by_freq, "
+        "int[] mode, int[] sparse, Tensor?[] per_sample_weights, "
+        "int[] include_last_offset, int[] padding_idx, str "
+        "zentorch_op_name = "
+        "'zentorch::zentorch_horizontal_embedding_bag_group') -> Tensor[]");
+}
+
+TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
+  m.impl("zentorch_embedding_bag", zentorch_embedding_bag_impl);
+  m.impl("zentorch_horizontal_embedding_bag_group",
+         zentorch_horizontal_embedding_bag_group);
 }
 
 } // namespace zentorch

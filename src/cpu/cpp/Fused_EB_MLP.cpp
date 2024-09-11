@@ -6,6 +6,7 @@
 #include "EmbedUtils.hpp"
 #include "MatmulUtils.hpp"
 #include "Memory.hpp"
+
 #include <ATen/ParallelOpenMP.h>
 #define ZENDNN_EMBED_BAG_THRDS 16
 
@@ -130,17 +131,6 @@ std::vector<at::Tensor> zentorch_fused_eb_mlp(
                       mlp_weights[i].dim() == 2), // aten::addmm
                      "unsupported dims for self, mat1 and mat2");
 
-      // Array access is faster than .size(n)
-      const auto mat1_sizes = mlp_input.sizes();
-      const auto mat2_sizes = mlp_weights[i].sizes();
-      const auto self_sizes = mlp_self[i].sizes();
-
-      ZENTORCH_CHECK(
-          self_sizes[0] == mat2_sizes[1] && mat1_sizes[1] == mat2_sizes[0],
-          "input shape is incompatible with matrix multiplication (",
-          mat1_sizes[0], "x", mat1_sizes[1], " @ ", mat2_sizes[0], "x",
-          mat2_sizes[1], " != ", mat1_sizes[0], "x", self_sizes[0], ")");
-
       at::Tensor result = at::empty(
           get_matmul_and_linear_output_sizes(mlp_input, mlp_weights[i]),
           mlp_input.options());
@@ -212,6 +202,21 @@ std::vector<at::Tensor> zentorch_fused_eb_mlp(
   LOG(INFO) << "Finished executing: " << __FUNCTION__ << "!\n";
 
   return out_vec;
+}
+
+TORCH_LIBRARY_FRAGMENT(zentorch, m) {
+  m.def(
+      "zentorch_fused_eb_mlp(Tensor[] eb_weight, Tensor[] eb_indices, "
+      "Tensor[] eb_offsets, int[] eb_scale_grad_by_freq, int[] eb_mode, int[] "
+      "eb_sparse, Tensor?[] eb_per_sample_weights, "
+      "int[] eb_include_last_offset, int[] eb_padding_idx, Tensor[] mlp_self, "
+      "Tensor mlp_inputs, Tensor[] mlp_weight, float[] mlp_betas, "
+      "float[] mlp_alphas, int[] mlp_fuse, str zentorch_op_name = "
+      "'zentorch::zentorch_fused_eb_mlp') -> Tensor[]");
+}
+
+TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
+  m.impl("zentorch_fused_eb_mlp", zentorch_fused_eb_mlp);
 }
 
 } // namespace zentorch

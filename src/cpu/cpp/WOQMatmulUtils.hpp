@@ -70,39 +70,28 @@ inline void aten_tensor_to_zen_memory_for_woq_linear(
   }
 }
 
-// This function adds dtype, dim, group_size & weight_bits checks
-// for args to zentorch_woq_linear op.
-// This function also checks for the dtypes of the post op buffers
-// based on the input matrix
-inline void torch_checks_for_woq_linear(
-    const at::Tensor &input, const at::Tensor &qweight,
-    const at::Tensor &weight_scales,
-    const std::vector<at::Tensor> &post_op_buffers, const int64_t &group_size,
-    const int64_t &weight_bits, const std::string &compute_dtype,
-    const int64_t &unpacking_ratio) {
+inline bool are_all_zeros(const at::Tensor &inp_tensor) {
+  // count non-zero elements
+  auto non_zero_tensor = inp_tensor.nonzero();
+  return non_zero_tensor.size(0) == 0;
+}
 
-  // The flow of this check is as follows:
-  // -> The compute datatype is checked first, which if not compatible, the
-  //    execution stops.
-  // -> The individual datatypes of the tensors are inferred.
-  // -> The tensors which are inputs to the actual matmul call are confirmed
-  //    to be of datatype bfloat16.
-  // -> If the dataype is bfloat16, the machine capability is checked.
-  // -> Based on the post op buffer vector size, the dtypes of all the post ops
-  //    are determined. Again here, all the post op buffers must be of the same
-  //    dtype, either float32 or bfloat16, not a combination of both.
-
+inline void
+check_valid_dtypes_for_woq(const std::string &compute_dtype,
+                           const at::Tensor &input, const at::Tensor &result,
+                           const std::vector<at::Tensor> &post_op_buffers) {
   ZENTORCH_CHECK(compute_dtype == "bfloat16",
                  "only bfloat16 compute_dtype is supported "
                  "as of now, but the compute_dtype received is ",
                  compute_dtype, ".");
 
-  bool is_input_bf16 = (input.scalar_type() == c10::ScalarType::BFloat16);
+  bool are_params_bf16 = (input.scalar_type() == c10::ScalarType::BFloat16) &&
+                         (result.scalar_type() == c10::ScalarType::BFloat16);
 
-  ZENTORCH_CHECK(is_input_bf16, "currently only bfloat16 input "
-                                "is supported as of now");
+  ZENTORCH_CHECK(are_params_bf16, "only bfloat16 datatype "
+                                  "is supported as of now");
 
-  if (is_input_bf16) {
+  if (are_params_bf16) {
     ZENTORCH_CHECK(utils::zendnn_bf16_device_check(),
                    "zendnn's woq matmul kernel computation "
                    "with bf16 inputs needs the cpu support of avx512bf16");
@@ -122,9 +111,14 @@ inline void torch_checks_for_woq_linear(
   } else {
     LOG(INFO) << "Post Op buffers are not present!\n";
   }
+}
 
-  ZENTORCH_CHECK(qweight.is_contiguous(), "qweight is non-contiguous & it is "
-                                          "not supported yet");
+inline void check_valid_shapes_for_woq(
+    const at::Tensor &input, const at::Tensor &qweight,
+    const at::Tensor &bias_t, const at::Tensor &result,
+    const at::Tensor &weight_scales, const at::Tensor &weight_zero_point_t,
+    const std::vector<at::Tensor> &post_op_buffers, const int64_t &group_size,
+    const int64_t &unpacking_ratio) {
   // zentorch currently only supports the per-channel weight_scales
   // TODO: add support for the per-tensor and per-group weight_scales
   ZENTORCH_CHECK(qweight.dim() == 2 && weight_scales.dim() == 2,
@@ -142,12 +136,83 @@ inline void torch_checks_for_woq_linear(
                  "unsupported sizes for input and qweight");
   ZENTORCH_CHECK(group_size == -1, "currently only "
                                    "group_size = -1 is supported as of now");
+
+  ZENTORCH_CHECK(result.sizes() ==
+                     c10::IntArrayRef(get_matmul_and_linear_output_sizes(
+                         input, qweight, unpacking_ratio)),
+                 "unsupported shapes for input, qweight and "
+                 "result buffer");
+
+  const bool weight_zero_point_defined = weight_zero_point_t.defined();
+  if (weight_zero_point_defined) {
+    LOG(INFO) << "weight_zero_point dimensions: "
+              << weight_zero_point_t.sizes();
+    ZENTORCH_CHECK(weight_zero_point_t.dim() == 2 &&
+                       weight_zero_point_t.size(0) == 1 &&
+                       weight_zero_point_t.size(1) == qweight.size(1),
+                   "incorrect dimensions/shape for "
+                   "weight_zero_point");
+    // TODO: to be tested for perf impact with group size not being -1
+    ZENTORCH_CHECK(are_all_zeros(weight_zero_point_t),
+                   "non-zero weight_zero_point "
+                   "are not supported yet");
+  }
+
+  const bool bias_defined = bias_t.defined();
+  if (bias_defined) {
+    LOG(INFO) << "bias dimensions: " << bias_t.sizes();
+    ZENTORCH_CHECK(bias_t.dim() == 1 &&
+                       bias_t.size(0) == (qweight.size(1) * unpacking_ratio),
+                   "incorrect dimensions/shape for bias");
+  }
+
+  if (post_op_buffers.size() != 0) {
+    bool are_postops_shape_compatible = true;
+    for (const at::Tensor &buffer : post_op_buffers) {
+      are_postops_shape_compatible =
+          are_postops_shape_compatible &&
+          (buffer.sizes() ==
+           c10::IntArrayRef(get_matmul_and_linear_output_sizes(
+               input, qweight, unpacking_ratio)));
+    }
+
+    ZENTORCH_CHECK(are_postops_shape_compatible,
+                   "unsupported shapes for input, qweight and "
+                   "post op buffers");
+  } else {
+    LOG(INFO) << "Post Op buffers are not present!\n";
+  }
 }
 
-inline bool are_all_zeros(const at::Tensor &inp_tensor) {
-  // count non-zero elements
-  auto non_zero_tensor = inp_tensor.nonzero();
-  return non_zero_tensor.size(0) == 0;
+// This function adds dtype, dim, group_size & weight_bits checks
+// for args to zentorch_woq_linear op.
+// This function also checks for the dtypes of the post op buffers
+// based on the input matrix
+inline void checks_for_woq_linear(
+    const at::Tensor &input, const at::Tensor &qweight,
+    const at::Tensor &bias_t, const at::Tensor &result,
+    const at::Tensor &weight_scales, const at::Tensor &weight_zero_point_t,
+    const std::vector<at::Tensor> &post_op_buffers, const int64_t &group_size,
+    const int64_t &weight_bits, const std::string &compute_dtype,
+    const int64_t &unpacking_ratio) {
+
+  // The flow of this check is as follows:
+  // -> The compute datatype is checked first, which if not compatible, the
+  //    execution stops.
+  // -> The individual datatypes of the tensors are inferred.
+  // -> The tensors which are inputs to the actual matmul call are confirmed
+  //    to be of datatype bfloat16.
+  // -> If the dataype is bfloat16, the machine capability is checked.
+  // -> Based on the post op buffer vector size, the dtypes of all the post ops
+  //    are determined. Again here, all the post op buffers must be of the same
+  //    dtype, either float32 or bfloat16, not a combination of both.
+
+  ZENTORCH_CHECK(qweight.is_contiguous(), "qweight is non-contiguous & it is "
+                                          "not supported yet");
+  check_valid_dtypes_for_woq(compute_dtype, input, result, post_op_buffers);
+  check_valid_shapes_for_woq(input, qweight, bias_t, result, weight_scales,
+                             weight_zero_point_t, post_op_buffers, group_size,
+                             unpacking_ratio);
 }
 
 // unpacking_ratio is utilized for unpacking the packed tensors to their

@@ -5,7 +5,6 @@
 
 #include "MatmulUtils.hpp"
 #include "Memory.hpp"
-#include "Ops.hpp"
 
 namespace zentorch {
 
@@ -131,15 +130,6 @@ std::vector<at::Tensor> zentorch_matmul_group_impl(
       ZENTORCH_CHECK((self_vector[i].dim() == 1 && inputs[i].dim() == 2 &&
                       weights[i].dim() == 2), // aten::addmm
                      "unsupported dims for self, mat1 and mat2");
-      // Array access is faster than .size(n)
-      const auto mat1_sizes = inputs[i].sizes();
-      const auto mat2_sizes = weights[i].sizes();
-      const auto self_sizes = self_vector[i].sizes();
-      ZENTORCH_CHECK(
-          self_sizes[0] == mat2_sizes[1] && mat1_sizes[1] == mat2_sizes[0],
-          "input shape is incompatible with matrix multiplication (",
-          mat1_sizes[0], "x", mat1_sizes[1], " @ ", mat2_sizes[0], "x",
-          mat2_sizes[1], " != ", mat1_sizes[0], "x", self_sizes[0], ")");
 
       at::Tensor result =
           at::empty(get_matmul_and_linear_output_sizes(inputs[i], weights[i]),
@@ -217,17 +207,6 @@ at::Tensor zentorch_addmm_1dbias(const at::Tensor &self, const at::Tensor &mat1,
       (self.dim() == 1 && mat1.dim() == 2 && mat2.dim() == 2), // aten::addmm
       "unsupported dims for self, mat1 and mat2");
 
-  // Array access is faster than .size(n)
-  const auto mat1_sizes = mat1.sizes();
-  const auto mat2_sizes = mat2.sizes();
-  const auto self_sizes = self.sizes();
-
-  ZENTORCH_CHECK(self_sizes[0] == mat2_sizes[1] &&
-                     mat1_sizes[1] == mat2_sizes[0],
-                 "input shape is incompatible with matrix multiplication (",
-                 mat1_sizes[0], "x", mat1_sizes[1], " @ ", mat2_sizes[0], "x",
-                 mat2_sizes[1], " != ", mat1_sizes[0], "x", self_sizes[0], ")");
-
   at::Tensor result =
       at::empty(get_matmul_and_linear_output_sizes(mat1, mat2), mat1.options());
 
@@ -247,16 +226,10 @@ zentorch_addmm_1dbias_add(const at::Tensor &self, const at::Tensor &mat1,
                           std::string zentorch_op_name) {
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
-  ZENTORCH_CHECK((add_input.dim() == 2 && mat1.dim() == 2 && mat2.dim() == 2),
-                 "unsupported dims for mat1, mat2 and "
-                 "add_input");
-  ZENTORCH_CHECK(
-      (add_input.sizes() ==
-       c10::IntArrayRef(get_matmul_and_linear_output_sizes(mat1, mat2))),
-      "unsupported sizes for mat1, mat2 and "
-      "add_input");
 
-  ZENTORCH_CHECK((self.dim() == 1), "unsupported dims for self, mat1 and mat2");
+  ZENTORCH_CHECK(
+      (self.dim() == 1 && mat1.dim() == 2 && mat2.dim() == 2), // aten::addmm
+      "unsupported dims for self, mat1 and mat2");
   at::Tensor result = at::empty(add_input.sizes(), add_input.options());
 
   std::vector<at::Tensor> post_op_buffers = {add_input};
@@ -275,18 +248,10 @@ at::Tensor zentorch_addmm_1dbias_add_add(
     std::string zentorch_op_name) {
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
-  ZENTORCH_CHECK((add1_input.dim() == 2 && add2_input.dim() == 2 &&
-                  mat1.dim() == 2 && mat2.dim() == 2),
-                 "unsupported dims for mat1, mat2, "
-                 "add1_input and add2_input");
+
   ZENTORCH_CHECK(
-      (add1_input.sizes() ==
-           c10::IntArrayRef(get_matmul_and_linear_output_sizes(mat1, mat2)) &&
-       add2_input.sizes() ==
-           c10::IntArrayRef(get_matmul_and_linear_output_sizes(mat1, mat2))),
-      "unsupported sizes for mat1, mat2, "
-      "add1_input and add2_input");
-  ZENTORCH_CHECK((self.dim() == 1), "unsupported dims for self, mat1 and mat2");
+      (self.dim() == 1 && mat1.dim() == 2 && mat2.dim() == 2), // aten::addmm
+      "unsupported dims for self, mat1 and mat2");
   at::Tensor result = at::empty(add2_input.sizes(), add2_input.options());
 
   std::vector<at::Tensor> post_op_buffers = {add1_input, add2_input};
@@ -310,6 +275,9 @@ at::Tensor zentorch_addmm(const at::Tensor &self, const at::Tensor &mat1,
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
 
+  ZENTORCH_CHECK((mat1.dim() == 2 && mat2.dim() == 2), // aten::addmm
+                 "unsupported dims for self, mat1 and mat2");
+
   // Here the if condition checks if the matrices are compatible for matrix
   // multiplication and bias addition for any general n-d case. But the
   // TORCH_CHECK conditions specifically checks for the dimensionality
@@ -317,9 +285,6 @@ at::Tensor zentorch_addmm(const at::Tensor &self, const at::Tensor &mat1,
   // zentorch_addmm_1dbias
   if (self.sizes() ==
       c10::IntArrayRef(get_matmul_and_linear_output_sizes(mat1, mat2))) {
-    ZENTORCH_CHECK(
-        (self.dim() == 2 && mat1.dim() == 2 && mat2.dim() == 2), // aten::addmm
-        "unsupported dims for self, mat1 and mat2");
 
     const at::Tensor empty_bias; // dummy empty bias
     float beta_float = beta.to<float>();
@@ -356,10 +321,6 @@ at::Tensor zentorch_addmm(const at::Tensor &self, const at::Tensor &mat1,
                                 post_op_buffers, beta.to<float>(),
                                 alpha.to<float>(), zentorch_op_name);
   } else {
-    ZENTORCH_CHECK(
-        (self.dim() == 1 && mat1.dim() == 2 && mat2.dim() == 2), // aten::addmm
-        "unsupported dims for self, mat1 and mat2");
-
     LOG(INFO) << "Calling zentorch_addmm_1dbias from " << __FUNCTION__ << "!\n";
     return zentorch_addmm_1dbias<fuse>(self, mat1, mat2, beta, alpha,
                                        zentorch_op_name);
@@ -374,23 +335,10 @@ at::Tensor zentorch_baddbmm(const at::Tensor &self, const at::Tensor &batch1,
             << "Executing function: " << __FUNCTION__;
 
   ZENTORCH_CHECK(self.numel() != 0, "incorrect self tensor");
-
-  ZENTORCH_CHECK((self.dim() == 3 && batch1.dim() == 3 &&
-                  batch2.dim() == 3), // aten::baddbmm
+  ZENTORCH_CHECK(self.dim() == 3 && batch1.dim() == 3 &&
+                     batch2.dim() == 3, // aten::baddbmm
                  "unsupported dims for self, batch1 and batch2");
 
-  // Array access is faster than .size(n)
-  const auto batch1_sizes = batch1.sizes();
-  const auto batch2_sizes = batch2.sizes();
-  const auto self_sizes = self.sizes();
-
-  ZENTORCH_CHECK(
-      self_sizes ==
-          c10::IntArrayRef(get_matmul_and_linear_output_sizes(batch1, batch2)),
-      "input shape is incompatible with matrix multiplication (",
-      batch1_sizes[0], "x", batch1_sizes[1], "x", batch1_sizes[2], " @ ",
-      batch2_sizes[0], "x", batch2_sizes[1], "x", batch2_sizes[2],
-      " != ", self_sizes[0], "x", self_sizes[1], "x", self_sizes[2], ")");
   const at::Tensor empty_bias; // dummy empty bias
   float beta_float = beta.to<float>();
   float alpha_float = alpha.to<float>();
@@ -475,6 +423,9 @@ zentorch_addmm_silu_mul(const at::Tensor &bias, const at::Tensor &mat1,
                         const at::Tensor &mat2, const at::Tensor &mat3,
                         const at::Scalar &beta, const at::Scalar &alpha,
                         std::string zentorch_op_name) {
+  LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
+            << "Executing function: " << __FUNCTION__;
+
   at::Tensor matmul_impl_bias; // dummy empty bias, it will be assigned to bias
                                // for 1D case
   at::Tensor out;
@@ -483,29 +434,17 @@ zentorch_addmm_silu_mul(const at::Tensor &bias, const at::Tensor &mat1,
   std::vector<int64_t> post_op_ids;
   float beta_float = beta.to<float>();
 
-  LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
-            << "Executing function: " << __FUNCTION__;
-
   // Here the if condition checks if the matrices are compatible for matrix
   // multiplication and bias addition for any general n-d case. But the
   // TORCH_CHECK conditions specifically checks for the dimensionality
   // conditions which are supported by either zentorch_addmm or
   // zentorch_addmm_1dbias
 
-  // Size checks for post op buffers
-  ZENTORCH_CHECK((mat3.dim() == 2 && mat1.dim() == 2 && mat2.dim() == 2),
+  ZENTORCH_CHECK((mat1.dim() == 2 && mat2.dim() == 2),
                  "unsupported dims for mat1, mat2 and mat3");
-  ZENTORCH_CHECK(
-      (mat3.sizes() ==
-       c10::IntArrayRef(get_matmul_and_linear_output_sizes(mat1, mat2))),
-      "unsupported sizes for mat1, mat2 and mat3");
 
   if (bias.sizes() ==
       c10::IntArrayRef(get_matmul_and_linear_output_sizes(mat1, mat2))) {
-    ZENTORCH_CHECK(
-        (bias.dim() == 2 && mat1.dim() == 2 && mat2.dim() == 2), // aten::addmm
-        "unsupported dims for bias, mat1 and mat2");
-
     // Sending the self tensor (this represents the bias in the nn.Module
     // level) as a post op. Since we were passing self directly to matmul impl,
     // this can cause a problem when we are using
@@ -522,21 +461,6 @@ zentorch_addmm_silu_mul(const at::Tensor &bias, const at::Tensor &mat1,
 
     post_op_ids.push_back(BINARY_POST_OP::ADD);
   } else {
-    ZENTORCH_CHECK(
-        (bias.dim() == 1 && mat1.dim() == 2 && mat2.dim() == 2), // aten::addmm
-        "unsupported dims for bias, mat1 and mat2");
-
-    // Array access is faster than .size(n)
-    const auto mat1_sizes = mat1.sizes();
-    const auto mat2_sizes = mat2.sizes();
-    const auto bias_sizes = bias.sizes();
-
-    ZENTORCH_CHECK(
-        bias_sizes[0] == mat2_sizes[1] && mat1_sizes[1] == mat2_sizes[0],
-        "input shape is incompatible with matrix multiplication (",
-        mat1_sizes[0], "x", mat1_sizes[1], " @ ", mat2_sizes[0], "x",
-        mat2_sizes[1], " != ", mat1_sizes[0], "x", bias_sizes[0], ")");
-
     if (beta_float != 1.0f) {
       matmul_impl_bias = bias.mul(beta_float);
     } else {
@@ -567,13 +491,8 @@ at::Tensor zentorch_mm_silu_mul(const at::Tensor &mat1, const at::Tensor &mat2,
   const float beta = 0.0f;
   const float alpha = 1.0f;
 
-  // Size checks for post op buffers
-  ZENTORCH_CHECK((mat3.dim() == 2 && mat1.dim() == 2 && mat2.dim() == 2),
-                 "unsupported dims for mat1, mat2 and mat3");
-  ZENTORCH_CHECK(
-      (mat3.sizes() ==
-       c10::IntArrayRef(get_matmul_and_linear_output_sizes(mat1, mat2))),
-      "unsupported sizes for mat1, mat2 and mat3");
+  ZENTORCH_CHECK((mat1.dim() == 2 && mat2.dim() == 2),
+                 "unsupported dims for mat1 and mat2");
 
   at::Tensor empty_bias;
   at::Tensor out =
@@ -650,78 +569,130 @@ std::vector<at::Tensor> zentorch_attn_qkv_fusion(
                                     alphas, fuse, true, zentorch_op_name);
 }
 
-// Template instantiations.
-// No post-op.
-template at::Tensor
-zentorch_mm<UNARY_POST_OP::POST_OP_NONE>(const at::Tensor &self,
-                                         const at::Tensor &mat2,
-                                         std::string zentorch_op_name);
-// ReLU.
-template at::Tensor
-zentorch_mm<UNARY_POST_OP::RELU>(const at::Tensor &self, const at::Tensor &mat2,
-                                 std::string zentorch_op_name);
-// GELU Tanh.
-template at::Tensor
-zentorch_mm<UNARY_POST_OP::GELU_TANH>(const at::Tensor &self,
-                                      const at::Tensor &mat2,
-                                      std::string zentorch_op_name);
-// GELU Erf.
-template at::Tensor
-zentorch_mm<UNARY_POST_OP::GELU_ERF>(const at::Tensor &self,
-                                     const at::Tensor &mat2,
-                                     std::string zentorch_op_name);
-// SiLU.
-template at::Tensor
-zentorch_mm<UNARY_POST_OP::SILU>(const at::Tensor &self, const at::Tensor &mat2,
-                                 std::string zentorch_op_name);
-// No post-op.
-template at::Tensor zentorch_addmm<UNARY_POST_OP::POST_OP_NONE>(
-    const at::Tensor &self, const at::Tensor &mat1, const at::Tensor &mat2,
-    const at::Scalar &beta, const at::Scalar &alpha,
-    std::string zentorch_op_name);
-// ReLU.
-template at::Tensor zentorch_addmm<UNARY_POST_OP::RELU>(
-    const at::Tensor &self, const at::Tensor &mat1, const at::Tensor &mat2,
-    const at::Scalar &beta, const at::Scalar &alpha,
-    std::string zentorch_op_name);
-// GELU Tanh.
-template at::Tensor zentorch_addmm<UNARY_POST_OP::GELU_TANH>(
-    const at::Tensor &self, const at::Tensor &mat1, const at::Tensor &mat2,
-    const at::Scalar &beta, const at::Scalar &alpha,
-    std::string zentorch_op_name);
-// GELU Erf.
-template at::Tensor zentorch_addmm<UNARY_POST_OP::GELU_ERF>(
-    const at::Tensor &self, const at::Tensor &mat1, const at::Tensor &mat2,
-    const at::Scalar &beta, const at::Scalar &alpha,
-    std::string zentorch_op_name);
-// SiLU.
-template at::Tensor zentorch_addmm<UNARY_POST_OP::SILU>(
-    const at::Tensor &self, const at::Tensor &mat1, const at::Tensor &mat2,
-    const at::Scalar &beta, const at::Scalar &alpha,
-    std::string zentorch_op_name);
-// No post-op.
-template at::Tensor zentorch_addmm_1dbias<UNARY_POST_OP::POST_OP_NONE>(
-    const at::Tensor &self, const at::Tensor &mat1, const at::Tensor &mat2,
-    const at::Scalar &beta, const at::Scalar &alpha,
-    std::string zentorch_op_name);
-// ReLU.
-template at::Tensor zentorch_addmm_1dbias<UNARY_POST_OP::RELU>(
-    const at::Tensor &self, const at::Tensor &mat1, const at::Tensor &mat2,
-    const at::Scalar &beta, const at::Scalar &alpha,
-    std::string zentorch_op_name);
-// GELU Tanh.
-template at::Tensor zentorch_addmm_1dbias<UNARY_POST_OP::GELU_TANH>(
-    const at::Tensor &self, const at::Tensor &mat1, const at::Tensor &mat2,
-    const at::Scalar &beta, const at::Scalar &alpha,
-    std::string zentorch_op_name);
-// GELU Erf.
-template at::Tensor zentorch_addmm_1dbias<UNARY_POST_OP::GELU_ERF>(
-    const at::Tensor &self, const at::Tensor &mat1, const at::Tensor &mat2,
-    const at::Scalar &beta, const at::Scalar &alpha,
-    std::string zentorch_op_name);
-// SiLU.
-template at::Tensor zentorch_addmm_1dbias<UNARY_POST_OP::SILU>(
-    const at::Tensor &self, const at::Tensor &mat1, const at::Tensor &mat2,
-    const at::Scalar &beta, const at::Scalar &alpha,
-    std::string zentorch_op_name);
+TORCH_LIBRARY_FRAGMENT(zentorch, m) {
+  m.def("zentorch_mm(Tensor self, Tensor mat2, *, str "
+        "zentorch_op_name='zentorch::zentorch_mm') -> Tensor");
+  m.def("zentorch_mm_relu(Tensor self, Tensor mat2, *, str "
+        "zentorch_op_name='zentorch::zentorch_mm_relu') -> Tensor");
+  m.def("zentorch_mm_gelu_tanh(Tensor self, Tensor mat2, *, str "
+        "zentorch_op_name='zentorch::zentorch_mm_gelu_tanh') -> Tensor");
+  m.def("zentorch_mm_gelu_erf(Tensor self, Tensor mat2, *, str "
+        "zentorch_op_name='zentorch::zentorch_mm_gelu_erf') -> Tensor");
+  m.def("zentorch_mm_silu(Tensor self, Tensor mat2, *, str "
+        "zentorch_op_name='zentorch::zentorch_mm_silu') -> Tensor");
+  m.def("zentorch_bmm(Tensor self, Tensor mat2, str "
+        "zentorch_op_name='zentorch::zentorch_bmm') -> Tensor");
+  m.def(
+      "zentorch_addmm(Tensor self, Tensor mat1, Tensor mat2, *, Scalar beta=1, "
+      "Scalar alpha=1, str zentorch_op_name='zentorch::zentorch_addmm') "
+      "-> Tensor");
+  m.def("zentorch_addmm_relu(Tensor self, Tensor mat1, Tensor mat2, *, Scalar "
+        "beta=1, "
+        "Scalar alpha=1, str "
+        "zentorch_op_name='zentorch::zentorch_addmm_relu') -> Tensor");
+  m.def("zentorch_addmm_gelu_tanh(Tensor self, Tensor mat1, Tensor mat2, *, "
+        "Scalar beta=1, "
+        "Scalar alpha=1, str "
+        "zentorch_op_name='zentorch::zentorch_addmm_gelu_tanh') -> "
+        "Tensor");
+  m.def("zentorch_addmm_gelu_erf(Tensor self, Tensor mat1, Tensor mat2, *, "
+        "Scalar beta=1, "
+        "Scalar alpha=1, str "
+        "zentorch_op_name='zentorch::zentorch_addmm_gelu_erf') -> "
+        "Tensor");
+  m.def("zentorch_addmm_silu(Tensor self, Tensor mat1, Tensor mat2, *, "
+        "Scalar beta=1, "
+        "Scalar alpha=1, str "
+        "zentorch_op_name='zentorch::zentorch_addmm_silu') -> "
+        "Tensor");
+  // for 1d bias
+  m.def("zentorch_addmm_1dbias(Tensor self, Tensor mat1, Tensor mat2, *, "
+        "Scalar beta=1, Scalar alpha=1, str "
+        "zentorch_op_name='zentorch::zentorch_addmm_1dbias') -> "
+        "Tensor");
+  m.def("zentorch_addmm_1dbias_add( Tensor self, Tensor mat1, "
+        "Tensor mat2,Tensor add_input, *, "
+        "Scalar beta=1, Scalar alpha=1, str "
+        "zentorch_op_name='zentorch::zentorch_addmm_1dbias_add') -> "
+        "Tensor");
+  m.def("zentorch_addmm_1dbias_add_add( Tensor self, "
+        "Tensor mat1, Tensor mat2, Tensor add1_input, Tensor add2_input, *,"
+        "Scalar beta=1, Scalar alpha=1, str "
+        "zentorch_op_name='zentorch::zentorch_addmm_1dbias_add_add') -> "
+        "Tensor");
+  m.def("zentorch_addmm_1dbias_relu(Tensor self, Tensor mat1, Tensor mat2, *, "
+        "Scalar beta=1, Scalar alpha=1, str "
+        "zentorch_op_name='zentorch::zentorch_addmm_1dbias_relu') -> "
+        "Tensor");
+  m.def("zentorch_addmm_1dbias_gelu_tanh(Tensor self, Tensor mat1, Tensor mat2,"
+        " *, Scalar beta=1, Scalar alpha=1, str "
+        "zentorch_op_name='zentorch::zentorch_addmm_1dbias_gelu_tanh') "
+        "-> Tensor");
+  m.def("zentorch_addmm_1dbias_gelu_erf(Tensor self, Tensor mat1, Tensor mat2,"
+        " *, Scalar beta=1, Scalar alpha=1, str "
+        "zentorch_op_name='zentorch::zentorch_addmm_1dbias_gelu_erf') "
+        "-> Tensor");
+  m.def("zentorch_addmm_1dbias_silu(Tensor self, Tensor mat1, Tensor mat2,"
+        " *, Scalar beta=1, Scalar alpha=1, str "
+        "zentorch_op_name='zentorch::zentorch_addmm_1dbias_silu') "
+        "-> Tensor");
+  m.def("zentorch_baddbmm(Tensor self, Tensor mat1, Tensor mat2, *, Scalar "
+        "beta=1, Scalar alpha=1, str "
+        "zentorch_op_name='zentorch::zentorch_baddbmm') -> "
+        "Tensor");
+  m.def("zentorch_mm_silu_mul(Tensor mat1, Tensor mat2, Tensor mat3, "
+        "str zentorch_op_name='zentorch::zentorch_mm_silu_mul') -> "
+        "Tensor");
+  m.def("zentorch_addmm_silu_mul(Tensor bias, Tensor mat1, Tensor mat2, "
+        "Tensor mat3, Scalar beta=1, Scalar alpha=1, str "
+        "zentorch_op_name='zentorch::zentorch_addmm_silu_mul') -> "
+        "Tensor");
+  m.def("zentorch_addmm_1dbias_silu_mul(Tensor bias, Tensor mat1, Tensor "
+        "mat2, Tensor mat3, Scalar beta=1, Scalar alpha=1, str "
+        "zentorch_op_name='zentorch::zentorch_addmm_1dbias_silu_mul') -> "
+        "Tensor");
+  m.def("zentorch_vertical_mlp_group(Tensor[] self, Tensor inputs, "
+        "Tensor[] weight, float[] betas, float[] alphas, "
+        "int[] fuse, str zentorch_op_name = "
+        "'zentorch::zentorch_vertical_mlp_group') -> "
+        "Tensor");
+  m.def("zentorch_attn_qkv_fusion(Tensor[] self, Tensor[] inputs, "
+        "Tensor[] weights, "
+        "float[] betas, float[] alphas, int[] fuse, int[] is_zentorchmm, str "
+        "zentorch_op_name = "
+        "'zentorch::zentorch_attn_qkv_fusion') -> "
+        "Tensor[]");
+}
+
+TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
+  m.impl("zentorch_mm", zentorch_mm<UNARY_POST_OP::POST_OP_NONE>);
+  m.impl("zentorch_mm_relu", zentorch_mm<UNARY_POST_OP::RELU>);
+  m.impl("zentorch_mm_gelu_tanh", zentorch_mm<UNARY_POST_OP::GELU_TANH>);
+  m.impl("zentorch_mm_gelu_erf", zentorch_mm<UNARY_POST_OP::GELU_ERF>);
+  m.impl("zentorch_mm_silu", zentorch_mm<UNARY_POST_OP::SILU>);
+  m.impl("zentorch_bmm", zentorch_bmm);
+  m.impl("zentorch_addmm", zentorch_addmm<UNARY_POST_OP::POST_OP_NONE>);
+  m.impl("zentorch_addmm_relu", zentorch_addmm<UNARY_POST_OP::RELU>);
+  m.impl("zentorch_addmm_gelu_tanh", zentorch_addmm<UNARY_POST_OP::GELU_TANH>);
+  m.impl("zentorch_addmm_gelu_erf", zentorch_addmm<UNARY_POST_OP::GELU_ERF>);
+  m.impl("zentorch_addmm_silu", zentorch_addmm<UNARY_POST_OP::SILU>);
+  m.impl("zentorch_addmm_1dbias",
+         zentorch_addmm_1dbias<UNARY_POST_OP::POST_OP_NONE>);
+  m.impl("zentorch_addmm_1dbias_add", zentorch_addmm_1dbias_add);
+  m.impl("zentorch_addmm_1dbias_add_add", zentorch_addmm_1dbias_add_add);
+  m.impl("zentorch_addmm_1dbias_relu",
+         zentorch_addmm_1dbias<UNARY_POST_OP::RELU>);
+  m.impl("zentorch_addmm_1dbias_gelu_tanh",
+         zentorch_addmm_1dbias<UNARY_POST_OP::GELU_TANH>);
+  m.impl("zentorch_addmm_1dbias_gelu_erf",
+         zentorch_addmm_1dbias<UNARY_POST_OP::GELU_ERF>);
+  m.impl("zentorch_addmm_1dbias_silu",
+         zentorch_addmm_1dbias<UNARY_POST_OP::SILU>);
+  m.impl("zentorch_baddbmm", zentorch_baddbmm);
+  m.impl("zentorch_mm_silu_mul", zentorch_mm_silu_mul);
+  m.impl("zentorch_addmm_silu_mul", zentorch_addmm_silu_mul);
+  m.impl("zentorch_addmm_1dbias_silu_mul", zentorch_addmm_silu_mul);
+  m.impl("zentorch_vertical_mlp_group", zentorch_vertical_mlp_group);
+  m.impl("zentorch_attn_qkv_fusion", zentorch_attn_qkv_fusion);
+}
 } // namespace zentorch

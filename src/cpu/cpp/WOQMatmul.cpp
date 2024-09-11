@@ -5,7 +5,6 @@
 
 #include "MatmulUtils.hpp"
 #include "Memory.hpp"
-#include "Ops.hpp"
 #include "WOQMatmulUtils.hpp"
 
 namespace zentorch {
@@ -32,41 +31,20 @@ at::Tensor zentorch_woq_linear_impl(
   LOG(INFO) << "result dimensions: " << result.sizes();
   LOG(INFO) << "Unpacking ratio : " << unpacking_ratio;
 
-  torch_checks_for_woq_linear(input, qweight, weight_scales, post_op_buffers,
-                              group_size, weight_bits, compute_dtype,
-                              unpacking_ratio);
-
-  auto input_contiguous = input.is_contiguous() ? input : input.contiguous();
-
   c10::MaybeOwned<at::Tensor> bias_maybe_owned =
       at::borrow_from_optional_tensor(bias);
   const at::Tensor &bias_t = *bias_maybe_owned;
   const bool bias_defined = bias_t.defined();
-  if (bias_defined) {
-    LOG(INFO) << "bias dimensions: " << bias_t.sizes();
-    ZENTORCH_CHECK(bias_t.dim() == 1 &&
-                       bias_t.size(0) == (qweight.size(1) * unpacking_ratio),
-                   "incorrect dimensions/shape for bias");
-  }
 
   c10::MaybeOwned<at::Tensor> weight_zero_point_maybe_owned =
       at::borrow_from_optional_tensor(weight_zero_point);
   const at::Tensor &weight_zero_point_t = *weight_zero_point_maybe_owned;
-  const bool weight_zero_point_defined = weight_zero_point_t.defined();
 
-  if (weight_zero_point_defined) {
-    LOG(INFO) << "weight_zero_point dimensions: "
-              << weight_zero_point_t.sizes();
-    ZENTORCH_CHECK(weight_zero_point_t.dim() == 2 &&
-                       weight_zero_point_t.size(0) == 1 &&
-                       weight_zero_point_t.size(1) == qweight.size(1),
-                   "incorrect dimensions/shape for "
-                   "weight_zero_point");
-    // TODO: to be tested for perf impact with group size not being -1
-    ZENTORCH_CHECK(are_all_zeros(weight_zero_point_t),
-                   "non-zero weight_zero_point "
-                   "are not supported yet");
-  }
+  checks_for_woq_linear(input, qweight, bias_t, result, weight_scales,
+                        weight_zero_point_t, post_op_buffers, group_size,
+                        weight_bits, compute_dtype, unpacking_ratio);
+
+  auto input_contiguous = input.is_contiguous() ? input : input.contiguous();
 
   memory z_input, z_bias, z_qweight, z_result, z_woq_scales;
   aten_tensor_to_zen_memory_for_woq_linear(
@@ -146,12 +124,6 @@ at::Tensor zentorch_woq_linear_binary(
             << "Executing function: " << __FUNCTION__;
   const int64_t unpacking_ratio = get_unpacking_ratio(qweight, weight_bits);
 
-  ZENTORCH_CHECK(binary_input.sizes() ==
-                     c10::IntArrayRef(get_matmul_and_linear_output_sizes(
-                         input, qweight, unpacking_ratio)),
-                 "unsupported sizes for woq_linear "
-                 "result and binary_input");
-
   at::Tensor result = at::empty(binary_input.sizes(), binary_input.options());
 
   std::vector<at::Tensor> post_op_buffers = {binary_input};
@@ -175,11 +147,6 @@ at::Tensor zentorch_woq_linear_silu_mul(
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
   const int64_t unpacking_ratio = get_unpacking_ratio(qweight, weight_bits);
-
-  ZENTORCH_CHECK(mul_input.sizes() ==
-                     c10::IntArrayRef(get_matmul_and_linear_output_sizes(
-                         input, qweight, unpacking_ratio)),
-                 "unsupported sizes for woq_linear result and mul_input");
 
   at::Tensor result = at::empty(mul_input.sizes(), mul_input.options());
 
@@ -206,15 +173,6 @@ at::Tensor zentorch_woq_linear_add_add(
             << "Executing function: " << __FUNCTION__;
   const int64_t unpacking_ratio = get_unpacking_ratio(qweight, weight_bits);
 
-  ZENTORCH_CHECK((add1_input.sizes() ==
-                  c10::IntArrayRef(get_matmul_and_linear_output_sizes(
-                      input, qweight, unpacking_ratio))) &&
-                     (add2_input.sizes() ==
-                      c10::IntArrayRef(get_matmul_and_linear_output_sizes(
-                          input, qweight, unpacking_ratio))),
-                 "unsupported sizes for woq_linear "
-                 "result, add1_input and add2_input");
-
   at::Tensor result = at::empty(add2_input.sizes(), add2_input.options());
 
   std::vector<at::Tensor> post_op_buffers = {add1_input, add2_input};
@@ -228,54 +186,69 @@ at::Tensor zentorch_woq_linear_add_add(
       unpacking_ratio, zentorch_op_name);
 }
 
-// Template instantiations
-// The "zentorch_woq_linear" instantiations
-// No post-op
-template at::Tensor zentorch_woq_linear<UNARY_POST_OP::POST_OP_NONE>(
-    const at::Tensor &input, const at::Tensor &qweight,
-    const at::Tensor &weight_scales,
-    const c10::optional<at::Tensor> &weight_zero_point,
-    const c10::optional<at::Tensor> &bias, const int64_t &group_size,
-    const int64_t &weight_bits, const std::string &compute_dtype,
-    std::string zentorch_op_name);
-// Post op RELU
-template at::Tensor zentorch_woq_linear<UNARY_POST_OP::RELU>(
-    const at::Tensor &input, const at::Tensor &qweight,
-    const at::Tensor &weight_scales,
-    const c10::optional<at::Tensor> &weight_zero_point,
-    const c10::optional<at::Tensor> &bias, const int64_t &group_size,
-    const int64_t &weight_bits, const std::string &compute_dtype,
-    std::string zentorch_op_name);
-// Post op SILU
-template at::Tensor zentorch_woq_linear<UNARY_POST_OP::SILU>(
-    const at::Tensor &input, const at::Tensor &qweight,
-    const at::Tensor &weight_scales,
-    const c10::optional<at::Tensor> &weight_zero_point,
-    const c10::optional<at::Tensor> &bias, const int64_t &group_size,
-    const int64_t &weight_bits, const std::string &compute_dtype,
-    std::string zentorch_op_name);
-// Post op GELU ERF
-template at::Tensor zentorch_woq_linear<UNARY_POST_OP::GELU_ERF>(
-    const at::Tensor &input, const at::Tensor &qweight,
-    const at::Tensor &weight_scales,
-    const c10::optional<at::Tensor> &weight_zero_point,
-    const c10::optional<at::Tensor> &bias, const int64_t &group_size,
-    const int64_t &weight_bits, const std::string &compute_dtype,
-    std::string zentorch_op_name);
-// Post op GELU TANH
-template at::Tensor zentorch_woq_linear<UNARY_POST_OP::GELU_TANH>(
-    const at::Tensor &input, const at::Tensor &qweight,
-    const at::Tensor &weight_scales,
-    const c10::optional<at::Tensor> &weight_zero_point,
-    const c10::optional<at::Tensor> &bias, const int64_t &group_size,
-    const int64_t &weight_bits, const std::string &compute_dtype,
-    std::string zentorch_op_name);
+TORCH_LIBRARY_FRAGMENT(zentorch, m) {
+  m.def(
+      "zentorch_woq_linear(Tensor input, Tensor qweight, Tensor weight_scales, "
+      "Tensor? weight_zero_point, Tensor? bias, int group_size=-1, "
+      "int weight_bits=4, str compute_dtype = 'bfloat16', str zentorch_op_name "
+      "= 'zentorch::zentorch_woq_linear') -> Tensor");
+  m.def(
+      "zentorch_woq_linear_relu(Tensor input, Tensor qweight, Tensor "
+      "weight_scales, "
+      "Tensor? weight_zero_point, Tensor? bias, int group_size=-1, "
+      "int weight_bits=4, str compute_dtype = 'bfloat16', str zentorch_op_name "
+      "= 'zentorch::zentorch_woq_linear_relu') -> Tensor");
+  m.def(
+      "zentorch_woq_linear_silu(Tensor input, Tensor qweight, Tensor "
+      "weight_scales, "
+      "Tensor? weight_zero_point, Tensor? bias, int group_size=-1, "
+      "int weight_bits=4, str compute_dtype = 'bfloat16', str zentorch_op_name "
+      "= 'zentorch::zentorch_woq_linear_silu') -> Tensor");
+  m.def(
+      "zentorch_woq_linear_gelu_erf(Tensor input, Tensor qweight, Tensor "
+      "weight_scales, "
+      "Tensor? weight_zero_point, Tensor? bias, int group_size=-1, "
+      "int weight_bits=4, str compute_dtype = 'bfloat16', str zentorch_op_name "
+      "= 'zentorch::zentorch_woq_linear_gelu_erf') -> Tensor");
+  m.def(
+      "zentorch_woq_linear_gelu_tanh(Tensor input, Tensor qweight, Tensor "
+      "weight_scales, "
+      "Tensor? weight_zero_point, Tensor? bias, int group_size=-1, "
+      "int weight_bits=4, str compute_dtype = 'bfloat16', str zentorch_op_name "
+      "= 'zentorch::zentorch_woq_linear_gelu_tanh') -> Tensor");
+  m.def(
+      "zentorch_woq_linear_add(Tensor input, Tensor qweight, Tensor "
+      "weight_scales, Tensor? weight_zero_point, Tensor? bias, Tensor "
+      "binary_input, "
+      "int group_size=-1, int weight_bits=4, str compute_dtype = 'bfloat16', "
+      "str zentorch_op_name = 'zentorch::zentorch_woq_linear_add') -> Tensor");
 
-template at::Tensor zentorch_woq_linear_binary<BINARY_POST_OP::ADD>(
-    const at::Tensor &input, const at::Tensor &qweight,
-    const at::Tensor &weight_scales,
-    const c10::optional<at::Tensor> &weight_zero_point,
-    const c10::optional<at::Tensor> &bias, const at::Tensor &binary_input,
-    const int64_t &group_size, const int64_t &weight_bits,
-    const std::string &compute_dtype, std::string zentorch_op_name);
+  m.def("zentorch_woq_linear_silu_mul(Tensor input, Tensor qweight, Tensor "
+        "weight_scales, Tensor? weight_zero_point, Tensor? bias, Tensor "
+        "mul_input, "
+        "int group_size=-1, int weight_bits=4, str compute_dtype = 'bfloat16', "
+        "str zentorch_op_name = 'zentorch::zentorch_woq_linear_silu_mul') -> "
+        "Tensor");
+  m.def("zentorch_woq_linear_add_add(Tensor input, Tensor qweight, Tensor "
+        "weight_scales, Tensor? weight_zero_point, Tensor? bias, Tensor "
+        "add1_input, Tensor add2_input, "
+        "int group_size=-1, int weight_bits=4, str compute_dtype = 'bfloat16', "
+        "str zentorch_op_name = 'zentorch::zentorch_woq_linear_add_add') -> "
+        "Tensor");
+}
+
+TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
+  m.impl("zentorch_woq_linear",
+         zentorch_woq_linear<UNARY_POST_OP::POST_OP_NONE>);
+  m.impl("zentorch_woq_linear_relu", zentorch_woq_linear<UNARY_POST_OP::RELU>);
+  m.impl("zentorch_woq_linear_silu", zentorch_woq_linear<UNARY_POST_OP::SILU>);
+  m.impl("zentorch_woq_linear_gelu_erf",
+         zentorch_woq_linear<UNARY_POST_OP::GELU_ERF>);
+  m.impl("zentorch_woq_linear_gelu_tanh",
+         zentorch_woq_linear<UNARY_POST_OP::GELU_TANH>);
+  m.impl("zentorch_woq_linear_add",
+         zentorch_woq_linear_binary<BINARY_POST_OP::ADD>);
+  m.impl("zentorch_woq_linear_silu_mul", zentorch_woq_linear_silu_mul);
+  m.impl("zentorch_woq_linear_add_add", zentorch_woq_linear_add_add);
+}
 } // namespace zentorch
