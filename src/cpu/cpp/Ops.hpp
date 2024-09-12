@@ -153,6 +153,13 @@ zentorch_woq_linear(const at::Tensor &input, const at::Tensor &qweight,
                     const int64_t &group_size, const int64_t &weight_bits,
                     const std::string &compute_dtype,
                     std::string zentorch_op_name);
+at::Tensor zentorch_woq_linear_silu_mul(
+    const at::Tensor &input, const at::Tensor &qweight,
+    const at::Tensor &weight_scales,
+    const c10::optional<at::Tensor> &weight_zero_point,
+    const c10::optional<at::Tensor> &bias, const at::Tensor &mul_input,
+    const int64_t &group_size, const int64_t &weight_bits,
+    const std::string &compute_dtype, std::string zentorch_op_name);
 
 template <BINARY_POST_OP fuse = BINARY_POST_OP::ADD>
 at::Tensor zentorch_woq_linear_binary(

@@ -584,6 +584,21 @@ def meta_zentorch_woq_linear_add_add(
     return add2_input.new_empty((add2_input.size()))
 
 
+@register_meta("zentorch_woq_linear_silu_mul")
+def meta_zentorch_woq_linear_silu_mul(
+    input,
+    qweight,
+    weight_scales,
+    weight_zero_point,
+    bias,
+    mul_input,
+    group_size=-1,
+    weight_bits=4,
+    compute_dtype="bfloat16",
+):
+    return mul_input.new_empty((mul_input.size()))
+
+
 make_fallback(torch.ops.zentorch.zentorch_addmm)
 make_fallback(torch.ops.zentorch.zentorch_addmm_relu)
 make_fallback(torch.ops.zentorch.zentorch_addmm_silu)

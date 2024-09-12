@@ -192,6 +192,13 @@ TORCH_LIBRARY(zentorch, m) {
       "binary_input, "
       "int group_size=-1, int weight_bits=4, str compute_dtype = 'bfloat16', "
       "str zentorch_op_name = 'zentorch::zentorch_woq_linear_add') -> Tensor");
+
+  m.def("zentorch_woq_linear_silu_mul(Tensor input, Tensor qweight, Tensor "
+        "weight_scales, Tensor? weight_zero_point, Tensor? bias, Tensor "
+        "mul_input, "
+        "int group_size=-1, int weight_bits=4, str compute_dtype = 'bfloat16', "
+        "str zentorch_op_name = 'zentorch::zentorch_woq_linear_silu_mul') -> "
+        "Tensor");
   m.def("zentorch_woq_linear_add_add(Tensor input, Tensor qweight, Tensor "
         "weight_scales, Tensor? weight_zero_point, Tensor? bias, Tensor "
         "add1_input, Tensor add2_input, "
@@ -264,6 +271,8 @@ TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
          zentorch::zentorch_woq_linear<zentorch::UNARY_POST_OP::GELU_TANH>);
   m.impl("zentorch_woq_linear_add",
          zentorch::zentorch_woq_linear_binary<zentorch::BINARY_POST_OP::ADD>);
+  m.impl("zentorch_woq_linear_silu_mul",
+         zentorch::zentorch_woq_linear_silu_mul);
   m.impl("zentorch_woq_linear_add_add", zentorch::zentorch_woq_linear_add_add);
 }
 

@@ -168,6 +168,37 @@ at::Tensor zentorch_woq_linear_binary(
       unpacking_ratio, zentorch_op_name);
 }
 
+at::Tensor zentorch_woq_linear_silu_mul(
+    const at::Tensor &input, const at::Tensor &qweight,
+    const at::Tensor &weight_scales,
+    const c10::optional<at::Tensor> &weight_zero_point,
+    const c10::optional<at::Tensor> &bias, const at::Tensor &mul_input,
+    const int64_t &group_size, const int64_t &weight_bits,
+    const std::string &compute_dtype, std::string zentorch_op_name) {
+  LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
+            << "Executing function: " << __FUNCTION__;
+  const int64_t unpacking_ratio = get_unpacking_ratio(qweight, weight_bits);
+
+  TORCH_CHECK(mul_input.sizes() ==
+                  c10::IntArrayRef(get_matmul_and_linear_output_sizes(
+                      input, qweight, unpacking_ratio)),
+              " zentorch_woq_linear_silu_mul: unsupported sizes for woq_linear "
+              "result and mul_input");
+
+  at::Tensor result = at::empty(mul_input.sizes(), mul_input.options());
+
+  LOG(INFO) << "Calling zentorch_woq_linear_impl from " << __FUNCTION__
+            << "!\n";
+
+  std::vector<at::Tensor> post_op_buffers = {mul_input};
+  std::vector<int64_t> post_op_ids = {UNARY_POST_OP::SILU, BINARY_POST_OP::MUL};
+
+  return zentorch_woq_linear_impl(
+      input, qweight, weight_scales, weight_zero_point, bias, result,
+      post_op_ids, post_op_buffers, group_size, weight_bits, compute_dtype,
+      unpacking_ratio, zentorch_op_name);
+}
+
 at::Tensor zentorch_woq_linear_add_add(
     const at::Tensor &input, const at::Tensor &qweight,
     const at::Tensor &weight_scales,

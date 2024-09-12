@@ -152,6 +152,11 @@ class Test_Data(metaclass=Singleton):
             3: torch.randn(4, 32, 32).type(torch_type),
             4: torch.randn(4, 4, 32, 32).type(torch_type),
         }
+        self.woq_mul = {
+            2: torch.randn(32, 32).type(torch_type),
+            3: torch.randn(4, 32, 32).type(torch_type),
+            4: torch.randn(4, 4, 32, 32).type(torch_type),
+        }
         self.woq_qweight = torch.randn(32, 4).type(torch.int32)
         self.woq_scales = torch.randn(1, 32).type(torch.float32)
         self.woq_qzeros = [
@@ -3504,10 +3509,10 @@ class CustomModel_WOQLinear_Add_sequential(nn.Module):
         super(CustomModel_WOQLinear_Add_sequential, self).__init__()
 
     def forward(self, inp, qweight, woq_scales, woq_qzeros, woq_bias, add1, add2):
-        x = torch.ops.zentorch.zentorch_woq_linear(
+        woq_out = torch.ops.zentorch.zentorch_woq_linear(
             inp, qweight, woq_scales, woq_qzeros, woq_bias
         )
-        add_1_res = torch.add(x, add1)
+        add_1_res = torch.add(woq_out, add1)
         add_res = torch.add(add_1_res, add2)
         y = torch.ops.zentorch.zentorch_woq_linear(
             add_res, qweight, woq_scales, woq_qzeros, woq_bias
@@ -3523,10 +3528,10 @@ class CustomModel_WOQLinear_Add_parallel(nn.Module):
         super(CustomModel_WOQLinear_Add_parallel, self).__init__()
 
     def forward(self, inp, qweight, woq_scales, woq_qzeros, woq_bias, add1, add2):
-        x = torch.ops.zentorch.zentorch_woq_linear(
+        woq_out = torch.ops.zentorch.zentorch_woq_linear(
             inp, qweight, woq_scales, woq_qzeros, woq_bias
         )
-        add_1_res = torch.add(x, add1)
+        add_1_res = torch.add(woq_out, add1)
         add_res = torch.add(add_1_res, add2)
         y = torch.ops.zentorch.zentorch_woq_linear(
             inp, qweight, woq_scales, woq_qzeros, woq_bias
@@ -3534,6 +3539,19 @@ class CustomModel_WOQLinear_Add_parallel(nn.Module):
         add_2_res = torch.add(y, add1)
         add3 = add_res * add_2_res
         return add3
+
+
+class CustomModel_WOQLinear_Silu_Mul(nn.Module):
+    def __init__(self):
+        super(CustomModel_WOQLinear_Silu_Mul, self).__init__()
+
+    def forward(self, inp, qweight, woq_scales, woq_qzeros, woq_bias, mul):
+        woq_out = torch.ops.zentorch.zentorch_woq_linear(
+            inp, qweight, woq_scales, woq_qzeros, woq_bias
+        )
+        silu_res = torch.nn.functional.silu(woq_out)
+        res = torch.mul(silu_res, mul)
+        return res
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
@@ -3617,6 +3635,39 @@ class Test_WOQ_Linear(Zentorch_TestCase):
         skip_on_empty=True,
     )
     @torch.inference_mode()
+    def test_woq_linear_silu_mul(
+        self, dtype, woq_input_dim, woq_bias_idx, woq_qzeros_idx
+    ):
+        self.data.create_data(dtype)
+        model = CustomModel_WOQLinear_Silu_Mul().eval()
+        zentorch_model = copy.deepcopy(model)
+        _ = model(
+            self.data.woq_input[woq_input_dim],
+            self.data.woq_qweight,
+            self.data.woq_scales,
+            self.data.woq_qzeros[woq_qzeros_idx],
+            self.data.woq_bias[woq_bias_idx],
+            self.data.woq_mul[woq_input_dim],
+        )
+        reset_dynamo()
+        compiled_graph = torch.compile(zentorch_model, backend="zentorch")
+        counters.clear()
+        self.assertEqual(counters["zentorch"]["pattern_matcher_woq_silu_mul"], 0)
+        _ = compiled_graph(
+            self.data.woq_input[woq_input_dim],
+            self.data.woq_qweight,
+            self.data.woq_scales,
+            self.data.woq_qzeros[woq_qzeros_idx],
+            self.data.woq_bias[woq_bias_idx],
+            self.data.woq_mul[woq_input_dim],
+        )
+        self.assertEqual(counters["zentorch"]["pattern_matcher_woq_silu_mul"], 1)
+
+    @parameterized.expand(
+        product(woq_dtypes, woq_input_dim_opt, woq_bias_opt, woq_qzeros_opt),
+        skip_on_empty=True,
+    )
+    @torch.inference_mode()
     def test_zentorch_woq_linear_torch_checks(
         self, dtype, woq_input_dim, woq_bias_idx, woq_qzeros_idx
     ):
@@ -3634,7 +3685,6 @@ class Test_WOQ_Linear(Zentorch_TestCase):
                 4,
                 "float32",  # incorrect compute_dtype
             )
-        print(str(context.exception))
         self.assertTrue(
             "torch_checks_for_woq_linear: only bfloat16 compute_dtype is "
             "supported as of now, but the compute_dtype received is float32."
@@ -3652,7 +3702,6 @@ class Test_WOQ_Linear(Zentorch_TestCase):
                 -1,
                 8,  # incorrect weight_bits
             )
-        print(str(context.exception))
         self.assertTrue(
             "get_unpacking_ratio: only int4 woq is supported "
             "currently with qweight packed into int32" == str(context.exception)
@@ -3668,7 +3717,6 @@ class Test_WOQ_Linear(Zentorch_TestCase):
                 self.data.woq_bias[woq_bias_idx],
                 128,  # incorrect group_size
             )
-        print(str(context.exception))
         self.assertTrue(
             "torch_checks_for_woq_linear: currently only group_size = -1 "
             "is supported as of now" == str(context.exception)
@@ -3685,7 +3733,6 @@ class Test_WOQ_Linear(Zentorch_TestCase):
                 self.data.woq_qzeros[woq_qzeros_idx],
                 self.data.woq_bias[woq_bias_idx],
             )
-        print(str(context.exception))
         self.assertTrue(
             "torch_checks_for_woq_linear: currently only bfloat16 input "
             "is supported as of now" == str(context.exception)
@@ -3700,7 +3747,6 @@ class Test_WOQ_Linear(Zentorch_TestCase):
                 self.data.woq_qzeros[woq_qzeros_idx],
                 self.data.woq_bias[woq_bias_idx],
             )
-        print(str(context.exception))
         self.assertTrue(
             "get_unpacking_ratio: only int4 woq is supported "
             "currently with qweight packed into int32" == str(context.exception)
@@ -3715,7 +3761,6 @@ class Test_WOQ_Linear(Zentorch_TestCase):
                 self.data.woq_qzeros[woq_qzeros_idx],
                 self.data.woq_bias[woq_bias_idx],
             )
-        print(str(context.exception))
         self.assertTrue(
             "torch_checks_for_woq_linear: currently only float32 "
             "weight_scales are supported as of now" == str(context.exception)
@@ -3730,7 +3775,6 @@ class Test_WOQ_Linear(Zentorch_TestCase):
                 self.data.woq_qzeros[woq_qzeros_idx],
                 self.data.woq_bias[woq_bias_idx],
             )
-        print(str(context.exception))
         self.assertTrue(
             "torch_checks_for_woq_linear: qweight is non-contiguous & "
             "it is not supported yet" == str(context.exception)
@@ -3745,7 +3789,6 @@ class Test_WOQ_Linear(Zentorch_TestCase):
                 self.data.woq_qzeros[woq_qzeros_idx],
                 self.data.woq_bias[woq_bias_idx],
             )
-        print(str(context.exception))
         self.assertTrue(
             "torch_checks_for_woq_linear: unsupported sizes for input and qweight"
             == str(context.exception)
@@ -3760,13 +3803,11 @@ class Test_WOQ_Linear(Zentorch_TestCase):
                 self.data.woq_qzeros[woq_qzeros_idx],
                 self.data.woq_bias[woq_bias_idx],
             )
-        print(str(context.exception))
         self.assertTrue(
             "torch_checks_for_woq_linear: unsupported dims for "
             "qweight and weight_scales" == str(context.exception)
         )
 
-        print(self.data.woq_qzeros_nonzero)
         # unsupported qzeros check
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_woq_linear(
@@ -3776,7 +3817,6 @@ class Test_WOQ_Linear(Zentorch_TestCase):
                 self.data.woq_qzeros_nonzero,  # non-zero qzeros
                 self.data.woq_bias[woq_bias_idx],
             )
-        print(self.data.woq_qzeros_nonzero)
         self.assertTrue(
             "zentorch_woq_linear_impl: non-zero weight_zero_point "
             "are not supported yet" == str(context.exception)
@@ -3791,7 +3831,6 @@ class Test_WOQ_Linear(Zentorch_TestCase):
                 self.data.woq_qzeros[woq_qzeros_idx],
                 self.data.woq_bias[woq_bias_idx],
             )
-        print(str(context.exception))
         self.assertTrue(
             "zentorch_woq_linear_impl: incorrect dimensions/shape "
             "for weight_scales" == str(context.exception)
@@ -3806,7 +3845,6 @@ class Test_WOQ_Linear(Zentorch_TestCase):
                 self.data.woq_qweight,  # qzero with incorrect shape
                 self.data.woq_bias[woq_bias_idx],
             )
-        print(str(context.exception))
         self.assertTrue(
             "zentorch_woq_linear_impl: incorrect dimensions/shape for "
             "weight_zero_point" == str(context.exception)
@@ -3821,7 +3859,6 @@ class Test_WOQ_Linear(Zentorch_TestCase):
                 self.data.woq_qzeros[woq_qzeros_idx],
                 self.data.input1d,  # bias with incorrect shape
             )
-        print(str(context.exception))
         self.assertTrue(
             "zentorch_woq_linear_impl: incorrect dimensions/shape "
             "for bias" == str(context.exception)
@@ -3836,7 +3873,6 @@ class Test_WOQ_Linear(Zentorch_TestCase):
                 self.data.woq_qzeros[woq_qzeros_idx],
                 self.data.woq_bias[woq_bias_idx],
             )
-        print(str(context.exception))
         self.assertTrue(
             "torch_checks_for_woq_linear: unsupported dims for "
             "qweight and weight_scales" == str(context.exception)
