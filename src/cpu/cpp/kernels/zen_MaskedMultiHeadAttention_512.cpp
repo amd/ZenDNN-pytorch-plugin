@@ -58,7 +58,8 @@ void reduce_head(const float *q_ptr_start, const float *k_ptr_start,
   }
   attn_w_pos[0] += _mm512_reduce_add_ps(qk_sum_vec);
   for (; hsi < head_size; hsi++) {
-    k_cache_start[hsi] = k_ptr_start[hsi]; // cat the key into the key_cache.
+    if (store_key)
+      k_cache_start[hsi] = k_ptr_start[hsi]; // cat the key into the key_cache.
     attn_w_pos[0] += q_ptr_start[hsi] * k_ptr_start[hsi];
   }
 }

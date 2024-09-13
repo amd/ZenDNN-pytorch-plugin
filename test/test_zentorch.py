@@ -3810,11 +3810,11 @@ class MiniMHATester(TestCase):
         torch.manual_seed(SEED)
         random.seed(SEED)
         self.mha = MaskedMHATest()
-        self.beam_size_list = [1]
-        self.batch_size_list = [1]
+        self.beam_size = 1
+        self.batch_size = 1
         self.head_size = 256
         self.head_num = 16
-        self.head_num_kv_list = [1]
+        self.head_num_kv = 1
         self.max_seq_len = 64
         self.first_seq_len = 32
 
@@ -3823,11 +3823,11 @@ class MiniMHATester(TestCase):
 
     def test_mha(self):
         self.mha._test_mha(
-            self.beam_size_list,
-            self.batch_size_list,
+            self.beam_size,
+            self.batch_size,
             self.head_size,
             self.head_num,
-            self.head_num_kv_list,
+            self.head_num_kv,
             self.max_seq_len,
             self.first_seq_len,
         )
