@@ -41,7 +41,7 @@ def meta_zentorch_addmm(
     alpha=1,
     beta=1,
 ):
-    return input.new_empty((input.shape[0], weight.shape[-1]))
+    return bias.new_empty((input.shape[0], weight.shape[-1]))
 
 
 @register_meta("zentorch_addmm_relu")
@@ -52,7 +52,7 @@ def meta_zentorch_addmm_relu(
     alpha=1,
     beta=1,
 ):
-    return input.new_empty((input.shape[0], weight.shape[-1]))
+    return bias.new_empty((input.shape[0], weight.shape[-1]))
 
 
 @register_meta("zentorch_addmm_silu")
@@ -63,7 +63,7 @@ def meta_zentorch_addmm_silu(
     alpha=1,
     beta=1,
 ):
-    return input.new_empty((input.shape[0], weight.shape[-1]))
+    return bias.new_empty((input.shape[0], weight.shape[-1]))
 
 
 @register_meta("zentorch_addmm_gelu_tanh")
@@ -74,7 +74,7 @@ def meta_zentorch_addmm_gelu_tanh(
     alpha=1,
     beta=1,
 ):
-    return input.new_empty((input.shape[0], weight.shape[-1]))
+    return bias.new_empty((input.shape[0], weight.shape[-1]))
 
 
 @register_meta("zentorch_addmm_gelu_erf")
@@ -85,7 +85,7 @@ def meta_zentorch_addmm_gelu_erf(
     alpha=1,
     beta=1,
 ):
-    return input.new_empty((input.shape[0], weight.shape[-1]))
+    return bias.new_empty((input.shape[0], weight.shape[-1]))
 
 
 @register_meta("zentorch_addmm_1dbias")
@@ -108,7 +108,7 @@ def meta_zentorch_addmm_1dbias_add(
     alpha=1,
     beta=1,
 ):
-    return input.new_empty((input.shape[0], weight.shape[-1]))
+    return add_input.new_empty(add_input.size())
 
 
 @register_meta("zentorch_addmm_1dbias_add_add")
@@ -121,7 +121,7 @@ def meta_zentorch_addmm_1dbias_add_add(
     alpha=1,
     beta=1,
 ):
-    return input.new_empty((input.shape[0], weight.shape[-1]))
+    return add2_input.new_empty(add2_input.size())
 
 
 @register_meta("zentorch_addmm_1dbias_relu")
@@ -215,22 +215,22 @@ def meta_zentorch_bmm(input, weight):
 
 @register_meta("zentorch_baddbmm")
 def meta_zentorch_baddbmm(bias, input, weight, alpha=1, beta=1):
-    return input.new_empty((input.shape[0], input.shape[1], weight.shape[-1]))
+    return bias.new_empty(input.shape[0], input.shape[1], weight.shape[-1])
 
 
 @register_meta("zentorch_mm_silu_mul")
 def meta_zentorch_mm_silu_mul(input, weight, mul_tensor):
-    return input.new_empty((input.shape[0], weight.shape[-1]))
+    return mul_tensor.new_empty(mul_tensor.size())
 
 
 @register_meta("zentorch_addmm_silu_mul")
 def meta_zentorch_addmm_silu_mul(bias, input, weight, mul_tensor):
-    return input.new_empty((input.shape[0], weight.shape[-1]))
+    return mul_tensor.new_empty(mul_tensor.size())
 
 
 @register_meta("zentorch_addmm_1dbias_silu_mul")
 def meta_zentorch_addmm_1dbias_silu_mul(bias, input, weight, mul_tensor):
-    return input.new_empty((input.shape[0], weight.shape[-1]))
+    return mul_tensor.new_empty(mul_tensor.size())
 
 
 @register_meta("zentorch_embedding_bag")
@@ -322,6 +322,7 @@ zentorch_addmm_mappings = {
 }
 
 
+#  TODO: return data type has to be taken care appropriately
 @register_meta("zentorch_vertical_mlp_group")
 def meta_zentorch_vertical_mlp_group(self, inputs, weight, betas, alphas, fuse):
     # For the functionality of GroupMLP op, the outputs of one MLP will act as
