@@ -150,12 +150,13 @@ std::vector<at::Tensor> zentorch_fused_eb_mlp(
     }
 
     at::Tensor self_or_result_unsqueezed, mat1_, mat2_, beta_bias;
-
+    std::vector<at::Tensor> post_op_buffers = {};
     std::tie(self_or_result_unsqueezed, mat1_, mat2_, beta_bias) =
         matmul_tensors_to_memory(
             mlp_input, mlp_weights[i], self_or_result_vector[i], bias_vector[i],
-            beta_bias, z_mat1_vector[i], z_mat2_vector[i], z_bias_vector[i],
-            z_result_vector[i], betas_vector[i], alphas_vector[i]);
+            beta_bias, post_op_buffers, z_mat1_vector[i], z_mat2_vector[i],
+            z_bias_vector[i], z_result_vector[i], betas_vector[i],
+            alphas_vector[i]);
 
     // Populating the bias_defined_vector with the bool equivalent values based
     // on the number of elements in the bias.

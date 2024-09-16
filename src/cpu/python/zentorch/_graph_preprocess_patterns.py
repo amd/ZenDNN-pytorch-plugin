@@ -6,7 +6,7 @@
 import torch
 from ._compile_backend import torch_version
 from ._utils import counters
-from ._fusion_patterns import _same_dtypes_check
+from ._fusion_patterns import _matmul_dtypes_check
 import functools
 from functools import partial
 
@@ -122,14 +122,14 @@ def _dummy_extra_check(match):
 def _bmm_to_mm_check_1(match):
     if match.kwargs["arg_0"].meta["val"].shape[1] != 1:
         return False
-    is_dtype_same = _same_dtypes_check(match)
+    is_dtype_same = _matmul_dtypes_check(match)
     return is_dtype_same
 
 
 def _bmm_to_mm_check_2(match):
     if match.kwargs["arg_0"].meta["val"].shape[0] != 1:
         return False
-    is_dtype_same = _same_dtypes_check(match)
+    is_dtype_same = _matmul_dtypes_check(match)
     return is_dtype_same
 
 

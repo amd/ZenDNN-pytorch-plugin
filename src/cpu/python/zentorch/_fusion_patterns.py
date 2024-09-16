@@ -16,82 +16,82 @@ zt_ops = torch.ops.zentorch
 # add patterns below
 
 
-def _mm_silu_mul_pattern(arg_0, arg_1, arg_2):
+def _mm_silu_mul_pattern(arg_0, arg_1, mul_1):
     # arg_0 -> 2D (n x k)
     # arg_1 -> 2D (k x m)
-    # arg_2 can be N-dimensional (N >= 2), below example is for 3D case
-    # arg_2 -> 3D (n/b x b*a x m/a) => (n x m)
+    # mul_1 can be N-dimensional (N >= 2), below example is for 3D case
+    # mul_1 -> 3D (n/b x b*a x m/a) => (n x m)
     mm_0 = zt_ops.zentorch_mm_silu.default(arg_0, arg_1)  # (n x m)
-    if arg_2.dim() != 2:
-        view_0 = at_ops.view.default(mm_0, arg_2.size())  # (n/b x a*b x m/a)
-        mul_0 = at_ops.mul.Tensor(view_0, arg_2)  # (n/b x a*b x m/a)
+    if mul_1.dim() != 2:
+        view_0 = at_ops.view.default(mm_0, mul_1.size())  # (n/b x a*b x m/a)
+        mul_0 = at_ops.mul.Tensor(view_0, mul_1)  # (n/b x a*b x m/a)
     else:
-        mul_0 = at_ops.mul.Tensor(mm_0, arg_2)
+        mul_0 = at_ops.mul.Tensor(mm_0, mul_1)
     return (mul_0,)
 
 
-def _mm_silu_mul_replacement(arg_0, arg_1, arg_2):
+def _mm_silu_mul_replacement(arg_0, arg_1, mul_1):
     counters["zentorch"]["pattern_matcher_mm_silu_mul"] += 1
     shape_0 = arg_0.size()  # (n x k)
     shape_1 = arg_1.size()  # (k x m)
-    shape_2 = arg_2.size()  # (n/b x a*b x m/a) => (n x m)
-    if arg_2.dim() != 2:
-        view_0 = at_ops.view.default(arg_2, [shape_0[0], shape_1[-1]])  # (n x m)
+    shape_2 = mul_1.size()  # (n/b x a*b x m/a) => (n x m)
+    if mul_1.dim() != 2:
+        view_0 = at_ops.view.default(mul_1, [shape_0[0], shape_1[-1]])  # (n x m)
         mul_0 = zt_ops.zentorch_mm_silu_mul.default(arg_0, arg_1, view_0)  # (n x m)
         out_0 = at_ops.view.default(mul_0, shape_2)  # (n/b x a*b x m/a)
     else:
-        out_0 = zt_ops.zentorch_mm_silu_mul.default(arg_0, arg_1, arg_2)
+        out_0 = zt_ops.zentorch_mm_silu_mul.default(arg_0, arg_1, mul_1)
     return (out_0,)
 
 
-def _addmm_silu_mul_pattern(arg_0, arg_1, arg_2, bias_0):
+def _addmm_silu_mul_pattern(arg_0, arg_1, mul_1, bias_0):
     mm_0 = zt_ops.zentorch_addmm_silu.default(bias_0, arg_0, arg_1)
-    if arg_2.dim() != 2:
-        view_0 = at_ops.view.default(mm_0, arg_2.size())
-        mul_0 = at_ops.mul.Tensor(view_0, arg_2)
+    if mul_1.dim() != 2:
+        view_0 = at_ops.view.default(mm_0, mul_1.size())
+        mul_0 = at_ops.mul.Tensor(view_0, mul_1)
     else:
-        mul_0 = at_ops.mul.Tensor(mm_0, arg_2)
+        mul_0 = at_ops.mul.Tensor(mm_0, mul_1)
     return (mul_0,)
 
 
-def _addmm_silu_mul_replacement(arg_0, arg_1, arg_2, bias_0):
+def _addmm_silu_mul_replacement(arg_0, arg_1, mul_1, bias_0):
     counters["zentorch"]["pattern_matcher_addmm_silu_mul"] += 1
     shape_0 = arg_0.size()
     shape_1 = arg_1.size()
-    shape_2 = arg_2.size()
-    if arg_2.dim() != 2:
-        view_0 = at_ops.view.default(arg_2, [shape_0[0], shape_1[-1]])
+    shape_2 = mul_1.size()
+    if mul_1.dim() != 2:
+        view_0 = at_ops.view.default(mul_1, [shape_0[0], shape_1[-1]])
         mul_0 = zt_ops.zentorch_addmm_silu_mul.default(bias_0, arg_0, arg_1, view_0)
         out_0 = at_ops.view.default(mul_0, shape_2)
     else:
-        out_0 = zt_ops.zentorch_addmm_silu_mul.default(bias_0, arg_0, arg_1, arg_2)
+        out_0 = zt_ops.zentorch_addmm_silu_mul.default(bias_0, arg_0, arg_1, mul_1)
     return (out_0,)
 
 
-def _addmm_1dbias_silu_mul_pattern(arg_0, arg_1, arg_2, bias_0):
+def _addmm_1dbias_silu_mul_pattern(arg_0, arg_1, mul_1, bias_0):
     mm_0 = zt_ops.zentorch_addmm_1dbias_silu.default(bias_0, arg_0, arg_1)
-    if arg_2.dim() != 2:
-        view_0 = at_ops.view.default(mm_0, arg_2.size())
-        mul_0 = at_ops.mul.Tensor(view_0, arg_2)
+    if mul_1.dim() != 2:
+        view_0 = at_ops.view.default(mm_0, mul_1.size())
+        mul_0 = at_ops.mul.Tensor(view_0, mul_1)
     else:
-        mul_0 = at_ops.mul.Tensor(mm_0, arg_2)
+        mul_0 = at_ops.mul.Tensor(mm_0, mul_1)
     return (mul_0,)
 
 
-def _addmm_1dbias_silu_mul_replacement(arg_0, arg_1, arg_2, bias_0):
+def _addmm_1dbias_silu_mul_replacement(arg_0, arg_1, mul_1, bias_0):
     counters["zentorch"]["pattern_matcher_addmm_1dbias_silu_mul"] += 1
     shape_0 = arg_0.size()
     shape_1 = arg_1.size()
-    shape_2 = arg_2.size()
-    if arg_2.dim() != 2:
-        view_0 = at_ops.view.default(arg_2, [shape_0[0], shape_1[-1]])
+    shape_2 = mul_1.size()
+    if mul_1.dim() != 2:
+        view_0 = at_ops.view.default(mul_1, [shape_0[0], shape_1[-1]])
         mul_0 = zt_ops.zentorch_addmm_1dbias_silu_mul.default(
             bias_0, arg_0, arg_1, view_0
         )
         out_0 = at_ops.view.default(mul_0, shape_2)
     else:
         out_0 = zt_ops.zentorch_addmm_1dbias_silu_mul.default(
-            bias_0, arg_0, arg_1, arg_2
+            bias_0, arg_0, arg_1, mul_1
         )
     return (out_0,)
 
@@ -278,26 +278,45 @@ def _woq_linear_silu_mul_replacement(arg_0, arg_1, arg_2, arg_3, bias_0, mul_1):
 
 
 # adding patterns completed #
-def _same_dtypes_check(match):
-    is_bf16 = True
-    is_fp32 = True
-    for _, v in match.kwargs.items():
-        if not torch.is_tensor(v.meta["val"]):
-            continue
-        is_bf16 = is_bf16 and (v.meta["val"].dtype == torch.bfloat16)
-        is_fp32 = is_fp32 and (v.meta["val"].dtype == torch.float)
-    return is_bf16 ^ is_fp32
 
 
 def _matmul_dtypes_check(match):
-    is_bf16 = True
+    # This check is for handling the datatypes of the matmul parameters and
+    # post op buffers.
+    # The cases are as follows:
+    #     -> If the matmul parameters are fp32, then the post op buffers must
+    #        be fp32.
+    #     -> If the matmul parameters are bf16, then the post op buffers must
+    #        be bf16.
+
     is_fp32 = True
+    is_bf16 = True
+    do_post_ops_exist = False
+    post_op_dtypes_fp32 = True
+    post_op_dtypes_bf16 = True
+
     for k, v in match.kwargs.items():
-        if not torch.is_tensor(v.meta["val"]) or k in ("add_1", "add_2"):
+        if not torch.is_tensor(v.meta["val"]):
             continue
-        is_bf16 = is_bf16 and (v.meta["val"].dtype == torch.bfloat16)
-        is_fp32 = is_fp32 and (v.meta["val"].dtype == torch.float)
-    return is_bf16 ^ is_fp32
+        if k in ("add_1", "add_2", "mul_1"):
+            post_op_dtypes_bf16 = post_op_dtypes_bf16 and (
+                v.meta["val"].dtype == torch.bfloat16
+            )
+            post_op_dtypes_fp32 = post_op_dtypes_fp32 and (
+                v.meta["val"].dtype == torch.float
+            )
+            do_post_ops_exist = True
+        else:
+            is_bf16 = is_bf16 and (v.meta["val"].dtype == torch.bfloat16)
+            is_fp32 = is_fp32 and (v.meta["val"].dtype == torch.float)
+
+    if do_post_ops_exist:
+        if is_fp32 and not is_bf16:
+            return post_op_dtypes_fp32 and not post_op_dtypes_bf16
+        elif is_bf16 and not is_fp32:
+            return post_op_dtypes_bf16 and not post_op_dtypes_fp32
+    else:
+        return is_bf16 ^ is_fp32
 
 
 def _woq_check(match):
@@ -308,12 +327,20 @@ def _woq_check(match):
         "arg_3": torch.int32,
         "bias_0": torch.bfloat16,
     }
+
+    post_op_dtypes_bf16 = True
+
     for k, v in match.kwargs.items():
+        if k in ("add_1", "add_2", "mul_1"):
+            post_op_dtypes_bf16 = post_op_dtypes_bf16 and (
+                v.meta["val"].dtype == torch.bfloat16
+            )
         if not (torch.is_tensor(v.meta["val"]) and k in expected_dtype.keys()):
             continue
         if expected_dtype[str(k)] != v.meta["val"].dtype:
             return False
-    return True
+
+    return post_op_dtypes_bf16
 
 
 def _dim_check(match):
@@ -395,42 +422,42 @@ def _get_pattern_with_replacement():
             _mm_silu_mul_replacement,
             [arg_1(), arg_2(), arg_3()],
             {},
-            _same_dtypes_check,
+            _matmul_dtypes_check,
         ),
         (
             _mm_silu_mul_pattern,
             _mm_silu_mul_replacement,
             [arg_1(), arg_2(), arg_4()],
             {},
-            _same_dtypes_check,
+            _matmul_dtypes_check,
         ),
         (
             _addmm_silu_mul_pattern,
             _addmm_silu_mul_replacement,
             [arg_1(), arg_2(), arg_3(), arg_4()],
             {},
-            _same_dtypes_check,
+            _matmul_dtypes_check,
         ),
         (
             _addmm_silu_mul_pattern,
             _addmm_silu_mul_replacement,
             [arg_1(), arg_2(), arg_4(), arg_4()],
             {},
-            _same_dtypes_check,
+            _matmul_dtypes_check,
         ),
         (
             _addmm_1dbias_silu_mul_pattern,
             _addmm_1dbias_silu_mul_replacement,
             [arg_1(), arg_2(), arg_3(), arg_5()],
             {},
-            _same_dtypes_check,
+            _matmul_dtypes_check,
         ),
         (
             _addmm_1dbias_silu_mul_pattern,
             _addmm_1dbias_silu_mul_replacement,
             [arg_1(), arg_2(), arg_4(), arg_5()],
             {},
-            _same_dtypes_check,
+            _matmul_dtypes_check,
         ),
         (
             _addmm_1dbias_add_pattern,

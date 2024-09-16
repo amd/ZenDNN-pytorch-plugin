@@ -30,8 +30,9 @@ at::Tensor zentorch_matmul_impl(const at::Tensor &input,
   memory z_input, z_weight, z_result, z_bias;
 
   std::tie(self_or_result_unsqueezed, input_, weight_, beta_bias) =
-      matmul_tensors_to_memory(input, weight, result, bias, beta_bias, z_input,
-                               z_weight, z_bias, z_result, beta, alpha);
+      matmul_tensors_to_memory(input, weight, result, bias, beta_bias,
+                               post_op_buffers, z_input, z_weight, z_bias,
+                               z_result, beta, alpha);
 
   zendnn::primitive_attr op_attr;
   post_ops po;
@@ -147,12 +148,13 @@ std::vector<at::Tensor> zentorch_matmul_group_impl(
     }
 
     at::Tensor self_or_result_unsqueezed, mat1_, mat2_, beta_bias;
-
+    std::vector<at::Tensor> post_op_buffers = {};
     std::tie(self_or_result_unsqueezed, mat1_, mat2_, beta_bias) =
         matmul_tensors_to_memory(
             inputs[i], weights[i], self_or_result_vector[i], bias_vector[i],
-            beta_bias, z_mat1_vector[i], z_mat2_vector[i], z_bias_vector[i],
-            z_result_vector[i], betas_vector[i], alphas_vector[i]);
+            beta_bias, post_op_buffers, z_mat1_vector[i], z_mat2_vector[i],
+            z_bias_vector[i], z_result_vector[i], betas_vector[i],
+            alphas_vector[i]);
 
     // Populating the bias_defined_vector with the bool equivalent values
     // based on the number of elements in the bias.
@@ -286,7 +288,7 @@ at::Tensor zentorch_addmm_1dbias_add_add(
       "add1_input and add2_input");
   TORCH_CHECK((self.dim() == 1),
               "zentorch_addmm:  unsupported dims for self, mat1 and mat2");
-  at::Tensor result = at::empty(add1_input.sizes(), add1_input.options());
+  at::Tensor result = at::empty(add2_input.sizes(), add2_input.options());
 
   std::vector<at::Tensor> post_op_buffers = {add1_input, add2_input};
   std::vector<int64_t> post_op_ids = {BINARY_POST_OP::ADD, BINARY_POST_OP::ADD};
@@ -340,8 +342,10 @@ at::Tensor zentorch_addmm(const at::Tensor &self, const at::Tensor &mat1,
 
     std::vector<at::Tensor> post_op_buffers = {};
     std::vector<int64_t> post_op_ids = {BINARY_POST_OP::ADD, fuse};
+
     at::Tensor result = at::empty(
         get_matmul_and_linear_output_sizes(mat1, mat2), self.options());
+
     if (beta_float != 1.0f) {
       post_op_buffers.push_back(self.mul(beta_float));
     } else {
@@ -578,6 +582,7 @@ at::Tensor zentorch_mm_silu_mul(const at::Tensor &mat1, const at::Tensor &mat2,
   at::Tensor empty_bias;
   at::Tensor out =
       at::empty(get_matmul_and_linear_output_sizes(mat1, mat2), mat3.options());
+
   std::vector<at::Tensor> post_op_buffers = {mat3};
   std::vector<int64_t> post_op_ids = {UNARY_POST_OP::SILU, BINARY_POST_OP::MUL};
 

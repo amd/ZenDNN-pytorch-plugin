@@ -19,17 +19,89 @@ inline void check_valid_sizes(const at::Tensor &mat1, const at::Tensor &mat2) {
       "zentorch_matmul:  unsupported dims for mat1 and mat2");
 }
 
-inline void check_scalar_type(const std::vector<at::Tensor> &tensor_vector) {
-  bool is_float = true, is_bfloat16 = true;
+inline void check_valid_dtypes(const at::Tensor &mat1, const at::Tensor &mat2,
+                               const at::Tensor &bias, const at::Tensor &result,
+                               const std::vector<at::Tensor> &post_op_buffers) {
 
-  for (auto tensor : tensor_vector) {
-    is_float = is_float && (tensor.scalar_type() == c10::ScalarType::Float);
-    is_bfloat16 =
-        is_bfloat16 && (tensor.scalar_type() == c10::ScalarType::BFloat16);
+  // The flow of this check is as follows:
+  // -> The individual datatypes of the tensors are inferred.
+  // -> Bias being optional in the addmm variants, needs to be checked if it is
+  //    a defined tensor or not.
+  // -> The tensors which are inputs to the actual matmul call are confirmed
+  //    to be either of datatype float32 or bfloat16, but not a combination.
+  // -> The previous check is combined with the check of the
+  //    destination (result) buffer.
+  // -> If the dataype is bfloat16, the machine capability is checked.
+  // -> Based on the post op buffer vector size, the dtypes of all the post ops
+  //    are determined. Again here, all the post op buffers must be of the same
+  //    dtype as the matmul parameters, either float32 or bfloat16, not a
+  //    combination of both.
+
+  const bool is_bias_defined = bias.numel();
+  const bool is_mat1_fp32 = (mat1.scalar_type() == c10::ScalarType::Float);
+  const bool is_mat1_bf16 = (mat1.scalar_type() == c10::ScalarType::BFloat16);
+  const bool is_mat2_fp32 = (mat2.scalar_type() == c10::ScalarType::Float);
+  const bool is_mat2_bf16 = (mat2.scalar_type() == c10::ScalarType::BFloat16);
+  const bool is_result_fp32 = (result.scalar_type() == c10::ScalarType::Float);
+  const bool is_result_bf16 =
+      (result.scalar_type() == c10::ScalarType::BFloat16);
+  bool is_bias_fp32, is_bias_bf16;
+
+  if (is_bias_defined) {
+    is_bias_fp32 = (bias.scalar_type() == c10::ScalarType::Float);
+    is_bias_bf16 = (bias.scalar_type() == c10::ScalarType::BFloat16);
   }
+
+  const bool are_params_fp32 =
+      is_bias_defined
+          ? (is_mat1_fp32 && is_mat2_fp32 && is_bias_fp32 && is_result_fp32)
+          : (is_mat1_fp32 && is_mat2_fp32 && is_result_fp32);
+  const bool are_params_bf16 =
+      is_bias_defined
+          ? (is_mat1_bf16 && is_mat2_bf16 && is_bias_bf16 && is_result_bf16)
+          : (is_mat1_bf16 && is_mat2_bf16 && is_result_bf16);
+
   TORCH_CHECK(
-      is_float || is_bfloat16,
+      are_params_fp32 ^ are_params_bf16,
       "zentorch_matmul: zentorch_matmul only supports Float and BFloat16");
+
+  if (are_params_bf16) {
+    TORCH_CHECK(
+        utils::zendnn_bf16_device_check(),
+        "zentorch_matmul: zentorch_matmul bf16 path needs the cpu support "
+        "avx512bf16");
+  }
+
+  if (post_op_buffers.size() != 0) {
+    bool are_postops_fp32 = true;
+    bool are_postops_bf16 = true;
+
+    for (const at::Tensor &buffer : post_op_buffers) {
+      are_postops_fp32 =
+          are_postops_fp32 && (buffer.scalar_type() == c10::ScalarType::Float);
+      are_postops_bf16 = are_postops_bf16 &&
+                         (buffer.scalar_type() == c10::ScalarType::BFloat16);
+    }
+
+    if (are_params_fp32 && !are_params_bf16) {
+      TORCH_CHECK(
+          (are_postops_fp32 && !are_postops_bf16),
+          "zentorch_matmul: zentorch_matmul only supports Float post ops "
+          "when input matrix is Float");
+    } else if (are_params_bf16 && !are_params_fp32) {
+      TORCH_CHECK(
+          (are_postops_bf16 && !are_postops_fp32),
+          "zentorch_matmul: zentorch_matmul only supports BFloat16 post ops "
+          "when input matrix is BFloat16");
+    } else {
+      TORCH_CHECK(
+          false,
+          "zentorch_matmul: zentorch_matmul only supports Float and BFloat16 "
+          "parameters and postops");
+    }
+  } else {
+    LOG(INFO) << "Post Op buffers are not present!\n";
+  }
 }
 
 inline bool is_zendnn_optimized_format(const at::Tensor &t) {
@@ -88,30 +160,16 @@ get_2d_size_for_tensor(const at::Tensor &inp_tensor,
 inline std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor>
 matmul_tensors_to_memory(const at::Tensor &mat1, const at::Tensor &mat2,
                          at::Tensor &result, const at::Tensor &bias,
-                         at::Tensor &beta_bias, memory &z_mat1, memory &z_mat2,
-                         memory &z_bias, memory &z_result, const float &beta,
+                         at::Tensor &beta_bias,
+                         const std::vector<at::Tensor> &post_op_buffers,
+                         memory &z_mat1, memory &z_mat2, memory &z_bias,
+                         memory &z_result, const float &beta,
                          const float &alpha) {
 
+  // TODO: Extend the check_valid_sizes function to check the sizes of bias,
+  // result and post_op_buffers.
   check_valid_sizes(mat1, mat2);
-
-  if (mat1.scalar_type() == c10::ScalarType::BFloat16 ||
-      mat2.scalar_type() == c10::ScalarType::BFloat16) {
-    TORCH_CHECK(
-        utils::zendnn_bf16_device_check(),
-        "zentorch_matmul: zentorch_matmul bf16 path needs the cpu support "
-        "avx512bf16");
-  }
-
-  bool is_mat1_fp32 = (mat1.scalar_type() == c10::ScalarType::Float);
-  bool is_mat1_bf16 = (mat1.scalar_type() == c10::ScalarType::BFloat16);
-  bool is_mat2_fp32 = (mat2.scalar_type() == c10::ScalarType::Float);
-  bool is_mat2_bf16 = (mat2.scalar_type() == c10::ScalarType::BFloat16);
-  bool is_result_fp32 = (result.scalar_type() == c10::ScalarType::Float);
-  bool is_result_bf16 = (result.scalar_type() == c10::ScalarType::BFloat16);
-  TORCH_CHECK(
-      (is_mat1_fp32 && is_mat2_fp32 && is_result_fp32) ||
-          (is_mat1_bf16 && is_mat2_bf16 && (is_result_bf16 || is_result_fp32)),
-      "zentorch_matmul: zentorch_matmul only supports Float and BFloat16");
+  check_valid_dtypes(mat1, mat2, bias, result, post_op_buffers);
 
   // ZenDNN does not support 1-D tensors. So, whenever the tensors are of
   // 1 dimension, they are unsqueezed on the required dimension to make them
@@ -146,17 +204,6 @@ matmul_tensors_to_memory(const at::Tensor &mat1, const at::Tensor &mat2,
   const bool bias_defined = bias.numel();
 
   if (bias_defined && bias.dim() == 1 && (mat1.dim() == 2 && mat2.dim() == 2)) {
-    if (bias.scalar_type() == c10::ScalarType::BFloat16) {
-      TORCH_CHECK(
-          utils::zendnn_bf16_device_check(),
-          "zentorch_matmul: zentorch_matmul bf16 path needs the cpu support "
-          "avx512bf16");
-    }
-
-    std::vector<at::Tensor> tensor_vector(1);
-    tensor_vector[0] = bias;
-
-    check_scalar_type(tensor_vector);
 
     LOG(INFO) << "bias is defined and bias dimensions: " << bias.sizes();
 

@@ -89,13 +89,14 @@ class Test_Data(metaclass=Singleton):
         # m*k, k*n, m*n
         self.x = torch.randn(self.m, self.k).type(torch_type)
         self.y = torch.randn(self.k, self.n).type(torch_type)
+        self.result = torch.zeros(self.m, self.n).type(torch_type)
 
         self.input = torch.randn(self.m, self.n).type(torch_type)
         self.input1d = torch.randn(self.n).type(torch_type)
 
-        self.empty_bias = torch.empty(0).type(torch_type)
-        self.result_m = torch.empty(self.m).type(torch_type)
-        self.result_1 = torch.empty(1).type(torch_type)
+        self.empty_bias = torch.zeros(0).type(torch_type)
+        self.result_m = torch.zeros(int(self.m)).type(torch_type)
+        self.result_1 = torch.zeros(1).type(torch_type)
 
         self.A = torch.randn(self.m, 1).type(torch_type)
         self.B = torch.randn(1, self.m).type(torch_type)
@@ -348,11 +349,66 @@ class Test_ADDMM_OP(Zentorch_TestCase):
 
         self.data.create_data(dtype)
         with self.assertRaises(RuntimeError) as context:
-            torch.ops.zentorch.zentorch_addmm(self.data.x, self.data.x, self.data.x)
+            torch.ops.zentorch.zentorch_addmm(self.data.input, self.data.x, self.data.y)
 
         self.assertTrue(
             "zentorch_matmul: zentorch_matmul only supports Float and BFloat16"
             == str(context.exception)
+        )
+
+    def test_float_addmm_bfloat16_postop(self):
+        self.data.create_data("float32")
+        with self.assertRaises(RuntimeError) as context:
+            bias_as_postop = self.data.input.clone().to(torch.bfloat16)
+            torch.ops.zentorch.zentorch_addmm(bias_as_postop, self.data.x, self.data.y)
+
+        self.assertTrue(
+            "zentorch_matmul: zentorch_matmul only supports Float and BFloat16"
+            == str(context.exception)
+        )
+
+    def test_float_addmm_float_postop(self):
+        self.data.create_data("float32")
+        self.assertEqual(
+            torch._C._VariableFunctions.addmm(
+                self.data.input, self.data.x, self.data.y
+            ),
+            torch.ops.zentorch.zentorch_addmm(
+                self.data.input, self.data.x, self.data.y
+            ),
+        )
+
+    def test_bfloat16_addmm_int_postop(self):
+        self.data.create_data("bfloat16")
+        with self.assertRaises(RuntimeError) as context_int:
+            bias_as_postop = self.data.input.clone().to(torch.int)
+            torch.ops.zentorch.zentorch_addmm(bias_as_postop, self.data.x, self.data.y)
+
+        self.assertTrue(
+            "zentorch_matmul: zentorch_matmul only supports Float and BFloat16"
+            == str(context_int.exception)
+        )
+
+    def test_bfloat16_addmm_bfloat16_postop(self):
+        self.data.create_data("bfloat16")
+        self.assertEqual(
+            torch._C._VariableFunctions.addmm(
+                self.data.input, self.data.x, self.data.y
+            ),
+            torch.ops.zentorch.zentorch_addmm(
+                self.data.input, self.data.x, self.data.y
+            ),
+        )
+
+    def test_int_addmm_postop(self):
+        self.data.create_data("int")
+        with self.assertRaises(RuntimeError) as context_int:
+            bias_as_postop = self.data.input.clone().to(torch.int)
+            torch.ops.zentorch.zentorch_addmm(bias_as_postop, self.data.x, self.data.y)
+
+        self.assertTrue(
+            "zentorch_matmul: zentorch_matmul only supports Float and BFloat16"
+            == str(context_int.exception)
         )
 
     @parameterized.expand(supported_dtypes)
@@ -567,6 +623,45 @@ class Test_BADDBMM_OP(Zentorch_TestCase):
             ),
         )
 
+    def test_float_baddbmm_bfloat16_postop(self):
+        self.data.create_data("float32")
+        with self.assertRaises(RuntimeError) as context:
+            bias_as_postop = self.data.input3d.clone().to(torch.bfloat16)
+            torch.ops.zentorch.zentorch_baddbmm(
+                bias_as_postop, self.data.x3d, self.data.y3d
+            )
+
+        self.assertTrue(
+            "zentorch_matmul: zentorch_matmul only supports Float and BFloat16"
+            == str(context.exception)
+        )
+
+    def test_bfloat16_baddbmm_int_postop(self):
+        self.data.create_data("bfloat16")
+        with self.assertRaises(RuntimeError) as context_int:
+            bias_as_postop = self.data.input3d.clone().to(torch.int)
+            torch.ops.zentorch.zentorch_baddbmm(
+                bias_as_postop, self.data.x3d, self.data.y3d
+            )
+
+        self.assertTrue(
+            "zentorch_matmul: zentorch_matmul only supports Float and BFloat16"
+            == str(context_int.exception)
+        )
+
+    def test_int_baddbmm_postop(self):
+        self.data.create_data("int")
+        with self.assertRaises(RuntimeError) as context_int:
+            bias_as_postop = self.data.x3d.clone().to(torch.int)
+            torch.ops.zentorch.zentorch_baddbmm(
+                bias_as_postop, self.data.x3d, self.data.x3d
+            )
+
+        self.assertTrue(
+            "zentorch_matmul: zentorch_matmul only supports Float and BFloat16"
+            == str(context_int.exception)
+        )
+
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class Test_MATMUL_IMPL_OP(Zentorch_TestCase):
@@ -599,6 +694,63 @@ class Test_MATMUL_IMPL_OP(Zentorch_TestCase):
                 [],
                 [],
             ),
+        )
+
+    def test_zentorch_matmul_impl_bfloat16_postop(self):
+        self.data.create_data("float32")
+        with self.assertRaises(RuntimeError) as context:
+            bias_as_postop = self.data.x.clone().to(torch.bfloat16)
+            post_op_add = 6
+            zentorch._C.zentorch_matmul_impl(
+                self.data.x,
+                self.data.x,
+                self.data.empty_bias,
+                self.data.result.to(self.data.x.dtype),
+                [post_op_add],
+                [bias_as_postop],
+            )
+
+        self.assertTrue(
+            "zentorch_matmul: zentorch_matmul only supports Float post ops "
+            "when input matrix is Float" == str(context.exception)
+        )
+
+    def test_zentorch_matmul_impl_int_postop(self):
+        self.data.create_data("bfloat16")
+        with self.assertRaises(RuntimeError) as context_int:
+            bias_as_postop = self.data.x.clone().to(torch.int)
+            post_op_add = 6
+            zentorch._C.zentorch_matmul_impl(
+                self.data.x,
+                self.data.x,
+                self.data.empty_bias,
+                self.data.result.to(self.data.x.dtype),
+                [post_op_add],
+                [bias_as_postop],
+            )
+
+        self.assertTrue(
+            "zentorch_matmul: zentorch_matmul only supports BFloat16 post ops "
+            "when input matrix is BFloat16" == str(context_int.exception)
+        )
+
+    def test_int_zentorch_matmul_impl_postop(self):
+        self.data.create_data("int")
+        with self.assertRaises(RuntimeError) as context_int:
+            bias_as_postop = self.data.x3d.clone().to(torch.int)
+            post_op_add = 6
+            zentorch._C.zentorch_matmul_impl(
+                self.data.x,
+                self.data.x,
+                self.data.empty_bias,
+                self.data.result.to(self.data.x.dtype),
+                [post_op_add],
+                [bias_as_postop],
+            )
+
+        self.assertTrue(
+            "zentorch_matmul: zentorch_matmul only supports Float and BFloat16"
+            == str(context_int.exception)
         )
 
 
@@ -2894,6 +3046,170 @@ class TestBMMADD(Zentorch_TestCase):
         self.assertEqual(model_output, compiled_graph_output, atol=1e-5, rtol=1e-3)
 
 
+class CustomModelPatternMatcherModelLinearSiLUMul(nn.Module):
+    def __init__(self, data, bias):
+        super(CustomModelPatternMatcherModelLinearSiLUMul, self).__init__()
+        self.m = data.m
+        self.n = data.n
+        self.k = data.k
+        self.linear = torch.nn.Linear(self.n, self.k, bias=bias)
+        self.silu = torch.nn.SiLU()
+
+    def forward(self, inp, mul_tensor):
+        linear_silu = self.silu(self.linear(inp))
+        return linear_silu * mul_tensor
+
+
+class TEST_PatternMatcherTestWithDifferentDtypes(Zentorch_TestCase):
+    @torch.inference_mode()
+    def test_float32_addmm_silu_float32_mul(self):
+        self.data.create_data("float32")
+        model = CustomModelPatternMatcherModelLinearSiLUMul(self.data, bias=True)
+
+        mul_tensor = torch.reshape(self.data.x, (1, self.data.m, self.data.k)).to(
+            torch.float32
+        )
+        counters.clear()
+        self.assertEqual(
+            counters["zentorch"]["pattern_matcher_addmm_1dbias_silu_mul"], 0
+        )
+        zentorch_model = copy.deepcopy(model)
+        compiled_model = torch.compile(zentorch_model, backend="zentorch")
+        _ = compiled_model(
+            self.data.input.view(1, self.data.m, self.data.n), mul_tensor
+        )
+        self.assertEqual(
+            counters["zentorch"]["pattern_matcher_addmm_1dbias_silu_mul"], 1
+        )
+
+    @torch.inference_mode()
+    def test_float32_addmm_silu_bfloat16_mul(self):
+        self.data.create_data("float32")
+        model = CustomModelPatternMatcherModelLinearSiLUMul(self.data, bias=True)
+        mul_tensor = torch.reshape(self.data.x, (1, self.data.m, self.data.k)).to(
+            torch.bfloat16
+        )
+        counters.clear()
+        self.assertEqual(
+            counters["zentorch"]["pattern_matcher_addmm_1dbias_silu_mul"], 0
+        )
+        zentorch_model = copy.deepcopy(model)
+        compiled_model = torch.compile(zentorch_model, backend="zentorch")
+        _ = compiled_model(
+            self.data.input.view(1, self.data.m, self.data.n), mul_tensor
+        )
+        self.assertEqual(
+            counters["zentorch"]["pattern_matcher_addmm_1dbias_silu_mul"], 0
+        )
+
+    @torch.inference_mode()
+    def test_bfloat16_addmm_silu_float32_mul(self):
+        self.data.create_data("bfloat16")
+        model = CustomModelPatternMatcherModelLinearSiLUMul(self.data, bias=True)
+
+        mul_tensor = torch.reshape(self.data.x, (1, self.data.m, self.data.k)).to(
+            torch.float32
+        )
+        counters.clear()
+        self.assertEqual(
+            counters["zentorch"]["pattern_matcher_addmm_1dbias_silu_mul"], 0
+        )
+        zentorch_model = copy.deepcopy(model).to(dtype=torch.bfloat16)
+        compiled_model = torch.compile(zentorch_model, backend="zentorch")
+        _ = compiled_model(
+            self.data.input.view(1, self.data.m, self.data.n), mul_tensor
+        )
+        self.assertEqual(
+            counters["zentorch"]["pattern_matcher_addmm_1dbias_silu_mul"], 0
+        )
+
+    @torch.inference_mode()
+    def test_bfloat16_addmm_silu_bfloat16_mul(self):
+        self.data.create_data("bfloat16")
+        model = CustomModelPatternMatcherModelLinearSiLUMul(self.data, bias=True)
+        mul_tensor = torch.reshape(self.data.x, (1, self.data.m, self.data.k)).to(
+            torch.bfloat16
+        )
+        counters.clear()
+        self.assertEqual(
+            counters["zentorch"]["pattern_matcher_addmm_1dbias_silu_mul"], 0
+        )
+        zentorch_model = copy.deepcopy(model).to(dtype=torch.bfloat16)
+        compiled_model = torch.compile(zentorch_model, backend="zentorch")
+        _ = compiled_model(
+            self.data.input.view(1, self.data.m, self.data.n), mul_tensor
+        )
+        self.assertEqual(
+            counters["zentorch"]["pattern_matcher_addmm_1dbias_silu_mul"], 1
+        )
+
+    @torch.inference_mode()
+    def test_float32_mm_silu_float32_mul(self):
+        self.data.create_data("float32")
+        model = CustomModelPatternMatcherModelLinearSiLUMul(self.data, bias=False)
+
+        mul_tensor = torch.reshape(self.data.x, (1, self.data.m, self.data.k)).to(
+            torch.float32
+        )
+        counters.clear()
+        self.assertEqual(counters["zentorch"]["pattern_matcher_mm_silu_mul"], 0)
+        zentorch_model = copy.deepcopy(model)
+        compiled_model = torch.compile(zentorch_model, backend="zentorch")
+        _ = compiled_model(
+            self.data.input.view(1, self.data.m, self.data.n), mul_tensor
+        )
+        self.assertEqual(counters["zentorch"]["pattern_matcher_mm_silu_mul"], 1)
+
+    @torch.inference_mode()
+    def test_float32_mm_silu_bfloat16_mul(self):
+        self.data.create_data("float32")
+        model = CustomModelPatternMatcherModelLinearSiLUMul(self.data, bias=False)
+        mul_tensor = torch.reshape(self.data.x, (1, self.data.m, self.data.k)).to(
+            torch.bfloat16
+        )
+        counters.clear()
+        self.assertEqual(counters["zentorch"]["pattern_matcher_mm_silu_mul"], 0)
+        zentorch_model = copy.deepcopy(model)
+        compiled_model = torch.compile(zentorch_model, backend="zentorch")
+        _ = compiled_model(
+            self.data.input.view(1, self.data.m, self.data.n), mul_tensor
+        )
+        self.assertEqual(counters["zentorch"]["pattern_matcher_mm_silu_mul"], 0)
+
+    @torch.inference_mode()
+    def test_bfloat16_mm_silu_float32_mul(self):
+        self.data.create_data("bfloat16")
+        model = CustomModelPatternMatcherModelLinearSiLUMul(self.data, bias=False)
+
+        mul_tensor = torch.reshape(self.data.x, (1, self.data.m, self.data.k)).to(
+            torch.float32
+        )
+        counters.clear()
+        self.assertEqual(counters["zentorch"]["pattern_matcher_mm_silu_mul"], 0)
+        zentorch_model = copy.deepcopy(model).to(dtype=torch.bfloat16)
+        compiled_model = torch.compile(zentorch_model, backend="zentorch")
+        _ = compiled_model(
+            self.data.input.view(1, self.data.m, self.data.n), mul_tensor
+        )
+        self.assertEqual(counters["zentorch"]["pattern_matcher_mm_silu_mul"], 0)
+
+    @torch.inference_mode()
+    def test_bfloat16_mm_silu_bfloat16_mul(self):
+        self.data.create_data("bfloat16")
+        model = CustomModelPatternMatcherModelLinearSiLUMul(self.data, bias=False)
+        mul_tensor = torch.reshape(self.data.x, (1, self.data.m, self.data.k)).to(
+            torch.bfloat16
+        )
+        counters.clear()
+        self.assertEqual(counters["zentorch"]["pattern_matcher_mm_silu_mul"], 0)
+        zentorch_model = copy.deepcopy(model).to(dtype=torch.bfloat16)
+        compiled_model = torch.compile(zentorch_model, backend="zentorch")
+        _ = compiled_model(
+            self.data.input.view(1, self.data.m, self.data.n), mul_tensor
+        )
+        self.assertEqual(counters["zentorch"]["pattern_matcher_mm_silu_mul"], 1)
+
+
 class GeluErfPattern(torch.nn.Module):
     def __init__(self):
         super(GeluErfPattern, self).__init__()
@@ -2960,7 +3276,9 @@ class TestPatternMatcher(Zentorch_TestCase):
         inp_2 = torch.rand((4, 53), dtype=new_dtype)
         counters.clear()
         self.assertEqual(counters["zentorch"]["pattern_matcher_addmm_silu_mul"], 0)
-        with torch.inference_mode(), torch.cpu.amp.autocast(enabled=amp_enabled):
+        with torch.inference_mode(), torch.autocast(
+            device_type="cpu", enabled=amp_enabled
+        ):
             _ = compiled_model(inp_0, inp_1, inp_2, inp_2)
             # test for both dtypes, two separate tests will be run
             self.assertEqual(counters["zentorch"]["pattern_matcher_addmm_silu_mul"], 1)
@@ -3066,15 +3384,6 @@ class TestLinear_Add(Zentorch_TestCase):
                 reset_dynamo()
                 compiled_graph = torch.compile(zentorch_model, backend="zentorch")
                 counters.clear()
-                with self.subTest(dtype="float32"):
-                    self.assertEqual(counters["zentorch"]["pattern_matcher_mm_add"], 0)
-                    with torch.autocast("cpu"):
-                        _ = compiled_graph(inp, self.data.x1[i])
-                        self.assertEqual(
-                            counters["zentorch"]["pattern_matcher_mm_add"],
-                            1,
-                        )
-                        counters.clear()
                 self.assertEqual(counters["zentorch"]["pattern_matcher_mm_add"], 0)
                 compiled_graph_output = compiled_graph(inp, self.data.x1[i])
                 self.assertEqual(counters["zentorch"]["pattern_matcher_mm_add"], 1)
@@ -3111,8 +3420,10 @@ class TestLinear_Add(Zentorch_TestCase):
         )
         self.assertEqual(output_1, output_2, atol=1e-2, rtol=1e-2)
 
+    # Disabling this test case as mixed precision is not supported currently
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
+    @unittest.skipIf(True, "ZENTORCH currently doesn't support mixed precision")
     def test_zentorch_addmm_1dbias_add_mp(self, dtype):
         # new_dtype = self.data.get_torch_type(dtype)
         arg_0 = torch.randn((30), dtype=torch.bfloat16)
@@ -3593,6 +3904,73 @@ class Test_WOQ_Linear(Zentorch_TestCase):
         self.assertEqual(counters["zentorch"]["pattern_matcher_woq_add_add"], 1)
         self.assertEqual(counters["zentorch"]["pattern_matcher_woq_add"], 1)
 
+    # TODO:
+    # Add op level test cases for woq_linear_add and woq_linear_mul
+    @parameterized.expand(
+        product(woq_dtypes, woq_input_dim_opt, woq_bias_opt, woq_qzeros_opt),
+        skip_on_empty=True,
+    )
+    @torch.inference_mode()
+    def test_woq_linear_add_sequential_postop_float(
+        self, dtype, woq_input_dim, woq_bias_idx, woq_qzeros_idx
+    ):
+        self.data.create_data(dtype)
+        model = CustomModel_WOQLinear_Add_sequential().eval()
+        zentorch_model = copy.deepcopy(model)
+
+        compiled_graph = torch.compile(zentorch_model, backend="zentorch")
+        reset_dynamo()
+
+        counters.clear()
+        self.assertEqual(counters["zentorch"]["pattern_matcher_woq_add_add"], 0)
+        self.assertEqual(counters["zentorch"]["pattern_matcher_woq_add"], 0)
+        with self.assertRaises(RuntimeError) as context:
+            _ = compiled_graph(
+                self.data.woq_input[woq_input_dim],
+                self.data.woq_qweight,
+                self.data.woq_scales,
+                self.data.woq_qzeros[woq_qzeros_idx],
+                self.data.woq_bias[woq_bias_idx],
+                self.data.woq_add[woq_input_dim].to(torch.float32),
+                self.data.woq_add[woq_input_dim].to(torch.float32),
+            )
+        self.assertEqual(counters["zentorch"]["pattern_matcher_woq_add_add"], 0)
+        self.assertEqual(counters["zentorch"]["pattern_matcher_woq_add"], 0)
+
+        self.assertTrue(
+            "torch_checks_for_woq_linear: currently only bfloat16 input "
+            "is supported as of now" == str(context.exception)
+        )
+
+    @parameterized.expand(
+        product(woq_dtypes, woq_input_dim_opt, woq_bias_opt, woq_qzeros_opt),
+        skip_on_empty=True,
+    )
+    @torch.inference_mode()
+    def test_woq_linear_silu_mul_postop_float(
+        self, dtype, woq_input_dim, woq_bias_idx, woq_qzeros_idx
+    ):
+        self.data.create_data(dtype)
+        model = CustomModel_WOQLinear_Silu_Mul().eval()
+        zentorch_model = copy.deepcopy(model)
+
+        compiled_graph = torch.compile(zentorch_model, backend="zentorch")
+        reset_dynamo()
+
+        counters.clear()
+        self.assertEqual(counters["zentorch"]["pattern_matcher_woq_add_add"], 0)
+        self.assertEqual(counters["zentorch"]["pattern_matcher_woq_add"], 0)
+        _ = compiled_graph(
+            self.data.woq_input[woq_input_dim],
+            self.data.woq_qweight,
+            self.data.woq_scales,
+            self.data.woq_qzeros[woq_qzeros_idx],
+            self.data.woq_bias[woq_bias_idx],
+            self.data.woq_mul[woq_input_dim].to(torch.float32),
+        )
+        self.assertEqual(counters["zentorch"]["pattern_matcher_woq_add_add"], 0)
+        self.assertEqual(counters["zentorch"]["pattern_matcher_woq_add"], 0)
+
     @parameterized.expand(
         product(woq_dtypes, woq_input_dim_opt, woq_bias_opt, woq_qzeros_opt),
         skip_on_empty=True,
@@ -3832,7 +4210,7 @@ class Test_WOQ_Linear(Zentorch_TestCase):
                 self.data.woq_bias[woq_bias_idx],
             )
         self.assertTrue(
-            "zentorch_woq_linear_impl: incorrect dimensions/shape "
+            "torch_checks_for_woq_linear: incorrect dimensions/shape "
             "for weight_scales" == str(context.exception)
         )
 

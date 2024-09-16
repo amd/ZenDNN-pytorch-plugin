@@ -71,21 +71,62 @@ inline void aten_tensor_to_zen_memory_for_woq_linear(
   }
 }
 
-// this function adds dtype, dim, group_size & weight_bits checks
-// for args to zentorch_woq_linear op
-inline void torch_checks_for_woq_linear(const at::Tensor &input,
-                                        const at::Tensor &qweight,
-                                        const at::Tensor &weight_scales,
-                                        const int64_t &group_size,
-                                        const int64_t &weight_bits,
-                                        const std::string &compute_dtype,
-                                        const int64_t &unpacking_ratio) {
+// This function adds dtype, dim, group_size & weight_bits checks
+// for args to zentorch_woq_linear op.
+// This function also checks for the dtypes of the post op buffers
+// based on the input matrix
+inline void torch_checks_for_woq_linear(
+    const at::Tensor &input, const at::Tensor &qweight,
+    const at::Tensor &weight_scales,
+    const std::vector<at::Tensor> &post_op_buffers, const int64_t &group_size,
+    const int64_t &weight_bits, const std::string &compute_dtype,
+    const int64_t &unpacking_ratio) {
+
+  // The flow of this check is as follows:
+  // -> The compute datatype is checked first, which if not compatible, the
+  //    execution stops.
+  // -> The individual datatypes of the tensors are inferred.
+  // -> The tensors which are inputs to the actual matmul call are confirmed
+  //    to be of datatype bfloat16.
+  // -> If the dataype is bfloat16, the machine capability is checked.
+  // -> Based on the post op buffer vector size, the dtypes of all the post ops
+  //    are determined. Again here, all the post op buffers must be of the same
+  //    dtype, either float32 or bfloat16, not a combination of both.
 
   TORCH_CHECK(
       compute_dtype == "bfloat16",
       "torch_checks_for_woq_linear: only bfloat16 compute_dtype is supported "
       "as of now, but the compute_dtype received is ",
       compute_dtype, ".");
+
+  bool is_input_bf16 = (input.scalar_type() == c10::ScalarType::BFloat16);
+
+  TORCH_CHECK(is_input_bf16,
+              "torch_checks_for_woq_linear: currently only bfloat16 input "
+              "is supported as of now");
+
+  if (is_input_bf16) {
+    TORCH_CHECK(
+        utils::zendnn_bf16_device_check(),
+        "torch_checks_for_woq_linear: zendnn's woq matmul kernel computation "
+        "with bf16 inputs needs the cpu support of avx512bf16");
+  }
+
+  bool are_postops_bf16 = true;
+
+  if (post_op_buffers.size() != 0) {
+    for (const at::Tensor &buffer : post_op_buffers) {
+      are_postops_bf16 = are_postops_bf16 &&
+                         (buffer.scalar_type() == c10::ScalarType::BFloat16);
+    }
+
+    TORCH_CHECK(are_postops_bf16,
+                "torch_checks_for_woq_linear: post ops have to be of a "
+                "dtype BFloat, when dtype of input matrix is BFloat");
+  } else {
+    LOG(INFO) << "Post Op buffers are not present!\n";
+  }
+
   TORCH_CHECK(qweight.is_contiguous(),
               "torch_checks_for_woq_linear: qweight is non-contiguous & it is "
               "not supported yet");
@@ -94,22 +135,13 @@ inline void torch_checks_for_woq_linear(const at::Tensor &input,
   TORCH_CHECK(qweight.dim() == 2 && weight_scales.dim() == 2,
               "torch_checks_for_woq_linear: unsupported dims for qweight and "
               "weight_scales");
-  TORCH_CHECK(
-      weight_scales.dim() == 2 && weight_scales.size(0) == 1 &&
-          weight_scales.size(1) == (qweight.size(1) * unpacking_ratio),
-      "zentorch_woq_linear_impl: incorrect dimensions/shape for weight_scales");
+  TORCH_CHECK(weight_scales.dim() == 2 && weight_scales.size(0) == 1 &&
+                  weight_scales.size(1) == (qweight.size(1) * unpacking_ratio),
+              "torch_checks_for_woq_linear: incorrect dimensions/shape for "
+              "weight_scales");
   TORCH_CHECK(weight_scales.scalar_type() == c10::kFloat,
               "torch_checks_for_woq_linear: currently only float32 "
               "weight_scales are supported as of now");
-  TORCH_CHECK(input.scalar_type() == c10::kBFloat16,
-              "torch_checks_for_woq_linear: currently only bfloat16 input "
-              "is supported as of now");
-  if (input.scalar_type() == c10::kBFloat16) {
-    TORCH_CHECK(
-        utils::zendnn_bf16_device_check(),
-        "torch_checks_for_woq_linear: zendnn's woq matmul kernel computation "
-        "with bf16 inputs needs the cpu support of avx512bf16");
-  }
   TORCH_CHECK(
       input.size(input.dim() - 1) == qweight.size(0),
       "torch_checks_for_woq_linear: unsupported sizes for input and qweight");

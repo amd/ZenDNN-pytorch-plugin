@@ -32,8 +32,9 @@ at::Tensor zentorch_woq_linear_impl(
   LOG(INFO) << "result dimensions: " << result.sizes();
   LOG(INFO) << "Unpacking ratio : " << unpacking_ratio;
 
-  torch_checks_for_woq_linear(input, qweight, weight_scales, group_size,
-                              weight_bits, compute_dtype, unpacking_ratio);
+  torch_checks_for_woq_linear(input, qweight, weight_scales, post_op_buffers,
+                              group_size, weight_bits, compute_dtype,
+                              unpacking_ratio);
 
   auto input_contiguous = input.is_contiguous() ? input : input.contiguous();
 
@@ -156,12 +157,11 @@ at::Tensor zentorch_woq_linear_binary(
 
   at::Tensor result = at::empty(binary_input.sizes(), binary_input.options());
 
-  LOG(INFO) << "Calling  zentorch_woq_linear_impl from " << __FUNCTION__
-            << "!\n";
-
   std::vector<at::Tensor> post_op_buffers = {binary_input};
   std::vector<int64_t> post_op_ids = {fuse};
 
+  LOG(INFO) << "Calling  zentorch_woq_linear_impl from " << __FUNCTION__
+            << "!\n";
   return zentorch_woq_linear_impl(
       input, qweight, weight_scales, weight_zero_point, bias, result,
       post_op_ids, post_op_buffers, group_size, weight_bits, compute_dtype,
@@ -187,12 +187,11 @@ at::Tensor zentorch_woq_linear_silu_mul(
 
   at::Tensor result = at::empty(mul_input.sizes(), mul_input.options());
 
-  LOG(INFO) << "Calling zentorch_woq_linear_impl from " << __FUNCTION__
-            << "!\n";
-
   std::vector<at::Tensor> post_op_buffers = {mul_input};
   std::vector<int64_t> post_op_ids = {UNARY_POST_OP::SILU, BINARY_POST_OP::MUL};
 
+  LOG(INFO) << "Calling zentorch_woq_linear_impl from " << __FUNCTION__
+            << "!\n";
   return zentorch_woq_linear_impl(
       input, qweight, weight_scales, weight_zero_point, bias, result,
       post_op_ids, post_op_buffers, group_size, weight_bits, compute_dtype,
@@ -222,12 +221,11 @@ at::Tensor zentorch_woq_linear_add_add(
 
   at::Tensor result = at::empty(add2_input.sizes(), add2_input.options());
 
-  LOG(INFO) << "Calling  zentorch_woq_linear_impl from " << __FUNCTION__
-            << "!\n";
-
   std::vector<at::Tensor> post_op_buffers = {add1_input, add2_input};
   std::vector<int64_t> post_op_ids = {BINARY_POST_OP::ADD, BINARY_POST_OP::ADD};
 
+  LOG(INFO) << "Calling  zentorch_woq_linear_impl from " << __FUNCTION__
+            << "!\n";
   return zentorch_woq_linear_impl(
       input, qweight, weight_scales, weight_zero_point, bias, result,
       post_op_ids, post_op_buffers, group_size, weight_bits, compute_dtype,
