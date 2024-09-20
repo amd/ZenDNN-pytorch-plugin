@@ -214,7 +214,13 @@ def meta_zentorch_bmm(input, weight):
 
 
 @register_meta("zentorch_baddbmm")
-def meta_zentorch_baddbmm(bias, input, weight, alpha=1, beta=1):
+def meta_zentorch_baddbmm(
+    bias,
+    input,
+    weight,
+    alpha=1,
+    beta=1,
+):
     return bias.new_empty(input.shape[0], input.shape[1], weight.shape[-1])
 
 
@@ -319,6 +325,23 @@ zentorch_addmm_mappings = {
     1: meta_zentorch_addmm_relu,
     2: meta_zentorch_addmm_gelu_tanh,
     3: meta_zentorch_addmm_gelu_erf,
+    4: meta_zentorch_addmm_silu,
+}
+
+zentorch_addmm_1dbias_mappings = {
+    0: meta_zentorch_addmm_1dbias,
+    1: meta_zentorch_addmm_1dbias_relu,
+    2: meta_zentorch_addmm_1dbias_gelu_tanh,
+    3: meta_zentorch_addmm_1dbias_gelu_erf,
+    4: meta_zentorch_addmm_1dbias_silu,
+}
+
+zentorch_mm_mappings = {
+    0: meta_zentorch_mm,
+    1: meta_zentorch_mm_relu,
+    2: meta_zentorch_mm_gelu_tanh,
+    3: meta_zentorch_mm_gelu_erf,
+    4: meta_zentorch_mm_silu,
 }
 
 
@@ -342,11 +365,17 @@ def meta_zentorch_attn_qkv_fusion(
     self, inputs, weights, betas, alphas, fuse, is_zentorch_mm
 ):
     output_list = []
-    for idx in range(len(inputs)):
-        output = zentorch_addmm_mappings[fuse[idx]](
-            self[idx], inputs[idx], weights[idx], betas[idx], alphas[idx]
-        )
-        output_list.append(output)
+    if is_zentorch_mm is False:
+        for idx in range(len(inputs)):
+            output = zentorch_addmm_1dbias_mappings[fuse[idx]](
+                self[idx], inputs[idx], weights[idx], betas[idx], alphas[idx]
+            )
+            output_list.append(output)
+    else:
+        for idx in range(len(inputs)):
+            output = zentorch_mm_mappings[fuse[idx]](inputs[idx], weights[idx])
+            output_list.append(output)
+
     return output_list
 
 
