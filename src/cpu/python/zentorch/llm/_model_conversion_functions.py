@@ -133,6 +133,10 @@ def model_convert_lowering(
                 )
             if _model.config.architectures[0] == "QWenLMHeadModel":
                 supported_classes.append(type(_model.transformer.h[0].ln_1))
+            if _model.config.architectures[0] == "Qwen2ForCausalLM":
+                supported_classes.append(
+                    transformers.models.qwen2.modeling_qwen2.Qwen2RMSNorm
+                )
             if hasattr(transformers.models, "mistral"):
                 supported_classes.append(
                     transformers.models.mistral.modeling_mistral.MistralRMSNorm
