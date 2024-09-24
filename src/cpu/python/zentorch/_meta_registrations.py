@@ -124,6 +124,19 @@ def meta_zentorch_addmm_1dbias_add_add(
     return add2_input.new_empty(add2_input.size())
 
 
+@register_meta("zentorch_addmm_1dbias_mul_add")
+def meta_zentorch_addmm_1dbias_mul_add(
+    bias,
+    input,
+    weight,
+    mul_input,
+    add_input,
+    alpha=1,
+    beta=1,
+):
+    return add_input.new_empty(add_input.size())
+
+
 @register_meta("zentorch_addmm_1dbias_relu")
 def meta_zentorch_addmm_1dbias_relu(
     bias,
@@ -939,6 +952,7 @@ make_fallback(torch.ops.zentorch.zentorch_addmm_1dbias_gelu_tanh)
 make_fallback(torch.ops.zentorch.zentorch_addmm_1dbias_gelu_erf)
 make_fallback(torch.ops.zentorch.zentorch_addmm_1dbias_add)
 make_fallback(torch.ops.zentorch.zentorch_addmm_1dbias_add_add)
+make_fallback(torch.ops.zentorch.zentorch_addmm_1dbias_mul_add)
 make_fallback(torch.ops.zentorch.zentorch_mm_silu_mul)
 make_fallback(torch.ops.zentorch.zentorch_addmm_silu_mul)
 make_fallback(torch.ops.zentorch.zentorch_addmm_1dbias_silu_mul)

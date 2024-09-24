@@ -666,6 +666,11 @@ TORCH_LIBRARY(zentorch, m) {
         "Scalar beta=1, Scalar alpha=1, str "
         "zentorch_op_name='zentorch::zentorch_addmm_1dbias_add_add') -> "
         "Tensor");
+  m.def("zentorch_addmm_1dbias_mul_add( Tensor self, "
+        "Tensor mat1, Tensor mat2, Tensor mul_input, Tensor add_input, *,"
+        "Scalar beta=1, Scalar alpha=1, str "
+        "zentorch_op_name='zentorch::zentorch_addmm_1dbias_mul_add') -> "
+        "Tensor");
   m.def("zentorch_addmm_1dbias_relu(Tensor self, Tensor mat1, Tensor mat2, *, "
         "Scalar beta=1, Scalar alpha=1, str "
         "zentorch_op_name='zentorch::zentorch_addmm_1dbias_relu') -> "
@@ -729,6 +734,9 @@ TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
                                             BINARY_POST_OP::ADD>);
   m.impl("zentorch_addmm_1dbias_add_add",
          zentorch_addmm_1dbias_binary_binary<BINARY_POST_OP::ADD,
+                                             BINARY_POST_OP::ADD>);
+  m.impl("zentorch_addmm_1dbias_mul_add",
+         zentorch_addmm_1dbias_binary_binary<BINARY_POST_OP::MUL,
                                              BINARY_POST_OP::ADD>);
   m.impl("zentorch_addmm_1dbias_relu",
          zentorch_addmm_1dbias<UNARY_POST_OP::RELU>);
