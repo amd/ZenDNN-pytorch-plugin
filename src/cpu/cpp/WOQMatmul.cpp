@@ -44,10 +44,9 @@ at::Tensor zentorch_woq_linear_impl(
   const bool bias_defined = bias_t.defined();
   if (bias_defined) {
     LOG(INFO) << "bias dimensions: " << bias_t.sizes();
-    TORCH_CHECK(
-        bias_t.dim() == 1 &&
-            bias_t.size(0) == (qweight.size(1) * unpacking_ratio),
-        "zentorch_woq_linear_impl: incorrect dimensions/shape for bias");
+    ZENTORCH_CHECK(bias_t.dim() == 1 &&
+                       bias_t.size(0) == (qweight.size(1) * unpacking_ratio),
+                   "incorrect dimensions/shape for bias");
   }
 
   c10::MaybeOwned<at::Tensor> weight_zero_point_maybe_owned =
@@ -58,15 +57,15 @@ at::Tensor zentorch_woq_linear_impl(
   if (weight_zero_point_defined) {
     LOG(INFO) << "weight_zero_point dimensions: "
               << weight_zero_point_t.sizes();
-    TORCH_CHECK(weight_zero_point_t.dim() == 2 &&
-                    weight_zero_point_t.size(0) == 1 &&
-                    weight_zero_point_t.size(1) == qweight.size(1),
-                "zentorch_woq_linear_impl: incorrect dimensions/shape for "
-                "weight_zero_point");
+    ZENTORCH_CHECK(weight_zero_point_t.dim() == 2 &&
+                       weight_zero_point_t.size(0) == 1 &&
+                       weight_zero_point_t.size(1) == qweight.size(1),
+                   "incorrect dimensions/shape for "
+                   "weight_zero_point");
     // TODO: to be tested for perf impact with group size not being -1
-    TORCH_CHECK(are_all_zeros(weight_zero_point_t),
-                "zentorch_woq_linear_impl: non-zero weight_zero_point "
-                "are not supported yet");
+    ZENTORCH_CHECK(are_all_zeros(weight_zero_point_t),
+                   "non-zero weight_zero_point "
+                   "are not supported yet");
   }
 
   memory z_input, z_bias, z_qweight, z_result, z_woq_scales;
@@ -93,9 +92,7 @@ at::Tensor zentorch_woq_linear_impl(
     op_attr.set_woq_scale(2, {ZENDNN_RUNTIME_F32_VAL});
     execute_args.insert({ZENDNN_ARG_ATTR_WOQ_SCALES, z_woq_scales});
   } else {
-    TORCH_CHECK(
-        false,
-        "zentorch_woq_linear_impl: currently only group_size = -1 is supported")
+    ZENTORCH_CHECK(false, "currently only group_size = -1 is supported")
   }
 
   // execute the zendnn::matmul kernel
@@ -149,11 +146,11 @@ at::Tensor zentorch_woq_linear_binary(
             << "Executing function: " << __FUNCTION__;
   const int64_t unpacking_ratio = get_unpacking_ratio(qweight, weight_bits);
 
-  TORCH_CHECK(binary_input.sizes() ==
-                  c10::IntArrayRef(get_matmul_and_linear_output_sizes(
-                      input, qweight, unpacking_ratio)),
-              "zentorch_woq_linear_binary: unsupported sizes for woq_linear "
-              "result and binary_input");
+  ZENTORCH_CHECK(binary_input.sizes() ==
+                     c10::IntArrayRef(get_matmul_and_linear_output_sizes(
+                         input, qweight, unpacking_ratio)),
+                 "unsupported sizes for woq_linear "
+                 "result and binary_input");
 
   at::Tensor result = at::empty(binary_input.sizes(), binary_input.options());
 
@@ -179,11 +176,10 @@ at::Tensor zentorch_woq_linear_silu_mul(
             << "Executing function: " << __FUNCTION__;
   const int64_t unpacking_ratio = get_unpacking_ratio(qweight, weight_bits);
 
-  TORCH_CHECK(mul_input.sizes() ==
-                  c10::IntArrayRef(get_matmul_and_linear_output_sizes(
-                      input, qweight, unpacking_ratio)),
-              " zentorch_woq_linear_silu_mul: unsupported sizes for woq_linear "
-              "result and mul_input");
+  ZENTORCH_CHECK(mul_input.sizes() ==
+                     c10::IntArrayRef(get_matmul_and_linear_output_sizes(
+                         input, qweight, unpacking_ratio)),
+                 "unsupported sizes for woq_linear result and mul_input");
 
   at::Tensor result = at::empty(mul_input.sizes(), mul_input.options());
 
@@ -210,14 +206,14 @@ at::Tensor zentorch_woq_linear_add_add(
             << "Executing function: " << __FUNCTION__;
   const int64_t unpacking_ratio = get_unpacking_ratio(qweight, weight_bits);
 
-  TORCH_CHECK((add1_input.sizes() ==
-               c10::IntArrayRef(get_matmul_and_linear_output_sizes(
-                   input, qweight, unpacking_ratio))) &&
-                  (add2_input.sizes() ==
-                   c10::IntArrayRef(get_matmul_and_linear_output_sizes(
-                       input, qweight, unpacking_ratio))),
-              "zentorch_woq_linear_add_add: unsupported sizes for woq_linear "
-              "result, add1_input and add2_input");
+  ZENTORCH_CHECK((add1_input.sizes() ==
+                  c10::IntArrayRef(get_matmul_and_linear_output_sizes(
+                      input, qweight, unpacking_ratio))) &&
+                     (add2_input.sizes() ==
+                      c10::IntArrayRef(get_matmul_and_linear_output_sizes(
+                          input, qweight, unpacking_ratio))),
+                 "unsupported sizes for woq_linear "
+                 "result, add1_input and add2_input");
 
   at::Tensor result = at::empty(add2_input.sizes(), add2_input.options());
 

@@ -52,10 +52,11 @@ at::Tensor zentorch_matmul_impl(const at::Tensor &input,
   } else if (alpha != 1.0f) {
     if (bias_defined) {
       // TODO: add support for alpha when bias is defined
-      TORCH_CHECK(!(input.scalar_type() == c10::ScalarType::BFloat16 ||
-                    weight.scalar_type() == c10::ScalarType::BFloat16),
-                  "zentorch_matmul: zentorch_matmul is not supported for bf16 "
-                  "tensors when bias is defined and alpha is not equal to 1");
+      ZENTORCH_CHECK(
+          !(input.scalar_type() == c10::ScalarType::BFloat16 ||
+            weight.scalar_type() == c10::ScalarType::BFloat16),
+          "zentorch_matmul is not supported for bf16 "
+          "tensors when bias is defined and alpha is not equal to 1");
     }
     LOG(INFO) << "Setting output scales with alpha = " << alpha;
     op_attr.set_output_scales(0, std::vector<float>(1, alpha));
@@ -120,21 +121,21 @@ std::vector<at::Tensor> zentorch_matmul_group_impl(
     if (self_vector[i].sizes() ==
         c10::IntArrayRef(
             get_matmul_and_linear_output_sizes(inputs[i], weights[i]))) {
-      TORCH_CHECK((self_vector[i].dim() == 2 && inputs[i].dim() == 2 &&
-                   weights[i].dim() == 2), // aten::addmm
-                  "zentorch_addmm:  unsupported dims for self, mat1 and mat2");
+      ZENTORCH_CHECK((self_vector[i].dim() == 2 && inputs[i].dim() == 2 &&
+                      weights[i].dim() == 2), // aten::addmm
+                     "unsupported dims for self, mat1 and mat2");
       const at::Tensor empty_bias; // dummy empty bias
       bias_vector[i] = empty_bias;
       self_or_result_vector[i] = self_vector[i];
     } else {
-      TORCH_CHECK((self_vector[i].dim() == 1 && inputs[i].dim() == 2 &&
-                   weights[i].dim() == 2), // aten::addmm
-                  "zentorch_addmm: unsupported dims for self, mat1 and mat2");
+      ZENTORCH_CHECK((self_vector[i].dim() == 1 && inputs[i].dim() == 2 &&
+                      weights[i].dim() == 2), // aten::addmm
+                     "unsupported dims for self, mat1 and mat2");
       // Array access is faster than .size(n)
       const auto mat1_sizes = inputs[i].sizes();
       const auto mat2_sizes = weights[i].sizes();
       const auto self_sizes = self_vector[i].sizes();
-      TORCH_CHECK(
+      ZENTORCH_CHECK(
           self_sizes[0] == mat2_sizes[1] && mat1_sizes[1] == mat2_sizes[0],
           "input shape is incompatible with matrix multiplication (",
           mat1_sizes[0], "x", mat1_sizes[1], " @ ", mat2_sizes[0], "x",
@@ -167,11 +168,10 @@ std::vector<at::Tensor> zentorch_matmul_group_impl(
     if (alphas[i] != 1.0f) {
       if (bias_defined_vector[i]) {
         // TODO: add support for alpha when bias is defined
-        TORCH_CHECK(
-            !(inputs[i].scalar_type() == c10::ScalarType::BFloat16 ||
-              weights[i].scalar_type() == c10::ScalarType::BFloat16),
-            "zentorch_matmul: zentorch_matmul is not supported for bf16 "
-            "tensors when bias is defined and alpha != 1");
+        ZENTORCH_CHECK(!(inputs[i].scalar_type() == c10::ScalarType::BFloat16 ||
+                         weights[i].scalar_type() == c10::ScalarType::BFloat16),
+                       "zentorch_matmul is not supported for bf16 "
+                       "tensors when bias is defined and alpha != 1");
       }
       LOG(INFO) << "Setting output scales with alpha = " << alphas[i];
     }
@@ -213,19 +213,20 @@ at::Tensor zentorch_addmm_1dbias(const at::Tensor &self, const at::Tensor &mat1,
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
 
-  TORCH_CHECK(
+  ZENTORCH_CHECK(
       (self.dim() == 1 && mat1.dim() == 2 && mat2.dim() == 2), // aten::addmm
-      "zentorch_addmm_1dbias: unsupported dims for self, mat1 and mat2");
+      "unsupported dims for self, mat1 and mat2");
 
   // Array access is faster than .size(n)
   const auto mat1_sizes = mat1.sizes();
   const auto mat2_sizes = mat2.sizes();
   const auto self_sizes = self.sizes();
 
-  TORCH_CHECK(self_sizes[0] == mat2_sizes[1] && mat1_sizes[1] == mat2_sizes[0],
-              "input shape is incompatible with matrix multiplication (",
-              mat1_sizes[0], "x", mat1_sizes[1], " @ ", mat2_sizes[0], "x",
-              mat2_sizes[1], " != ", mat1_sizes[0], "x", self_sizes[0], ")");
+  ZENTORCH_CHECK(self_sizes[0] == mat2_sizes[1] &&
+                     mat1_sizes[1] == mat2_sizes[0],
+                 "input shape is incompatible with matrix multiplication (",
+                 mat1_sizes[0], "x", mat1_sizes[1], " @ ", mat2_sizes[0], "x",
+                 mat2_sizes[1], " != ", mat1_sizes[0], "x", self_sizes[0], ")");
 
   at::Tensor result =
       at::empty(get_matmul_and_linear_output_sizes(mat1, mat2), mat1.options());
@@ -246,17 +247,16 @@ zentorch_addmm_1dbias_add(const at::Tensor &self, const at::Tensor &mat1,
                           std::string zentorch_op_name) {
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
-  TORCH_CHECK((add_input.dim() == 2 && mat1.dim() == 2 && mat2.dim() == 2),
-              "zentorch_addmm_1dbias_add: unsupported dims for mat1, mat2 and "
-              "add_input");
-  TORCH_CHECK(
+  ZENTORCH_CHECK((add_input.dim() == 2 && mat1.dim() == 2 && mat2.dim() == 2),
+                 "unsupported dims for mat1, mat2 and "
+                 "add_input");
+  ZENTORCH_CHECK(
       (add_input.sizes() ==
        c10::IntArrayRef(get_matmul_and_linear_output_sizes(mat1, mat2))),
-      "zentorch_addmm_1dbias_add: unsupported sizes for mat1, mat2 and "
+      "unsupported sizes for mat1, mat2 and "
       "add_input");
 
-  TORCH_CHECK((self.dim() == 1),
-              "zentorch_addmm:  unsupported dims for self, mat1 and mat2");
+  ZENTORCH_CHECK((self.dim() == 1), "unsupported dims for self, mat1 and mat2");
   at::Tensor result = at::empty(add_input.sizes(), add_input.options());
 
   std::vector<at::Tensor> post_op_buffers = {add_input};
@@ -275,19 +275,18 @@ at::Tensor zentorch_addmm_1dbias_add_add(
     std::string zentorch_op_name) {
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
-  TORCH_CHECK((add1_input.dim() == 2 && add2_input.dim() == 2 &&
-               mat1.dim() == 2 && mat2.dim() == 2),
-              "zentorch_addmm_1dbias_add_add: unsupported dims for mat1, mat2, "
-              "add1_input and add2_input");
-  TORCH_CHECK(
+  ZENTORCH_CHECK((add1_input.dim() == 2 && add2_input.dim() == 2 &&
+                  mat1.dim() == 2 && mat2.dim() == 2),
+                 "unsupported dims for mat1, mat2, "
+                 "add1_input and add2_input");
+  ZENTORCH_CHECK(
       (add1_input.sizes() ==
            c10::IntArrayRef(get_matmul_and_linear_output_sizes(mat1, mat2)) &&
        add2_input.sizes() ==
            c10::IntArrayRef(get_matmul_and_linear_output_sizes(mat1, mat2))),
-      "zentorch_addmm_1dbias_add_add: unsupported sizes for mat1, mat2, "
+      "unsupported sizes for mat1, mat2, "
       "add1_input and add2_input");
-  TORCH_CHECK((self.dim() == 1),
-              "zentorch_addmm:  unsupported dims for self, mat1 and mat2");
+  ZENTORCH_CHECK((self.dim() == 1), "unsupported dims for self, mat1 and mat2");
   at::Tensor result = at::empty(add2_input.sizes(), add2_input.options());
 
   std::vector<at::Tensor> post_op_buffers = {add1_input, add2_input};
@@ -318,9 +317,9 @@ at::Tensor zentorch_addmm(const at::Tensor &self, const at::Tensor &mat1,
   // zentorch_addmm_1dbias
   if (self.sizes() ==
       c10::IntArrayRef(get_matmul_and_linear_output_sizes(mat1, mat2))) {
-    TORCH_CHECK(
+    ZENTORCH_CHECK(
         (self.dim() == 2 && mat1.dim() == 2 && mat2.dim() == 2), // aten::addmm
-        "zentorch_addmm: unsupported dims for self, mat1 and mat2");
+        "unsupported dims for self, mat1 and mat2");
 
     const at::Tensor empty_bias; // dummy empty bias
     float beta_float = beta.to<float>();
@@ -357,9 +356,9 @@ at::Tensor zentorch_addmm(const at::Tensor &self, const at::Tensor &mat1,
                                 post_op_buffers, beta.to<float>(),
                                 alpha.to<float>(), zentorch_op_name);
   } else {
-    TORCH_CHECK(
+    ZENTORCH_CHECK(
         (self.dim() == 1 && mat1.dim() == 2 && mat2.dim() == 2), // aten::addmm
-        "zentorch_addmm: unsupported dims for self, mat1 and mat2");
+        "unsupported dims for self, mat1 and mat2");
 
     LOG(INFO) << "Calling zentorch_addmm_1dbias from " << __FUNCTION__ << "!\n";
     return zentorch_addmm_1dbias<fuse>(self, mat1, mat2, beta, alpha,
@@ -374,20 +373,18 @@ at::Tensor zentorch_baddbmm(const at::Tensor &self, const at::Tensor &batch1,
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
 
-  if (self.numel() == 0) {
-    TORCH_CHECK(false, "zentorch_baddbmm: incorrect self tensor");
-  }
-  TORCH_CHECK(
-      (self.dim() == 3 && batch1.dim() == 3 &&
-       batch2.dim() == 3), // aten::baddbmm
-      "zentorch_baddbmm:  unsupported dims for self, batch1 and batch2");
+  ZENTORCH_CHECK(self.numel() != 0, "incorrect self tensor");
+
+  ZENTORCH_CHECK((self.dim() == 3 && batch1.dim() == 3 &&
+                  batch2.dim() == 3), // aten::baddbmm
+                 "unsupported dims for self, batch1 and batch2");
 
   // Array access is faster than .size(n)
   const auto batch1_sizes = batch1.sizes();
   const auto batch2_sizes = batch2.sizes();
   const auto self_sizes = self.sizes();
 
-  TORCH_CHECK(
+  ZENTORCH_CHECK(
       self_sizes ==
           c10::IntArrayRef(get_matmul_and_linear_output_sizes(batch1, batch2)),
       "input shape is incompatible with matrix multiplication (",
@@ -436,8 +433,8 @@ at::Tensor zentorch_mm(const at::Tensor &self, const at::Tensor &mat2,
                        std::string zentorch_op_name) {
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
-  TORCH_CHECK((self.dim() == 2 && mat2.dim() == 2), // aten::mm
-              "zentorch_mm:  unsupported dims for self and mat2");
+  ZENTORCH_CHECK((self.dim() == 2 && mat2.dim() == 2), // aten::mm
+                 "unsupported dims for self and mat2");
 
   at::Tensor empty_bias;
   at::Tensor out =
@@ -457,8 +454,8 @@ at::Tensor zentorch_bmm(const at::Tensor &self, const at::Tensor &mat2,
                         std::string zentorch_op_name) {
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
-  TORCH_CHECK((self.dim() == 3 && mat2.dim() == 3), // aten::bmm
-              "zentorch_bmm:  unsupported dims for self and mat2");
+  ZENTORCH_CHECK((self.dim() == 3 && mat2.dim() == 3), // aten::bmm
+                 "unsupported dims for self and mat2");
 
   at::Tensor empty_bias;
   at::Tensor out =
@@ -496,19 +493,18 @@ zentorch_addmm_silu_mul(const at::Tensor &bias, const at::Tensor &mat1,
   // zentorch_addmm_1dbias
 
   // Size checks for post op buffers
-  TORCH_CHECK(
-      (mat3.dim() == 2 && mat1.dim() == 2 && mat2.dim() == 2),
-      "zentorch_addmm_silu_mul: unsupported dims for mat1, mat2 and mat3");
-  TORCH_CHECK(
+  ZENTORCH_CHECK((mat3.dim() == 2 && mat1.dim() == 2 && mat2.dim() == 2),
+                 "unsupported dims for mat1, mat2 and mat3");
+  ZENTORCH_CHECK(
       (mat3.sizes() ==
        c10::IntArrayRef(get_matmul_and_linear_output_sizes(mat1, mat2))),
-      "zentorch_addmm_silu_mul: unsupported sizes for mat1, mat2 and mat3");
+      "unsupported sizes for mat1, mat2 and mat3");
 
   if (bias.sizes() ==
       c10::IntArrayRef(get_matmul_and_linear_output_sizes(mat1, mat2))) {
-    TORCH_CHECK(
+    ZENTORCH_CHECK(
         (bias.dim() == 2 && mat1.dim() == 2 && mat2.dim() == 2), // aten::addmm
-        "zentorch_addmm:  unsupported dims for bias, mat1 and mat2");
+        "unsupported dims for bias, mat1 and mat2");
 
     // Sending the self tensor (this represents the bias in the nn.Module
     // level) as a post op. Since we were passing self directly to matmul impl,
@@ -526,20 +522,20 @@ zentorch_addmm_silu_mul(const at::Tensor &bias, const at::Tensor &mat1,
 
     post_op_ids.push_back(BINARY_POST_OP::ADD);
   } else {
-    TORCH_CHECK(
+    ZENTORCH_CHECK(
         (bias.dim() == 1 && mat1.dim() == 2 && mat2.dim() == 2), // aten::addmm
-        "zentorch_addmm_1dbias: unsupported dims for bias, mat1 and mat2");
+        "unsupported dims for bias, mat1 and mat2");
 
     // Array access is faster than .size(n)
     const auto mat1_sizes = mat1.sizes();
     const auto mat2_sizes = mat2.sizes();
     const auto bias_sizes = bias.sizes();
 
-    TORCH_CHECK(bias_sizes[0] == mat2_sizes[1] &&
-                    mat1_sizes[1] == mat2_sizes[0],
-                "input shape is incompatible with matrix multiplication (",
-                mat1_sizes[0], "x", mat1_sizes[1], " @ ", mat2_sizes[0], "x",
-                mat2_sizes[1], " != ", mat1_sizes[0], "x", bias_sizes[0], ")");
+    ZENTORCH_CHECK(
+        bias_sizes[0] == mat2_sizes[1] && mat1_sizes[1] == mat2_sizes[0],
+        "input shape is incompatible with matrix multiplication (",
+        mat1_sizes[0], "x", mat1_sizes[1], " @ ", mat2_sizes[0], "x",
+        mat2_sizes[1], " != ", mat1_sizes[0], "x", bias_sizes[0], ")");
 
     if (beta_float != 1.0f) {
       matmul_impl_bias = bias.mul(beta_float);
@@ -572,12 +568,12 @@ at::Tensor zentorch_mm_silu_mul(const at::Tensor &mat1, const at::Tensor &mat2,
   const float alpha = 1.0f;
 
   // Size checks for post op buffers
-  TORCH_CHECK((mat3.dim() == 2 && mat1.dim() == 2 && mat2.dim() == 2),
-              "zentorch_mm_silu_mul: unsupported dims for mat1, mat2 and mat3");
-  TORCH_CHECK(
+  ZENTORCH_CHECK((mat3.dim() == 2 && mat1.dim() == 2 && mat2.dim() == 2),
+                 "unsupported dims for mat1, mat2 and mat3");
+  ZENTORCH_CHECK(
       (mat3.sizes() ==
        c10::IntArrayRef(get_matmul_and_linear_output_sizes(mat1, mat2))),
-      "zentorch_mm_silu_mul: unsupported sizes for mat1, mat2 and mat3");
+      "unsupported sizes for mat1, mat2 and mat3");
 
   at::Tensor empty_bias;
   at::Tensor out =

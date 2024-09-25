@@ -66,8 +66,7 @@ inline void aten_tensor_to_zen_memory_for_woq_linear(
                       memory_1d_tag});
     z_woq_scales = zen_memory(weight_scales, woq_scales_mem_desc);
   } else {
-    TORCH_CHECK(false, "aten_tensor_to_zen_memory_for_woq_linear: currently "
-                       "only group_size = -1 is supported")
+    ZENTORCH_CHECK(false, "currently only group_size = -1 is supported")
   }
 }
 
@@ -93,23 +92,20 @@ inline void torch_checks_for_woq_linear(
   //    are determined. Again here, all the post op buffers must be of the same
   //    dtype, either float32 or bfloat16, not a combination of both.
 
-  TORCH_CHECK(
-      compute_dtype == "bfloat16",
-      "torch_checks_for_woq_linear: only bfloat16 compute_dtype is supported "
-      "as of now, but the compute_dtype received is ",
-      compute_dtype, ".");
+  ZENTORCH_CHECK(compute_dtype == "bfloat16",
+                 "only bfloat16 compute_dtype is supported "
+                 "as of now, but the compute_dtype received is ",
+                 compute_dtype, ".");
 
   bool is_input_bf16 = (input.scalar_type() == c10::ScalarType::BFloat16);
 
-  TORCH_CHECK(is_input_bf16,
-              "torch_checks_for_woq_linear: currently only bfloat16 input "
-              "is supported as of now");
+  ZENTORCH_CHECK(is_input_bf16, "currently only bfloat16 input "
+                                "is supported as of now");
 
   if (is_input_bf16) {
-    TORCH_CHECK(
-        utils::zendnn_bf16_device_check(),
-        "torch_checks_for_woq_linear: zendnn's woq matmul kernel computation "
-        "with bf16 inputs needs the cpu support of avx512bf16");
+    ZENTORCH_CHECK(utils::zendnn_bf16_device_check(),
+                   "zendnn's woq matmul kernel computation "
+                   "with bf16 inputs needs the cpu support of avx512bf16");
   }
 
   bool are_postops_bf16 = true;
@@ -120,33 +116,32 @@ inline void torch_checks_for_woq_linear(
                          (buffer.scalar_type() == c10::ScalarType::BFloat16);
     }
 
-    TORCH_CHECK(are_postops_bf16,
-                "torch_checks_for_woq_linear: post ops have to be of a "
-                "dtype BFloat, when dtype of input matrix is BFloat");
+    ZENTORCH_CHECK(are_postops_bf16,
+                   "post ops have to be of a "
+                   "dtype BFloat, when dtype of input matrix is BFloat");
   } else {
     LOG(INFO) << "Post Op buffers are not present!\n";
   }
 
-  TORCH_CHECK(qweight.is_contiguous(),
-              "torch_checks_for_woq_linear: qweight is non-contiguous & it is "
-              "not supported yet");
+  ZENTORCH_CHECK(qweight.is_contiguous(), "qweight is non-contiguous & it is "
+                                          "not supported yet");
   // zentorch currently only supports the per-channel weight_scales
   // TODO: add support for the per-tensor and per-group weight_scales
-  TORCH_CHECK(qweight.dim() == 2 && weight_scales.dim() == 2,
-              "torch_checks_for_woq_linear: unsupported dims for qweight and "
-              "weight_scales");
-  TORCH_CHECK(weight_scales.dim() == 2 && weight_scales.size(0) == 1 &&
-                  weight_scales.size(1) == (qweight.size(1) * unpacking_ratio),
-              "torch_checks_for_woq_linear: incorrect dimensions/shape for "
-              "weight_scales");
-  TORCH_CHECK(weight_scales.scalar_type() == c10::kFloat,
-              "torch_checks_for_woq_linear: currently only float32 "
-              "weight_scales are supported as of now");
-  TORCH_CHECK(
-      input.size(input.dim() - 1) == qweight.size(0),
-      "torch_checks_for_woq_linear: unsupported sizes for input and qweight");
-  TORCH_CHECK(group_size == -1, "torch_checks_for_woq_linear: currently only "
-                                "group_size = -1 is supported as of now");
+  ZENTORCH_CHECK(qweight.dim() == 2 && weight_scales.dim() == 2,
+                 "unsupported dims for qweight and "
+                 "weight_scales");
+  ZENTORCH_CHECK(weight_scales.dim() == 2 && weight_scales.size(0) == 1 &&
+                     weight_scales.size(1) ==
+                         (qweight.size(1) * unpacking_ratio),
+                 "incorrect dimensions/shape for "
+                 "weight_scales");
+  ZENTORCH_CHECK(weight_scales.scalar_type() == c10::kFloat,
+                 "currently only float32 "
+                 "weight_scales are supported as of now");
+  ZENTORCH_CHECK(input.size(input.dim() - 1) == qweight.size(0),
+                 "unsupported sizes for input and qweight");
+  ZENTORCH_CHECK(group_size == -1, "currently only "
+                                   "group_size = -1 is supported as of now");
 }
 
 inline bool are_all_zeros(const at::Tensor &inp_tensor) {
@@ -166,8 +161,8 @@ inline int64_t get_unpacking_ratio(const at::Tensor &qweight,
     const int64_t total_bits = qweight.element_size() * bits_in_1_byte;
     unpacking_ratio = total_bits / weight_bits; // unpacking_ratio = 8
   } else {
-    TORCH_CHECK(false, "get_unpacking_ratio: only int4 woq is supported "
-                       "currently with qweight packed into int32");
+    ZENTORCH_CHECK(false, "only int4 woq is supported "
+                          "currently with qweight packed into int32");
   }
   return unpacking_ratio;
 }

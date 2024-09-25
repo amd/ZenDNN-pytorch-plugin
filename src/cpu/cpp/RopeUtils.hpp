@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "Utils.hpp"
 #include <ATen/ATen.h>
 #include <ATen/cpu/vec/functional.h>
 #include <ATen/cpu/vec/vec.h>
@@ -392,7 +393,7 @@ ApplyROPEKernel(at::Tensor &t_in, at::Tensor &t_emb_pos, at::Tensor &t_pos,
   auto concat_qkv = in_stride_s > N * H;
 
   if (is_fused_qkv(t_in, N * H)) {
-    TORCH_CHECK(
+    ZENTORCH_CHECK(
         t_in.dim() == 3,
         "The shape of input tensor of rotary_position_embedding should be in "
         "(batch, seq_len, qkv_hidden_size) when using fused qkv)");

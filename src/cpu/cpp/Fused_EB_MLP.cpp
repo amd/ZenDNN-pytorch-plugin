@@ -114,9 +114,9 @@ std::vector<at::Tensor> zentorch_fused_eb_mlp(
     if (mlp_self[i].sizes() ==
         c10::IntArrayRef(
             get_matmul_and_linear_output_sizes(mlp_input, mlp_weights[i]))) {
-      TORCH_CHECK((mlp_self[i].dim() == 2 && mlp_input.dim() == 2 &&
-                   mlp_weights[i].dim() == 2), // aten::addmm
-                  "zentorch_addmm:  unsupported dims for self, mat1 and mat2");
+      ZENTORCH_CHECK((mlp_self[i].dim() == 2 && mlp_input.dim() == 2 &&
+                      mlp_weights[i].dim() == 2), // aten::addmm
+                     "unsupported dims for self, mat1 and mat2");
 
       const at::Tensor empty_bias; // dummy empty bias
 
@@ -126,16 +126,16 @@ std::vector<at::Tensor> zentorch_fused_eb_mlp(
       // that acts as the bias here
       self_or_result_vector[i] = mlp_self[i];
     } else {
-      TORCH_CHECK((mlp_self[i].dim() == 1 && mlp_input.dim() == 2 &&
-                   mlp_weights[i].dim() == 2), // aten::addmm
-                  "zentorch_addmm: unsupported dims for self, mat1 and mat2");
+      ZENTORCH_CHECK((mlp_self[i].dim() == 1 && mlp_input.dim() == 2 &&
+                      mlp_weights[i].dim() == 2), // aten::addmm
+                     "unsupported dims for self, mat1 and mat2");
 
       // Array access is faster than .size(n)
       const auto mat1_sizes = mlp_input.sizes();
       const auto mat2_sizes = mlp_weights[i].sizes();
       const auto self_sizes = mlp_self[i].sizes();
 
-      TORCH_CHECK(
+      ZENTORCH_CHECK(
           self_sizes[0] == mat2_sizes[1] && mat1_sizes[1] == mat2_sizes[0],
           "input shape is incompatible with matrix multiplication (",
           mat1_sizes[0], "x", mat1_sizes[1], " @ ", mat2_sizes[0], "x",
@@ -165,10 +165,10 @@ std::vector<at::Tensor> zentorch_fused_eb_mlp(
     if (alphas_vector[i] != 1.0f) {
       if (bias_defined_vector[i]) {
         // TODO: add support for alpha when bias is defined
-        TORCH_CHECK(
+        ZENTORCH_CHECK(
             !(mlp_input.scalar_type() == c10::ScalarType::BFloat16 ||
               mlp_weights[i].scalar_type() == c10::ScalarType::BFloat16),
-            "zentorch_matmul: zentorch_matmul is not supported for bf16 "
+            "zentorch_matmul is not supported for bf16 "
             "tensors when bias is defined and alpha is not equal to 1");
       }
     }

@@ -16,6 +16,12 @@
 #include <zendnn.h>
 #include <zendnn.hpp>
 
+// TODO: Make the __FILE__ give the name of the file relative to only
+// ZenDNN_PyTorch_Plugin
+#define ZENTORCH_CHECK(condition, ...)                                         \
+  TORCH_CHECK(condition, __FILE__, ":", __LINE__, " ", __FUNCTION__, " : ",    \
+              ##__VA_ARGS__)
+
 namespace zendnn {
 
 using kind = zendnn::primitive::kind;

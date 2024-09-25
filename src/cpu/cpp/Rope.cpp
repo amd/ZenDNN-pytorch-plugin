@@ -8,7 +8,6 @@
  ******************************************************************************/
 
 #include "RopeUtils.hpp"
-
 #include <ATen/Tensor.h>
 #include <torch/all.h>
 #include <torch/csrc/autograd/function.h>
@@ -31,8 +30,7 @@ zentorch_rope_impl(at::Tensor &t_in, at::Tensor &t_emb_pos, at::Tensor &t_pos,
     return zentorch::cpu::kernel::ApplyROPEKernel<at::BFloat16>(
         t_in, t_emb_pos, t_pos, N, H, offset, rotary_dim);
   } else {
-    TORCH_CHECK(false, "zentorch_rope_impl: unsupported '", t_in.scalar_type(),
-                "'");
+    ZENTORCH_CHECK(false, "unsupported '", t_in.scalar_type(), "'");
     return std::make_tuple(at::Tensor(), at::Tensor(), at::Tensor());
   }
 }

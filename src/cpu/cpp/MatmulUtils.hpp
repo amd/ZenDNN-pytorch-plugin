@@ -12,11 +12,11 @@ namespace zentorch {
 using namespace zendnn;
 
 inline void check_valid_sizes(const at::Tensor &mat1, const at::Tensor &mat2) {
-  TORCH_CHECK(
+  ZENTORCH_CHECK(
       ((mat1.dim() <= 3 && mat2.dim() <= 3) &&  // dimensionality check
        ((mat1.dim() == 2 && mat2.dim() == 1) || // specific case for aten::mv
         (mat1.dim() == mat2.dim()))), // general check for matrix multiplication
-      "zentorch_matmul:  unsupported dims for mat1 and mat2");
+      "unsupported dims for mat1 and mat2");
 }
 
 inline void check_valid_dtypes(const at::Tensor &mat1, const at::Tensor &mat2,
@@ -61,15 +61,13 @@ inline void check_valid_dtypes(const at::Tensor &mat1, const at::Tensor &mat2,
           ? (is_mat1_bf16 && is_mat2_bf16 && is_bias_bf16 && is_result_bf16)
           : (is_mat1_bf16 && is_mat2_bf16 && is_result_bf16);
 
-  TORCH_CHECK(
-      are_params_fp32 ^ are_params_bf16,
-      "zentorch_matmul: zentorch_matmul only supports Float and BFloat16");
+  ZENTORCH_CHECK(are_params_fp32 ^ are_params_bf16,
+                 "zentorch_matmul only supports Float and BFloat16");
 
   if (are_params_bf16) {
-    TORCH_CHECK(
-        utils::zendnn_bf16_device_check(),
-        "zentorch_matmul: zentorch_matmul bf16 path needs the cpu support "
-        "avx512bf16");
+    ZENTORCH_CHECK(utils::zendnn_bf16_device_check(),
+                   "zentorch_matmul bf16 path needs the cpu support "
+                   "avx512bf16");
   }
 
   if (post_op_buffers.size() != 0) {
@@ -84,20 +82,16 @@ inline void check_valid_dtypes(const at::Tensor &mat1, const at::Tensor &mat2,
     }
 
     if (are_params_fp32 && !are_params_bf16) {
-      TORCH_CHECK(
-          (are_postops_fp32 && !are_postops_bf16),
-          "zentorch_matmul: zentorch_matmul only supports Float post ops "
-          "when input matrix is Float");
+      ZENTORCH_CHECK((are_postops_fp32 && !are_postops_bf16),
+                     "zentorch_matmul only supports Float post ops "
+                     "when input matrix is Float");
     } else if (are_params_bf16 && !are_params_fp32) {
-      TORCH_CHECK(
-          (are_postops_bf16 && !are_postops_fp32),
-          "zentorch_matmul: zentorch_matmul only supports BFloat16 post ops "
-          "when input matrix is BFloat16");
+      ZENTORCH_CHECK((are_postops_bf16 && !are_postops_fp32),
+                     "zentorch_matmul only supports BFloat16 post ops "
+                     "when input matrix is BFloat16");
     } else {
-      TORCH_CHECK(
-          false,
-          "zentorch_matmul: zentorch_matmul only supports Float and BFloat16 "
-          "parameters and postops");
+      ZENTORCH_CHECK(false, "zentorch_matmul only supports Float and BFloat16 "
+                            "parameters and postops");
     }
   } else {
     LOG(INFO) << "Post Op buffers are not present!\n";
