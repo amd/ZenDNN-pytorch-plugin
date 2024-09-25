@@ -231,4 +231,13 @@ def customize_model(model):
         from ._custom_model_forward import RotaryEmbedding_forward
         RotaryEmbedding.forward = RotaryEmbedding_forward
 
+        # Over riding _IPEXConcatLinearRef class to add qkv fusion support
+        # for weight only quantized qkv(ZenTorchWOQLinear) modules
+        from intel_extension_for_pytorch.transformers.models.reference.fusions import (
+            linear_fusion,
+        )
+        from ._custom_models_reference_linear_fusion import _ZenTorchConcatLinearRef
+
+        linear_fusion._IPEXConcatLinearRef = _ZenTorchConcatLinearRef
+
     return model

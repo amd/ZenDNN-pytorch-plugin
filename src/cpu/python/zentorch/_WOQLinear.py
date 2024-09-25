@@ -43,7 +43,7 @@ class DummyWeight:
 
 # this is a custom ZenTorchWOQLinear module to support woq Linear
 # modules through zentorch optimization and execution flow
-class ZenTorchWOQLinear(nn.Module):
+class ZenTorchWOQLinear(nn.Linear):
 
     def __init__(
         self,
@@ -80,8 +80,6 @@ class ZenTorchWOQLinear(nn.Module):
             + f" or their subclasses, but found {type(mod)}"
         )
 
-        super(ZenTorchWOQLinear, self).__init__()
-
         if hasattr(mod, "in_features"):
             self.in_features = mod.in_features
         else:
@@ -91,11 +89,15 @@ class ZenTorchWOQLinear(nn.Module):
         else:
             self.out_features = mod.weight.size()[0]
 
+        super(ZenTorchWOQLinear, self).__init__(self.in_features, self.out_features)
+
+        del self.bias
         if bias is None:
             bias = mod.bias
         self.bias = False if bias is None else True
 
         # added to support the zentorch.llm.optimize with ipex >= 2.4.0
+        del self.weight
         self.weight = DummyWeight(dummy_weight_dtype)
 
         self.zentorch_woq = True
