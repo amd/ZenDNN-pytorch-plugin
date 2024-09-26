@@ -8,6 +8,7 @@ from ._compile_backend import torch_version
 from ._utils import counters
 import functools
 from functools import partial
+import operator
 
 
 at_ops = torch.ops.aten
@@ -277,6 +278,47 @@ def _woq_linear_silu_mul_replacement(arg_0, arg_1, arg_2, arg_3, bias_0, mul_1):
     return out_0
 
 
+# add a split mm op for phi-3 model
+def _split_mm_pattern(arg_0, arg_1):
+    # view -> mm -> view -> split ------>\
+    #                        |           mul
+    #                        |-> silu -->/
+    # arg_0: input to the input view to mm, shape => [bs, sl, m]
+    # arg_1: second input argument to mm, shape => [m, k]
+    shape_0 = arg_0.size()
+    shape_1 = arg_1.size()
+    view_0 = at_ops.view(arg_0, [shape_0[0] * shape_0[1], shape_0[2]])  # [bs*sl, m]
+    mm_0 = zt_ops.zentorch_mm(view_0, arg_1)  # [bs*sl, k]
+    view_1 = at_ops.view(mm_0, [shape_0[0], shape_0[1], shape_1[-1]])  # [bs, sl, k]
+    split_0 = at_ops.split(view_1, shape_1[-1] // 2, -1)
+    getitem_0 = operator.getitem(split_0, 0)  # [bs, sl, k//2]
+    getitem_1 = operator.getitem(split_0, 1)
+    silu_0 = at_ops.silu(getitem_0)  # [bs, sl, k//2]
+    mul_0 = at_ops.mul(getitem_1, silu_0)  # [bs, sl, k//2]
+    return mul_0
+
+
+def _split_mm_replacement(arg_0, arg_1):
+    # we will split the mm itself instead of its output
+    # view ------------> mm --|
+    #   |   split ------>/    |
+    #   |     |-------->\     V
+    #   |-----------> mm_silu_mul
+    counters["zentorch"]["pattern_matcher_split_mm"] += 1
+    shape_0 = arg_0.size()
+    shape_1 = arg_1.size()
+    view_0 = at_ops.view(arg_0, [shape_0[0] * shape_0[1], shape_0[2]])  # [bs*sl, m]
+    split_0 = at_ops.split(arg_1, shape_1[-1] // 2, -1)
+    mat_0_0 = operator.getitem(split_0, 0)  # [m, k//2]
+    mat_0_1 = operator.getitem(split_0, 1)  # [m, k//2]
+    mm_0 = zt_ops.zentorch_mm(view_0, mat_0_1)  # [bs*sl, k//2]
+    mul_0 = zt_ops.zentorch_mm_silu_mul(view_0, mat_0_0, mm_0)  # [bs*sl, k//2]
+    view_1 = at_ops.view(
+        mul_0, [shape_0[0], shape_0[1], shape_1[-1] // 2]
+    )  # [bs, sl, k//2]
+    return view_1
+
+
 # adding patterns completed #
 
 
@@ -384,7 +426,9 @@ def _get_pattern_with_replacement():
     arg_6 = partial(
         torch.empty, (4, 64, 512), device="cpu", requires_grad=True, dtype=torch.float
     )
-
+    arg_7 = partial(
+        torch.empty, (512, 128), device="cpu", requires_grad=True, dtype=torch.float
+    )
     inp = partial(
         torch.empty,
         (4, 32, 32),
@@ -582,6 +626,13 @@ def _get_pattern_with_replacement():
             [inp(), qweight(), woq_scales(), woq_qzeros(), woq_bias(), woq_binary()],
             {},
             _woq_check,
+        ),
+        (
+            _split_mm_pattern,
+            _split_mm_replacement,
+            [arg_6(), arg_7()],
+            {},
+            _matmul_dtypes_check,
         ),
     ]
     for pattern, replacement, args, workaround, extra_check in candidates:

@@ -3293,6 +3293,26 @@ class AddmmSiLUMulPattern(torch.nn.Module):
         return mul_0
 
 
+# add a pattern for mm split
+class MMSPlitPattern(torch.nn.Module):
+    def __init__(self, batch_size, seq_len, dim: int = 30):
+        super(MMSPlitPattern, self).__init__()
+        self.batch_size = batch_size
+        self.seq_len = seq_len
+        self.linear = torch.nn.Linear(dim, 40, bias=False)
+        self.silu = torch.nn.SiLU()
+
+    def forward(self, inp):
+        # inp shape should be [bs, sl, dim]
+        lin_op = self.linear(inp)
+        split_0 = torch.split(lin_op, lin_op.shape[-1] // 2, -1)
+        half_0 = split_0[0]
+        half_1 = split_0[1]
+        silu_0 = self.silu(half_0)
+        mul_0 = torch.mul(half_1, silu_0)
+        return mul_0
+
+
 # pattern matcher tests
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class TestPatternMatcher(Zentorch_TestCase):
@@ -3403,6 +3423,31 @@ class TestPatternMatcher(Zentorch_TestCase):
             zentorch_graph_output = compiled_model(arg_0, arg_1)
             self.assertEqual(counters["zentorch"]["pattern_matcher_bmm_to_mm"], 1)
             self.assertEqual(native_output, zentorch_graph_output)
+
+    @parameterized.expand(supported_dtypes)
+    @torch.inference_mode()
+    def test_mm_split_replacement(self, dtype):
+        mm_split_model = MMSPlitPattern(4, 64, 30)
+        model = mm_split_model.to("cpu").eval()
+        if dtype == "bfloat16":
+            model = model.to(torch.bfloat16)
+        new_dtype = self.data.get_torch_type(dtype)
+        inp = torch.rand((4, 64, 30), dtype=new_dtype)
+        model_op = model(inp)
+        reset_dynamo()
+        compiled_model = torch.compile(model, backend="zentorch")
+        counters.clear()
+        # autocast subtest
+        with self.subTest(dtype="float32"):
+            self.assertEqual(counters["zentorch"]["pattern_matcher_split_mm"], 0)
+            with torch.autocast("cpu"):
+                _ = compiled_model(inp)
+                self.assertEqual(counters["zentorch"]["pattern_matcher_split_mm"], 1)
+                counters.clear()
+        self.assertEqual(counters["zentorch"]["pattern_matcher_split_mm"], 0)
+        compiled_model_op = compiled_model(inp)
+        self.assertEqual(counters["zentorch"]["pattern_matcher_split_mm"], 1)
+        self.assertEqual(model_op, compiled_model_op)
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
