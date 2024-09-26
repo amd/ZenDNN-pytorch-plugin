@@ -5,7 +5,6 @@
 
 import torch
 from torch.torch_version import TorchVersion
-
 from .._logging import get_logger
 
 # make a logger for this file

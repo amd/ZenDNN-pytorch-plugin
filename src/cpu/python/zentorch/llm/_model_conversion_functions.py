@@ -10,7 +10,6 @@ import math
 from torch._dynamo.utils import guard_if_dyn
 from ._checks import essential_checks, get_installed_ipex_version
 from torch.torch_version import TorchVersion
-
 from .._logging import get_logger
 
 # make a logger for this file

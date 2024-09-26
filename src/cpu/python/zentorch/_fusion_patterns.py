@@ -9,7 +9,7 @@ from ._utils import counters
 import functools
 from functools import partial
 import operator
-
+from ._utils import add_version_suffix
 
 at_ops = torch.ops.aten
 zt_ops = torch.ops.zentorch
@@ -641,7 +641,7 @@ def _get_pattern_with_replacement():
         inference_name = name + "_inference"
         # pre 2.2 PT versions use a different name for fwd-tracer
         # remove the if block when deprecating support for PT <= 2.1.x
-        if torch_version < "2.2":
+        if torch_version < add_version_suffix("2", "2"):
             from torch._inductor.pattern_matcher import inference_graph
 
             yield inference_name, {

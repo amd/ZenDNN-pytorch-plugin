@@ -13,7 +13,7 @@ import operator
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
+from ._utils import add_version_suffix
 
 from torch.fx.experimental.optimization import (
     matches_module_pattern,
@@ -270,7 +270,7 @@ class ConvTransposeUnary2d(nn.ConvTranspose2d):
                 self.bias = torch.nn.Parameter(self.bias.bfloat16())
         from torch.torch_version import TorchVersion
         torch_version = TorchVersion(torch.__version__)
-        if torch_version < '2.1':
+        if torch_version < add_version_suffix('2', '1'):
             weight = self.weight.to_mkldnn()
         else:
             weight = self.weight
