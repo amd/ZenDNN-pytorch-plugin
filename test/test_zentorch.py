@@ -3268,6 +3268,17 @@ class BMMtoMM_Pattern_2(nn.Module):
         return bmm_0
 
 
+class BMMtoMM_Pattern_3(nn.Module):
+    def __init__(self):
+        super(BMMtoMM_Pattern_3, self).__init__()
+
+    def forward(self, arg_0, arg_1):
+        exp_0 = arg_0.expand(arg_1.size(0), arg_0.size(0), arg_0.size(1))
+        exp_1 = arg_1.expand(arg_1.size())
+        bmm_0 = torch.bmm(exp_0, exp_1)
+        return bmm_0
+
+
 # mm silu pattern
 class AddmmSiLUMulPattern(torch.nn.Module):
     def __init__(self):
@@ -3333,17 +3344,47 @@ class TestPatternMatcher(Zentorch_TestCase):
     def test_bmm_to_mm_replacement(self, dtype):
         custom_expand_model = BMMtoMM_Pattern_1()
         new_dtype = self.data.get_torch_type(dtype)
-        arg_0 = torch.empty((512, 1, 4096), dtype=new_dtype)
-        arg_1 = torch.empty((4096, 4096), dtype=new_dtype)
-        model = custom_expand_model.to("cpu").eval()
-        native_output = model(arg_0, arg_1)
+        # case 1: arg_o.size(1) == 1
+        arg_0 = torch.randn((512, 1, 64), dtype=new_dtype)
+        arg_1 = torch.randn((64, 32), dtype=new_dtype)
+        model_case1 = custom_expand_model.to("cpu").eval()
+        model_case2 = copy.deepcopy(model_case1)
+        native_output = model_case1(arg_0, arg_1)
         reset_dynamo()
-        compiled_model = torch.compile(model, backend="zentorch")
+        compiled_model = torch.compile(model_case1, backend="zentorch")
         counters.clear()
         self.assertEqual(counters["zentorch"]["pattern_matcher_bmm_to_mm"], 0)
         with torch.inference_mode():
             zentorch_graph_output = compiled_model(arg_0, arg_1)
             self.assertEqual(counters["zentorch"]["pattern_matcher_bmm_to_mm"], 1)
+            self.assertEqual(native_output, zentorch_graph_output)
+        # case 2: arg_0.size(1) != 1
+        arg_0 = torch.randn((512, 64, 32), dtype=new_dtype)
+        arg_1 = torch.randn((32, 64), dtype=new_dtype)
+        native_output = model_case2(arg_0, arg_1)
+        reset_dynamo()
+        compiled_model = torch.compile(model_case2, backend="zentorch")
+        counters.clear()
+        self.assertEqual(counters["zentorch"]["pattern_matcher_bmm_to_mm"], 0)
+        with torch.inference_mode():
+            zentorch_graph_output = compiled_model(arg_0, arg_1)
+            self.assertEqual(counters["zentorch"]["pattern_matcher_bmm_to_mm"], 0)
+            self.assertEqual(native_output, zentorch_graph_output)
+
+        # Case 3: arg_0 is 2D and arg_1 is 3D
+        neg_expand_model = BMMtoMM_Pattern_3()
+        new_dtype = self.data.get_torch_type(dtype)
+        arg_0 = torch.randn((64, 1), dtype=new_dtype)
+        arg_1 = torch.randn((64, 1, 64), dtype=new_dtype)
+        model_case1 = neg_expand_model.to("cpu").eval()
+        native_output = model_case1(arg_0, arg_1)
+        reset_dynamo()
+        compiled_model = torch.compile(model_case1, backend="zentorch")
+        counters.clear()
+        self.assertEqual(counters["zentorch"]["pattern_matcher_bmm_to_mm"], 0)
+        with torch.inference_mode():
+            zentorch_graph_output = compiled_model(arg_0, arg_1)
+            self.assertEqual(counters["zentorch"]["pattern_matcher_bmm_to_mm"], 0)
             self.assertEqual(native_output, zentorch_graph_output)
 
     @parameterized.expand(supported_dtypes)

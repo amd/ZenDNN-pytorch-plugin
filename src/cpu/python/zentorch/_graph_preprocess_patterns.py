@@ -64,14 +64,39 @@ def _gelu_erf_replacement(arg_0):
 # and squeezing the inputs to 2D to enable mm instead of bmm.
 # Pattern 1 : 2 Expands, 1 from input and 1 from weight
 # will be inputs to bmm node.
+# TODO : check _bmm_to_mm_pattern_2
+# pattern for both args as 3D tensor case. based on that "args_2D",
+# "args_3D" and req_shape_func helpers should be made global and
+# necessary changes needs to added to _bmm_to_mm_pattern_2 pattern as well
 
 
 def _bmm_to_mm_pattern_1(arg_0, arg_1):
+    def args_2D(batch_size, tensor_shape):
+        return [batch_size, tensor_shape[0], tensor_shape[-1]]
+
+    def args_3D(batch_size, tensor_shape):
+        return [batch_size, tensor_shape[1], tensor_shape[-1]]
+
+    def req_shape_func(tensor_dim):
+        get_shape_func = {"2": args_2D, "3": args_3D}
+        return get_shape_func[str(tensor_dim)]
+
     shape_0 = arg_0.size()
     shape_1 = arg_1.size()
-    exp_0 = at_ops.expand.default(arg_0, [shape_0[0], 1, shape_0[-1]])
-    exp_1 = at_ops.expand.default(arg_1, [shape_0[0], shape_1[0], shape_1[1]])
+    dm0 = arg_0.dim()
+    dm1 = arg_1.dim()
+    # This check is required to handle 2D and 3D tensor dimensions
+    batch_size = shape_0[0] if dm0 >= dm1 else shape_1[0]
+
+    # Expand dimension for first tensor
+    expand_dim_getter = req_shape_func(dm0)
+    exp_0 = at_ops.expand.default(arg_0, expand_dim_getter(batch_size, shape_0))
+
+    # Expand dimension for second tensor
+    expand_dim_getter = req_shape_func(dm1)
+    exp_1 = at_ops.expand.default(arg_1, expand_dim_getter(batch_size, shape_1))
     bmm_0 = at_ops.bmm.default(exp_0, exp_1)
+
     return (bmm_0,)
 
 
@@ -120,6 +145,10 @@ def _dummy_extra_check(match):
 # have only 1 user.
 # Check the shape of the input to be squeezable in the 2nd dimension.
 def _bmm_to_mm_check_1(match):
+    dim0 = match.kwargs["arg_0"].meta["val"].dim()
+    dim1 = match.kwargs["arg_1"].meta["val"].dim()
+    if dim0 <= dim1:
+        return False
     if match.kwargs["arg_0"].meta["val"].shape[1] != 1:
         return False
     is_dtype_same = _matmul_dtypes_check(match)
