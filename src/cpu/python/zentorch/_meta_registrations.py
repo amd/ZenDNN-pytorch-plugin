@@ -421,14 +421,35 @@ def meta_zentorch_fused_eb_mlp(
 
 # meta registration for RoPE
 @register_meta("zentorch_rope")
-def meta_zentorch_rope(t_in, t_emb_pos, t_pos, N, H, offset, rotary_dim):
-    in_sz = t_in.size()
-    B = in_sz[0]
-    S = in_sz[1]
-    query = torch.empty((B, S, N, H), dtype=t_in.dtype, device=t_in.device)
-    key = torch.empty((B, S, N, H), dtype=t_in.dtype, device=t_in.device)
-    value = torch.empty((B, S, N, H), dtype=t_in.dtype, device=t_in.device)
-    return query, key, value
+def meta_zentorch_rope(
+    t_in,
+    t_emb_pos,
+    t_pos,
+    N,
+    H,
+    offset,
+    rotary_ndims,
+):
+    ndims = t_in.dim()
+    stride_s = t_in.stride(1)
+    batch = t_in.shape[0]
+    seq_len = t_in.shape[1]
+    concat_qkv = False
+    if ndims == 3 and stride_s > N * H:
+        concat_qkv = True
+        kv_head = (t_in.shape[2] - N * H) // (2 * H)
+    if not concat_qkv:
+        return (
+            t_in.new_empty(t_in.shape).contiguous(),
+            None,
+            None,
+        )
+    else:
+        return (
+            t_in.new_empty(batch, seq_len, N, H),
+            t_in.new_empty(batch, seq_len, kv_head, H),
+            t_in.new_empty(batch, seq_len, kv_head, H),
+        )
 
 
 @register_meta("zentorch_masked_multihead_self_attention")
