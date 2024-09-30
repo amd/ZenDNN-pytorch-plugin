@@ -40,7 +40,7 @@ RELOAD_SUPPORTED_MODELS = {
 }
 
 
-def build_and_replace_with_WQOLinear(
+def build_and_replace_with_WOQLinear(
     float_module,
     weight_tensor,
     weight_scales,
@@ -149,7 +149,19 @@ def get_config_information_from_config_json(config_json_path):
 
         logger.info(f"Models config.json file has {key} = {woq_model_config[key]}")
 
-        if woq_model_config[key] != supported_woq_config[key]:
+        if key == "group_size":
+            if woq_model_config[key] != supported_woq_config[key]:
+                if (
+                    woq_model_config[key] == 0
+                    or woq_model_config[key] < supported_woq_config[key]
+                ):
+                    raise NotImplementedError(
+                        f"zentorch has not yet implemented support for {key} = "
+                        + f"{woq_model_config[key]}, it only supports {key} = "
+                        + f"{supported_woq_config[key]} & {key} > 0 for "
+                        + "weight only quantization"
+                    )
+        elif woq_model_config[key] != supported_woq_config[key]:
             raise NotImplementedError(
                 f"zentorch has not yet implemented support for {key} = "
                 + f"{woq_model_config[key]}, it only supports {key} = "
@@ -226,7 +238,7 @@ def load_woq_model(
                 # get nn.Module for corresponding module_name
                 float_module = get_op_by_name(model, module_name)
 
-                quant_module = build_and_replace_with_WQOLinear(
+                quant_module = build_and_replace_with_WOQLinear(
                     float_module,
                     weight_tensor,
                     weight_scales,

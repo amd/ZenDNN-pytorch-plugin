@@ -55,25 +55,33 @@ at::Tensor zentorch_woq_linear_impl(
   zendnn::primitive_attr op_attr;
   post_ops po;
   // Setting Post ops
-  // pass woq as true
+  // Pass woq as true
   zentorch_post_ops_selection(po, execute_args, post_op_ids, post_op_buffers,
                               /*woq*/ true);
   op_attr.set_post_ops(po);
   op_attr.set_plugin_op_name(zentorch_op_name);
 
-  // set woq weight scales
+  // Set woq weight scales
   // group_size = -1 represents that weight is quantized with
-  // per-channel quantization config
+  // per-channel quantization config.
   if (group_size == -1) {
-    // for per-channel scales, mask = 2 is used
-    // TODO: support per-tensor/per-group scales
-    op_attr.set_woq_scale(2, {ZENDNN_RUNTIME_F32_VAL});
-    execute_args.insert({ZENDNN_ARG_ATTR_WOQ_SCALES, z_woq_scales});
+    // For per-channel granular scales, mask is mapped to
+    // QUANT_GRANULARITY::PER_CHANNEL.
+    LOG(INFO) << "Setting quant granularity to per-channel for woq scales";
+    op_attr.set_woq_scale(QUANT_GRANULARITY::PER_CHANNEL, {1, 1});
   } else {
-    ZENTORCH_CHECK(false, "currently only group_size = -1 is supported")
+    // TODO: Support per-tensor scales
+    ZENTORCH_CHECK(group_size > 0, "group_size = ", group_size,
+                   " is not supported, only group_size = -1 or "
+                   "group_size > 0 is currently supported")
+    // For per-group granular scales, mask is mapped to
+    // QUANT_GRANULARITY::PER_GROUP.
+    LOG(INFO) << "Setting quant granularity to per-group for woq scales";
+    op_attr.set_woq_scale(QUANT_GRANULARITY::PER_GROUP, {group_size, 1});
   }
+  execute_args.insert({ZENDNN_ARG_ATTR_WOQ_SCALES, z_woq_scales});
 
-  // execute the zendnn::matmul kernel
+  // Execute the zendnn::matmul kernel
   zentorch_matmul_execute(execute_args, z_input, z_qweight, z_bias, z_result,
                           op_attr, bias_defined);
 
@@ -97,7 +105,7 @@ zentorch_woq_linear(const at::Tensor &input, const at::Tensor &qweight,
   // qweight is packed along the output_channel with the packing_ratio,
   // so the result tensor is created with input dims upto 2nd last dim &
   // unpacked last dim of qweight tensor(qweight.last_dim * unpacking_ratio)
-  // create result tensor
+  // create result tensor.
   at::Tensor result = at::empty(
       get_matmul_and_linear_output_sizes(input, qweight, unpacking_ratio),
       input.options());

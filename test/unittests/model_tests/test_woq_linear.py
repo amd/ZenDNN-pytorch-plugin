@@ -150,7 +150,7 @@ class Test_WOQ_Linear_Model(Zentorch_TestCase):
         self.assertEqual(counters["zentorch"]["pattern_matcher_woq_add"], 0)
 
         self.assertTrue(
-            "only bfloat16 datatype " "is supported as of now" in str(context.exception)
+            "only bfloat16 datatype is currently supported" in str(context.exception)
         )
 
     @parameterized.expand(

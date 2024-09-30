@@ -24,20 +24,25 @@
 
 namespace zentorch {
 enum UNARY_POST_OP {
-  // add unary post ops here
+  // Add unary post ops here
   POST_OP_NONE,
   RELU,
   GELU_TANH,
   GELU_ERF,
   SILU,
-  // add unary post op before this
+  // Add unary post op before this,
   // if you add any post op
-  // update UNARY_OP_COUNT by that post op
+  // update UNARY_OP_COUNT by that post op.
   UNARY_OP_COUNT = SILU
 };
-// initializing the first enum in BINARY_POST_OP so that all post ops will have
-// unique
+// Initializing the first enum in BINARY_POST_OP so that all post ops will have
+// unique value.
 enum BINARY_POST_OP { MUL = UNARY_POST_OP::UNARY_OP_COUNT + 1, ADD };
+
+// Each value of QUANT_GRANULARITY enum indicates the mappings for various
+// quantization granularity levels(PER_TENSOR/PER_CHANNEL/PER_GROUP)
+// with the zendnn library's tensor mask values.
+enum QUANT_GRANULARITY { PER_TENSOR = 0, PER_CHANNEL = 2, PER_GROUP = 3 };
 } // namespace zentorch
 
 namespace zendnn {
@@ -45,7 +50,7 @@ namespace zendnn {
 using kind = zendnn::primitive::kind;
 
 namespace utils {
-// cpu execution engine only.
+// CPU execution engine only.
 struct engine : public zendnn::engine {
 
   // Singleton CPU engine for all primitives
@@ -63,7 +68,7 @@ struct stream : public zendnn::stream {
   }
 };
 
-// check AVX512 bf16 support
+// Check AVX512 bf16 support
 inline bool zendnn_bf16_device_check() {
   return cpuinfo_initialize() && cpuinfo_has_x86_avx512bf16();
 }

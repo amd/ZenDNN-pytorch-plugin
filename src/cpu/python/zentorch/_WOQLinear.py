@@ -91,13 +91,15 @@ class ZenTorchWOQLinear(nn.Linear):
 
         super(ZenTorchWOQLinear, self).__init__(self.in_features, self.out_features)
 
-        del self.bias
+        if hasattr(self, "bias"):
+            del self.bias
         if bias is None:
             bias = mod.bias
         self.bias = False if bias is None else True
 
         # added to support the zentorch.llm.optimize with ipex >= 2.4.0
-        del self.weight
+        if hasattr(self, "weight"):
+            del self.weight
         self.weight = DummyWeight(dummy_weight_dtype)
 
         self.zentorch_woq = True
