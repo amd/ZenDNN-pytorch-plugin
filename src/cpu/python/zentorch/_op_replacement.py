@@ -86,7 +86,7 @@ def is_arg_dtype_bfloat16(fx_graph, node, arg_index):
 
 def is_embedding_bag_op_replacable(fx_graph, node):
     if is_arg_dtype_bfloat16(fx_graph, node, 0):
-        logger.warning(
+        logger.info(
             "embedding_bag op will not be replaced as"
             + " zentorch doesn't support bf16 with it yet!"
         )
@@ -99,7 +99,7 @@ def is_embedding_bag_op_replacable(fx_graph, node):
 
 def is_embedding_op_replacable(fx_graph, node):
     if is_arg_dtype_bfloat16(fx_graph, node, 0):
-        logger.warning(
+        logger.info(
             "embedding op will not be replaced as"
             + " zentorch doesn't support bf16 with it yet!"
         )
@@ -118,7 +118,7 @@ def is_embedding_op_replacable(fx_graph, node):
         if is_arg_1d_tensor(fx_graph, node, 1):
             return True
 
-        logger.warning(
+        logger.info(
             "embedding op will not be replaced as"
             + " zentorch supports only 1-dimensional inputs to the op!"
         )

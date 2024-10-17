@@ -58,7 +58,7 @@ zentorch_embedding_bag_impl(
                                {ZENDNN_ARG_SRC_3, z_weights},
                                {ZENDNN_ARG_DST, z_dst}});
   } else {
-    LOG(WARNING) << "Per-sample weights is not defined!";
+    LOG(INFO) << "Per-sample weights is not defined!";
     // declare embedding bag primitive
     pdesc = embedding_bag::desc(prop_kind::forward_inference, z_algorithm,
                                 ZENDNN_EMBED_BAG_THRDS, z_weight.get_desc(),

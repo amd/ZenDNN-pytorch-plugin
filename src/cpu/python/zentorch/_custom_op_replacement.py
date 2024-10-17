@@ -45,7 +45,7 @@ def emb_ops_horizontal_fusion(fx_g):
                     node_name = common_output_node.name
                     if node_name in groups:
                         if groups[node_name]["type"] == "embedding_bag":
-                            logger.warning(
+                            logger.info(
                                 "Cannot fuse embedding bag and embedding with "
                                 + "common node. This is because of the function "
                                 + "prototype difference between the "
@@ -65,7 +65,7 @@ def emb_ops_horizontal_fusion(fx_g):
                     node_name = common_output_node.name
                     if node_name in groups:
                         if groups[node_name]["type"] == "embedding":
-                            logger.warning(
+                            logger.info(
                                 "Cannot fuse embedding bag and embedding with "
                                 + "common node. This is because of the function "
                                 + "prototype difference between the "
@@ -541,7 +541,7 @@ def eb_group_mlp_group_fusion(fx_graph):
             # horizontally fused EmbeddingBag op, we proceed to the next
             # interaction node
             if node_input_loop_break:
-                logger.warning(
+                logger.info(
                     "Fusion of horizontally fused EmbeddingBag op and"
                     + " the vertically fused MLP op into one single op is"
                     + f" not possible at the current concate node: {node}!"
