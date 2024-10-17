@@ -19,6 +19,7 @@ Table of Contents
   - [CNN Models](#32-cnn-models)
   - [HuggingFace NLP models](#33-huggingface-nlp-models)
   - [HuggingFace Generative LLM models](#34-huggingface-generative-llm-models)
+  - [Weight only Quantized models](#35-weight-only-quantized-models)
 - [Logging and Debugging](#4-logging-and-debugging)
   - [ZenDNN logs](#41-zendnn-logs)
   - [_zentorch_ logs](#42-zentorch-logs)
@@ -226,9 +227,9 @@ python -c 'import zentorch; print("\n".join([f"{i+1:3}. {item}" for i, item in e
 
 If a model id other than the listed above are passed, zentorch.llm.optimize will not apply the above specific optimizations to the model and a warning will be displayed as follows: “Complete set of optimizations are currently unavailable for this model.” Control will pass to the zentorch custom backend to torch.compile for applying optimizations.
 
-The PyTorch version for performant execution of supported LLMs should be greater than or equal to 2.3.0.
+The PyTorch version for performant execution of supported LLMs should be greater than or equal to 2.3.0. Recommended version for optimal performance is using PyTorch 2.4.
 
-1. If output is generated through a call to direct `model`, optimize it as below:
+### Case #1. If output is generated through a call to direct `model`, optimize it as below:
 ```python
 model = zentorch.llm.optimize(model, dtype)
 model = torch.compile(model, backend='zentorch')
@@ -236,7 +237,7 @@ with torch.no_grad():
     output = model(input)
 ```
 
-2. If output is generated through a call to `model.forward`, optimize it as below:
+### Case #2. If output is generated through a call to `model.forward`, optimize it as below:
 ```python
 model = zentorch.llm.optimize(model, dtype)
 model.forward = torch.compile(model.forward, backend='zentorch')
@@ -244,7 +245,7 @@ with torch.no_grad():
     output = model.forward(input)
 ```
 
-3. If output is generated through a call to `model.generate`, optimize it as below:
+### Case #3. If output is generated through a call to `model.generate`, optimize it as below:
     - Optimize the `model.forward` with torch.compile instead of `model.generate`.
     - But still generate the output through a call to `model.generate`.
 ```python
@@ -253,6 +254,26 @@ model.forward = torch.compile(model.forward, backend='zentorch')
 with torch.no_grad():
     output = model.generate(input)
 ```
+
+## 3.5 Weight only Quantized models
+
+Huggingface models are quantized using [AMD's Quark tool](https://quark.docs.amd.com/latest/install.html).
+After installing Quark, follow the steps below:
+1. Enter the examples/torch/language_modeling directory
+2. Run the following command
+```bash
+OMP_NUM_THREADS=<physical-cores-num> numactl -m --physcpubind=<physical-cores-list> python quantize_quark.py --model_dir <hugging_face_model_id> --device cpu --data_type bfloat16 --model_export quark_safetensors --quant_algo awq --quant_scheme w_int4_per_group_sym --group_size -1 --num_calib_data 128 --dataset pileval_for_awq_benchmark --seq_len 128 --output_dir <output_dir> --pack_method order
+```
+
+As currently HF does not support AWQ format for CPU, an additional step is required for loading the WOQ models.
+```python
+config = AutoConfig.from_pretrained(model_id, trust_remote_code=True, torch_dtype="bfloat16")
+model = AutoModelForCausalLM.from_config(config, trust_remote_code=True, torch_dtype="bfloat16")
+model = zentorch.load_woq_model(model, safetensor_path)
+```
+
+Here, safetensor_path refers to the "<output_dir>" path of the quantized model.
+After the loading steps, the model can be executed in a similar fashion as the cases# 1-3 listed in [section 3.4](#34-huggingface-generative-llm-models).
 
 # 4. Logging and Debugging
 ## 4.1 ZenDNN logs
