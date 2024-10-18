@@ -258,17 +258,17 @@ with torch.no_grad():
 ## 3.5 Weight only Quantized models
 
 Huggingface models are quantized using [AMD's Quark tool](https://quark.docs.amd.com/latest/install.html).
-After installing Quark, follow the steps below:
+After downloading the zip file, install Quark and follow the below steps:
 1. Enter the examples/torch/language_modeling directory
 2. Run the following command
 ```bash
-OMP_NUM_THREADS=<physical-cores-num> numactl -m --physcpubind=<physical-cores-list> python quantize_quark.py --model_dir <hugging_face_model_id> --device cpu --data_type bfloat16 --model_export quark_safetensors --quant_algo awq --quant_scheme w_int4_per_group_sym --group_size -1 --num_calib_data 128 --dataset pileval_for_awq_benchmark --seq_len 128 --output_dir <output_dir> --pack_method order
+OMP_NUM_THREADS=<physical-cores-num> numactl --physcpubind=<physical-cores-list> python quantize_quark.py --model_dir <hugging_face_model_id> --device cpu --data_type bfloat16 --model_export quark_safetensors --quant_algo awq --quant_scheme w_int4_per_group_sym --group_size -1 --num_calib_data 128 --dataset pileval_for_awq_benchmark --seq_len 128 --output_dir <output_dir> --pack_method order
 ```
 
-As currently HF does not support AWQ format for CPU, an additional step is required for loading the WOQ models.
+As currently HF does not support AWQ format for CPU, an additional codeblock needs to be added to your inference script for loading the WOQ models.
 ```python
-config = AutoConfig.from_pretrained(model_id, trust_remote_code=True, torch_dtype="bfloat16")
-model = AutoModelForCausalLM.from_config(config, trust_remote_code=True, torch_dtype="bfloat16")
+config = AutoConfig.from_pretrained(model_id, trust_remote_code=True, torch_dtype=torch.bfloat16)
+model = AutoModelForCausalLM.from_config(config, trust_remote_code=True, torch_dtype=torch.bfloat16)
 model = zentorch.load_woq_model(model, safetensor_path)
 ```
 
