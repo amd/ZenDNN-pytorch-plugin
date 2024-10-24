@@ -70,13 +70,15 @@ at::Tensor zentorch_woq_linear_impl(
     // For per-channel granular scales, mask is mapped to
     // QUANT_GRANULARITY::PER_CHANNEL.
     LOG(INFO) << "Setting quant granularity to per-channel for woq scales";
-    op_attr.set_woq_scale(QUANT_GRANULARITY::PER_CHANNEL, {1, 1});
+    op_attr.set_woq_scale(QUANT_GRANULARITY::PER_CHANNEL, {1, 1},
+                          z_woq_scales.get_desc().data_type());
   } else {
     // TODO: Support per-tensor scales
     // For per-group granular scales, mask is mapped to
     // QUANT_GRANULARITY::PER_GROUP.
     LOG(INFO) << "Setting quant granularity to per-group for woq scales";
-    op_attr.set_woq_scale(QUANT_GRANULARITY::PER_GROUP, {group_size, 1});
+    op_attr.set_woq_scale(QUANT_GRANULARITY::PER_GROUP, {group_size, 1},
+                          z_woq_scales.get_desc().data_type());
   }
   execute_args.insert({ZENDNN_ARG_ATTR_WOQ_SCALES, z_woq_scales});
 
