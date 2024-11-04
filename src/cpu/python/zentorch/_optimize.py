@@ -73,8 +73,7 @@ def optimize(fx_graph):
     # eltwise op fusions supported by zentorch
     optimized_graph = zentorch_eltwise_fusions(optimized_graph)
 
-    # eltwise fusion replacements, for now we only have
-    # Linear+SiLU + Mul fusion
+    # eltwise fusion replacements
     optimized_graph = fusions_graph_pass(optimized_graph)
 
     # Fusion of parallel embeddingbags

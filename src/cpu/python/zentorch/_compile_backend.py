@@ -8,10 +8,11 @@ import inspect
 from torch._dynamo import register_backend
 from torch._inductor.compile_fx import compile_fx, compile_fx_inner
 from ._optimize import optimize
-from typing import Callable, List, Optional
+from typing import Callable, List, Optional, Dict, Any
 from ._logging import get_logger
 from torch._functorch.aot_autograd import aot_module_simplified
 from torch.torch_version import TorchVersion
+from ._freezing import freeze
 import importlib.util
 from ._mkldnn import mkldnn_fuse_fx
 from torch._inductor.fx_passes.pre_grad import fuse_conv_bn, remove_identity
@@ -86,6 +87,7 @@ disable_inductor_flag = False
 logger = get_logger(__name__)
 
 
+# this is only invoked for non-freezing path
 def zentorch_compile_fx_inner(
     gm: torch.fx.GraphModule,
     example_inputs: List[torch.Tensor],
@@ -102,9 +104,9 @@ def zentorch_compile_fx_inner(
     layout_opt: Optional[bool] = None,
 ):
     logger.info("Optimizing the model with zentorch ops.")
-    # zentorch Optimized Implemention starts here
+    # zentorch optimization starts here
     zen_gm = optimize(gm)
-    # zentorch Optimized Implemention ends here###
+    # zentorch optimization ends here
     logger.info("Model is passed to compile_fx_inner.")
     # From PT2.4, compile_fx_inner introduced the optional static_input_idxs
     # argument and deprecated the optional num_fixed argument.
@@ -135,8 +137,11 @@ def zentorch_compile_fx_inner(
 def zentorch_compile(
     gm: torch.fx.GraphModule,
     example_inputs: List[torch.Tensor],
+    options: Optional[Dict[str, Any]] = None,
 ) -> Callable:
     logger.info("Called the zentorch backend.")
+    # create a supported config list, keep adding more options in future
+    supported_opts_lst = ["freezing"]
 
     # Pytorch 2.0 has dynamic_shapes to control dynamic shapes from torch.compile
     # but it got deprecated in Pytorch2.1 and above. Pytorch 2.1 introduced
@@ -150,6 +155,32 @@ def zentorch_compile(
         if not dynamic:
             gm = mkldnn_fuse_fx(gm, example_inputs)
 
+    # check for supported options and iterarte over them
+    if options is not None:
+        for option, val in options.items():
+            if option in supported_opts_lst:
+                # now we will handle the options supported by zentorch
+                # check if freezing is present in options dict.
+                if option == "freezing" and val is True:
+                    torch._inductor.config.freezing = val
+                    # monkey patch PyTorch's freeze with zentorch's freeze
+                    torch._inductor.freezing.freeze = freeze
+                    return compile_fx(
+                        gm,
+                        example_inputs,
+                    )
+                elif option == "freezing" and val is False:
+                    logger.info(
+                        "Freezing is provided to config but is set to false,"
+                        + " constant folding will not be applied to the graph."
+                    )
+            else:
+                logger.warning(
+                    f"The given option: {option} is not supported in zentorch config. "
+                    + "Inductor optimizations related to "
+                    "this (if any) won't be applied."
+                    + f" The only supported options are: {supported_opts_lst}."
+                )
     return compile_fx(
         gm,
         example_inputs,
@@ -180,7 +211,8 @@ def zentorch_compiler_noinductor(gm, sample_inputs):
 
 
 @register_backend
-def zentorch(model, inputs):
+def zentorch(model, inputs, options: Optional[Dict[str, Any]] = None):
+
     if REMOVE_DECOMP:
         REMOVE_DECOMP_LIST = [
             torch.ops.aten.gelu_,
@@ -205,7 +237,7 @@ def zentorch(model, inputs):
         )
         return zentorch_compiler_noinductor(model, inputs)
     else:
-        return zentorch_compile(model, inputs)
+        return zentorch_compile(model, inputs, options)
 
 
 # This API takes in boolean input to disable or enable inductor backend.
