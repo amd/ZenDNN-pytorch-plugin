@@ -18,8 +18,11 @@ zt_ops = torch.ops.zentorch
 # When arg_index is none, it will check for node
 def get_tensor(fx_graph, node, arg_index=None):
     if arg_index is not None:
-        is_fake_tensor = bool(node.args[arg_index].meta)
-        if is_fake_tensor:
+        # To identify fake tensors, we check for the 'val' and 'tensor_meta'
+        # keys in node.args[arg_index].meta. Till PT <= 2.4.x, presence of
+        # metadata implied fake tensors. But from PT 2.5.x,
+        # the 'mutation_region_id' default argument is introduced in meta.
+        if 'val' in node.args[arg_index].meta.keys():
             # arg node in fx_graph generated through torch.compile
             # will be fake tensor
             return node.args[arg_index].meta["val"]
@@ -69,9 +72,11 @@ def is_arg_1d_tensor(fx_graph, node, arg_index):
 # the tensor to check is either directly accessible through
 # parameters of fx_graph or is stored as fake in meta dict.
 def is_arg_dtype_bfloat16(fx_graph, node, arg_index):
-    is_fake_tensor = bool(node.args[arg_index].meta)
-
-    if is_fake_tensor:
+    # To identify fake tensors, we check for the 'val' and 'tensor_meta'
+    # keys in node.args[arg_index].meta. Till PT <= 2.4.x, presence of
+    # metadata implied fake tensors. But from PT 2.5.x,
+    # the 'mutation_region_id' default argument is introduced in meta.
+    if 'val' in node.args[arg_index].meta.keys():
         # arg node in fx_graph generated through torch.compile will be fake tensor
         arg_dtype = node.args[arg_index].meta["val"].dtype
     else:
