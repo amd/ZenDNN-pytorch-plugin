@@ -33,19 +33,19 @@ Table of Contents
 
 ## 1.1. Overview
 
-**EARLY ACCESS:** The ZenDNN PyTorch* Plugin (zentorch) extends PyTorch* with an innovative upgrade that's set to revolutionize performance on AMD hardware.
+The latest ZenDNN Plugin for PyTorch* (zentorch) 5.0 is here!  
 
-As of version 5.0, AMD is unveiling a game-changing upgrade to ZenDNN, introducing a cutting-edge plug-in mechanism and an enhanced architecture under the hood. This isn't just about extensions; ZenDNN's aggressive AMD-specific optimizations operate at every level. It delves into comprehensive graph optimizations, including pattern identification, graph reordering, and seeking opportunities for graph fusions. At the operator level, ZenDNN boasts enhancements with microkernels, mempool optimizations, and efficient multi-threading on the large number of AMD EPYC cores. Microkernel optimizations further exploit all possible low-level math libraries, including AOCL BLIS.
+This powerful upgrade continues to redefine deep learning performance on AMD EPYC™ CPUs, combining relentless optimization, innovative features, and industry-leading support for modern workloads.
 
-The result? Enhanced performance with respect to baseline PyTorch*. zentorch leverages torch.compile, the latest PyTorch enhancement for accelerated performance. torch.compile makes PyTorch code run faster by JIT-compiling PyTorch code into optimized kernels, all while requiring minimal code changes and unlocking unprecedented speed and efficiency.
+zentorch 5.0 takes deep learning to new heights with significant enhancements for bfloat16 performance, expanded support for cutting-edge models like Llama 3.1 and 3.2, Microsoft Phi, and more as well as support for INT4 quantized datatype. This includes the advanced Activation-Aware Weight Quantization (AWQ) algorithm, driving remarkable accuracy in low-precision computations. 
 
-The _zentorch_ extension to PyTorch enables inference optimizations for deep learning workloads on AMD EPYC&trade; CPUs. It uses  the ZenDNN library, which contains deep learning operators tailored for high performance on AMD EPYC&trade; CPUs. Multiple passes of graph level optimizations run on the torch.fx graph provide further performance acceleration. All _zentorch_ optimizations can be enabled by a call to torch.compile with zentorch as the backend.
+Combined with PyTorch's torch.compile, zentorch transforms deep learning pipelines into finely-tuned, AMD-specific engines, delivering unparalleled efficiency and speed for large-scale inference workloads.  
 
-The ZenDNN PyTorch plugin is compatible with PyTorch version 2.3.0.
+The zentorch 5.0 plugs seamlessly with PyTorch version 2.4.0, offering a high-performance experience for deep learning on AMD EPYC™ platforms.
 
 ## Support
 
-Please note that zentorch is currently in “Early Access” mode. We welcome feedback, suggestions, and bug reports. Should you have any of the these, please contact us on zendnn.maintainers@amd.com
+We welcome feedback, suggestions, and bug reports. Should you have any of the these, please kindly file an issue on the ZenDNN Plugin for PyTorch Github page [here](https://github.com/amd/ZenDNN-pytorch-plugin/issues)
 
 ## License
 
@@ -58,13 +58,15 @@ _zentorch_ consists of three parts. They are
 - Build System
 
 ### 1.2.1. ZenDNN Integration Code
-ZenDNN is integrated into _zentorch_ using CPP code which interfaces ATen API to ZenDNN's API. This code exports torch compatible API similar to ATen IR of PyTorch. The exported API is made available for usage from python code using TORCH_LIBRARY and TORCH_LIBRARY_IMPL. Integration code is linked and compiled into _zentorch_ using CppExtension provided by PyTorch.
+ZenDNN is integrated into _zentorch_ using CPP code which interfaces ATen API to ZenDNN's API. This code exports torch compatible API similar to ATen IR of PyTorch. The exported API is made available for usage from python code using TORCH_LIBRARY, TORCH_LIBRARY_FRAGMENT and TORCH_LIBRARY_IMPL. Integration code is linked and compiled into _zentorch_ using CppExtension provided by PyTorch.
 
 The following ops are integrated as of now:
 - Embedding bag op
 - Embedding op
 - Matmul ops
 - Custom Fusion ops
+- Rope op
+- MHA op
 
 ### 1.2.2. The _zentorch_ custom backend to torch.compile
 We have registered a custom backend to torch.compile called _zentorch_. This backend integrates ZenDNN optimizations after AOTAutograd through a function called optimize. This function operates on the FX based graph at the ATEN IR to produce an optimized FX based graph as the output.
@@ -74,17 +76,16 @@ We have registered a custom backend to torch.compile called _zentorch_. This bac
 The static libraries for ZenDNN, AOCL BLIS and the cpp Extension modules that bind the ZenDNN operators with Python are built using `setup.py` script.
 
 #### 1.2.3.1. CMake Based Build: ZenDNN , AOCL BLIS and FBGEMM
-CMake downloads the ZenDNN , AOCL BLIS , FBGEMM and LIBXSMM during configure stage. It generates a config.h with GIT hashes of ZenDNN , AOCL BLIS , FBGEMM and LIBXSMM. It builds ZenDNN , AOCL BLIS , FBGEMM and LIBXSMM as static libraries.
+CMake downloads the ZenDNN , AOCL BLIS and FBGEMM during configure stage. It generates a config.h with GIT hashes of ZenDNN , AOCL BLIS and FBGEMM. It builds ZenDNN , AOCL BLIS and FBGEMM as static libraries.
 
 #### 1.2.3.2. Packaging into a Wheel File
-The CPP code, being an extension module, is built through CppExtension. It takes static libraries of the ZenDNN , AOCL BLIS , FBGEMM and LIBXSMM libraries. `setup.py` also adds in various attributes to the _zentorch_ for debugging and providing additional information.
+The CPP code, being an extension module, is built through CppExtension. It takes static libraries of the ZenDNN , AOCL BLIS and FBGEMM libraries. `setup.py` also adds in various attributes to the _zentorch_ for debugging and providing additional information.
 
 ## 1.3. Third Party Libraries
 _zentorch_ uses following libraries for its functionality.
   * [ZenDNN](https://github.com/amd/ZenDNN)
   * [AOCL BLIS](https://github.com/amd/blis)
   * [FBGEMM](https://github.com/pytorch/FBGEMM)
-  * [LIBXSMM](https://github.com/libxsmm/libxsmm.git)
 
 # 2. Installation
 
@@ -96,9 +97,9 @@ _zentorch_ can be installed using binary wheel file or can be built from source 
 ```bash
 pip uninstall zentorch
 ```
-* Install Pytorch v2.3.0
+* Install Pytorch v2.4.0
 ```bash
-conda install pytorch==2.3.0 cpuonly -c pytorch
+conda install pytorch==2.4.0 cpuonly -c pytorch
 ```
 * Use one of two methods to install zentorch:
 
@@ -120,12 +121,9 @@ cd ZENTORCH_v5.0.0_Python_v3.8/
 pip install zentorch-5.0.0-cp38-cp38-manylinux_2_28_x86_64.whl
 ```
 >Note:
-* While importing zentorch, if you get an undefined symbol error such as:
-ImportError: <anaconda_install_path>/envs/<your-env>/lib/python3.x/site-packages/
-zentorch/_C.cpython-3x-x86_64-linux-gnu.so : undefined symbol: <some string>,
-it could be due to version differences with PyTorch. Verify that you are using PyTorch version
-which is similar to the PyTorch version which was used to build the wheel file.
 * Dependent packages 'numpy' and 'torch' will be installed by '_zentorch_' if not already present.
+* If you get the error: ImportError: /lib64/libstdc++.so.6: version `GLIBCXX_.a.b.cc' not found (required by <path_to_conda>/envs/<env_name>/lib/python<py_version>/site-packages/zentorch-5.0.0-pyx.y-linux-x86_64.egg/zentorch/_C.cpython-xy-x86_64-linux-gnu.so), export LD_PRELOAD as:
+  * export LD_PRELOAD=<path_to_conda>/envs/<env_name>/lib/libstdc++.so.6:$LD_PRELOAD
 
 ## 2.2. From Source
 Run the following commands:
@@ -140,23 +138,23 @@ git checkout r5.0
 
 ### 2.2.1. Preparing third party repositories
 
-Build setup downloads the ZenDNN, AOCL BLIS , FBGEMM and LIBXSMM repos into `third_party` folder.
+Build setup downloads the ZenDNN, AOCL BLIS and FBGEMM repos into `third_party` folder.
 
 ### 2.2.2. Linux build
 #### 2.2.2.1. Create conda environment for the build
 ```bash
-conda create -n pt-zentorch python=3.8
+conda create -n pt-zentorch python=3.8 -y
 conda activate pt-zentorch
 ```
 #### 2.2.2.2. You can install torch using 'conda' or 'pip'
 ```bash
 # Pip command
-pip install torch==2.3.0 --index-url https://download.pytorch.org/whl/cpu
+pip install torch==2.4.0 --index-url https://download.pytorch.org/whl/cpu
 ```
 or
 ```bash
 # Conda command
-conda install pytorch==2.3.0 cpuonly -c pytorch
+conda install pytorch==2.4.0 cpuonly -c pytorch -y
 ```
 
 >Note: The CPU version of torch/pytorch only supports CPU version of torchvision.
@@ -194,7 +192,7 @@ with torch.no_grad():
     output = compiled_model(input)
 ```
 
->Note: If same model is optimized with `torch.compile` for multiple backends within single script, it is recommended to use `torch._dynamo.reset()` before calling the `torch.compile` on that model.
+>Note: If same model is optimized with `torch.compile` for multiple backends within single script, it is recommended to use `torch._dynamo.reset()` before calling the `torch.compile` on that model. This is applicable if torch version is less than 2.3.
 
 >Note: _zentorch_ is able to do the zentorch op replacements in both non-inference and inference modes. But some of the _zentorch_ optimizations are only supported for the inference mode, so it is recommended to use `torch.no_grad()` if you are running the model for inference only.
 
@@ -215,7 +213,7 @@ with torch.no_grad():
 ```
 
 ## 3.4 HuggingFace Generative LLM models
-For HuggingFace Generative LLM models, usage of zentorch.llm.optimize is recommended. All the optimizations included in this API are specifically targeted for Generative Large Language Models from HuggingFace. If a model which is not a valid Generative Large Language Model from HuggingFace, the following warning will be displayed and zentorch.llm.optimize will act as a dummy with no optimizations being applied to the model that is passed: “Cannot detect the model transformers family by model.config.architectures. Please pass a valid HuggingFace LLM model to the zentorch.llm.optimize API.” This check confirms the presence of the "config" and "architectures" attributes of the model to get the model id. Considering the check, two scenarios the zentorch.llm.optimize can still act as a dummy function:
+For HuggingFace Generative LLM models, usage of zentorch.llm.optimize is recommended. All the optimizations included in this API are specifically targeted for Generative Large Language Models from HuggingFace. If a model is not a valid Generative Large Language Model from HuggingFace, the following warning will be displayed and zentorch.llm.optimize will act as a dummy function with no optimizations being applied to the model that is passed: “Cannot detect the model transformers family by model.config.architectures. Please pass a valid HuggingFace LLM model to the zentorch.llm.optimize API.” This check confirms the presence of the "config" and "architectures" attributes of the model to get the model id. Considering the check, two scenarios the zentorch.llm.optimize can still act as a dummy function:
 1.  HuggingFace has a plethora of models, of which Generative LLMs are a subset of. So, even if the model has the attributes of "config" and "architectures", the model id might not be yet present in the supported models list from zentorch. In this case zentorch.llm.optimize will act as a dummy function.
 2. A model can be a valid generative LLM from HuggingFace or not, might miss the "config" and "architectures" attributes. In this case also, the zentorch.llm.optimize API will act as a dummy function.
 
@@ -227,6 +225,7 @@ python -c 'import zentorch; print("\n".join([f"{i+1:3}. {item}" for i, item in e
 
 If a model id other than the listed above are passed, zentorch.llm.optimize will not apply the above specific optimizations to the model and a warning will be displayed as follows: “Complete set of optimizations are currently unavailable for this model.” Control will pass to the zentorch custom backend to torch.compile for applying optimizations.
 
+For leveraging the best performance of zentorch_llm_optimize, user has to install IPEX corresponding to the PyTorch version that is installed in the environment.
 The PyTorch version for performant execution of supported LLMs should be greater than or equal to 2.3.0. Recommended version for optimal performance is using PyTorch 2.4.
 
 ### Case #1. If output is generated through a call to direct `model`, optimize it as below:
@@ -297,7 +296,7 @@ export ZENTORCH_PY_LOG_LEVEL=DEBUG
 The default level of logs is **WARNING** for both cpp and python sources but can be overridden as discussed above.
 >NOTE: The log levels are the same as those provided by the python logging module.
 
->INFO: Since all OPs implemented in _zentorch_ are registered with torch using the TORCH_LIBRARY() and TORCH_LIBRARY_IMPL() macros in bindings, the PyTorch profiler can be used without any modifications to measure the op level performance.
+>INFO: Since all OPs implemented in _zentorch_ are registered with torch using the TORCH_LIBRARY(), TORCH_LIBRARY_FRAGMENT() and TORCH_LIBRARY_IMPL() macros in bindings, the PyTorch profiler can be used without any modifications to measure the op level performance.
 
 ## 4.3 Support for `TORCH_COMPILE_DEBUG`
 PyTorch offers a debugging toolbox that comprises a built-in stats and trace function. This functionality facilitates the display of the time spent by each compilation phase, output code, output graph visualization, and IR dump. `TORCH_COMPILE_DEBUG` invokes this debugging tool that allows for better problem-solving while troubleshooting the internal issues of TorchDynamo and TorchInductor. This functionality works for the models optimized using _zentorch_, so it can be leveraged to debug these models as well. To enable this functionality, users can either set the environment variable `TORCH_COMPILE_DEBUG=1` or specify the environment variable with the runnable file (e.g., test.py) as input.
