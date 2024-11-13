@@ -120,7 +120,8 @@ unzip ZENTORCH_v5.0.0_Python_v3.8.zip
 cd ZENTORCH_v5.0.0_Python_v3.8/
 pip install zentorch-5.0.0-cp38-cp38-manylinux_2_28_x86_64.whl
 ```
->Note:
+>Notes:
+* In above steps, we have taken an example for release package with Python version 3.8.
 * Dependent packages 'numpy' and 'torch' will be installed by '_zentorch_' if not already present.
 * If you get the error: ImportError: /lib64/libstdc++.so.6: version `GLIBCXX_.a.b.cc' not found (required by <path_to_conda>/envs/<env_name>/lib/python<py_version>/site-packages/zentorch-5.0.0-pyx.y-linux-x86_64.egg/zentorch/_C.cpython-xy-x86_64-linux-gnu.so), export LD_PRELOAD as:
   * export LD_PRELOAD=<path_to_conda>/envs/<env_name>/lib/libstdc++.so.6:$LD_PRELOAD
@@ -165,19 +166,26 @@ conda install pytorch==2.4.0 cpuonly -c pytorch -y
 ```bash
 pip install -r requirements.txt
 ```
-#### 2.2.2.4. To build & install the _zentorch_
+#### 2.2.2.4. To build & generate wheel file of _zentorch_
 ```bash
-python setup.py install
+python setup.py bdist_wheel
 ```
-#### 2.2.2.5. Run Unit Tests
+>Note: The wheel file will be generated in dist folder in ZenDNN_PyTorch_Plugin directory
+
+#### 2.2.2.5. To install the wheel file of _zentorch_
+```bash
+cd dist
+pip install zentorch-5.0.0-cp38-cp38-linux_x86_64.whl
+```
+#### 2.2.2.6. Run Unit Tests
 ```python
 python test/test_zentorch.py
 ```
-#### 2.2.2.6 Run unit test with seed
+#### 2.2.2.7 Run unit test with seed
 ```python
 python test/test_zentorch.py --seed seed_value
 ```
-#### 2.2.2.7. Build Cleanup
+#### 2.2.2.8. Build Cleanup
 ```bash
 python setup.py clean --all
 ```
