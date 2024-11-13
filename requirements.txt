@@ -6,3 +6,4 @@ numpy
 parameterized
 setuptools>=50.0
 setupext_janitor
+deprecated

@@ -27,5 +27,5 @@ from ._freeze_utils import freezing_enabled # noqa
 # llm optimizations
 from . import llm  # noqa
 
-# model reload utility for woq models
-from ._woq_model_reload import load_woq_model # noqa
+# model reload utility for quantized models
+from ._quant_model_reload import load_quantized_model, load_woq_model # noqa F401
