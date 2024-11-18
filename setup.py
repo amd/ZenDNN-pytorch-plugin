@@ -6,11 +6,19 @@
 from setuptools import setup
 from torch.utils.cpp_extension import BuildExtension, CppExtension
 from torch.torch_version import __version__, TorchVersion
+from packaging.version import parse
 from os.path import join as Path
 import os
 import glob
 import subprocess
 import torch
+
+if parse(__version__) < parse("2.1"):
+    raise ImportError(
+        "zentorch Plugin requires torch version \
+     2.1 or higher. Please upgrade your torch version \
+     and retry the build."
+    )
 
 
 class CustomBuildExtension(BuildExtension):

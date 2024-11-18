@@ -4,12 +4,11 @@
 # ******************************************************************************
 
 import torch
-from ._compile_backend import torch_version
+from ._compile_backend import is_version_compatible_import
 from ._utils import counters
 import functools
 from functools import partial
 import operator
-from ._utils import add_version_suffix
 
 at_ops = torch.ops.aten
 zt_ops = torch.ops.zentorch
@@ -640,20 +639,8 @@ def _get_pattern_with_replacement():
         name = pattern.__name__
         inference_name = name + "_inference"
         # pre 2.2 PT versions use a different name for fwd-tracer
-        # remove the if block when deprecating support for PT <= 2.1.x
-        if torch_version < add_version_suffix("2", "2"):
-            from torch._inductor.pattern_matcher import inference_graph
-
-            yield inference_name, {
-                "search_fn": pattern,
-                "replace_fn": replacement,
-                "example_inputs": args,
-                "trace_fn": inference_graph,
-                "pass_dict": matcher_pass,
-                "extra_check": extra_check,
-                "scalar_workaround": workaround,
-            }
-        else:
+        # remove the else block when deprecating support for PT <= 2.1.x
+        if is_version_compatible_import(['_inductor', 'pattern_matcher'], ['fwd_only']):
             from torch._inductor.pattern_matcher import fwd_only
 
             yield inference_name, {
@@ -662,6 +649,18 @@ def _get_pattern_with_replacement():
                 "example_inputs": args,
                 "trace_fn": fwd_only,  # tracer for forward function
                 "pass_dicts": matcher_pass,
+                "extra_check": extra_check,
+                "scalar_workaround": workaround,
+            }
+        else:
+            from torch._inductor.pattern_matcher import inference_graph
+
+            yield inference_name, {
+                "search_fn": pattern,
+                "replace_fn": replacement,
+                "example_inputs": args,
+                "trace_fn": inference_graph,
+                "pass_dict": matcher_pass,
                 "extra_check": extra_check,
                 "scalar_workaround": workaround,
             }
