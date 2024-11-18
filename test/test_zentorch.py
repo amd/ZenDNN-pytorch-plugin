@@ -570,8 +570,7 @@ class Test_BADDBMM_OP(Zentorch_TestCase):
             )
 
         self.assertTrue(
-            "unsupported dims for self, batch1 and batch2"
-            in str(context.exception)
+            "unsupported dims for self, batch1 and batch2" in str(context.exception)
         )
 
     @parameterized.expand(supported_dtypes)
@@ -3438,7 +3437,14 @@ class TestPatternMatcher(Zentorch_TestCase):
         compiled_model = torch.compile(model, backend="zentorch")
         counters.clear()
         # autocast subtest
-        with self.subTest(dtype="float32"):
+        with self.subTest(dtype=dtype):
+            if dtype == "bfloat16":
+                self.skipTest("Skipping the AMP subtest for input bfloat16")
+            if not zentorch._C.is_bf16_supported():
+                self.skipTest(
+                    "Skipping the test case since it is not supported on machines "
+                    "without Bfloat16 support"
+                )
             self.assertEqual(counters["zentorch"]["pattern_matcher_split_mm"], 0)
             with torch.autocast("cpu"):
                 _ = compiled_model(inp)
@@ -4064,8 +4070,7 @@ class Test_WOQ_Linear(Zentorch_TestCase):
         self.assertEqual(counters["zentorch"]["pattern_matcher_woq_add"], 0)
 
         self.assertTrue(
-            "only bfloat16 datatype "
-            "is supported as of now" in str(context.exception)
+            "only bfloat16 datatype " "is supported as of now" in str(context.exception)
         )
 
     @parameterized.expand(
@@ -4238,8 +4243,7 @@ class Test_WOQ_Linear(Zentorch_TestCase):
                 self.data.woq_bias[woq_bias_idx],
             )
         self.assertTrue(
-            "only bfloat16 datatype "
-            "is supported as of now" in str(context.exception)
+            "only bfloat16 datatype " "is supported as of now" in str(context.exception)
         )
 
         # qweight dtype check
