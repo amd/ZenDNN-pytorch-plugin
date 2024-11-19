@@ -34,6 +34,7 @@ sparse_opt = [True, False]
 woq_input_dim_opt = [2, 3, 4]
 woq_bias_opt = [0, 1]
 woq_qzeros_opt = [0, 1]
+group_size_opt = [-1, 1, 2, 3, 4, 5, 7, 8, 10]
 
 
 class Singleton(type):
@@ -46,12 +47,11 @@ class Singleton(type):
 
 
 class Test_Data(metaclass=Singleton):
-    def create_data(self, dtype):
+    def create_data(self, dtype, group_size=-1):
         torch_type = self.get_torch_type(dtype)
-        self.b = torch.randint(1, 11, (1,)).item()
-        self.m = torch.randint(1, 11, (1,)).item()
-        self.k = torch.randint(1, 11, (1,)).item()
-        self.n = torch.randint(1, 11, (1,)).item()
+        self.b, self.m, self.k, self.n = (
+            torch.randint(1, 11, (1,)).item() for _ in range(4)
+        )
 
         # m*k, k*n, m*n
         self.x = torch.randn(self.m, self.k).type(torch_type)
@@ -110,31 +110,60 @@ class Test_Data(metaclass=Singleton):
             torch.randn(50, 40, 60).transpose(0, 2).type(torch_type),
         ]
 
+        self.woq_m, self.woq_x, self.woq_y = (
+            torch.randint(1, 11, (1,)).item() for _ in range(3)
+        )
+        self.woq_group_size = group_size
+        self.packing_ratio = 8
+        if group_size == -1:
+            self.woq_k = torch.randint(3, 11, (1,)).item() * self.packing_ratio
+            group_size = self.woq_k
+        else:
+            self.woq_k = (
+                torch.randint(3, 11, (1,)).item() * self.packing_ratio * group_size
+            )
+        # This is done for supporting the add/mul operation in unit test.
+        self.woq_n = self.woq_k
+
         self.woq_input = {
-            2: torch.randn(32, 32).type(torch_type),
-            3: torch.randn(4, 32, 32).type(torch_type),
-            4: torch.randn(4, 4, 32, 32).type(torch_type),
+            2: torch.randn(self.woq_m, self.woq_k).type(torch_type),
+            3: torch.randn(self.woq_m, self.woq_y, self.woq_k).type(torch_type),
+            4: torch.randn(self.woq_m, self.woq_x, self.woq_y, self.woq_k).type(
+                torch_type
+            ),
         }
         self.woq_add = {
-            2: torch.randn(32, 32).type(torch_type),
-            3: torch.randn(4, 32, 32).type(torch_type),
-            4: torch.randn(4, 4, 32, 32).type(torch_type),
+            2: torch.randn(self.woq_m, self.woq_n).type(torch_type),
+            3: torch.randn(self.woq_m, self.woq_y, self.woq_n).type(torch_type),
+            4: torch.randn(self.woq_m, self.woq_x, self.woq_y, self.woq_n).type(
+                torch_type
+            ),
         }
         self.woq_mul = {
-            2: torch.randn(32, 32).type(torch_type),
-            3: torch.randn(4, 32, 32).type(torch_type),
-            4: torch.randn(4, 4, 32, 32).type(torch_type),
+            2: torch.randn(self.woq_m, self.woq_n).type(torch_type),
+            3: torch.randn(self.woq_m, self.woq_y, self.woq_n).type(torch_type),
+            4: torch.randn(self.woq_m, self.woq_x, self.woq_y, self.woq_n).type(
+                torch_type
+            ),
         }
-        self.woq_qweight = torch.randn(32, 4).type(torch.int32)
-        self.woq_scales = torch.randn(1, 32).type(torch.float32)
+        self.woq_qweight = torch.randn(
+            self.woq_k, self.woq_n // self.packing_ratio
+        ).type(torch.int32)
+        self.woq_scales = torch.randn(self.woq_k // group_size, self.woq_n).type(
+            torch.float32
+        )
         self.woq_qzeros = [
             None,
-            torch.zeros(1, 4).type(torch.int32),
+            torch.zeros(
+                self.woq_k // group_size, self.woq_n // self.packing_ratio
+            ).type(torch.int32),
         ]
-        self.woq_qzeros_nonzero = torch.randint(1, 15, (1, 4)).type(torch.int32)
+        self.woq_qzeros_nonzero = torch.randint(
+            1, 15, (self.woq_k // group_size, self.woq_n // self.packing_ratio)
+        ).type(torch.int32)
         self.woq_bias = [
             None,
-            torch.randn(32).type(torch_type),
+            torch.randn(self.woq_n).type(torch_type),
         ]
 
     def get_torch_type(self, str_type):

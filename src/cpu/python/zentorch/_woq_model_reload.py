@@ -9,9 +9,7 @@ import torch.nn as nn
 import os
 
 from ._logging import get_logger
-from ._quantization_utils import (
-    get_op_by_name, set_op_by_name, get_module_name_str
-)
+from ._quantization_utils import get_op_by_name, set_op_by_name, get_module_name_str
 
 # make a logger for this file
 logger = get_logger(__name__)
@@ -44,9 +42,9 @@ def build_and_replace_with_WOQLinear(
     float_module,
     weight_tensor,
     weight_scales,
-    weight_zero_points=None,
-    bias_tensor=None,
-    group_size=-1,
+    weight_zero_points,
+    bias_tensor,
+    group_size,
     bits=4,
     use_zero_point=False,
     torch_dtype="bfloat16",
@@ -138,11 +136,11 @@ def get_config_information_from_config_json(config_json_path):
     }
 
     supported_woq_config = {
-        "bits": 4,
+        "bits": (4,),
         "group_size": -1,
-        "pack_method": "order",
-        "zero_point": False,
-        "torch_dtype": "bfloat16",
+        "pack_method": ("order",),  # TODO: Support "pack_method": "reorder"
+        "zero_point": (False,),
+        "torch_dtype": ("bfloat16",),
     }
 
     for key in woq_model_config.keys():
@@ -161,7 +159,7 @@ def get_config_information_from_config_json(config_json_path):
                         + f"{supported_woq_config[key]} & {key} > 0 for "
                         + "weight only quantization"
                     )
-        elif woq_model_config[key] != supported_woq_config[key]:
+        elif woq_model_config[key] not in supported_woq_config[key]:
             raise NotImplementedError(
                 f"zentorch has not yet implemented support for {key} = "
                 + f"{woq_model_config[key]}, it only supports {key} = "
@@ -188,7 +186,7 @@ def load_woq_model(
     logger.info("Loading the weight only quantized model...")
 
     try:
-        import safetensors # noqa
+        import safetensors  # noqa: F401
     except ImportError:
         raise ImportError(
             "'safetensors' package is not installed. 'safetensors' is "

@@ -500,7 +500,7 @@ def meta_zentorch_woq_linear(
     weight_scales,
     weight_zero_point,
     bias,
-    group_size=-1,
+    group_size,
     weight_bits=4,
     compute_dtype="bfloat16",
 ):
@@ -521,7 +521,7 @@ def meta_zentorch_woq_linear_relu(
     weight_scales,
     weight_zero_point,
     bias,
-    group_size=-1,
+    group_size,
     weight_bits=4,
     compute_dtype="bfloat16",
 ):
@@ -544,7 +544,7 @@ def meta_zentorch_woq_linear_silu(
     weight_scales,
     weight_zero_point,
     bias,
-    group_size=-1,
+    group_size,
     weight_bits=4,
     compute_dtype="bfloat16",
 ):
@@ -567,7 +567,7 @@ def meta_zentorch_woq_linear_gelu_erf(
     weight_scales,
     weight_zero_point,
     bias,
-    group_size=-1,
+    group_size,
     weight_bits=4,
     compute_dtype="bfloat16",
 ):
@@ -590,7 +590,7 @@ def meta_zentorch_woq_linear_gelu_tanh(
     weight_scales,
     weight_zero_point,
     bias,
-    group_size=-1,
+    group_size,
     weight_bits=4,
     compute_dtype="bfloat16",
 ):
@@ -614,7 +614,7 @@ def meta_zentorch_woq_linear_add(
     weight_zero_point,
     bias,
     add_input,
-    group_size=-1,
+    group_size,
     weight_bits=4,
     compute_dtype="bfloat16",
 ):
@@ -630,7 +630,7 @@ def meta_zentorch_woq_linear_add_add(
     bias,
     add1_input,
     add2_input,
-    group_size=-1,
+    group_size,
     weight_bits=4,
     compute_dtype="bfloat16",
 ):
@@ -645,7 +645,7 @@ def meta_zentorch_woq_linear_silu_mul(
     weight_zero_point,
     bias,
     mul_input,
-    group_size=-1,
+    group_size,
     weight_bits=4,
     compute_dtype="bfloat16",
 ):

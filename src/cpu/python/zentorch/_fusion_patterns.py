@@ -202,34 +202,41 @@ def _mm_add_replacement(arg_0, arg_1, add_1):
 
 
 # Adding 2 Isometric patterns for linear+add fusion
-def _woq_linear_add_pattern_1(arg_0, arg_1, arg_2, arg_3, bias_0, add_1):
+def _woq_linear_add_pattern_1(arg_0, arg_1, arg_2, arg_3, bias_0, add_1, group_size):
     # arg_0 : input_tensor (n-d)
     # arg_1 : qweight
     # arg_2 : weight_scales
     # arg_3 : weight_zero_point
     # bias_0 : bias
     # add_1 : add_tensor
-    woq_linear_out = zt_ops.zentorch_woq_linear(arg_0, arg_1, arg_2, arg_3, bias_0)
+    # group_size : group_size
+    woq_linear_out = zt_ops.zentorch_woq_linear(
+        arg_0, arg_1, arg_2, arg_3, bias_0, group_size
+    )
     add_res = at_ops.add(add_1, woq_linear_out)
     return add_res
 
 
-def _woq_linear_add_pattern_2(arg_0, arg_1, arg_2, arg_3, bias_0, add_1):
-    woq_linear_out = zt_ops.zentorch_woq_linear(arg_0, arg_1, arg_2, arg_3, bias_0)
+def _woq_linear_add_pattern_2(arg_0, arg_1, arg_2, arg_3, bias_0, add_1, group_size):
+    woq_linear_out = zt_ops.zentorch_woq_linear(
+        arg_0, arg_1, arg_2, arg_3, bias_0, group_size
+    )
     add_res = at_ops.add(woq_linear_out, add_1)
     return add_res
 
 
-def _woq_linear_add_replacement(arg_0, arg_1, arg_2, arg_3, bias_0, add_1):
+def _woq_linear_add_replacement(arg_0, arg_1, arg_2, arg_3, bias_0, add_1, group_size):
     counters["zentorch"]["pattern_matcher_woq_add"] += 1
     out_0 = zt_ops.zentorch_woq_linear_add.default(
-        arg_0, arg_1, arg_2, arg_3, bias_0, add_1
+        arg_0, arg_1, arg_2, arg_3, bias_0, add_1, group_size
     )
     return (out_0,)
 
 
 # Adding 4 Isometric pattern for linear+add+add fusion
-def _woq_linear_add_add_pattern_1(arg_0, arg_1, arg_2, arg_3, bias_0, add_1, add_2):
+def _woq_linear_add_add_pattern_1(
+    arg_0, arg_1, arg_2, arg_3, bias_0, add_1, add_2, group_size
+):
     # arg_0 : input_tensor (n-d)
     # arg_1 : qweight
     # arg_2 : weight_scales
@@ -237,58 +244,85 @@ def _woq_linear_add_add_pattern_1(arg_0, arg_1, arg_2, arg_3, bias_0, add_1, add
     # bias_0 : bias
     # add_1 : add_tensor
     # add_2 : add_tensor
-    woq_linear_out = zt_ops.zentorch_woq_linear(arg_0, arg_1, arg_2, arg_3, bias_0)
-    add1_res = at_ops.add(woq_linear_out, add_1)
-    add_res = at_ops.add(add1_res, add_2)
-    return add_res
+    # group_size : group_size
+    woq_linear_out = zt_ops.zentorch_woq_linear(
+        arg_0, arg_1, arg_2, arg_3, bias_0, group_size
+    )
+    add_res_0 = at_ops.add(woq_linear_out, add_1)
+    add_res_1 = at_ops.add(add_res_0, add_2)
+    return add_res_1
 
 
-def _woq_linear_add_add_pattern_2(arg_0, arg_1, arg_2, arg_3, bias_0, add_1, add_2):
-    woq_linear_out = zt_ops.zentorch_woq_linear(arg_0, arg_1, arg_2, arg_3, bias_0)
-    add1_res = at_ops.add(add_1, woq_linear_out)
-    add_res = at_ops.add(add1_res, add_2)
-    return add_res
+def _woq_linear_add_add_pattern_2(
+    arg_0, arg_1, arg_2, arg_3, bias_0, add_1, add_2, group_size
+):
+    woq_linear_out = zt_ops.zentorch_woq_linear(
+        arg_0, arg_1, arg_2, arg_3, bias_0, group_size
+    )
+    add_res_0 = at_ops.add(add_1, woq_linear_out)
+    add_res_1 = at_ops.add(add_res_0, add_2)
+    return add_res_1
 
 
-def _woq_linear_add_add_pattern_3(arg_0, arg_1, arg_2, arg_3, bias_0, add_1, add_2):
-    woq_linear_out = zt_ops.zentorch_woq_linear(arg_0, arg_1, arg_2, arg_3, bias_0)
-    add1_res = at_ops.add(woq_linear_out, add_1)
-    add_res = at_ops.add(add_2, add1_res)
-    return add_res
+def _woq_linear_add_add_pattern_3(
+    arg_0, arg_1, arg_2, arg_3, bias_0, add_1, add_2, group_size
+):
+    woq_linear_out = zt_ops.zentorch_woq_linear(
+        arg_0, arg_1, arg_2, arg_3, bias_0, group_size
+    )
+    add_res_0 = at_ops.add(woq_linear_out, add_1)
+    add_res_1 = at_ops.add(add_2, add_res_0)
+    return add_res_1
 
 
-def _woq_linear_add_add_pattern_4(arg_0, arg_1, arg_2, arg_3, bias_0, add_1, add_2):
-    woq_linear_out = zt_ops.zentorch_woq_linear(arg_0, arg_1, arg_2, arg_3, bias_0)
-    add1_res = at_ops.add(add_1, woq_linear_out)
-    add_res = at_ops.add(add_2, add1_res)
-    return add_res
+def _woq_linear_add_add_pattern_4(
+    arg_0, arg_1, arg_2, arg_3, bias_0, add_1, add_2, group_size
+):
+    woq_linear_out = zt_ops.zentorch_woq_linear(
+        arg_0, arg_1, arg_2, arg_3, bias_0, group_size
+    )
+    add_res_0 = at_ops.add(add_1, woq_linear_out)
+    add_res_1 = at_ops.add(add_2, add_res_0)
+    return add_res_1
 
 
-def _woq_linear_add_add_replacement(arg_0, arg_1, arg_2, arg_3, bias_0, add_1, add_2):
+def _woq_linear_add_add_replacement(
+    arg_0, arg_1, arg_2, arg_3, bias_0, add_1, add_2, group_size
+):
     counters["zentorch"]["pattern_matcher_woq_add_add"] += 1
     out_0 = zt_ops.zentorch_woq_linear_add_add.default(
-        arg_0, arg_1, arg_2, arg_3, bias_0, add_1, add_2
+        arg_0, arg_1, arg_2, arg_3, bias_0, add_1, add_2, group_size
     )
     return out_0
 
 
 # Adding 2 Isometric patterns for linear+silu+mul fusion
-def _woq_linear_silu_mul_pattern_1(arg_0, arg_1, arg_2, arg_3, bias_0, mul_1):
-    woq_linear_out = zt_ops.zentorch_woq_linear_silu(arg_0, arg_1, arg_2, arg_3, bias_0)
-    mul_1_res = at_ops.mul(woq_linear_out, mul_1)
-    return mul_1_res
+def _woq_linear_silu_mul_pattern_1(
+    arg_0, arg_1, arg_2, arg_3, bias_0, mul_1, group_size
+):
+    woq_linear_out = zt_ops.zentorch_woq_linear_silu(
+        arg_0, arg_1, arg_2, arg_3, bias_0, group_size
+    )
+    mul_res_0 = at_ops.mul(woq_linear_out, mul_1)
+    return mul_res_0
 
 
-def _woq_linear_silu_mul_pattern_2(arg_0, arg_1, arg_2, arg_3, bias_0, mul_1):
-    woq_linear_out = zt_ops.zentorch_woq_linear_silu(arg_0, arg_1, arg_2, arg_3, bias_0)
-    mul_1_res = at_ops.mul(mul_1, woq_linear_out)
-    return mul_1_res
+def _woq_linear_silu_mul_pattern_2(
+    arg_0, arg_1, arg_2, arg_3, bias_0, mul_1, group_size
+):
+    woq_linear_out = zt_ops.zentorch_woq_linear_silu(
+        arg_0, arg_1, arg_2, arg_3, bias_0, group_size
+    )
+    mul_res_0 = at_ops.mul(mul_1, woq_linear_out)
+    return mul_res_0
 
 
-def _woq_linear_silu_mul_replacement(arg_0, arg_1, arg_2, arg_3, bias_0, mul_1):
+def _woq_linear_silu_mul_replacement(
+    arg_0, arg_1, arg_2, arg_3, bias_0, mul_1, group_size
+):
     counters["zentorch"]["pattern_matcher_woq_silu_mul"] += 1
     out_0 = zt_ops.zentorch_woq_linear_silu_mul(
-        arg_0, arg_1, arg_2, arg_3, bias_0, mul_1
+        arg_0, arg_1, arg_2, arg_3, bias_0, mul_1, group_size
     )
     return out_0
 
@@ -390,6 +424,8 @@ def _woq_check(match):
     post_op_dtypes_bf16 = True
 
     for k, v in match.kwargs.items():
+        if isinstance(v, int):
+            continue
         if k in ("add_1", "add_2", "mul_1"):
             post_op_dtypes_bf16 = post_op_dtypes_bf16 and (
                 v.meta["val"].dtype == torch.bfloat16
@@ -453,13 +489,14 @@ def _get_pattern_with_replacement():
         requires_grad=False,
         dtype=torch.bfloat16,
     )
+    # q_bits: 4(int4) and packed qweight_dtype: int32
     qweight = partial(
         torch.empty, (32, 4), device="cpu", requires_grad=False, dtype=torch.int32
     )
-    woq_scales = partial(
+    woq_scales_per_channel = partial(
         torch.empty, (1, 32), device="cpu", requires_grad=False, dtype=torch.float32
     )
-    woq_qzeros = partial(
+    woq_qzeros_per_channel = partial(
         torch.empty, (1, 4), device="cpu", requires_grad=False, dtype=torch.int32
     )
     woq_bias = partial(
@@ -476,7 +513,8 @@ def _get_pattern_with_replacement():
     # It doesn't allows same value for two kwargs hence the workaround
     # to have two different values for beta and alpha
     # kwargs in func sig is only valid torch 2.2 onwards
-    kwarg_beta_alpha = {"beta": 1.0, "alpha": -2.8}
+    kwargs_beta_alpha = {"beta": 1.0, "alpha": -2.8}
+    kwargs_group_size = {"group_size": -1}
 
     candidates = [
         (
@@ -497,56 +535,56 @@ def _get_pattern_with_replacement():
             _addmm_silu_mul_pattern,
             _addmm_silu_mul_replacement,
             [arg_1(), arg_2(), arg_3(), arg_4()],
-            kwarg_beta_alpha,
+            kwargs_beta_alpha,
             _matmul_dtypes_check,
         ),
         (
             _addmm_silu_mul_pattern,
             _addmm_silu_mul_replacement,
             [arg_1(), arg_2(), arg_4(), arg_4()],
-            kwarg_beta_alpha,
+            kwargs_beta_alpha,
             _matmul_dtypes_check,
         ),
         (
             _addmm_1dbias_silu_mul_pattern,
             _addmm_1dbias_silu_mul_replacement,
             [arg_1(), arg_2(), arg_3(), arg_5()],
-            kwarg_beta_alpha,
+            kwargs_beta_alpha,
             _matmul_dtypes_check,
         ),
         (
             _addmm_1dbias_silu_mul_pattern,
             _addmm_1dbias_silu_mul_replacement,
             [arg_1(), arg_2(), arg_4(), arg_5()],
-            kwarg_beta_alpha,
+            kwargs_beta_alpha,
             _matmul_dtypes_check,
         ),
         (
             _addmm_1dbias_add_pattern,
             _addmm_1dbias_add_replacement,
             [arg_1(), arg_2(), arg_3(), arg_5()],
-            kwarg_beta_alpha,
+            kwargs_beta_alpha,
             _matmul_dtypes_check,
         ),
         (
             _addmm_1dbias_add_pattern,
             _addmm_1dbias_add_replacement,
             [arg_1(), arg_2(), arg_4(), arg_5()],
-            kwarg_beta_alpha,
+            kwargs_beta_alpha,
             _matmul_dtypes_check,
         ),
         (
             _addmm_1dbias_view_add_add_pattern,
             _addmm_1dbias_view_add_add_replacement,
             [arg_1(), arg_2(), arg_3(), arg_3(), arg_5()],
-            kwarg_beta_alpha,
+            kwargs_beta_alpha,
             _dim_check,
         ),
         (
             _addmm_1dbias_view_add_add_pattern,
             _addmm_1dbias_view_add_add_replacement,
             [arg_1(), arg_2(), arg_4(), arg_4(), arg_5()],
-            kwarg_beta_alpha,
+            kwargs_beta_alpha,
             _dim_check,
         ),
         (
@@ -563,13 +601,13 @@ def _get_pattern_with_replacement():
             [
                 inp(),
                 qweight(),
-                woq_scales(),
-                woq_qzeros(),
+                woq_scales_per_channel(),
+                woq_qzeros_per_channel(),
                 woq_bias(),
                 woq_binary(),
                 woq_binary(),
             ],
-            {},
+            kwargs_group_size,
             _woq_check,
         ),
         (
@@ -578,13 +616,13 @@ def _get_pattern_with_replacement():
             [
                 inp(),
                 qweight(),
-                woq_scales(),
-                woq_qzeros(),
+                woq_scales_per_channel(),
+                woq_qzeros_per_channel(),
                 woq_bias(),
                 woq_binary(),
                 woq_binary(),
             ],
-            {},
+            kwargs_group_size,
             _woq_check,
         ),
         (
@@ -593,13 +631,13 @@ def _get_pattern_with_replacement():
             [
                 inp(),
                 qweight(),
-                woq_scales(),
-                woq_qzeros(),
+                woq_scales_per_channel(),
+                woq_qzeros_per_channel(),
                 woq_bias(),
                 woq_binary(),
                 woq_binary(),
             ],
-            {},
+            kwargs_group_size,
             _woq_check,
         ),
         (
@@ -608,41 +646,69 @@ def _get_pattern_with_replacement():
             [
                 inp(),
                 qweight(),
-                woq_scales(),
-                woq_qzeros(),
+                woq_scales_per_channel(),
+                woq_qzeros_per_channel(),
                 woq_bias(),
                 woq_binary(),
                 woq_binary(),
             ],
-            {},
+            kwargs_group_size,
             _woq_check,
         ),
         (
             _woq_linear_add_pattern_1,
             _woq_linear_add_replacement,
-            [inp(), qweight(), woq_scales(), woq_qzeros(), woq_bias(), woq_binary()],
-            {},
+            [
+                inp(),
+                qweight(),
+                woq_scales_per_channel(),
+                woq_qzeros_per_channel(),
+                woq_bias(),
+                woq_binary(),
+            ],
+            kwargs_group_size,
             _woq_check,
         ),
         (
             _woq_linear_add_pattern_2,
             _woq_linear_add_replacement,
-            [inp(), qweight(), woq_scales(), woq_qzeros(), woq_bias(), woq_binary()],
-            {},
+            [
+                inp(),
+                qweight(),
+                woq_scales_per_channel(),
+                woq_qzeros_per_channel(),
+                woq_bias(),
+                woq_binary(),
+            ],
+            kwargs_group_size,
             _woq_check,
         ),
         (
             _woq_linear_silu_mul_pattern_1,
             _woq_linear_silu_mul_replacement,
-            [inp(), qweight(), woq_scales(), woq_qzeros(), woq_bias(), woq_binary()],
-            {},
+            [
+                inp(),
+                qweight(),
+                woq_scales_per_channel(),
+                woq_qzeros_per_channel(),
+                woq_bias(),
+                woq_binary(),
+            ],
+            kwargs_group_size,
             _woq_check,
         ),
         (
             _woq_linear_silu_mul_pattern_2,
             _woq_linear_silu_mul_replacement,
-            [inp(), qweight(), woq_scales(), woq_qzeros(), woq_bias(), woq_binary()],
-            {},
+            [
+                inp(),
+                qweight(),
+                woq_scales_per_channel(),
+                woq_qzeros_per_channel(),
+                woq_bias(),
+                woq_binary(),
+            ],
+            kwargs_group_size,
             _woq_check,
         ),
         (

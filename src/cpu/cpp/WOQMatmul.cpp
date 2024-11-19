@@ -64,16 +64,15 @@ at::Tensor zentorch_woq_linear_impl(
   // Set woq weight scales
   // group_size = -1 represents that weight is quantized with
   // per-channel quantization config.
-  if (group_size == -1) {
+  // Also when group_size is equal to qweight's input channel size
+  // then this will be the case of per-channel granularity.
+  if (group_size == -1 || group_size == qweight.size(0)) {
     // For per-channel granular scales, mask is mapped to
     // QUANT_GRANULARITY::PER_CHANNEL.
     LOG(INFO) << "Setting quant granularity to per-channel for woq scales";
     op_attr.set_woq_scale(QUANT_GRANULARITY::PER_CHANNEL, {1, 1});
   } else {
     // TODO: Support per-tensor scales
-    ZENTORCH_CHECK(group_size > 0, "group_size = ", group_size,
-                   " is not supported, only group_size = -1 or "
-                   "group_size > 0 is currently supported")
     // For per-group granular scales, mask is mapped to
     // QUANT_GRANULARITY::PER_GROUP.
     LOG(INFO) << "Setting quant granularity to per-group for woq scales";
@@ -197,50 +196,50 @@ at::Tensor zentorch_woq_linear_add_add(
 TORCH_LIBRARY_FRAGMENT(zentorch, m) {
   m.def(
       "zentorch_woq_linear(Tensor input, Tensor qweight, Tensor weight_scales, "
-      "Tensor? weight_zero_point, Tensor? bias, int group_size=-1, "
+      "Tensor? weight_zero_point, Tensor? bias, int group_size, "
       "int weight_bits=4, str compute_dtype = 'bfloat16', str zentorch_op_name "
       "= 'zentorch::zentorch_woq_linear') -> Tensor");
   m.def(
       "zentorch_woq_linear_relu(Tensor input, Tensor qweight, Tensor "
       "weight_scales, "
-      "Tensor? weight_zero_point, Tensor? bias, int group_size=-1, "
+      "Tensor? weight_zero_point, Tensor? bias, int group_size, "
       "int weight_bits=4, str compute_dtype = 'bfloat16', str zentorch_op_name "
       "= 'zentorch::zentorch_woq_linear_relu') -> Tensor");
   m.def(
       "zentorch_woq_linear_silu(Tensor input, Tensor qweight, Tensor "
       "weight_scales, "
-      "Tensor? weight_zero_point, Tensor? bias, int group_size=-1, "
+      "Tensor? weight_zero_point, Tensor? bias, int group_size, "
       "int weight_bits=4, str compute_dtype = 'bfloat16', str zentorch_op_name "
       "= 'zentorch::zentorch_woq_linear_silu') -> Tensor");
   m.def(
       "zentorch_woq_linear_gelu_erf(Tensor input, Tensor qweight, Tensor "
       "weight_scales, "
-      "Tensor? weight_zero_point, Tensor? bias, int group_size=-1, "
+      "Tensor? weight_zero_point, Tensor? bias, int group_size, "
       "int weight_bits=4, str compute_dtype = 'bfloat16', str zentorch_op_name "
       "= 'zentorch::zentorch_woq_linear_gelu_erf') -> Tensor");
   m.def(
       "zentorch_woq_linear_gelu_tanh(Tensor input, Tensor qweight, Tensor "
       "weight_scales, "
-      "Tensor? weight_zero_point, Tensor? bias, int group_size=-1, "
+      "Tensor? weight_zero_point, Tensor? bias, int group_size, "
       "int weight_bits=4, str compute_dtype = 'bfloat16', str zentorch_op_name "
       "= 'zentorch::zentorch_woq_linear_gelu_tanh') -> Tensor");
   m.def(
       "zentorch_woq_linear_add(Tensor input, Tensor qweight, Tensor "
       "weight_scales, Tensor? weight_zero_point, Tensor? bias, Tensor "
       "binary_input, "
-      "int group_size=-1, int weight_bits=4, str compute_dtype = 'bfloat16', "
+      "int group_size, int weight_bits=4, str compute_dtype = 'bfloat16', "
       "str zentorch_op_name = 'zentorch::zentorch_woq_linear_add') -> Tensor");
 
   m.def("zentorch_woq_linear_silu_mul(Tensor input, Tensor qweight, Tensor "
         "weight_scales, Tensor? weight_zero_point, Tensor? bias, Tensor "
         "mul_input, "
-        "int group_size=-1, int weight_bits=4, str compute_dtype = 'bfloat16', "
+        "int group_size, int weight_bits=4, str compute_dtype = 'bfloat16', "
         "str zentorch_op_name = 'zentorch::zentorch_woq_linear_silu_mul') -> "
         "Tensor");
   m.def("zentorch_woq_linear_add_add(Tensor input, Tensor qweight, Tensor "
         "weight_scales, Tensor? weight_zero_point, Tensor? bias, Tensor "
         "add1_input, Tensor add2_input, "
-        "int group_size=-1, int weight_bits=4, str compute_dtype = 'bfloat16', "
+        "int group_size, int weight_bits=4, str compute_dtype = 'bfloat16', "
         "str zentorch_op_name = 'zentorch::zentorch_woq_linear_add_add') -> "
         "Tensor");
 }
