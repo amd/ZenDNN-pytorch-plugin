@@ -166,6 +166,7 @@ set_seed(SEED)
 skip_test_pt_2_0 = False
 skip_test_pt_2_1 = False
 skip_test_pt_2_3 = False
+skip_test_pt_2_4 = False
 
 # Get the current version of torch
 torch_version = torch.__version__
@@ -180,6 +181,9 @@ if parsed_version.major == 2 and parsed_version.minor == 1:
 
 if parsed_version.major == 2 and parsed_version.minor < 3:
     skip_test_pt_2_3 = True
+
+if parsed_version.major == 2 and parsed_version.minor < 4:
+    skip_test_pt_2_4 = True
 
 
 # Unified Test_Data class
