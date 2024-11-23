@@ -21,6 +21,7 @@ from utils import (  # noqa: 402 # noqa: F401
     skip_test_pt_2_0,
     skip_test_pt_2_1,
     skip_test_pt_2_3,
+    skip_test_pt_2_4,
     reset_dynamo,
     set_seed,
     freeze_opt,
