@@ -82,7 +82,14 @@ std::vector<at::Tensor> zentorch_fused_eb_mlp(
   std::vector<at::Tensor> bias_vector(num_ops);
   std::vector<at::Tensor> self_or_result_vector(num_ops);
   std::vector<bool> bias_defined_vector(num_ops);
-  std::vector<int64_t> fuse_vector(num_ops);
+  // ZenDNN Library now supports multiple post ops for one matmul variant in a
+  // GroupMLP op. To pass that information from ZenTorch GroupMLP, we create
+  // two vectors of vectors:
+  //    1. int64_t vector contains the post op identifiers
+  //    2. memory contains the ZenDNN memory of the tensor equivalent which are
+  //       used when the post op is a binary post op like add or mul.
+  std::vector<std::vector<int64_t>> z_post_op_ids(num_ops);
+  std::vector<std::vector<memory>> z_post_op_buffers = {};
   std::vector<memory> z_mat1_vector(num_ops);
   std::vector<memory> z_mat2_vector(num_ops);
   std::vector<memory> z_bias_vector(num_ops);
@@ -164,7 +171,11 @@ std::vector<at::Tensor> zentorch_fused_eb_mlp(
     }
 
     // Populating the fuse_vector with the post ops.
-    fuse_vector[i] = mlp_fuse[i];
+    // Currently there is a limitation from the PyTorch side that a list of
+    // lists cannot be sent from the Python side to the CPP side via bindings
+    // using TORCH_LIBRARY_FRAGMENT. So, currently we are using just a single
+    // post op and wrapping it in a vector and sending it to ZenDNN Library.
+    z_post_op_ids.push_back({mlp_fuse[i]});
   }
 
   // The current optimization uses Group EmbeddingBag and Group MLP ops under
@@ -179,7 +190,7 @@ std::vector<at::Tensor> zentorch_fused_eb_mlp(
       z_sparse, z_per_sample_weights_opt, z_per_sample_weights_defined,
       z_include_last_offset, z_padding_idx, z_destination, z_input_vector,
       z_mat2_vector, z_bias_vector, alphas_vector, betas_vector,
-      bias_defined_vector, fuse_vector, z_result_vector,
+      bias_defined_vector, z_post_op_ids, z_post_op_buffers, z_result_vector,
       zentorch_op_name.c_str());
 
   at::parallel_for(0, num_eb_ops, 0, [&](int64_t start, int64_t end) {
