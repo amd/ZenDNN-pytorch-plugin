@@ -33,15 +33,15 @@ Table of Contents
 
 ## 1.1. Overview
 
-The latest ZenDNN Plugin for PyTorch* (zentorch) 5.0 is here!  
+The latest ZenDNN Plugin for PyTorch* (zentorch) 5.0.1 is here!
 
 This powerful upgrade continues to redefine deep learning performance on AMD EPYC™ CPUs, combining relentless optimization, innovative features, and industry-leading support for modern workloads.
 
-zentorch 5.0 takes deep learning to new heights with significant enhancements for bfloat16 performance, expanded support for cutting-edge models like Llama 3.1 and 3.2, Microsoft Phi, and more as well as support for INT4 quantized datatype. This includes the advanced Activation-Aware Weight Quantization (AWQ) algorithm, driving remarkable accuracy in low-precision computations. 
+zentorch 5.0.1 takes deep learning to new heights with significant enhancements for bfloat16 performance, expanded support for cutting-edge models like Llama 3.1 and 3.2, Microsoft Phi, and more as well as support for INT4 quantized datatype. This includes the advanced Activation-Aware Weight Quantization (AWQ) algorithm, driving remarkable accuracy in low-precision computations.
 
-Combined with PyTorch's torch.compile, zentorch transforms deep learning pipelines into finely-tuned, AMD-specific engines, delivering unparalleled efficiency and speed for large-scale inference workloads.  
+Combined with PyTorch's torch.compile, zentorch transforms deep learning pipelines into finely-tuned, AMD-specific engines, delivering unparalleled efficiency and speed for large-scale inference workloads.
 
-The zentorch 5.0 plugs seamlessly with PyTorch version 2.4.0, offering a high-performance experience for deep learning on AMD EPYC™ platforms.
+The zentorch 5.0.1 plugs seamlessly with PyTorch version 2.4.0, offering a high-performance experience for deep learning on AMD EPYC™ platforms.
 
 ## Support
 
@@ -105,7 +105,7 @@ conda install pytorch==2.4.0 cpuonly -c pytorch
 
 Using pip utility
 ```bash
-pip install zentorch==5.0.0
+pip install zentorch==5.0.1
 ```
 or
 
@@ -116,14 +116,14 @@ Using the release package.
 > Run the following commands to unzip the package and install the binary.
 
 ```bash
-unzip ZENTORCH_v5.0.0_Python_v3.8.zip
-cd ZENTORCH_v5.0.0_Python_v3.8/
-pip install zentorch-5.0.0-cp38-cp38-manylinux_2_28_x86_64.whl
+unzip ZENTORCH_v5.0.1_Python_v3.8.zip
+cd ZENTORCH_v5.0.1_Python_v3.8/
+pip install zentorch-5.0.1-cp38-cp38-manylinux_2_28_x86_64.whl
 ```
 >Notes:
 * In above steps, we have taken an example for release package with Python version 3.8.
 * Dependent packages 'numpy' and 'torch' will be installed by '_zentorch_' if not already present.
-* If you get the error: ImportError: /lib64/libstdc++.so.6: version `GLIBCXX_.a.b.cc' not found (required by <path_to_conda>/envs/<env_name>/lib/python<py_version>/site-packages/zentorch-5.0.0-pyx.y-linux-x86_64.egg/zentorch/_C.cpython-xy-x86_64-linux-gnu.so), export LD_PRELOAD as:
+* If you get the error: ImportError: /lib64/libstdc++.so.6: version `GLIBCXX_.a.b.cc' not found (required by <path_to_conda>/envs/<env_name>/lib/python<py_version>/site-packages/zentorch-5.0.1-pyx.y-linux-x86_64.egg/zentorch/_C.cpython-xy-x86_64-linux-gnu.so), export LD_PRELOAD as:
   * export LD_PRELOAD=<path_to_conda>/envs/<env_name>/lib/libstdc++.so.6:$LD_PRELOAD
 
 ## 2.2. From Source
@@ -175,7 +175,7 @@ python setup.py bdist_wheel
 #### 2.2.2.5. To install the wheel file of _zentorch_
 ```bash
 cd dist
-pip install zentorch-5.0.0-cp38-cp38-linux_x86_64.whl
+pip install zentorch-5.0.1-cp38-cp38-linux_x86_64.whl
 ```
 #### 2.2.2.6. Run Unit Tests
 ```python
@@ -315,7 +315,7 @@ TORCH_COMPILE_DEBUG=1 python test.py
 For more information about TORCH_COMPILE_DEBUG refer to the official PyTorch documentaion available.
 
 # 5. Performance tuning and Benchmarking
-zentorch v5.0.0 is supported with ZenDNN v5.0. Please see the **Tuning Guidelines** section of ZenDNN User Guide for performance tuning. ZenDNN User Guide can be downloaded from [here](https://developer.amd.com/zendnn)
+zentorch v5.0.1 is supported with ZenDNN v5.0. Please see the **Tuning Guidelines** section of ZenDNN User Guide for performance tuning. ZenDNN User Guide can be downloaded from [here](https://developer.amd.com/zendnn)
 
 # 6. Additional Utilities:
 
