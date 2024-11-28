@@ -16,6 +16,7 @@ from utils import (  # noqa: 402 # noqa: F401
     counters,
     supported_dtypes,
     skip_test_pt_2_0,
+    skip_test_pt_2_1,
     skip_test_pt_2_3,
     reset_dynamo,
     set_seed,

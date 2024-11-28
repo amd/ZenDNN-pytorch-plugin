@@ -6,6 +6,7 @@
 import random
 import numpy as np
 import torch
+from packaging.version import parse
 from torch.testing._internal.common_utils import TestCase, run_tests, SEED  # noqa: F401
 
 supported_dtypes = [("float32")]
@@ -40,12 +41,21 @@ print("Seed is", SEED)
 set_seed(SEED)
 
 skip_test_pt_2_0 = False
+skip_test_pt_2_1 = False
 skip_test_pt_2_3 = False
 
-if torch.__version__[:3] == "2.0":
+# Get the current version of torch
+torch_version = torch.__version__
+
+# Parse the version
+parsed_version = parse(torch_version)
+if parsed_version.major == 2 and parsed_version.minor == 0:
     skip_test_pt_2_0 = True
 
-if torch.__version__[:3] < "2.3":
+if parsed_version.major == 2 and parsed_version.minor == 1:
+    skip_test_pt_2_1 = True
+
+if parsed_version.major == 2 and parsed_version.minor < 3:
     skip_test_pt_2_3 = True
 
 

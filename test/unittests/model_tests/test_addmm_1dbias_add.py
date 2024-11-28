@@ -19,6 +19,7 @@ from unittest_utils import (  # noqa: 402
     reset_dynamo,
     run_tests,
     supported_dtypes,
+    skip_test_pt_2_1,
 )
 
 
@@ -33,6 +34,18 @@ class Custom_Model_Addmm_1dbias_View_Add(nn.Module):
         mm_res = x.view(input.size())
         add_res = torch.add(mm_res, input)
         return add_res
+
+
+class Custom_Model_Addmm_1dbias_Alpha_Beta_View_Add(nn.Module):
+    def __init__(self):
+        super(Custom_Model_Addmm_1dbias_Alpha_Beta_View_Add, self).__init__()
+
+    def forward(self, mat1, mat2, bias, new_shape, add_input):
+        addmm_result = torch.addmm(bias, mat1, mat2, alpha=1, beta=1.2)
+        view_result = addmm_result.view(*new_shape)
+        input_view_result = add_input.view(*new_shape)
+        final_result = view_result + input_view_result
+        return final_result
 
 
 class Custom_Model_Addmm_1dbias_Add(nn.Module):
@@ -61,7 +74,22 @@ class Custom_Model_Addmm_1dbias_View_Add_Add(nn.Module):
         return add_res_2
 
 
+class Custom_Model_Addmm_1dbias_Alpha_Beta_View_Add_Add(nn.Module):
+    def __init__(self):
+        super(Custom_Model_Addmm_1dbias_Alpha_Beta_View_Add_Add, self).__init__()
+
+    def forward(self, mat1, mat2, bias, new_shape, add_input):
+        addmm_result = torch.addmm(bias, mat1, mat2, alpha=1, beta=1.2)
+        view_result = addmm_result.view(*new_shape)
+        add_result = view_result + add_input
+        final_result = add_result + add_input
+        return final_result
+
+
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
+@unittest.skipIf(
+    skip_test_pt_2_1, "Pattern matcher disabled for Torch < 2.2"
+)
 class Test_Addmm_1dbias_Add_Model(Zentorch_TestCase):
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
@@ -87,6 +115,27 @@ class Test_Addmm_1dbias_Add_Model(Zentorch_TestCase):
                 self.assertEqual(
                     model_output, compiled_graph_output, atol=1e-2, rtol=1e-2
                 )
+
+    @parameterized.expand(supported_dtypes)
+    @torch.inference_mode()
+    def test_addmm_1dbias_alpha_beta_view_add_with_bias_model(self, dtype):
+        self.data.create_data(dtype)
+        new_shape = (1, self.data.n, self.data.m)
+        bias = self.data.input1d
+        mat2 = self.data.y
+        mat1 = self.data.x
+        add_input = self.data.input
+
+        model = Custom_Model_Addmm_1dbias_Alpha_Beta_View_Add().eval()
+        zentorch_model = copy.deepcopy(model)
+        model_output = model(mat1, mat2, bias, new_shape, add_input)
+        reset_dynamo()
+        compiled_graph = torch.compile(zentorch_model, backend="zentorch")
+        counters.clear()
+        self.assertEqual(counters["zentorch"]["pattern_matcher_addmm_1dbias_add"], 0)
+        compiled_graph_output = compiled_graph(mat1, mat2, bias, new_shape, add_input)
+        self.assertEqual(counters["zentorch"]["pattern_matcher_addmm_1dbias_add"], 1)
+        self.assertEqual(model_output, compiled_graph_output, atol=1e-2, rtol=1e-2)
 
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
@@ -149,6 +198,32 @@ class Test_Addmm_1dbias_Add_Model(Zentorch_TestCase):
                 self.assertEqual(
                     model_output, compiled_graph_output, atol=1e-2, rtol=1e-2
                 )
+
+    @parameterized.expand(supported_dtypes)
+    @torch.inference_mode()
+    def test_addmm_1dbias_alpha_beta_view_add_add_model(self, dtype):
+        self.data.create_data(dtype)
+        test_dtype = self.data.get_torch_type(dtype)
+        new_shape = (1, self.data.n, self.data.m)
+        bias = self.data.input1d
+        mat2 = self.data.y
+        mat1 = self.data.x
+        add_input = torch.randn(*new_shape, dtype=test_dtype)
+
+        model = Custom_Model_Addmm_1dbias_Alpha_Beta_View_Add_Add().eval()
+        zentorch_model = copy.deepcopy(model)
+        model_output = model(mat1, mat2, bias, new_shape, add_input)
+        reset_dynamo()
+        compiled_graph = torch.compile(zentorch_model, backend="zentorch")
+        counters.clear()
+        self.assertEqual(
+            counters["zentorch"]["pattern_matcher_addmm_1dbias_add_add"], 0
+        )
+        compiled_graph_output = compiled_graph(mat1, mat2, bias, new_shape, add_input)
+        self.assertEqual(
+            counters["zentorch"]["pattern_matcher_addmm_1dbias_add_add"], 1
+        )
+        self.assertEqual(model_output, compiled_graph_output, atol=1e-2, rtol=1e-2)
 
 
 if __name__ == "__main__":

@@ -23,6 +23,7 @@ from unittest_utils import (  # noqa: 402
     woq_dtypes,
     woq_input_dim_opt,
     woq_qzeros_opt,
+    skip_test_pt_2_1,
 )
 
 
@@ -78,6 +79,9 @@ class Custom_Model_WOQ_Linear_Silu_Mul(nn.Module):
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
+@unittest.skipIf(
+    skip_test_pt_2_1, "Pattern matcher disabled for Torch < 2.2"
+)
 class Test_WOQ_Linear_Model(Zentorch_TestCase):
     @parameterized.expand(
         product(woq_dtypes, woq_input_dim_opt, woq_bias_opt, woq_qzeros_opt),

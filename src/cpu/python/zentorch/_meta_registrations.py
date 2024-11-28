@@ -230,12 +230,14 @@ def meta_zentorch_mm_silu_mul(input, weight, mul_tensor):
 
 
 @register_meta("zentorch_addmm_silu_mul")
-def meta_zentorch_addmm_silu_mul(bias, input, weight, mul_tensor):
+def meta_zentorch_addmm_silu_mul(bias, input, weight, mul_tensor, alpha=1, beta=1):
     return mul_tensor.new_empty(mul_tensor.size())
 
 
 @register_meta("zentorch_addmm_1dbias_silu_mul")
-def meta_zentorch_addmm_1dbias_silu_mul(bias, input, weight, mul_tensor):
+def meta_zentorch_addmm_1dbias_silu_mul(
+    bias, input, weight, mul_tensor, alpha=1, beta=1
+):
     return mul_tensor.new_empty(mul_tensor.size())
 
 

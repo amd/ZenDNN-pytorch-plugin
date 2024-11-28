@@ -19,6 +19,7 @@ from unittest_utils import (  # noqa: 402
     run_tests,
     supported_dtypes,
     zentorch,
+    skip_test_pt_2_1
 )
 
 
@@ -45,6 +46,9 @@ class Custom_Model_MM_Silu_Mul(nn.Module):
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
+@unittest.skipIf(
+    skip_test_pt_2_1, "Pattern matcher disabled for Torch < 2.2"
+)
 class Test_MM_SiLU_Mul_Model(Zentorch_TestCase):
 
     @parameterized.expand(supported_dtypes)

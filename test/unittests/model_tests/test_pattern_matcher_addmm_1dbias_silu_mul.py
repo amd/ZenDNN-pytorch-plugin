@@ -2,7 +2,7 @@
 # Copyright (c) 2024 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
-
+import unittest
 import copy
 import torch
 from torch import nn
@@ -15,6 +15,7 @@ from unittest_utils import (  # noqa: 402
     counters,
     run_tests,
     zentorch,
+    skip_test_pt_2_1,
 )
 
 
@@ -32,6 +33,17 @@ class Custom_Model_Addmm_1dbias_SiLU_Mul(nn.Module):
         return linear_silu * mul_tensor
 
 
+class Custom_Model_Addmm_1dbias_Alpha_Beta_SiLU_Mul(nn.Module):
+    def __init__(self):
+        super(Custom_Model_Addmm_1dbias_Alpha_Beta_SiLU_Mul, self).__init__()
+        self.silu = torch.nn.SiLU()
+
+    def forward(self, mat1, mat2, bias, mul_tensor):
+        addmm_silu = self.silu(torch.addmm(bias, mat1, mat2, alpha=1.1, beta=1.8))
+        return addmm_silu * mul_tensor
+
+
+@unittest.skipIf(skip_test_pt_2_1, "Pattern matcher disabled for Torch < 2.2")
 class Test_Pattern_Matcher_Test_With_Different_Dtypes_Model(Zentorch_TestCase):
     @torch.inference_mode()
     def test_float32_addmm_1dbias_silu_float32_mul_pattern_model(self):
@@ -50,6 +62,28 @@ class Test_Pattern_Matcher_Test_With_Different_Dtypes_Model(Zentorch_TestCase):
         _ = compiled_model(
             self.data.input.view(1, self.data.m, self.data.n), mul_tensor
         )
+        self.assertEqual(
+            counters["zentorch"]["pattern_matcher_addmm_1dbias_silu_mul"], 1
+        )
+
+    @torch.inference_mode()
+    def test_float32_addmm_1dbias_alpha_beta_silu_float32_mul_pattern_model(self):
+        model = Custom_Model_Addmm_1dbias_Alpha_Beta_SiLU_Mul()
+        self.data.create_data("float32")
+
+        mat1_tensor = self.data.x
+        mat2_tensor = self.data.y
+        bias_tensor = self.data.input1d
+        mul_tensor = self.data.input
+
+        counters.clear()
+        self.assertEqual(
+            counters["zentorch"]["pattern_matcher_addmm_1dbias_silu_mul"], 0
+        )
+
+        zentorch_model = copy.deepcopy(model)
+        compiled_model = torch.compile(zentorch_model, backend="zentorch")
+        _ = compiled_model(mat1_tensor, mat2_tensor, bias_tensor, mul_tensor)
         self.assertEqual(
             counters["zentorch"]["pattern_matcher_addmm_1dbias_silu_mul"], 1
         )

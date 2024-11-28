@@ -5,19 +5,26 @@
 
 from setuptools import setup
 from torch.utils.cpp_extension import BuildExtension, CppExtension
-from torch.torch_version import __version__, TorchVersion
 from packaging.version import parse
+from torch.torch_version import __version__, TorchVersion
 from os.path import join as Path
 import os
 import glob
 import subprocess
 import torch
+import warnings
 
 if parse(__version__) < parse("2.1"):
     raise ImportError(
         "zentorch Plugin requires torch version \
      2.1 or higher. Please upgrade your torch version \
-     and retry the build."
+        and retry the build."
+    )
+
+if parse(__version__) < parse("2.5"):
+    warnings.warn(
+        "Consider upgrading to torch version 2.5 for improved performance."
+        , stacklevel=1
     )
 
 

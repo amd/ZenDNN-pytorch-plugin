@@ -20,6 +20,7 @@ from unittest_utils import (  # noqa: 402
     run_tests,
     supported_dtypes,
     zentorch,
+    skip_test_pt_2_1,
 )
 
 
@@ -31,6 +32,22 @@ class Custom_Model_Addmm_Silu_Mul(torch.nn.Module):
     def forward(self, inp_0, inp_1, inp_2, bias_0):
         view_0 = inp_0.view(inp_0.shape[0] * inp_0.shape[1], inp_0.shape[2])
         mm_0 = torch.ops.zentorch.zentorch_addmm_silu.default(bias_0, view_0, inp_1)
+        view_1 = mm_0.view(inp_0.shape[0], inp_0.shape[1], inp_2.shape[-1])
+        view_2 = inp_2.view(inp_0.shape[0], inp_0.shape[1], inp_2.shape[-1])
+        mul_0 = torch.mul(view_1, view_2)
+        return mul_0
+
+
+# mm silu pattern
+class Custom_Model_Addmm_Alpha_Beta_Silu_Mul(torch.nn.Module):
+    def __init__(self):
+        super(Custom_Model_Addmm_Alpha_Beta_Silu_Mul, self).__init__()
+
+    def forward(self, inp_0, inp_1, inp_2, bias_0):
+        view_0 = inp_0.view(inp_0.shape[0] * inp_0.shape[1], inp_0.shape[2])
+        mm_0 = torch.ops.zentorch.zentorch_addmm_silu.default(
+            bias_0, view_0, inp_1, alpha=1.3, beta=-3.7
+        )
         view_1 = mm_0.view(inp_0.shape[0], inp_0.shape[1], inp_2.shape[-1])
         view_2 = inp_2.view(inp_0.shape[0], inp_0.shape[1], inp_2.shape[-1])
         mul_0 = torch.mul(view_1, view_2)
@@ -107,6 +124,9 @@ class Custom_Model_MM_Silu(torch.nn.Module):
 
 # pattern matcher tests
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
+@unittest.skipIf(
+    skip_test_pt_2_1, "Pattern matcher disabled for Torch < 2.2"
+)
 class Test_Pattern_Matcher_Model(Zentorch_TestCase):
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
@@ -124,6 +144,23 @@ class Test_Pattern_Matcher_Model(Zentorch_TestCase):
         with torch.autocast(device_type="cpu", enabled=amp_enabled):
             _ = compiled_model(inp_0, inp_1, inp_2, inp_2)
             # test for both dtypes, two separate tests will be run
+            self.assertEqual(counters["zentorch"]["pattern_matcher_addmm_silu_mul"], 1)
+
+    @parameterized.expand(supported_dtypes)
+    @torch.inference_mode()
+    def test_addmm_alpha_beta_silu_mul_pattern_model(self, dtype):
+        decomp_mm_silu_model = Custom_Model_Addmm_Alpha_Beta_Silu_Mul()
+        model = decomp_mm_silu_model.to("cpu").eval()
+        compiled_model = torch.compile(model, backend="zentorch")
+        amp_enabled = True if dtype == "bfloat16" else False
+        new_dtype = self.data.get_torch_type(dtype)
+        inp_0 = torch.rand((2, 2, 11), dtype=new_dtype)
+        inp_1 = torch.rand((11, 53), dtype=new_dtype)
+        inp_2 = torch.rand((4, 53), dtype=new_dtype)
+        counters.clear()
+        self.assertEqual(counters["zentorch"]["pattern_matcher_addmm_silu_mul"], 0)
+        with torch.autocast(device_type="cpu", enabled=amp_enabled):
+            _ = compiled_model(inp_0, inp_1, inp_2, inp_2)
             self.assertEqual(counters["zentorch"]["pattern_matcher_addmm_silu_mul"], 1)
 
     @parameterized.expand(supported_dtypes)

@@ -12,6 +12,7 @@ import operator
 at_ops = torch.ops.aten
 zt_ops = torch.ops.zentorch
 
+
 # add patterns below
 
 
@@ -43,8 +44,10 @@ def _mm_silu_mul_replacement(arg_0, arg_1, mul_1):
     return (out_0,)
 
 
-def _addmm_silu_mul_pattern(arg_0, arg_1, mul_1, bias_0):
-    mm_0 = zt_ops.zentorch_addmm_silu.default(bias_0, arg_0, arg_1)
+def _addmm_silu_mul_pattern(arg_0, arg_1, mul_1, bias_0, beta, alpha):
+    mm_0 = zt_ops.zentorch_addmm_silu.default(
+        bias_0, arg_0, arg_1, beta=beta, alpha=alpha
+    )
     if mul_1.dim() != 2:
         view_0 = at_ops.view.default(mm_0, mul_1.size())
         mul_0 = at_ops.mul.Tensor(view_0, mul_1)
@@ -53,22 +56,28 @@ def _addmm_silu_mul_pattern(arg_0, arg_1, mul_1, bias_0):
     return (mul_0,)
 
 
-def _addmm_silu_mul_replacement(arg_0, arg_1, mul_1, bias_0):
+def _addmm_silu_mul_replacement(arg_0, arg_1, mul_1, bias_0, beta, alpha):
     counters["zentorch"]["pattern_matcher_addmm_silu_mul"] += 1
     shape_0 = arg_0.size()
     shape_1 = arg_1.size()
     shape_2 = mul_1.size()
     if mul_1.dim() != 2:
         view_0 = at_ops.view.default(mul_1, [shape_0[0], shape_1[-1]])
-        mul_0 = zt_ops.zentorch_addmm_silu_mul.default(bias_0, arg_0, arg_1, view_0)
+        mul_0 = zt_ops.zentorch_addmm_silu_mul.default(
+            bias_0, arg_0, arg_1, view_0, beta=beta, alpha=alpha
+        )
         out_0 = at_ops.view.default(mul_0, shape_2)
     else:
-        out_0 = zt_ops.zentorch_addmm_silu_mul.default(bias_0, arg_0, arg_1, mul_1)
+        out_0 = zt_ops.zentorch_addmm_silu_mul.default(
+            bias_0, arg_0, arg_1, mul_1, beta=beta, alpha=alpha
+        )
     return (out_0,)
 
 
-def _addmm_1dbias_silu_mul_pattern(arg_0, arg_1, mul_1, bias_0):
-    mm_0 = zt_ops.zentorch_addmm_1dbias_silu.default(bias_0, arg_0, arg_1)
+def _addmm_1dbias_silu_mul_pattern(arg_0, arg_1, mul_1, bias_0, beta, alpha):
+    mm_0 = zt_ops.zentorch_addmm_1dbias_silu.default(
+        bias_0, arg_0, arg_1, beta=beta, alpha=alpha
+    )
     if mul_1.dim() != 2:
         view_0 = at_ops.view.default(mm_0, mul_1.size())
         mul_0 = at_ops.mul.Tensor(view_0, mul_1)
@@ -77,7 +86,7 @@ def _addmm_1dbias_silu_mul_pattern(arg_0, arg_1, mul_1, bias_0):
     return (mul_0,)
 
 
-def _addmm_1dbias_silu_mul_replacement(arg_0, arg_1, mul_1, bias_0):
+def _addmm_1dbias_silu_mul_replacement(arg_0, arg_1, mul_1, bias_0, beta, alpha):
     counters["zentorch"]["pattern_matcher_addmm_1dbias_silu_mul"] += 1
     shape_0 = arg_0.size()
     shape_1 = arg_1.size()
@@ -85,22 +94,23 @@ def _addmm_1dbias_silu_mul_replacement(arg_0, arg_1, mul_1, bias_0):
     if mul_1.dim() != 2:
         view_0 = at_ops.view.default(mul_1, [shape_0[0], shape_1[-1]])
         mul_0 = zt_ops.zentorch_addmm_1dbias_silu_mul.default(
-            bias_0, arg_0, arg_1, view_0
+            bias_0, arg_0, arg_1, view_0, beta=beta, alpha=alpha
         )
         out_0 = at_ops.view.default(mul_0, shape_2)
     else:
         out_0 = zt_ops.zentorch_addmm_1dbias_silu_mul.default(
-            bias_0, arg_0, arg_1, mul_1
+            bias_0, arg_0, arg_1, mul_1, beta=beta, alpha=alpha
         )
     return (out_0,)
 
 
-def _addmm_1dbias_add_pattern(arg_0, arg_1, add_1, bias_0):
+def _addmm_1dbias_add_pattern(arg_0, arg_1, add_1, bias_0, beta, alpha):
     # bias_0: bias
     # arg_0_: mat1
     # arg_1_: mat2
     # add_1: add
-    addmm = zt_ops.zentorch_addmm_1dbias(bias_0, arg_0, arg_1)
+    addmm = zt_ops.zentorch_addmm_1dbias(bias_0, arg_0, arg_1, beta=beta, alpha=alpha)
+
     if add_1.dim() != 2:
         view = at_ops.view.default(addmm, add_1.size())
         add_res = at_ops.add(view, add_1)
@@ -109,27 +119,32 @@ def _addmm_1dbias_add_pattern(arg_0, arg_1, add_1, bias_0):
     return add_res
 
 
-def _addmm_1dbias_add_replacement(arg_0, arg_1, add_1, bias_0):
+def _addmm_1dbias_add_replacement(arg_0, arg_1, add_1, bias_0, beta, alpha):
     counters["zentorch"]["pattern_matcher_addmm_1dbias_add"] += 1
     shape_0 = arg_0.size()
     shape_1 = arg_1.size()
     shape_2 = add_1.size()
+
     if add_1.dim() != 2:
         view_0 = at_ops.view.default(add_1, [shape_0[0], shape_1[1]])
-        add_0 = zt_ops.zentorch_addmm_1dbias_add.default(bias_0, arg_0, arg_1, view_0)
+        add_0 = zt_ops.zentorch_addmm_1dbias_add.default(
+            bias_0, arg_0, arg_1, view_0, beta=beta, alpha=alpha
+        )
         out_0 = at_ops.view.default(add_0, shape_2)
     else:
-        out_0 = zt_ops.zentorch_addmm_1dbias_add.default(bias_0, arg_0, arg_1, add_1)
+        out_0 = zt_ops.zentorch_addmm_1dbias_add.default(
+            bias_0, arg_0, arg_1, add_1, beta=beta, alpha=alpha
+        )
     return (out_0,)
 
 
-def _addmm_1dbias_view_add_add_pattern(arg_0, arg_1, add_1, add_2, bias_0):
+def _addmm_1dbias_view_add_add_pattern(arg_0, arg_1, add_1, add_2, bias_0, beta, alpha):
     # bias_0: bias
     # arg_0: mat1
     # arg_1: mat2
     # add_1: add
     # add_2: 2nd add
-    addmm = zt_ops.zentorch_addmm_1dbias(bias_0, arg_0, arg_1)
+    addmm = zt_ops.zentorch_addmm_1dbias(bias_0, arg_0, arg_1, beta=beta, alpha=alpha)
     if add_1.dim() != 2:
         view = at_ops.view.default(addmm, add_1.size())
         add_res = at_ops.add(view, add_1)
@@ -139,7 +154,9 @@ def _addmm_1dbias_view_add_add_pattern(arg_0, arg_1, add_1, add_2, bias_0):
     return add_res_2
 
 
-def _addmm_1dbias_view_add_add_replacement(arg_0, arg_1, add_1, add_2, bias_0):
+def _addmm_1dbias_view_add_add_replacement(
+    arg_0, arg_1, add_1, add_2, bias_0, beta, alpha
+):
     counters["zentorch"]["pattern_matcher_addmm_1dbias_add_add"] += 1
     shape_0 = arg_0.size()
     shape_1 = arg_1.size()
@@ -149,12 +166,12 @@ def _addmm_1dbias_view_add_add_replacement(arg_0, arg_1, add_1, add_2, bias_0):
         view_0 = at_ops.view.default(add_1, [shape_0[0], shape_1[1]])
         view_1 = at_ops.view.default(add_2, [shape_0[0], shape_1[1]])
         linear_add = zt_ops.zentorch_addmm_1dbias_add_add.default(
-            bias_0, arg_0, arg_1, view_0, view_1
+            bias_0, arg_0, arg_1, view_0, view_1, beta=beta, alpha=alpha
         )
         out_0 = at_ops.view.default(linear_add, shape_2)
     else:
         out_0 = zt_ops.zentorch_addmm_1dbias_add_add.default(
-            bias_0, arg_0, arg_1, add_1, add_2
+            bias_0, arg_0, arg_1, add_1, add_2, beta=beta, alpha=alpha
         )
     return out_0
 
@@ -334,8 +351,10 @@ def _matmul_dtypes_check(match):
     do_post_ops_exist = False
     post_op_dtypes_fp32 = True
     post_op_dtypes_bf16 = True
-
     for k, v in match.kwargs.items():
+        # kwargs ex. beta has a int/float value
+        if isinstance(v, (int, float)):
+            continue
         if not torch.is_tensor(v.meta["val"]):
             continue
         if k in ("add_1", "add_2", "mul_1"):
@@ -454,9 +473,10 @@ def _get_pattern_with_replacement():
         dtype=torch.bfloat16,
     )
 
-    # TODO: Add kwargs later to the patterns when removing
-    # support for PT 2.1
-    # kwarg_beta_alpha = {"beta": 7.8, "alpha": -9.6}
+    # It doesn't allows same value for two kwargs hence the workaround
+    # to have two different values for beta and alpha
+    # kwargs in func sig is only valid torch 2.2 onwards
+    kwarg_beta_alpha = {"beta": 1.0, "alpha": -2.8}
 
     candidates = [
         (
@@ -477,56 +497,56 @@ def _get_pattern_with_replacement():
             _addmm_silu_mul_pattern,
             _addmm_silu_mul_replacement,
             [arg_1(), arg_2(), arg_3(), arg_4()],
-            {},
+            kwarg_beta_alpha,
             _matmul_dtypes_check,
         ),
         (
             _addmm_silu_mul_pattern,
             _addmm_silu_mul_replacement,
             [arg_1(), arg_2(), arg_4(), arg_4()],
-            {},
+            kwarg_beta_alpha,
             _matmul_dtypes_check,
         ),
         (
             _addmm_1dbias_silu_mul_pattern,
             _addmm_1dbias_silu_mul_replacement,
             [arg_1(), arg_2(), arg_3(), arg_5()],
-            {},
+            kwarg_beta_alpha,
             _matmul_dtypes_check,
         ),
         (
             _addmm_1dbias_silu_mul_pattern,
             _addmm_1dbias_silu_mul_replacement,
             [arg_1(), arg_2(), arg_4(), arg_5()],
-            {},
+            kwarg_beta_alpha,
             _matmul_dtypes_check,
         ),
         (
             _addmm_1dbias_add_pattern,
             _addmm_1dbias_add_replacement,
             [arg_1(), arg_2(), arg_3(), arg_5()],
-            {},
+            kwarg_beta_alpha,
             _matmul_dtypes_check,
         ),
         (
             _addmm_1dbias_add_pattern,
             _addmm_1dbias_add_replacement,
             [arg_1(), arg_2(), arg_4(), arg_5()],
-            {},
+            kwarg_beta_alpha,
             _matmul_dtypes_check,
         ),
         (
             _addmm_1dbias_view_add_add_pattern,
             _addmm_1dbias_view_add_add_replacement,
             [arg_1(), arg_2(), arg_3(), arg_3(), arg_5()],
-            {},
+            kwarg_beta_alpha,
             _dim_check,
         ),
         (
             _addmm_1dbias_view_add_add_pattern,
             _addmm_1dbias_view_add_add_replacement,
             [arg_1(), arg_2(), arg_4(), arg_4(), arg_5()],
-            {},
+            kwarg_beta_alpha,
             _dim_check,
         ),
         (
@@ -639,7 +659,7 @@ def _get_pattern_with_replacement():
         inference_name = name + "_inference"
         # pre 2.2 PT versions use a different name for fwd-tracer
         # remove the else block when deprecating support for PT <= 2.1.x
-        if is_version_compatible_import(['_inductor', 'pattern_matcher'], ['fwd_only']):
+        if is_version_compatible_import(["_inductor", "pattern_matcher"], ["fwd_only"]):
             from torch._inductor.pattern_matcher import fwd_only
 
             yield inference_name, {
