@@ -42,6 +42,7 @@ We are making use of existing pytorch functions fuse_conv_bn, remove_identity \
 REMOVE_DECOMP = True
 
 disable_inductor_flag = False
+enable_zentorch_conv_flag = False
 
 logger = get_logger(__name__)
 
@@ -111,8 +112,9 @@ def zentorch_compile(
     if not torch.is_grad_enabled():
         gm = remove_identity(gm)
         gm = fuse_conv_bn(gm)
-        if not dynamic:
-            gm = mkldnn_fuse_fx(gm, example_inputs)
+        if not enable_zentorch_conv_flag:
+            if not dynamic:
+                gm = mkldnn_fuse_fx(gm, example_inputs)
 
     # check for supported options and iterarte over them
     if options is not None:
@@ -214,3 +216,14 @@ def disable_inductor(disabled: bool):
     logger.warning("TORCH_COMPILE_DEBUG=1 might crash with PT 2.0")
     global disable_inductor_flag
     disable_inductor_flag = disabled
+
+
+def enable_zentorch_conv(enabled: bool):
+    """
+    Parameters:
+    enabled - True will enable zentorch conv path changes. False will
+    go through mkldnn path.
+    """
+
+    global enable_zentorch_conv_flag
+    enable_zentorch_conv_flag = enabled

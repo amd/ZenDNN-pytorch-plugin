@@ -22,7 +22,7 @@ def get_tensor(fx_graph, node, arg_index=None):
         # keys in node.args[arg_index].meta. Till PT <= 2.4.x, presence of
         # metadata implied fake tensors. But from PT 2.5.x,
         # the 'mutation_region_id' default argument is introduced in meta.
-        if 'val' in node.args[arg_index].meta.keys():
+        if "val" in node.args[arg_index].meta.keys():
             # arg node in fx_graph generated through torch.compile
             # will be fake tensor
             return node.args[arg_index].meta["val"]
@@ -76,7 +76,7 @@ def is_arg_dtype_bfloat16(fx_graph, node, arg_index):
     # keys in node.args[arg_index].meta. Till PT <= 2.4.x, presence of
     # metadata implied fake tensors. But from PT 2.5.x,
     # the 'mutation_region_id' default argument is introduced in meta.
-    if 'val' in node.args[arg_index].meta.keys():
+    if "val" in node.args[arg_index].meta.keys():
         # arg node in fx_graph generated through torch.compile will be fake tensor
         arg_dtype = node.args[arg_index].meta["val"].dtype
     else:
@@ -106,6 +106,17 @@ def is_embedding_op_replacable(fx_graph, node):
     return False
 
 
+def is_convolution_op_replaceable(fx_graph, node):
+    input = get_tensor(fx_graph, node, 0)
+    weight = get_tensor(fx_graph, node, 1)
+    if input.is_contiguous(memory_format=torch.channels_last) and weight.is_contiguous(
+        memory_format=torch.channels_last
+    ):
+        return True
+    else:
+        return False
+
+
 def is_bias_1d_tensor(fx_graph, node):
     # checks if self/bias tensor is 1-d or not
     # returns true if 1d bias tensor
@@ -127,6 +138,10 @@ at_to_zen_op_dict = {
     at_ops.baddbmm.default: (
         zt_ops.zentorch_baddbmm.default,
         is_baddbmm_replacable,
+    ),
+    at_ops.convolution.default: (
+        zt_ops.zentorch_convolution.default,
+        is_convolution_op_replaceable,
     ),
 }
 

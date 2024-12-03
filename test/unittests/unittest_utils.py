@@ -35,6 +35,8 @@ woq_input_dim_opt = [2, 3, 4]
 woq_bias_opt = [0, 1]
 woq_qzeros_opt = [0, 1]
 group_size_opt = [-1, 1, 2, 3, 4, 5, 7, 8, 10]
+conv_stride = [[1, 1], [2, 2]]
+conv_padding = [[0, 0], [1, 1]]
 
 
 class Singleton(type):
@@ -173,6 +175,24 @@ class Test_Data(metaclass=Singleton):
             None,
             torch.randn(self.woq_n).type(torch_type),
         ]
+        self.conv_input = (
+            torch.randn(1, 3, 64, 64)
+            .type(torch_type)
+            .to(memory_format=torch.channels_last)
+        )
+        self.conv_weight = (
+            torch.randn(16, 3, 3, 3)
+            .type(torch_type)
+            .to(memory_format=torch.channels_last)
+        )
+        self.conv_bias = torch.randn(16).type(torch_type)
+        self.stride = [1, 1]
+        self.padding = [0, 0]
+        self.dilation = [1, 1]
+        self.output_padding = [0, 0]
+        self.conv_input3d = torch.randn(1, 3, 3).type(torch_type)
+        self.conv_weight3d = torch.randn(1, 3, 3).type(torch_type)
+        self.dilation2 = [2, 2]
 
     def get_torch_type(self, str_type):
         dtypes = {

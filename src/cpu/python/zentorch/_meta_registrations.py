@@ -652,6 +652,40 @@ def meta_zentorch_woq_linear_silu_mul(
     return mul_input.new_empty((mul_input.size()))
 
 
+@register_meta("zentorch_convolution")
+def meta_zentorch_convolution(
+    input,
+    weight,
+    bias_opt,
+    stride,
+    padding,
+    dilation,
+    transposed,
+    output_padding,
+    groups,
+):
+    input_size = input.size()
+    weight_size = weight.size()
+    has_dilation = len(dilation) > 0
+    dim = len(input_size)
+
+    output_size = [0] * dim
+    output_size[0] = input_size[0]  # Batch size
+    output_size[1] = weight_size[0]  # Number of output channels
+
+    for d in range(2, dim):
+        dilation_ = dilation[d - 2] if has_dilation else 1
+        kernel = dilation_ * (weight_size[d] - 1) + 1
+        output_size[d] = (input_size[d] + (2 * padding[d - 2]) - kernel) // stride[
+            d - 2
+        ] + 1
+
+    output = input.new_empty(output_size)
+    if input.is_contiguous(memory_format=torch.channels_last):
+        output = output.to(memory_format=torch.channels_last)
+    return output
+
+
 make_fallback(torch.ops.zentorch.zentorch_addmm)
 make_fallback(torch.ops.zentorch.zentorch_addmm_relu)
 make_fallback(torch.ops.zentorch.zentorch_addmm_silu)
@@ -690,3 +724,4 @@ make_fallback(torch.ops.zentorch.zentorch_woq_linear_gelu_erf)
 make_fallback(torch.ops.zentorch.zentorch_woq_linear_gelu_tanh)
 make_fallback(torch.ops.zentorch.zentorch_woq_linear_add)
 make_fallback(torch.ops.zentorch.zentorch_woq_linear_add_add)
+make_fallback(torch.ops.zentorch.zentorch_convolution)
