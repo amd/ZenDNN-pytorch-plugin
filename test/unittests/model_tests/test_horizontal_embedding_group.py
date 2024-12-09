@@ -114,92 +114,68 @@ class Test_Embedding_Group_Model(Zentorch_TestCase):
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
     def test_embedding_group_model(self, dtype):
-        self.skip_if_bfloat16_unsupported_operator(dtype, "Embedding")
         self.data.create_data(dtype)
         model = Custom_Model_Embedding_Group(self.data.R)
         x = self.data.emb_input
-
         fx_g = make_fx(model)(x)
         fx_g_output = fx_g(x)
-
         fx_g_optimized = zentorch.optimize(fx_g)
-
         fx_g_optimized_output = fx_g_optimized(x)
-
         self.assertEqual(fx_g_output, fx_g_optimized_output)
-
         target = torch.ops.zentorch.zentorch_horizontal_embedding_group.default
         group_eb_count = 0
-
         for node in fx_g_optimized.graph.nodes:
             if isinstance(node.target, torch._ops.OpOverload) and node.target == target:
                 group_eb_count += 1
-
         self.assertEqual(group_eb_count, 3)
 
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
     def test_embedding_group_compile_model(self, dtype):
-        self.skip_if_bfloat16_unsupported_operator(dtype, "Embedding")
         self.data.create_data(dtype)
         model = Custom_Model_Embedding_Group(self.data.R)
         x = self.data.emb_input
-
         native_output = model(x)
-
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
-
         compiled_output = compiled_graph(x)
-
         self.assertEqual(native_output, compiled_output)
 
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
     def test_emb_emb_bag_common_node_model(self, dtype):
-        self.skip_if_bfloat16_unsupported_operator(dtype, "Embedding and Embedding Bag")
-
         self.data.create_data(dtype)
         model = Custom_Model_Emb_Emb_Bag_Common_Node(self.data.R)
         indices = self.data.emb_input
         offsets = self.data.offsets
-
         native_output = model(indices, offsets)
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
-
         compiled_output = compiled_graph(indices, offsets)
         self.assertEqual(native_output, compiled_output)
 
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
     def test_emb_emb_bag_diff_node_model(self, dtype):
-        self.skip_if_bfloat16_unsupported_operator(dtype, "Embedding and Embedding Bag")
-
         self.data.create_data(dtype)
         model = Custom_Model_Emb_Emb_Bag_Diff_Node(self.data.R)
         indices = self.data.emb_input
         offsets = self.data.offsets
-
         native_output = model(indices, offsets)
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
-
         compiled_output = compiled_graph(indices, offsets)
         self.assertEqual(native_output, compiled_output)
 
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
     def test_embedding_model(self, dtype):
-        self.skip_if_bfloat16_unsupported_operator(dtype, "Embedding")
         self.data.create_data(dtype)
         model = Custom_Model_Embedding(self.data.R)
         indices = torch.cat([torch.unsqueeze(self.data.emb_input, dim=0)] * 2)
-
         native_output = model(indices)
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
-
         compiled_output = compiled_graph(indices)
         self.assertEqual(native_output, compiled_output)
 

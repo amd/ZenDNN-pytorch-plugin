@@ -29,49 +29,28 @@ class Test_Embedding_Bag(Zentorch_TestCase):
     def test_embedding_bag(self, dtype):
 
         self.data.create_data(dtype)
-        if dtype == "bfloat16":
-            with self.assertRaises(RuntimeError) as context:
-                torch.ops.zentorch.zentorch_embedding_bag(
-                    self.data.embedding_matrix,
-                    self.data.emb_input,
-                    self.data.offsets,
-                    False,
-                    0,
-                    False,
-                    None,
-                    False,
-                    -1,
-                )
-            self.assertTrue(
-                "Only fp32 type weights are supported in ZenDNN EmbeddingBag!"
-                in str(context.exception)
-            )
-
-        else:
-            y_eb, _, _, _ = torch._C._VariableFunctions._embedding_bag(
-                self.data.embedding_matrix,
-                self.data.emb_input,
-                self.data.offsets,
-                False,
-                0,
-                False,
-                None,
-                False,
-            )
-
-            y_ebz, _, _, _ = torch.ops.zentorch.zentorch_embedding_bag(
-                self.data.embedding_matrix,
-                self.data.emb_input,
-                self.data.offsets,
-                False,
-                0,
-                False,
-                None,
-                False,
-                -1,
-            )
-
-            self.assertEqual(y_eb, y_ebz)
+        y_eb, _, _, _ = torch._C._VariableFunctions._embedding_bag(
+            self.data.embedding_matrix,
+            self.data.emb_input,
+            self.data.offsets,
+            False,
+            0,
+            False,
+            None,
+            False,
+        )
+        y_ebz, _, _, _ = torch.ops.zentorch.zentorch_embedding_bag(
+            self.data.embedding_matrix,
+            self.data.emb_input,
+            self.data.offsets,
+            False,
+            0,
+            False,
+            None,
+            False,
+            -1,
+        )
+        self.assertEqual(y_eb, y_ebz)
 
     @parameterized.expand(
         product(
@@ -100,37 +79,19 @@ class Test_Embedding_Bag(Zentorch_TestCase):
             None,
             include_last_offset,
         )
-        if dtype == "bfloat16":
-            with self.assertRaises(RuntimeError) as context:
-                torch.ops.zentorch.zentorch_embedding_bag(
-                    self.data.embedding_matrix,
-                    self.data.emb_input,
-                    self.data.offsets,
-                    scale_opt,
-                    mode,
-                    sprs_opt,
-                    None,
-                    include_last_offset,
-                    -1,
-                )
-            self.assertTrue(
-                "Only fp32 type weights are supported in ZenDNN EmbeddingBag!"
-                in str(context.exception)
-            )
-        else:
-            y_ebz, _, _, _ = torch.ops.zentorch.zentorch_embedding_bag(
-                self.data.embedding_matrix,
-                self.data.emb_input,
-                self.data.offsets,
-                scale_opt,
-                mode,
-                sprs_opt,
-                None,
-                include_last_offset,
-                -1,
-            )
 
-            self.assertEqual(y_eb, y_ebz)
+        y_ebz, _, _, _ = torch.ops.zentorch.zentorch_embedding_bag(
+            self.data.embedding_matrix,
+            self.data.emb_input,
+            self.data.offsets,
+            scale_opt,
+            mode,
+            sprs_opt,
+            None,
+            include_last_offset,
+            -1,
+        )
+        self.assertEqual(y_eb, y_ebz)
 
 
 if __name__ == "__main__":

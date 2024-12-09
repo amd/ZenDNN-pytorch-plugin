@@ -58,22 +58,17 @@ class Test_Embedding_Bag_Group_Model(Zentorch_TestCase):
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
     def test_embedding_bag_group_model(self, dtype):
-        self.skip_if_bfloat16_unsupported_operator(dtype, "EmbeddingBag")
         self.data.create_data(dtype)
         model = Custom_Model_Embedding_Bag_Group(self.data.R)
         indices = self.data.emb_input
         offsets = self.data.offsets
-
         fx_g = make_fx(model)(indices, offsets)
         fx_g_output = fx_g(indices, offsets)
         fx_g_optimized = zentorch.optimize(fx_g)
         fx_g_optimized_output = fx_g_optimized(indices, offsets)
-
         self.assertEqual(fx_g_output, fx_g_optimized_output)
-
         target = torch.ops.zentorch.zentorch_horizontal_embedding_bag_group.default
         group_eb_count = 0
-
         for node in fx_g_optimized.graph.nodes:
             if isinstance(node.target, torch._ops.OpOverload) and node.target == target:
                 group_eb_count += 1
@@ -83,19 +78,14 @@ class Test_Embedding_Bag_Group_Model(Zentorch_TestCase):
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
     def test_embedding_bag_group_compile_model(self, dtype):
-        self.skip_if_bfloat16_unsupported_operator(dtype, "EmbeddingBag")
         self.data.create_data(dtype)
         model = Custom_Model_Embedding_Bag_Group(self.data.R)
         indices = self.data.emb_input
         offset = self.data.offsets
-
         native_output = model(indices, offset)
         reset_dynamo()
-
         compiled_graph = torch.compile(model, backend="zentorch")
-
         compiled_output = compiled_graph(indices, offset)
-
         self.assertEqual(native_output, compiled_output)
 
 

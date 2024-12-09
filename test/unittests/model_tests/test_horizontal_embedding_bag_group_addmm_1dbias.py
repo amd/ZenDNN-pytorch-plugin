@@ -68,34 +68,25 @@ class Test_Group_Embedding_Bad_Addmm_1dbias_Model(Zentorch_TestCase):
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
     def test_group_embedding_bag_addmm_1dbias_model(self, dtype):
-        self.skip_if_bfloat16_unsupported_operator(dtype, "EmbeddingBag")
         self.data.create_data(dtype)
-
         indices = self.data.emb_input
         offsets = self.data.offsets
         mlp_inputs = self.data.mlp_inputs
-
         model = Custom_Model_Group_Embedding_Bag_Addmm_1dbias(self.data.R, self.data.k)
-
         native_output = model(indices, offsets, mlp_inputs)
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
-
         compiled_output = compiled_graph(indices, offsets, mlp_inputs)
         self.assertEqual(native_output, compiled_output)
 
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
     def test_group_addmm_1dbias_embedding_bag_model(self, dtype):
-        self.skip_if_bfloat16_unsupported_operator(dtype, "EmbeddingBag")
         self.data.create_data(dtype)
-
         indices = self.data.emb_input
         offsets = self.data.offsets
         mlp_inputs = self.data.mlp_inputs
-
         model = Custom_Model_Group_Addmm_1dbias_Embedding_Bag(self.data.R, self.data.k)
-
         native_output = model(indices, offsets, mlp_inputs)
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")

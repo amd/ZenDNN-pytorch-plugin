@@ -75,13 +75,10 @@ class Test_Group_Embedding_Bag_Addmm_1dbias_Relu_Model(Zentorch_TestCase):
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
     def test_group_embedding_bag_addmm_1dbias_relu_model(self, dtype):
-        self.skip_if_bfloat16_unsupported_operator(dtype, "EmbeddingBag")
         self.data.create_data(dtype)
-
         indices = self.data.emb_input
         offsets = self.data.offsets
         mlp_inputs = self.data.mlp_inputs
-
         model = Custom_Model_Group_Embedding_Bag_Addmm_1dbias_Relu(
             self.data.R, self.data.k
         )

@@ -65,7 +65,6 @@ class Test_Group_Embeded_Ops_With_Sum_Ops_Model(Zentorch_TestCase):
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
     def test_group_eb_with_sum_model(self, dtype):
-        self.skip_if_bfloat16_unsupported_operator(dtype, "Embedding")
         self.data.create_data(dtype)
 
         indices = self.data.emb_input
@@ -83,18 +82,12 @@ class Test_Group_Embeded_Ops_With_Sum_Ops_Model(Zentorch_TestCase):
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
     def test_group_embedding_with_sum_model(self, dtype):
-        self.skip_if_bfloat16_unsupported_operator(dtype, "Embedding and Embedding Bag")
-
         self.data.create_data(dtype)
-
         indices = self.data.emb_input
-
         model = Custom_Model_Embedding_Sum_nodes(self.data.R)
-
         native_output = model(indices)
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
-
         compiled_output = compiled_graph(indices)
         self.assertEqual(native_output, compiled_output)
 

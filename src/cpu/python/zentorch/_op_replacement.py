@@ -89,45 +89,21 @@ def is_arg_dtype_bfloat16(fx_graph, node, arg_index):
         return False
 
 
-def is_embedding_bag_op_replacable(fx_graph, node):
-    if is_arg_dtype_bfloat16(fx_graph, node, 0):
-        logger.info(
-            "embedding_bag op will not be replaced as"
-            + " zentorch doesn't support bf16 with it yet!"
-        )
-        # don't replace embedding bag if autocast is enabled or if the model
-        # is mixed precision as zendnn doesn't support it w/ bf16
-        return False
-    else:
-        return True
-
-
 def is_embedding_op_replacable(fx_graph, node):
-    if is_arg_dtype_bfloat16(fx_graph, node, 0):
-        logger.info(
-            "embedding op will not be replaced as"
-            + " zentorch doesn't support bf16 with it yet!"
-        )
-        # don't replace embedding if autocast is enabled or if the model
-        # is mixed precision as zendnn doesn't support it w/ bf16
-        return False
-    else:
-        # Currently zentorch_embedding op only accepts 1-D inputs
-        # which is predominantly evident in RecSys models. The
-        # embedding op in Langauge models like Bert work with
-        # 2-D inputs. In such cases, we do not replace
-        # aten embedding with zendnn embedding. The replacement
-        # is taken care by getting the input shapes from the graph.
-        # returns true if inputs to embedding are 1-D
-
-        if is_arg_1d_tensor(fx_graph, node, 1):
-            return True
-
-        logger.info(
-            "embedding op will not be replaced as"
-            + " zentorch supports only 1-dimensional inputs to the op!"
-        )
-        return False
+    # Currently zentorch_embedding op only accepts 1-D inputs
+    # which is predominantly evident in RecSys models. The
+    # embedding op in Langauge models like Bert work with
+    # 2-D inputs. In such cases, we do not replace
+    # aten embedding with zendnn embedding. The replacement
+    # is taken care by getting the input shapes from the graph.
+    # returns true if inputs to embedding are 1-D
+    if is_arg_1d_tensor(fx_graph, node, 1):
+        return True
+    logger.info(
+        "embedding op will not be replaced as"
+        + " zentorch supports only 1-dimensional inputs to the op!"
+    )
+    return False
 
 
 def is_bias_1d_tensor(fx_graph, node):
@@ -139,7 +115,7 @@ def is_bias_1d_tensor(fx_graph, node):
 at_to_zen_op_dict = {
     at_ops._embedding_bag.default: (
         zt_ops.zentorch_embedding_bag.default,
-        is_embedding_bag_op_replacable,
+        None
     ),
     at_ops.embedding.default: (
         zt_ops.zentorch_embedding.default,

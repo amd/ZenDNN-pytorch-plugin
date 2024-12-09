@@ -164,12 +164,3 @@ class Zentorch_TestCase(TestCase):
                 "Warning: Skipping Bfloat16 Testcases since they are not "
                 + "supported on this hardware"
             )
-
-    def skip_if_bfloat16_unsupported_operator(self, dtype, operator):
-        if dtype == "bfloat16":
-            self.skipTest(
-                "Skipping test case since only fp32 type weights are supported \
-                in ZenDNN"
-                + operator
-                + "!"
-            )

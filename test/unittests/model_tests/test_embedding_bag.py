@@ -40,7 +40,6 @@ class Test_Embedding_Bag_Model(Zentorch_TestCase):
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
     def test_embedding_bag_compile_model(self, dtype):
-
         new_dtype = self.data.get_torch_type(dtype)
         model = Custom_Model_Embedding_Bag(100, 10, dtype=new_dtype)
         input = torch.randint(0, 10000, (1, 10))
@@ -48,9 +47,7 @@ class Test_Embedding_Bag_Model(Zentorch_TestCase):
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
         compiled_graph_output = compiled_graph(input)
-        self.assertAlmostEqual(
-            model_output.item(), compiled_graph_output.item(), places=6
-        )
+        self.assertEqual(model_output, compiled_graph_output)
 
 
 if __name__ == "__main__":

@@ -15,6 +15,9 @@ using namespace zendnn;
 // be checked for device and layout. So, the implementation below suffices.
 inline void zen_embed_tensor_check(const at::Tensor &weight,
                                    const at::Tensor &indices) {
+  const bool is_weight_bf16 =
+      (weight.scalar_type() == c10::ScalarType::BFloat16);
+  const bool is_weight_fp32 = (weight.scalar_type() == c10::ScalarType::Float);
   // check if all the input tensors are on cpu device
   ZENTORCH_CHECK(weight.device().is_cpu() && indices.device().is_cpu(),
                  "ZenDNN Embedding expects CPU tensor inputs!");
@@ -22,10 +25,15 @@ inline void zen_embed_tensor_check(const at::Tensor &weight,
   ZENTORCH_CHECK((weight.layout() == c10::Layout::Strided) &&
                      (indices.layout() == c10::Layout::Strided),
                  "ZenDNN Embedding expects dense tensor inputs!");
-  // check the weight type for embedding, only supported is fp32 for now
-  // (works ONLY for dtype=torch.float32)
-  ZENTORCH_CHECK(weight.scalar_type() == c10::kFloat,
-                 "Only fp32 type weights are supported in ZenDNN Embedding!");
+  // check if the device supports AVX512
+  if (is_weight_bf16) {
+    ZENTORCH_CHECK(utils::zendnn_bf16_device_check(),
+                   "zentorch_embedding bf16 path needs the cpu support "
+                   "avx512bf16");
+  }
+  // check if datatype is either Float32 or Bfloat16
+  ZENTORCH_CHECK(is_weight_fp32 ^ is_weight_bf16,
+                 "zentorch_embedding only supports Float and BFloat16");
 }
 
 // The following overloaded function is called when the tensors are being
@@ -34,6 +42,9 @@ inline void zen_embed_tensor_check(const at::Tensor &weight,
 inline void zen_embed_tensor_check(const at::Tensor &weight,
                                    const at::Tensor &indices,
                                    const at::Tensor &offsets) {
+  const bool is_weight_bf16 =
+      (weight.scalar_type() == c10::ScalarType::BFloat16);
+  const bool is_weight_fp32 = (weight.scalar_type() == c10::ScalarType::Float);
   // check if all the input tensors are on cpu device
   ZENTORCH_CHECK(weight.device().is_cpu() && indices.device().is_cpu() &&
                      offsets.device().is_cpu(),
@@ -43,11 +54,15 @@ inline void zen_embed_tensor_check(const at::Tensor &weight,
                      (indices.layout() == c10::Layout::Strided) &&
                      (offsets.layout() == c10::Layout::Strided),
                  "ZenDNN EmbeddingBag expects dense tensor inputs!");
-  // check the weight type for embedding bag, only supported is fp32 for now
-  // (works ONLY for dtype=torch.float32)
-  ZENTORCH_CHECK(
-      weight.scalar_type() == c10::kFloat,
-      "Only fp32 type weights are supported in ZenDNN EmbeddingBag!");
+  // check if the device supports AVX512
+  if (is_weight_bf16) {
+    ZENTORCH_CHECK(utils::zendnn_bf16_device_check(),
+                   "zentorch_embedding_bag bf16 path needs the cpu support "
+                   "avx512bf16");
+  }
+  // check if datatype is either Float32 or Bfloat16
+  ZENTORCH_CHECK(is_weight_fp32 ^ is_weight_bf16,
+                 "zentorch_embedding_bag only supports Float and BFloat16");
 }
 
 inline void zen_mode_to_algo(const int64_t &mode, algorithm &z_algorithm) {
