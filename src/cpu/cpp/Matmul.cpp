@@ -290,53 +290,60 @@ at::Tensor zentorch_addmm(const at::Tensor &self, const at::Tensor &mat1,
   ZENTORCH_CHECK((mat1.dim() == 2 && mat2.dim() == 2), // aten::addmm
                  "unsupported dims for self, mat1 and mat2");
 
+  at::Tensor result =
+      at::empty(get_matmul_and_linear_output_sizes(mat1, mat2), self.options());
+
+  at::Tensor add_input;
+
+  if (self.dim() == 1) {
+    LOG(WARNING)
+        << "WARNING: Inefficient usage of the addmm function detected.";
+
+    // Reshape and expand the add input tensor to match the
+    // output shape of the matrix multiplication.
+    add_input = self.unsqueeze(0).expand_as(result);
+  } else {
+    add_input = self;
+  }
+
   // Here the if condition checks if the matrices are compatible for matrix
   // multiplication and bias addition for any general n-d case. But the
   // TORCH_CHECK conditions specifically checks for the dimensionality
-  // conditions which are supported by either zentorch_addmm or
-  // zentorch_addmm_1dbias
-  if (self.sizes() ==
-      c10::IntArrayRef(get_matmul_and_linear_output_sizes(mat1, mat2))) {
+  // conditions which are supported by zentorch_addmm
 
-    const at::Tensor empty_bias; // dummy empty bias
-    float beta_float = beta.to<float>();
-    float alpha_float = alpha.to<float>();
+  ZENTORCH_CHECK(add_input.sizes() == result.sizes());
 
-    // When alpha is 0, no matrix multiplication is needed, and bias (here
-    // self), multiplied by beta can be returned.
-    if (alpha_float == 0.0f) {
-      return self.mul(beta_float);
-    }
+  const at::Tensor empty_bias; // dummy empty bias
+  float beta_float = beta.to<float>();
+  float alpha_float = alpha.to<float>();
 
-    // Sending the self tensor (this represents the bias in the nn.Module
-    // level) as a post op. Since we were passing self directly to matmul impl,
-    // this can cause a problem when we are using
-    // torch.ops.zentorch.zentorch_addmm directly at the python side with same
-    // bias matrix but different inputs. The bias gets corrupted after the
-    // first addmm and the subsequent addmms use the corrupted bias tensor,
-    // which ultimately results in wrong outputs.
-
-    std::vector<at::Tensor> post_op_buffers = {};
-    std::vector<int64_t> post_op_ids = {BINARY_POST_OP::ADD, fuse};
-
-    at::Tensor result = at::empty(
-        get_matmul_and_linear_output_sizes(mat1, mat2), self.options());
-
-    if (beta_float != 1.0f) {
-      post_op_buffers.push_back(self.mul(beta_float));
-    } else {
-      post_op_buffers.push_back(self);
-    }
-
-    LOG(INFO) << "Calling zentorch_matmul_impl from " << __FUNCTION__ << "!\n";
-    return zentorch_matmul_impl(mat1, mat2, empty_bias, result, post_op_ids,
-                                post_op_buffers, beta.to<float>(),
-                                alpha.to<float>(), zentorch_op_name);
-  } else {
-    LOG(INFO) << "Calling zentorch_addmm_1dbias from " << __FUNCTION__ << "!\n";
-    return zentorch_addmm_1dbias<fuse>(self, mat1, mat2, beta, alpha,
-                                       zentorch_op_name);
+  // When alpha is 0, no matrix multiplication is needed, and bias (here
+  // self), multiplied by beta can be returned.
+  if (alpha_float == 0.0f) {
+    return self.mul(beta_float);
   }
+
+  // Sending the self tensor (this represents the bias in the nn.Module
+  // level) as a post op. Since we were passing self directly to matmul impl,
+  // this can cause a problem when we are using
+  // torch.ops.zentorch.zentorch_addmm directly at the python side with same
+  // bias matrix but different inputs. The bias gets corrupted after the
+  // first addmm and the subsequent addmms use the corrupted bias tensor,
+  // which ultimately results in wrong outputs.
+
+  std::vector<at::Tensor> post_op_buffers = {};
+  std::vector<int64_t> post_op_ids = {BINARY_POST_OP::ADD, fuse};
+
+  if (beta_float != 1.0f) {
+    post_op_buffers.push_back(add_input.mul(beta_float));
+  } else {
+    post_op_buffers.push_back(add_input);
+  }
+
+  LOG(INFO) << "Calling zentorch_matmul_impl from " << __FUNCTION__ << "!\n";
+  return zentorch_matmul_impl(mat1, mat2, empty_bias, result, post_op_ids,
+                              post_op_buffers, beta.to<float>(),
+                              alpha.to<float>(), zentorch_op_name);
 }
 
 at::Tensor zentorch_baddbmm(const at::Tensor &self, const at::Tensor &batch1,

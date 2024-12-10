@@ -69,25 +69,14 @@ class Test_Addmm_Op(Zentorch_TestCase):
         )
 
         # addmm with 1-d input
-        if dtype == "bfloat16":
-            with self.assertRaises(RuntimeError) as context:
-                torch.ops.zentorch.zentorch_addmm(
-                    self.data.input1d, self.data.x, self.data.y, alpha=1.3, beta=1.3
-                )
-                self.assertTrue(
-                    "zentorch_matmul is not supported for "
-                    "bf16 tensors when bias is defined and alpha is not equal "
-                    "to 1" in str(context.exception)
-                )
-        else:
-            self.assertEqual(
-                torch._C._VariableFunctions.addmm(
-                    self.data.input1d, self.data.x, self.data.y, alpha=1.3, beta=1.3
-                ),
-                torch.ops.zentorch.zentorch_addmm(
-                    self.data.input1d, self.data.x, self.data.y, alpha=1.3, beta=1.3
-                ),
-            )
+        self.assertEqual(
+            torch._C._VariableFunctions.addmm(
+                self.data.input1d, self.data.x, self.data.y, alpha=1.3, beta=1.3
+            ),
+            torch.ops.zentorch.zentorch_addmm(
+                self.data.input1d, self.data.x, self.data.y, alpha=1.3, beta=1.3
+            ),
+        )
 
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()

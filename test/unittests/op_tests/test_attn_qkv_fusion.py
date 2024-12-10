@@ -132,15 +132,14 @@ class Test_Attn_QKV_Fusion(Zentorch_TestCase):
     def test_bf16_alpha_not_1(self):
         self.skip_if_bfloat16_unsupported_hardware()
         self.data.create_data("bfloat16")
-        with self.assertRaises(RuntimeError) as context:
+        self.assertEqual(
+            torch._C._VariableFunctions.addmm(
+                self.data.input1d, self.data.x, self.data.y, alpha=1.7
+            ),
             torch.ops.zentorch.zentorch_addmm(
                 self.data.input1d, self.data.x, self.data.y, alpha=1.7
-            )
-            self.assertTrue(
-                "zentorch_matmul: zentorch_matmul is not supported for bf16 \
-                tensors when bias is defined and alpha is not equal to 1"
-                in str(context.exception)
-            )
+            ),
+        )
 
 
 if __name__ == "__main__":
