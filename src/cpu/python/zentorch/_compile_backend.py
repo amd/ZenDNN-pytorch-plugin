@@ -13,7 +13,6 @@ from ._logging import get_logger
 from torch._functorch.aot_autograd import aot_module_simplified
 from torch.torch_version import TorchVersion
 from ._freezing import freeze
-import importlib.util
 from ._mkldnn import mkldnn_fuse_fx
 from torch._inductor.fx_passes.pre_grad import fuse_conv_bn, remove_identity
 
@@ -35,46 +34,6 @@ We are making use of existing pytorch functions fuse_conv_bn, remove_identity \
 (2.1 and above) has integrated these changes at different places
 """
 
-
-# getattr can result in false negatives if the submodule
-# isn't already imported in __init.py__
-# To check if a submodule exists without importing it,
-# we use importlib.util.find_spec
-def is_version_compatible_import(modules: List[str], functions: List[str]) -> bool:
-    """
-    Checks if the specified modules and functions exist in the current
-    version of PyTorch.
-    The check is done sequentially for each module and function.
-
-    Args:
-        modules (list): A list of module names to check sequentially
-        in torch (e.g., [_x1, x2]).
-        functions (list): A list of function names to check for within
-        the final module (e.g., [a1, a2]).
-
-    Returns:
-        bool: True if all modules and functions are available in the current
-        PyTorch version, False otherwise.
-    """
-    current_module = torch  # Start with the base 'torch' module
-    full_name = "torch"
-    # Sequentially check if each module exists in the hierarchy
-    for module_name in modules:
-        full_name = f"{full_name}.{module_name}"
-        spec = importlib.util.find_spec(full_name)
-        if spec is None:
-            return False
-
-    # Move to the next level of module
-    current_module = importlib.import_module(f"{full_name}")
-
-    # Check if the functions exist in the final module
-    for func in functions:
-        if not hasattr(current_module, func):
-            return False
-
-    # If all checks pass
-    return True
 
 # Make use of existing decompositions functions if Torch version >= 2.1
 # Torch version less than 2.1 doesn't support removal of decompositions

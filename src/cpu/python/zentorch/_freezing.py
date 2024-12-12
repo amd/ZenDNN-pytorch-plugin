@@ -12,16 +12,22 @@ from torch._inductor.freezing import (
     invalidate_eager_modules,
     discard_traced_gm_params,
 )
-from torch._inductor.constant_folding import constant_fold
 from torch._inductor.compile_fx import fake_tensor_prop
 from torch._inductor.pattern_matcher import stable_topological_sort
 from torch._inductor.fx_passes.post_grad import view_to_reshape
 from torch._functorch.compile_utils import fx_graph_cse
-from torch.fx._utils import lazy_format_graph_code
 from typing import List, Tuple
 from ._logging import get_logger
 from ._optimize import optimize
-
+from ._utils import is_version_compatible_import
+if is_version_compatible_import(['_inductor', 'constant_folding'], ['constant_fold']):
+    from torch._inductor.constant_folding import constant_fold
+else:
+    from torch._inductor.freezing import constant_fold  # for PT 2.1.x
+if is_version_compatible_import(['fx', '_utils'], ['lazy_format_graph_code']):
+    from torch.fx._utils import lazy_format_graph_code
+else:
+    from torch._dynamo.utils import lazy_format_graph_code  # for PT 2.1.x, 2.2.x, 2.3.x
 
 logger = get_logger(__name__)
 

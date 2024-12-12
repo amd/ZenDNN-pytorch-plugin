@@ -4,8 +4,7 @@
 # ******************************************************************************
 
 import torch
-from ._compile_backend import is_version_compatible_import
-from ._utils import counters
+from ._utils import counters, is_version_compatible_import
 import functools
 from functools import partial
 import operator

@@ -4,8 +4,7 @@
 # ******************************************************************************
 
 import torch
-from ._compile_backend import is_version_compatible_import
-from ._utils import counters
+from ._utils import counters, is_version_compatible_import
 from ._fusion_patterns import _matmul_dtypes_check
 import functools
 from functools import partial
