@@ -78,6 +78,35 @@ class Test_Addmm_Op(Zentorch_TestCase):
             ),
         )
 
+        # addmm with scalar input/bias
+        self.assertEqual(
+            torch._C._VariableFunctions.addmm(
+                self.data.input_scalar, self.data.x, self.data.y
+            ),
+            torch.ops.zentorch.zentorch_addmm(
+                self.data.input_scalar, self.data.x, self.data.y
+            ),
+        )
+        new_dtype = self.data.get_torch_type(dtype)
+        # addmm with 2D input (1, n)
+        input_1_n = torch.randn((1, self.data.n), dtype=new_dtype)
+        self.assertEqual(
+            torch._C._VariableFunctions.addmm(input_1_n, self.data.x, self.data.y),
+            torch.ops.zentorch.zentorch_addmm(input_1_n, self.data.x, self.data.y),
+        )
+        # addmm with 2D input (m, 1)
+        input_m_1 = torch.randn((self.data.m, 1), dtype=new_dtype)
+        self.assertEqual(
+            torch._C._VariableFunctions.addmm(input_m_1, self.data.x, self.data.y),
+            torch.ops.zentorch.zentorch_addmm(input_m_1, self.data.x, self.data.y),
+        )
+        # addmm with 2D input (1, 1)
+        input_1_1 = torch.randn((1, 1), dtype=new_dtype)
+        self.assertEqual(
+            torch._C._VariableFunctions.addmm(input_1_1, self.data.x, self.data.y),
+            torch.ops.zentorch.zentorch_addmm(input_1_1, self.data.x, self.data.y),
+        )
+
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
     def test_addmm_mismatched_dimensions(self, dtype):
@@ -99,6 +128,12 @@ class Test_Addmm_Op(Zentorch_TestCase):
             self.assertTrue(
                 "unsupported dims for self, mat1 and mat2!" in str(context.exception)
             )
+        with self.assertRaises(RuntimeError) as context:
+            torch.ops.zentorch.zentorch_addmm(self.data.x, self.data.x, self.data.y)
+        self.assertTrue(
+            "Incompatible dimensions/shape for input tensor in addmm op"
+            in str(context.exception)
+        )
 
     @parameterized.expand(["int"])
     def test_addmm_unsupported_dtype(self, dtype):

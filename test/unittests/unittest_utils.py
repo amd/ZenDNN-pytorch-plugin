@@ -60,6 +60,14 @@ class Test_Data(metaclass=Singleton):
 
         self.input = torch.randn(self.m, self.n).type(torch_type)
         self.input1d = torch.randn(self.n).type(torch_type)
+        # torch.rand() is not supported for integer
+        # since we have some int tests that calls create_data with
+        # dtype torch.int - we need to handle the creation
+        # of input_scalar for that case
+        if torch_type in [torch.bfloat16, torch.float32]:
+            self.input_scalar = torch.rand(()).type(torch_type)
+        else:
+            self.input_scalar = torch.randint(0, 100, ()).type(torch_type)
 
         self.empty_bias = torch.zeros(0).type(torch_type)
         self.result_m = torch.zeros(int(self.m)).type(torch_type)

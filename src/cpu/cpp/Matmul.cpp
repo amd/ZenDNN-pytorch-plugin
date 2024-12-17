@@ -295,17 +295,29 @@ at::Tensor zentorch_addmm(const at::Tensor &self, const at::Tensor &mat1,
 
   at::Tensor add_input;
 
-  if (self.dim() == 1) {
+  // Scalar input or 1d input
+  if (self.dim() == 0 or self.dim() == 1) {
     LOG(WARNING)
         << "WARNING: Inefficient usage of the addmm function detected.";
-
     // Reshape and expand the add input tensor to match the
     // output shape of the matrix multiplication.
-    add_input = self.unsqueeze(0).expand_as(result);
-  } else {
+    add_input = self.expand_as(result);
+  } else if (self.dim() == 2 &&
+             // check for 1xn
+             ((self.size(0) == 1 && self.size(1) == result.sizes()[1]) ||
+              // check for mx1
+              (self.size(1) == 1 && self.size(0) == result.sizes()[0]) ||
+              // check for 1x1
+              (self.size(0) == 1 && self.size(1) == 1))) {
+    // 2D input tensor matching columns
+    // Broascast the input tensor
+    add_input = self.expand_as(result);
+  } else if (self.sizes() == result.sizes()) { // Already compatible
     add_input = self;
+  } else {
+    ZENTORCH_CHECK(
+        false, "Incompatible dimensions/shape for input tensor in addmm op");
   }
-
   // Here the if condition checks if the matrices are compatible for matrix
   // multiplication and bias addition for any general n-d case. But the
   // TORCH_CHECK conditions specifically checks for the dimensionality
