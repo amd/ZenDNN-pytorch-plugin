@@ -11,6 +11,7 @@ Table of Contents
   - [Overview](#11-overview)
   - [Structure](#12-structure)
   - [Third Party Libraries](#13-third-party-libraries)
+  - [Supported OS](#14-supported-os)
 - [Installation](#2-installation)
   - [From Binaries](#21-from-binaries)
   - [From Source](#22-from-source)
@@ -86,6 +87,10 @@ _zentorch_ uses following libraries for its functionality.
   * [ZenDNN](https://github.com/amd/ZenDNN)
   * [AOCL BLIS](https://github.com/amd/blis)
   * [FBGEMM](https://github.com/pytorch/FBGEMM)
+
+## 1.4. Supported OS
+
+Refer to the [support matrix](https://www.amd.com/en/developer/zendnn.html#getting-started) for the list of supported operating systems.
 
 # 2. Installation
 
