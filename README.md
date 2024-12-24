@@ -208,16 +208,15 @@ with torch.no_grad():
 
 >Note: If same model is optimized with `torch.compile` for multiple backends within single script, it is recommended to use `torch._dynamo.reset()` before calling the `torch.compile` on that model. This is applicable if torch version is less than 2.3.
 
-### 3.1.1 Configuring the zentorch backend
+### 3.1.1 Using freeze path with zentorch
 
-Additionally, zentorch supports inductor configuration through an options dictionary, the example below shows the same for graph-freezing optimizations:
+Additionally, zentorch supports freezing the model, the example below shows the same:
 ```python
 import torch
 import zentorch
 --snip--
-inductor_config = {'freezing': True}  # see PyTorch inductor config for more details on freezing!
-compiled_model = torch.compile(model, backend='zentorch', options=inductor_config)
-with torch.no_grad():
+compiled_model = torch.compile(model, backend='zentorch')
+with torch.no_grad(), zentorch.freezing_enabled():
     output = compiled_model(input)
 ```
 

@@ -1,20 +1,25 @@
 # ******************************************************************************
-# Copyright (c) 2023-2024 Advanced Micro Devices, Inc.
+# Copyright (c) 2023-2025 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
 import torch  # noqa
 import inspect
 from torch._dynamo import register_backend
+from ._utils import is_version_compatible_import
 from torch._inductor.compile_fx import compile_fx, compile_fx_inner
 from ._optimize import optimize
-from typing import Callable, List, Optional, Dict, Any
+from typing import Callable, List, Optional
 from ._logging import get_logger
 from torch._functorch.aot_autograd import aot_module_simplified
 from torch.torch_version import TorchVersion
-from ._freezing import freeze
 from ._mkldnn import mkldnn_fuse_fx
 from torch._inductor.fx_passes.pre_grad import fuse_conv_bn, remove_identity
+if is_version_compatible_import(['_dynamo', 'utils'], ['is_parameter_freezing']):
+    from torch._dynamo.utils import is_parameter_freezing
+else:
+    def is_parameter_freezing():  # for PT 2.4.x or below
+        return torch._inductor.config.freezing and not torch.is_grad_enabled()
 
 
 # Make use of existing decompositions functions if Torch version >= 2.1
@@ -97,11 +102,8 @@ def zentorch_compile_fx_inner(
 def zentorch_compile(
     gm: torch.fx.GraphModule,
     example_inputs: List[torch.Tensor],
-    options: Optional[Dict[str, Any]] = None,
 ) -> Callable:
     logger.info("Called the zentorch backend.")
-    # create a supported config list, keep adding more options in future
-    supported_opts_lst = ["freezing"]
 
     # Pytorch 2.0 has dynamic_shapes to control dynamic shapes from torch.compile
     # but it got deprecated in Pytorch2.1 and above. Pytorch 2.1 introduced
@@ -116,32 +118,19 @@ def zentorch_compile(
             if not dynamic:
                 gm = mkldnn_fuse_fx(gm, example_inputs)
 
-    # check for supported options and iterarte over them
-    if options is not None:
-        for option, val in options.items():
-            if option in supported_opts_lst:
-                # now we will handle the options supported by zentorch
-                # check if freezing is present in options dict.
-                if option == "freezing" and val is True:
-                    torch._inductor.config.freezing = val
-                    # monkey patch PyTorch's freeze with zentorch's freeze
-                    torch._inductor.freezing.freeze = freeze
-                    return compile_fx(
-                        gm,
-                        example_inputs,
-                    )
-                elif option == "freezing" and val is False:
-                    logger.info(
-                        "Freezing is provided to config but is set to false,"
-                        + " constant folding will not be applied to the graph."
-                    )
-            else:
-                logger.warning(
-                    f"The given option: {option} is not supported in zentorch config. "
-                    + "Inductor optimizations related to "
-                    "this (if any) won't be applied."
-                    + f" The only supported options are: {supported_opts_lst}."
-                )
+    # we cannot use options to pass 'freezing' to inductor config here
+    # as the dynamo utilizes the freezing flag when it is set by the env
+    # variable available in pytorch. As a result of that, whenever the control
+    # comes to zentorch compile backend, the dynamo freezing optimizations
+    # would not have been performed, hence the first subgraph in case of any
+    # graph breaks in the model will always be un-frozen and if there are no
+    # graph breaks then the entire model will be unfrozen!
+    if is_parameter_freezing():
+        # freeze function should already be overwritten by this point
+        return compile_fx(
+            gm,
+            example_inputs,
+        )
     return compile_fx(
         gm,
         example_inputs,
@@ -172,7 +161,7 @@ def zentorch_compiler_noinductor(gm, sample_inputs):
 
 
 @register_backend
-def zentorch(model, inputs, options: Optional[Dict[str, Any]] = None):
+def zentorch(model, inputs):
 
     if REMOVE_DECOMP:
         REMOVE_DECOMP_LIST = [
@@ -198,7 +187,7 @@ def zentorch(model, inputs, options: Optional[Dict[str, Any]] = None):
         )
         return zentorch_compiler_noinductor(model, inputs)
     else:
-        return zentorch_compile(model, inputs, options)
+        return zentorch_compile(model, inputs)
 
 
 # This API takes in boolean input to disable or enable inductor backend.
