@@ -14,8 +14,8 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
 from unittest_utils import (  # noqa: 402
-    counters,
     Zentorch_TestCase,
+    counters,
     has_zentorch,
     reset_dynamo,
     run_tests,
@@ -74,7 +74,7 @@ class Test_Addmm_Model(Zentorch_TestCase):
     @torch.inference_mode()
     def test_addmm_optimize_model(self, dtype, freeze_opt):
 
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         model = Custom_Model_Addmm().eval()
         self.skip_if_bfloat16_path_issue(dtype)
         for inp in self.data.M:
@@ -99,7 +99,7 @@ class Test_Addmm_Model(Zentorch_TestCase):
     @torch.inference_mode()
     def test_addmm_zero_input_model(self, dtype, freeze_opt):
 
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         model = Custom_Model_Addmm().eval()
         for inp in self.data.M:
             model_output = model(inp * 0, self.data.x1[0] * 0, self.data.y1[0] * 0)
@@ -116,7 +116,7 @@ class Test_Addmm_Model(Zentorch_TestCase):
     @torch.inference_mode()
     def test_addmm_inf_input_model(self, dtype, freeze_opt):
 
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         model = Custom_Model_Addmm().eval()
         for inp in self.data.M:
             model_output = model(inp / 0, self.data.x1[0] / 0, self.data.y1[0] / 0)
@@ -133,7 +133,7 @@ class Test_Addmm_Model(Zentorch_TestCase):
     @torch.inference_mode()
     def test_addmm_nan_input_model(self, dtype, freeze_opt):
 
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         model = Custom_Model_Addmm().eval()
         for inp in self.data.M:
             reset_dynamo()
@@ -161,7 +161,7 @@ class Test_Addmm_Model(Zentorch_TestCase):
     @torch.inference_mode()
     def test_addmm_identity_input_nan_model(self, dtype, freeze_opt):
 
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         if dtype == "bfloat16":
             self.skipTest("Skipping it since this testcase is not applicable for BF16.")
         model = Custom_Model_Addmm().eval()
@@ -186,7 +186,7 @@ class Test_Addmm_Model(Zentorch_TestCase):
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
     def test_addmm_variable_add_1D_model(self, dtype):
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         model = Custom_Model_Addmm_1D().eval()
         model_output = model(
             self.data.mm_add_1D[0], self.data.mm_add_1D[1], self.data.mm_add_1D[2]
@@ -204,7 +204,7 @@ class Test_Addmm_Model(Zentorch_TestCase):
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
     def test_addmm_variable_add_2D_model(self, dtype):
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         model = Custom_Model_Addmm_2D().eval()
         model_output = model(
             self.data.mm_add_2D[0], self.data.mm_add_2D[1], self.data.mm_add_2D[2]
@@ -222,7 +222,7 @@ class Test_Addmm_Model(Zentorch_TestCase):
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
     def test_addmm_variable_add_3D_model(self, dtype):
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         model = Custom_Model_Addmm_3D().eval()
         model_output = model(
             self.data.mm_add_3D[0], self.data.mm_add_3D[1], self.data.mm_add_3D[2]

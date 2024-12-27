@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2024 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -25,7 +25,7 @@ from unittest_utils import (  # noqa: 402
 class Test_Convolution(Zentorch_TestCase):
     @parameterized.expand([("int",)])
     def test_convolution_unsupported_dtype(self, dtype):
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_convolution(
                 self.data.conv_input,
@@ -45,7 +45,7 @@ class Test_Convolution(Zentorch_TestCase):
 
     @parameterized.expand(supported_dtypes)
     def test_convolution_invalid_dims(self, dtype):
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_convolution(
                 self.data.conv_input3d,
@@ -64,7 +64,7 @@ class Test_Convolution(Zentorch_TestCase):
 
     @parameterized.expand(supported_dtypes)
     def test_convolution_unsupported_dilation(self, dtype):
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_convolution(
                 self.data.conv_input,
@@ -90,7 +90,7 @@ class Test_Convolution(Zentorch_TestCase):
         )
     )
     def test_convolution(self, dtype, stride, padding):
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         conv_output = torch._C._VariableFunctions.convolution(
             self.data.conv_input,
             self.data.conv_weight,

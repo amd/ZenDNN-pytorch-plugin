@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2024 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -25,7 +25,7 @@ class Test_Baddbmm_Op(Zentorch_TestCase):
     @unittest.skipIf(skip_test_pt_2_0, "Skipping test due to PT2.0 instability")
     def test_baddbmm_variants(self, dtype):
 
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         self.assertEqual(
             torch._C._VariableFunctions.baddbmm(
                 self.data.input3d, self.data.x3d, self.data.y3d
@@ -38,7 +38,7 @@ class Test_Baddbmm_Op(Zentorch_TestCase):
     @parameterized.expand([("int",)])
     def test_baddbmm_unsupported_dtype(self, dtype):
 
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_baddbmm(
                 self.data.input3d, self.data.x3d, self.data.y3d
@@ -51,7 +51,7 @@ class Test_Baddbmm_Op(Zentorch_TestCase):
     @parameterized.expand(supported_dtypes)
     def test_baddbmm_unsupported_dims(self, dtype):
 
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_baddbmm(
                 self.data.input3d.reshape((self.data.b * self.data.m), self.data.n),
@@ -73,7 +73,7 @@ class Test_Baddbmm_Op(Zentorch_TestCase):
     @parameterized.expand(supported_dtypes)
     @unittest.skipIf(skip_test_pt_2_0, "Skipping test due to PT2.0 instability")
     def test_baddbmm_with_kw(self, dtype):
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         self.assertEqual(
             torch._C._VariableFunctions.baddbmm(
                 self.data.input3d, self.data.x3d, self.data.y3d, alpha=1.4
@@ -108,7 +108,7 @@ class Test_Baddbmm_Op(Zentorch_TestCase):
     @parameterized.expand(supported_dtypes)
     def test_baddbmm_with_zero_alpha(self, dtype):
 
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         self.assertEqual(
             torch._C._VariableFunctions.baddbmm(
                 self.data.input3d, self.data.x3d, self.data.y3d, alpha=0.0
@@ -119,7 +119,7 @@ class Test_Baddbmm_Op(Zentorch_TestCase):
         )
 
     def test_float_baddbmm_bfloat16_postop(self):
-        self.data.create_data("float32")
+        self.data.create_unittest_data("float32")
         with self.assertRaises(RuntimeError) as context:
             bias_as_postop = self.data.input3d.clone().to(torch.bfloat16)
             torch.ops.zentorch.zentorch_baddbmm(
@@ -132,7 +132,7 @@ class Test_Baddbmm_Op(Zentorch_TestCase):
 
     def test_bfloat16_baddbmm_int_postop(self):
         self.skip_if_bfloat16_unsupported_hardware()
-        self.data.create_data("bfloat16")
+        self.data.create_unittest_data("bfloat16")
         with self.assertRaises(RuntimeError) as context_int:
             bias_as_postop = self.data.input3d.clone().to(torch.int)
             torch.ops.zentorch.zentorch_baddbmm(
@@ -145,7 +145,7 @@ class Test_Baddbmm_Op(Zentorch_TestCase):
         )
 
     def test_int_baddbmm_postop(self):
-        self.data.create_data("int")
+        self.data.create_unittest_data("int")
         with self.assertRaises(RuntimeError) as context_int:
             bias_as_postop = self.data.x3d.clone().to(torch.int)
             torch.ops.zentorch.zentorch_baddbmm(

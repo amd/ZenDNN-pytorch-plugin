@@ -202,7 +202,7 @@ class Test_Attn_QKV_Fusion_Model(Zentorch_TestCase):
     @parameterized.expand(product(supported_dtypes, freeze_opt))
     @torch.inference_mode()
     def test_attn_qkv_fusion_model(self, dtype, freeze_opt):
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         model = Custom_Model_Attn_QKV_Fusion(self.data.get_torch_type(dtype))
         native_output = model(self.data.x2[0], self.data.y2[0])
         reset_dynamo()
@@ -217,7 +217,7 @@ class Test_Attn_QKV_Fusion_Model(Zentorch_TestCase):
     @parameterized.expand(product(supported_dtypes, freeze_opt))
     @torch.inference_mode()
     def test_attn_qkv_fusion_multi_mm_model(self, dtype, freeze_opt):
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         model = Custom_Model_Attn_QKV_Fusion_multi_mm(self.data.get_torch_type(dtype))
         reset_dynamo()
         counters.clear()
@@ -234,7 +234,7 @@ class Test_Attn_QKV_Fusion_Model(Zentorch_TestCase):
     @torch.inference_mode()
     def test_attn_qkv_fusion_multi_user_model(self, dtype, freeze_opt):
 
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         model = Custom_Model_Attn_QKV_Fusion_multi_user(
             -1, self.data.get_torch_type(dtype)
         )
@@ -257,7 +257,7 @@ class Test_Attn_QKV_Fusion_Model(Zentorch_TestCase):
     @torch.inference_mode()
     def test_attn_qkv_fusion_multi_level_model(self, dtype, freeze_opt):
 
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         model = Custom_Model_Attn_QKV_Fusion_multi_level(
             self.data.get_torch_type(dtype)
         )
@@ -274,7 +274,7 @@ class Test_Attn_QKV_Fusion_Model(Zentorch_TestCase):
 
     @parameterized.expand(product(supported_dtypes, freeze_opt))
     def test_addmm_with_same_params_model(self, dtype, freeze_opt):
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         model = Custom_Model_Parallel_Addmm()
 
         self_tensor = self.data.input
@@ -295,7 +295,7 @@ class Test_Attn_QKV_Fusion_Model(Zentorch_TestCase):
     @parameterized.expand(product(supported_dtypes, freeze_opt))
     @torch.inference_mode()
     def test_baddbmm_with_same_params_model(self, dtype, freeze_opt):
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         model = Custom_Model_Parallel_Baddbmm()
 
         self_tensor = self.data.input3d

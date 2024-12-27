@@ -64,7 +64,7 @@ class Test_Qlinear_Eltwise(Zentorch_TestCase):
                 "Warning: Skipping testcases for sigmoid with uint8/int8 dst dtype "
                 + "since they are not yet supported"
             )
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
 
         # simulated qlinear + eltwise op
         qdq_linear_eltwise_output = qdq_linear(

@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2024 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -37,7 +37,7 @@ class Test_Horizontal_Embedding_Bag_Group(Zentorch_TestCase):
     def test_horizontal_embedding_bag_group(
         self, dtype, mode, include_last_offset, sprs_opt, scale_opt
     ):
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         y_eb, _, _, _ = torch._C._VariableFunctions._embedding_bag(
             self.data.embedding_matrix,
             self.data.emb_input,

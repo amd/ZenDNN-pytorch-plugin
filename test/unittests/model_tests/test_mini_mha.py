@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2024 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -9,7 +9,7 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent.parent))
 from unittests.unittest_utils import (  # noqa: 402
-    TestCase,
+    Zentorch_TestCase,
     run_tests,
     skip_test_pt_2_3,
 )
@@ -19,8 +19,9 @@ from llm_tests.test_masked_mha import Test_Masked_MHA  # noqa: 402
 @unittest.skipIf(
     skip_test_pt_2_3, "Skipping test as OP support available from PyTorch 2.3"
 )
-class Test_MHA_Model(TestCase):
+class Test_MHA_Model(Zentorch_TestCase):
     def setUp(self):
+        super().setUp()
         self.mha = Test_Masked_MHA()
         self.beam_size = 1
         self.batch_size = 1
@@ -32,6 +33,7 @@ class Test_MHA_Model(TestCase):
 
     def tearDown(self):
         del self.mha
+        super().tearDown()
 
     def test_mha_model(self):
         self.mha._test_mha(

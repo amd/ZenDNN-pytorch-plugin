@@ -30,7 +30,7 @@ class Test_Addmm_1dbias_Gelu_Model(Zentorch_TestCase):
     @torch.inference_mode()
     def test_addmm_1dbias_gelu_tanh_model(self, dtype, freeze_opt):
 
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         model = nn.Sequential(
             nn.Linear(self.data.n, self.data.m), nn.GELU(approximate="tanh")
         )
@@ -50,7 +50,7 @@ class Test_Addmm_1dbias_Gelu_Model(Zentorch_TestCase):
     @torch.inference_mode()
     def test_addmm_1dbias_gelu_none_model(self, dtype, freeze_opt):
 
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         model = nn.Sequential(
             nn.Linear(self.data.n, self.data.m), nn.GELU(approximate="none")
         )

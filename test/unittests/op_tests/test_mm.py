@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2024 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -24,7 +24,7 @@ class Test_MM_Op(Zentorch_TestCase):
     @parameterized.expand(supported_dtypes)
     @unittest.skipIf(skip_test_pt_2_0, "Skipping test due to PT2.0 instability")
     def test_mm_variants(self, dtype):
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         # mm
         self.assertEqual(
             torch._C._VariableFunctions.mm(self.data.x, self.data.y),
@@ -51,7 +51,7 @@ class Test_MM_Op(Zentorch_TestCase):
 
     @parameterized.expand(supported_dtypes)
     def test_mm_mismatched_dimensions(self, dtype):
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_mm(
                 self.data.x,
@@ -68,7 +68,7 @@ class Test_MM_Op(Zentorch_TestCase):
     @parameterized.expand([("int",)])
     def test_mm_unsupported_dtype(self, dtype):
 
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_mm(self.data.x, self.data.y)
         self.assertTrue(
@@ -78,7 +78,7 @@ class Test_MM_Op(Zentorch_TestCase):
     @parameterized.expand(supported_dtypes)
     def test_mm_relu(self, dtype):
 
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         # mm->relu
         self.assertEqual(
             torch._C._VariableFunctions.relu(

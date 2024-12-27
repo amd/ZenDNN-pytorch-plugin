@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2024 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -24,7 +24,7 @@ class Test_Matmul_Impl_Op(Zentorch_TestCase):
     @parameterized.expand(supported_dtypes)
     def test_matmul_impl_for_mv_and_dot(self, dtype):
 
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         # mv
         self.assertEqual(
             torch.mv(self.data.input, self.data.input1d),
@@ -53,7 +53,7 @@ class Test_Matmul_Impl_Op(Zentorch_TestCase):
         )
 
     def test_matmul_impl_bfloat16_postop(self):
-        self.data.create_data("float32")
+        self.data.create_unittest_data("float32")
         with self.assertRaises(RuntimeError) as context:
             bias_as_postop = self.data.x.clone().to(torch.bfloat16)
             post_op_add = 6
@@ -73,7 +73,7 @@ class Test_Matmul_Impl_Op(Zentorch_TestCase):
 
     def test_matmul_impl_int_postop(self):
         self.skip_if_bfloat16_unsupported_hardware()
-        self.data.create_data("bfloat16")
+        self.data.create_unittest_data("bfloat16")
         with self.assertRaises(RuntimeError) as context_int:
             bias_as_postop = self.data.x.clone().to(torch.int)
             post_op_add = 6
@@ -92,7 +92,7 @@ class Test_Matmul_Impl_Op(Zentorch_TestCase):
         )
 
     def test_int_matmul_impl_postop(self):
-        self.data.create_data("int")
+        self.data.create_unittest_data("int")
         with self.assertRaises(RuntimeError) as context_int:
             bias_as_postop = self.data.x3d.clone().to(torch.int)
             post_op_add = 6

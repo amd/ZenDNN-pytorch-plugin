@@ -16,7 +16,7 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
 from utils import(  # noqa: 402
-    TestCase,
+    Zentorch_TestCase,
     run_tests,
     skip_test_pt_2_3,
     set_seed,
@@ -32,9 +32,9 @@ seq_ln_lst = [32, 64, 128, 256, 512]
 @unittest.skipIf(
     skip_test_pt_2_3, "Skipping test as OP support available from PyTorch 2.3"
 )
-class Test_Fused_Rope(TestCase):
+class Test_Fused_Rope(Zentorch_TestCase):
     def setUp(self):
-        set_seed()
+        super().setUp()
         self.max_seq_len = 512
         # parameterizing over head_size and num_heads is not possible for now
         self.head_size = 256
@@ -209,7 +209,7 @@ class Test_Fused_Rope(TestCase):
                 rotary_dim,
             )
 
-            # torch compile with zentorch backend.
+            # torch compile with zentorch backend
             torch._dynamo.reset()
             func_compile = torch.compile(func, backend="zentorch")
             query_compile_no_concat, _, _ = test_with_freeze_opt(

@@ -145,7 +145,7 @@ class Test_Qlinear_Model(Zentorch_TestCase):
         q_zero_points_dtype,
     ):
         self.skip_if_bfloat16_not_yet_supported(dtype)
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
 
         model = Custom_Model_Zentorch_Qlinear_Mix_X3()
         zentorch_model = copy.deepcopy(model)
@@ -198,7 +198,7 @@ class Test_Qlinear_Model(Zentorch_TestCase):
         q_zero_points_dtype,
     ):
         self.skip_if_bfloat16_not_yet_supported(dtype)
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
 
         model = Custom_Model_Zentorch_Qlinear_X3()
         zentorch_model = copy.deepcopy(model)

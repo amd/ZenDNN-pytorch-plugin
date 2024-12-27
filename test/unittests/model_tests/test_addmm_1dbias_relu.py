@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2024 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -26,7 +26,7 @@ class Test_Addmm_1dbias_Relu_Model(Zentorch_TestCase):
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
     def test_addmm_1dbias_relu_model(self, dtype):
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         model = nn.Sequential(nn.Linear(self.data.n, self.data.m), nn.ReLU())
         if dtype == "bfloat16":
             model = model.bfloat16()

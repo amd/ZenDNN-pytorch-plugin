@@ -54,7 +54,7 @@ class Test_MM_RELU_Model(Zentorch_TestCase):
     @torch.inference_mode()
     def test_mm_relu2_optimize_model(self, dtype, freeze_opt):
 
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         model = Custom_Model_MM_Relu2().eval()
         for i in range(len(self.data.x1)):
             for j in range(len(self.data.y1)):
@@ -75,7 +75,7 @@ class Test_MM_RELU_Model(Zentorch_TestCase):
     @torch.inference_mode()
     def test_mm_relu2_zero_input_optimize_model(self, dtype, freeze_opt):
 
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         model = Custom_Model_MM_Relu2().eval()
         model_output = model(self.data.x1[0] * 0, self.data.y1[0] * 0)
         reset_dynamo()
@@ -94,7 +94,7 @@ class Test_MM_RELU_Model(Zentorch_TestCase):
     @torch.inference_mode()
     def test_mm_relu2_negative_input_optimize_model(self, dtype, freeze_opt):
 
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         model = Custom_Model_MM_Relu2().eval()
         model_output = model(self.data.x1[0] * -1, self.data.y1[0] * -1)
         reset_dynamo()
@@ -110,7 +110,7 @@ class Test_MM_RELU_Model(Zentorch_TestCase):
     @torch.inference_mode()
     def test_mm_relu1_model(self, dtype, freeze_opt):
 
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         model = Custom_Model_MM_ReLU1(self.data.n, self.data.m, self.data.k).eval()
         if dtype == "bfloat16":
             model = model.bfloat16()

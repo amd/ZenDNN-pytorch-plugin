@@ -21,7 +21,6 @@ from unittest_utils import (  # noqa: 402
     supported_dtypes,
     zentorch,
     skip_test_pt_2_1,
-    zentorch,
     freeze_opt,
     test_with_freeze_opt,
 )
@@ -58,7 +57,7 @@ class Test_MM_SiLU_Mul_Model(Zentorch_TestCase):
     @parameterized.expand(product(supported_dtypes, freeze_opt))
     @torch.inference_mode()
     def test_mm_silu_mul_with_bias_model(self, dtype, freeze_opt):
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         model = Custom_Model_MM_Silu_Mul(self.data, bias=True)
         model_input = self.data.input.view(1, self.data.m, self.data.n)
         if dtype == "bfloat16" and zentorch._C.is_bf16_supported():
@@ -99,7 +98,7 @@ class Test_MM_SiLU_Mul_Model(Zentorch_TestCase):
     @parameterized.expand(product(supported_dtypes, freeze_opt))
     @torch.inference_mode()
     def test_mm_silu_mul_without_bias_model(self, dtype, freeze_opt):
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         model = Custom_Model_MM_Silu_Mul(self.data, bias=False)
         model_input = self.data.input.view(1, self.data.m, self.data.n)
         if dtype == "bfloat16" and zentorch._C.is_bf16_supported():

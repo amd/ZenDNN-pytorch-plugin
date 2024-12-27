@@ -14,8 +14,7 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent))
 from pre_trained_model_utils import (  # noqa: 402
-    Test_Data,
-    TestCase,
+    Zentorch_TestCase,
     has_zentorch,
     run_tests,
     supported_dtypes,
@@ -28,27 +27,24 @@ from pre_trained_model_utils import (  # noqa: 402
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
-class Test_CNN_Model(TestCase):
-    def setUp(self):
-        set_seed()
-
+class Test_CNN_Model(Zentorch_TestCase):
     @parameterized.expand(product(supported_dtypes, freeze_opt))
     @torch.inference_mode()
     def test_resnet18_model(self, dtype, freeze_opt):
-        if dtype == "bfloat16":
-            self.skipTest("Skipping it due to issue with BF16 path.")
-        data = Test_Data(dtype)
+        self.skip_if_bfloat16_path_issue(dtype)
+        self.data.create_pretrained_model_data(dtype)
         model = models.__dict__["resnet18"](pretrained=True).eval()
         inductor_model = copy.deepcopy(model)
         zentorch_graph = torch.compile(model, backend="zentorch", dynamic=False)
         zentorch_graph_output = test_with_freeze_opt(
             zentorch_graph,
-            (data.input3d),
+            (self.data.input3d),
             freeze_opt
         )
         reset_dynamo()
         inductor_graph = torch.compile(inductor_model, backend="inductor")
-        inductor_graph_output = inductor_graph(data.input3d)
+
+        inductor_graph_output = inductor_graph(self.data.input3d)
 
         self.assertEqual(inductor_graph_output, zentorch_graph_output)
 

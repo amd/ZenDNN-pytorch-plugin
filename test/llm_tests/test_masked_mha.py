@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Modifications Copyright (c) 2024 Advanced Micro Devices, Inc.
+# Modifications Copyright (c) 2025 Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Was sourced from
@@ -17,8 +17,8 @@ from torch import nn
 import sys
 from pathlib import Path
 
-sys.path.append(str(Path(__file__).parent.parent))
-from utils import TestCase, run_tests, skip_test_pt_2_3, zentorch, set_seed  # noqa: 402
+sys.path.append(str(Path(__file__).parent))
+from llm_utils import Zentorch_TestCase, run_tests, skip_test_pt_2_3, zentorch  # noqa: 402
 
 N = 2
 batch_size_list = [2**i for i in range(N)]
@@ -155,9 +155,9 @@ class Custom_Model_Masked_MHA(torch.nn.Module):
 @unittest.skipIf(
     skip_test_pt_2_3, "Skipping test as OP support available from PyTorch 2.3"
 )
-class Test_Masked_MHA(TestCase):
+class Test_Masked_MHA(Zentorch_TestCase):
     def setUp(self):
-        set_seed()
+        super().setUp()
         self.first_seq_len = 32
 
     def assertEqual(self, x, y, prec=None, message="", allow_inf=False):
@@ -170,7 +170,7 @@ class Test_Masked_MHA(TestCase):
         if isinstance(x, torch.Tensor) and isinstance(y, torch.Tensor):
 
             def assertTensorsEqual(a, b):
-                super(TestCase, self).assertEqual(a.size(), b.size(), message)
+                super(Zentorch_TestCase, self).assertEqual(a.size(), b.size(), message)
                 if a.numel() > 0:
                     if a.device.type == "cpu" and (
                         a.dtype == torch.float16 or a.dtype == torch.bfloat16
@@ -213,11 +213,17 @@ class Test_Masked_MHA(TestCase):
                         max_err = diff.max()
                         self.assertLessEqual(max_err, prec, message)
 
-            super(TestCase, self).assertEqual(x.is_sparse, y.is_sparse, message)
-            super(TestCase, self).assertEqual(x.is_quantized, y.is_quantized, message)
+            super(Zentorch_TestCase, self).assertEqual(
+                x.is_sparse, y.is_sparse, message
+            )
+
+            super(Zentorch_TestCase, self).assertEqual(
+                x.is_quantized, y.is_quantized, message
+            )
+
             assertTensorsEqual(x, y)
         else:
-            super(TestCase, self).assertEqual(x, y, message)
+            super(Zentorch_TestCase, self).assertEqual(x, y, message)
 
     def _test_mha(
         self,

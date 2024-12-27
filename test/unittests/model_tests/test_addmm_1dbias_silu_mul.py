@@ -18,7 +18,6 @@ from unittest_utils import (  # noqa: 402
     run_tests,
     zentorch,
     skip_test_pt_2_1,
-    zentorch,
     freeze_opt,
     test_with_freeze_opt,
 )
@@ -54,7 +53,7 @@ class Test_Pattern_Matcher_Test_With_Different_Dtypes_Model(Zentorch_TestCase):
     @torch.inference_mode()
     def test_float32_addmm_1dbias_silu_float32_mul_pattern_model(self, freeze_opt):
         reset_dynamo()
-        self.data.create_data("float32")
+        self.data.create_unittest_data("float32")
         model = Custom_Model_Addmm_1dbias_SiLU_Mul(self.data, bias=True)
 
         mul_tensor = torch.reshape(self.data.x, (1, self.data.m, self.data.k)).to(
@@ -85,7 +84,7 @@ class Test_Pattern_Matcher_Test_With_Different_Dtypes_Model(Zentorch_TestCase):
     ):
         reset_dynamo()
         model = Custom_Model_Addmm_1dbias_Alpha_Beta_SiLU_Mul()
-        self.data.create_data("float32")
+        self.data.create_unittest_data("float32")
 
         mat1_tensor = self.data.x
         mat2_tensor = self.data.y
@@ -112,7 +111,7 @@ class Test_Pattern_Matcher_Test_With_Different_Dtypes_Model(Zentorch_TestCase):
     @torch.inference_mode()
     def test_float32_addmm_1dbias_silu_bfloat16_mul_pattern_model(self, freeze_opt):
         reset_dynamo()
-        self.data.create_data("float32")
+        self.data.create_unittest_data("float32")
         model = Custom_Model_Addmm_1dbias_SiLU_Mul(self.data, bias=True)
         mul_tensor = torch.reshape(self.data.x, (1, self.data.m, self.data.k)).to(
             torch.bfloat16
@@ -139,7 +138,7 @@ class Test_Pattern_Matcher_Test_With_Different_Dtypes_Model(Zentorch_TestCase):
     def test_bfloat16_addmm_1dbias_silu_float32_mul_pattern_model(self, freeze_opt):
         reset_dynamo()
         self.skip_if_bfloat16_unsupported_hardware()
-        self.data.create_data("bfloat16")
+        self.data.create_unittest_data("bfloat16")
         model = Custom_Model_Addmm_1dbias_SiLU_Mul(self.data, bias=True)
 
         mul_tensor = torch.reshape(self.data.x, (1, self.data.m, self.data.k)).to(
@@ -167,7 +166,7 @@ class Test_Pattern_Matcher_Test_With_Different_Dtypes_Model(Zentorch_TestCase):
     def test_bfloat16_addmm_1dbias_silu_bfloat16_mul_pattern_model(self, freeze_opt):
         reset_dynamo()
         self.skip_if_bfloat16_unsupported_hardware()
-        self.data.create_data("bfloat16")
+        self.data.create_unittest_data("bfloat16")
         model = Custom_Model_Addmm_1dbias_SiLU_Mul(self.data, bias=True)
         mul_tensor = torch.reshape(self.data.x, (1, self.data.m, self.data.k)).to(
             torch.bfloat16
@@ -193,7 +192,7 @@ class Test_Pattern_Matcher_Test_With_Different_Dtypes_Model(Zentorch_TestCase):
     @torch.inference_mode()
     def test_float32_mm_silu_float32_mul_pattern_model(self, freeze_opt):
         reset_dynamo()
-        self.data.create_data("float32")
+        self.data.create_unittest_data("float32")
         model = Custom_Model_Addmm_1dbias_SiLU_Mul(self.data, bias=False)
 
         mul_tensor = torch.reshape(self.data.x, (1, self.data.m, self.data.k)).to(
@@ -216,7 +215,7 @@ class Test_Pattern_Matcher_Test_With_Different_Dtypes_Model(Zentorch_TestCase):
     @torch.inference_mode()
     def test_float32_mm_silu_bfloat16_mul_pattern_model(self, freeze_opt):
         reset_dynamo()
-        self.data.create_data("float32")
+        self.data.create_unittest_data("float32")
         model = Custom_Model_Addmm_1dbias_SiLU_Mul(self.data, bias=False)
         mul_tensor = torch.reshape(self.data.x, (1, self.data.m, self.data.k)).to(
             torch.bfloat16
@@ -239,7 +238,7 @@ class Test_Pattern_Matcher_Test_With_Different_Dtypes_Model(Zentorch_TestCase):
     def test_bfloat16_mm_silu_float32_mul_pattern_model(self, freeze_opt):
         reset_dynamo()
         self.skip_if_bfloat16_unsupported_hardware()
-        self.data.create_data("bfloat16")
+        self.data.create_unittest_data("bfloat16")
         model = Custom_Model_Addmm_1dbias_SiLU_Mul(self.data, bias=False)
 
         mul_tensor = torch.reshape(self.data.x, (1, self.data.m, self.data.k)).to(
@@ -263,7 +262,7 @@ class Test_Pattern_Matcher_Test_With_Different_Dtypes_Model(Zentorch_TestCase):
     def test_bfloat16_mm_silu_bfloat16_mul_pattern_model(self, freeze_opt):
         reset_dynamo()
         self.skip_if_bfloat16_unsupported_hardware()
-        self.data.create_data("bfloat16")
+        self.data.create_unittest_data("bfloat16")
         model = Custom_Model_Addmm_1dbias_SiLU_Mul(self.data, bias=False)
         mul_tensor = torch.reshape(self.data.x, (1, self.data.m, self.data.k)).to(
             torch.bfloat16

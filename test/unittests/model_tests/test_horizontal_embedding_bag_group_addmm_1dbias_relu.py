@@ -79,7 +79,7 @@ class Test_Group_Embedding_Bag_Addmm_1dbias_Relu_Model(Zentorch_TestCase):
     @parameterized.expand(product(supported_dtypes, freeze_opt))
     @torch.inference_mode()
     def test_group_embedding_bag_addmm_1dbias_relu_model(self, dtype, freeze_opt):
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         indices = self.data.emb_input
         offsets = self.data.offsets
         mlp_inputs = self.data.mlp_inputs

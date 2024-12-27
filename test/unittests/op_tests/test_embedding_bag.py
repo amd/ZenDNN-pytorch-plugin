@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2024 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -28,7 +28,7 @@ class Test_Embedding_Bag(Zentorch_TestCase):
     @parameterized.expand(supported_dtypes)
     def test_embedding_bag(self, dtype):
 
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         y_eb, _, _, _ = torch._C._VariableFunctions._embedding_bag(
             self.data.embedding_matrix,
             self.data.emb_input,
@@ -65,7 +65,7 @@ class Test_Embedding_Bag(Zentorch_TestCase):
         self, dtype, mode, include_last_offset, sprs_opt, scale_opt
     ):
 
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
 
         # max mode is not supported whenever any of the sparse_opt
         # or scale_grad_opt is True

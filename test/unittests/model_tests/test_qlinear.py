@@ -105,7 +105,7 @@ class Test_Qlinear_Model(Zentorch_TestCase):
         q_linear_dtype,
     ):
         self.skip_if_bfloat16_not_yet_supported(dtype)
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
 
         model = Custom_Model_Qlinear()
 

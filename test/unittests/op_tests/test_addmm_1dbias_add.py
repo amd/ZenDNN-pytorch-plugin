@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2024 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -56,7 +56,7 @@ class Test_Addmm_1dbias_Add(Zentorch_TestCase):
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
     def test_addmm_1dbias_add_mismatched_dimensions(self, dtype):
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_addmm_1dbias_add(
                 self.data.input1d,
@@ -75,7 +75,7 @@ class Test_Addmm_1dbias_Add(Zentorch_TestCase):
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
     def test_addmm_1dbias_add_mismatched_sizes(self, dtype):
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_addmm_1dbias_add(
                 self.data.input1d, self.data.x, self.data.y, self.data.x
@@ -88,7 +88,7 @@ class Test_Addmm_1dbias_Add(Zentorch_TestCase):
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
     def test_addmm_1dbias_add_add_mismatched_dimensions(self, dtype):
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_addmm_1dbias_add_add(
                 self.data.input1d,
@@ -112,7 +112,7 @@ class Test_Addmm_1dbias_Add(Zentorch_TestCase):
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
     def test_addmm_1dbias_add_add_mismatched_sizes(self, dtype):
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_addmm_1dbias_add_add(
                 self.data.input1d, self.data.x, self.data.y, self.data.x, self.data.x

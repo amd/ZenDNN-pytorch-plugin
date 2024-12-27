@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2024 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -25,7 +25,7 @@ class Test_BMM_Op(Zentorch_TestCase):
     @unittest.skipIf(skip_test_pt_2_0, "Skipping test due to PT2.0 instability")
     def test_bmm_variants(self, dtype):
 
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         self.assertEqual(
             torch._C._VariableFunctions.bmm(self.data.x3d, self.data.y3d),
             torch.ops.zentorch.zentorch_bmm(self.data.x3d, self.data.y3d),
@@ -34,7 +34,7 @@ class Test_BMM_Op(Zentorch_TestCase):
     @parameterized.expand(supported_dtypes)
     def test_bmm_unsupported_dims(self, dtype):
 
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_bmm(self.data.x, self.data.y)
 
@@ -46,7 +46,7 @@ class Test_BMM_Op(Zentorch_TestCase):
     @parameterized.expand([("int",)])
     def test_bmm_unsupported_dtype(self, dtype):
 
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_bmm(self.data.x3d, self.data.y3d)
 

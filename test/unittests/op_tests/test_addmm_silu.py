@@ -23,7 +23,7 @@ class Test_Addmm_Silu(Zentorch_TestCase):
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
     def test_addmm_silu(self, dtype):
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         native_output = torch.nn.functional.silu(
             torch.addmm(self.data.input, self.data.x, self.data.y)
         )

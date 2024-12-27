@@ -29,7 +29,7 @@ class Test_MM_Silu_Model(Zentorch_TestCase):
     @parameterized.expand(product(supported_dtypes, freeze_opt))
     @torch.inference_mode()
     def test_mm_with_bias_silu_model(self, dtype, freeze_opt):
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         model = nn.Sequential(nn.Linear(self.data.n, self.data.m, bias=True), nn.SiLU())
         if dtype == "bfloat16":
             model = model.bfloat16()
@@ -46,7 +46,7 @@ class Test_MM_Silu_Model(Zentorch_TestCase):
     @parameterized.expand(product(supported_dtypes, freeze_opt))
     @torch.inference_mode()
     def test_mm_without_bias_silu_model(self, dtype, freeze_opt):
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         model = nn.Sequential(
             nn.Linear(self.data.n, self.data.m, bias=False), nn.SiLU()
         )

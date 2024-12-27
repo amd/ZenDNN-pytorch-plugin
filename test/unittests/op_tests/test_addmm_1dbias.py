@@ -25,7 +25,7 @@ class Test_Addmm_1dbias(Zentorch_TestCase):
     @torch.inference_mode()
     def test_addmm_1dbias_incorrect_dims(self, dtype):
 
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
 
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_addmm_1dbias(

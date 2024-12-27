@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2024 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -24,7 +24,7 @@ class Test_Attn_QKV_Fusion(Zentorch_TestCase):
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
     def test_addmm_silu_mul_with_same_params(self, dtype):
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         self_tensor = self.data.input
         mul_tensors = [self.data.input, self.data.input * 2, self.data.input * 3]
         mat1_tensors = [self.data.x, self.data.x * 2, self.data.x * 3]
@@ -76,7 +76,7 @@ class Test_Attn_QKV_Fusion(Zentorch_TestCase):
     @parameterized.expand(supported_dtypes)
     def test_attn_qkv_fusion_unsupported_dims_1(self, dtype):
 
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_attn_qkv_fusion(
                 [self.data.x1[0]] * 3,
@@ -94,7 +94,7 @@ class Test_Attn_QKV_Fusion(Zentorch_TestCase):
     @parameterized.expand(supported_dtypes)
     def test_attn_qkv_fusion_unsupported_dims_2(self, dtype):
 
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_attn_qkv_fusion(
                 [self.data.y2[0]] * 3,
@@ -112,7 +112,7 @@ class Test_Attn_QKV_Fusion(Zentorch_TestCase):
     @parameterized.expand(supported_dtypes)
     def test_attn_qkv_fusion_input_shape_compatibility(self, dtype):
 
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_attn_qkv_fusion(
                 [self.data.M[1]] * 3,
@@ -131,7 +131,7 @@ class Test_Attn_QKV_Fusion(Zentorch_TestCase):
     @torch.inference_mode()
     def test_bf16_alpha_not_1(self):
         self.skip_if_bfloat16_unsupported_hardware()
-        self.data.create_data("bfloat16")
+        self.data.create_unittest_data("bfloat16")
         self.assertEqual(
             torch._C._VariableFunctions.addmm(
                 self.data.input1d, self.data.x, self.data.y, alpha=1.7

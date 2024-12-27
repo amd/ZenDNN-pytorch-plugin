@@ -9,7 +9,6 @@ import torch
 from parameterized import parameterized
 import sys
 from pathlib import Path
-from utils import supported_dtypes
 from torch import nn
 
 sys.path.append(str(Path(__file__).parent.parent))
@@ -22,6 +21,7 @@ from unittest_utils import (  # noqa: 402
     input_dim_opt,
     woq_qzeros_opt,
     group_size_opt,
+    supported_dtypes,
 )
 
 
@@ -79,7 +79,7 @@ class Test_WOQ_Linear(Zentorch_TestCase):
         woq_qzeros_idx,
         group_size_val,
     ):
-        self.data.create_data(dtype, group_size_val)
+        self.data.create_unittest_data(dtype, group_size_val)
 
         # compute_dtype check
         with self.assertRaises(RuntimeError) as context:
@@ -374,7 +374,7 @@ class Test_WOQ_Linear(Zentorch_TestCase):
         self, dtype, scales_dtype, woq_input_dim, woq_bias_idx, woq_qzeros_idx
     ):
         self.skip_if_bfloat16_unsupported_hardware()
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         op = Zentorch_Simulated_Woq_Linear(1, 8).eval()
         simulated_output = op(
             self.data.woq_input[woq_input_dim],

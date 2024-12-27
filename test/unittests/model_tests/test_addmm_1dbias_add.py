@@ -98,7 +98,7 @@ class Test_Addmm_1dbias_Add_Model(Zentorch_TestCase):
     @parameterized.expand(product(supported_dtypes, freeze_opt))
     @torch.inference_mode()
     def test_addmm_1dbias_view_add_with_bias_model(self, dtype, freeze_opt):
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         model = Custom_Model_Addmm_1dbias_View_Add(
             40, 30, self.data.get_torch_type(dtype), bias=True
         ).eval()
@@ -127,7 +127,7 @@ class Test_Addmm_1dbias_Add_Model(Zentorch_TestCase):
     @parameterized.expand(product(supported_dtypes, freeze_opt))
     @torch.inference_mode()
     def test_addmm_1dbias_alpha_beta_view_add_with_bias_model(self, dtype, freeze_opt):
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         new_shape = (1, self.data.n, self.data.m)
         bias = self.data.input1d
         mat2 = self.data.y
@@ -158,7 +158,7 @@ class Test_Addmm_1dbias_Add_Model(Zentorch_TestCase):
     @parameterized.expand(product(supported_dtypes, freeze_opt))
     @torch.inference_mode()
     def test_addmm_1dbias_view_add_without_bias_model(self, dtype, freeze_opt):
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         model = Custom_Model_Addmm_1dbias_View_Add(
             40, 30, self.data.get_torch_type(dtype), bias=False
         ).eval()
@@ -203,7 +203,7 @@ class Test_Addmm_1dbias_Add_Model(Zentorch_TestCase):
     @parameterized.expand(product(supported_dtypes, freeze_opt))
     @torch.inference_mode()
     def test_addmm_1dbias_view_add_add_model(self, dtype, freeze_opt):
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         model = Custom_Model_Addmm_1dbias_View_Add_Add(
             40, 30, self.data.get_torch_type(dtype)
         ).eval()
@@ -232,7 +232,7 @@ class Test_Addmm_1dbias_Add_Model(Zentorch_TestCase):
     @parameterized.expand(product(supported_dtypes, freeze_opt))
     @torch.inference_mode()
     def test_addmm_1dbias_alpha_beta_view_add_add_model(self, dtype, freeze_opt):
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         test_dtype = self.data.get_torch_type(dtype)
         new_shape = (1, self.data.n, self.data.m)
         bias = self.data.input1d

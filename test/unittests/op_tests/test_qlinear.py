@@ -35,7 +35,7 @@ class Test_Qlinear(Zentorch_TestCase):
             self.skipTest(
                 "Skipping hardware test, as AVX512 instructions are supported."
             )
-        self.data.create_data("float32")
+        self.data.create_unittest_data("float32")
 
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_qlinear(
@@ -75,7 +75,7 @@ class Test_Qlinear(Zentorch_TestCase):
         q_zero_points_dtype,
     ):
         self.skip_if_bfloat16_not_yet_supported(dtype)
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
 
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_qlinear(
@@ -209,7 +209,7 @@ class Test_Qlinear(Zentorch_TestCase):
         q_zero_points_dtype,
     ):
         self.skip_if_bfloat16_not_yet_supported(dtype)
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
 
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_qlinear(
@@ -408,7 +408,7 @@ class Test_Qlinear(Zentorch_TestCase):
         input_dtype,
     ):
         self.skip_if_bfloat16_not_yet_supported(dtype)
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_qlinear(
                 self.data.x_for_qlinear[input_dtype][input_dim],
@@ -451,7 +451,7 @@ class Test_Qlinear(Zentorch_TestCase):
         q_linear_dtype,
     ):
         self.skip_if_bfloat16_not_yet_supported(dtype)
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
 
         # simulated qlinear
         qdq_linear_output = qdq_linear(

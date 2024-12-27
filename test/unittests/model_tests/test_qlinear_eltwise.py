@@ -86,7 +86,7 @@ class Test_Qlinear_Eltwise_Model(Zentorch_TestCase):
         eltwise_op,
     ):
         self.skip_if_bfloat16_not_yet_supported(dtype)
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
 
         model = Custom_Model_Qlinear_Eltwise(qlinear_eltwise_map[eltwise_op][0])
         zentorch_model = copy.deepcopy(model)

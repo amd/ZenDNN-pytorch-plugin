@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2023-2025 Advanced Micro Devices, Inc.
+# Copyright (c) 2025 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -11,10 +11,8 @@ from utils import (  # noqa: 402 # noqa: F401
     BaseZentorchTestCase,
     run_tests,
     zentorch,
-    has_zentorch,
-    supported_dtypes,
-    reset_dynamo,
     set_seed,
+    skip_test_pt_2_3,
     freeze_opt,
     test_with_freeze_opt,
     Test_Data,

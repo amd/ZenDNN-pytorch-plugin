@@ -93,7 +93,7 @@ class Test_Addmm_Gelu_Model(Zentorch_TestCase):
     @torch.inference_mode()
     def test_addmm_gelu_tanh_model(self, dtype, freeze_opt):
         self.skip_if_bfloat16_path_issue(dtype)
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         model = Custom_Model_Addmm_Gelu_Tanh().eval()
         for inp in self.data.M:
             for i in range(len(self.data.x1)):
@@ -112,7 +112,7 @@ class Test_Addmm_Gelu_Model(Zentorch_TestCase):
     @torch.inference_mode()
     def test_addmm_gelu_none_model(self, dtype, freeze_opt):
         self.skip_if_bfloat16_path_issue(dtype)
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         model = Custom_Model_Addmm_Gelu_None().eval()
         for inp in self.data.M:
             for i in range(len(self.data.x1)):
@@ -131,7 +131,7 @@ class Test_Addmm_Gelu_Model(Zentorch_TestCase):
     @torch.inference_mode()
     def test_addmm_gelu_model(self, dtype, freeze_opt):
         self.skip_if_bfloat16_path_issue(dtype)
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         model = Custom_Model_Addmm_Gelu2().eval()
         for inp in self.data.M:
             for i in range(len(self.data.x1)):
@@ -150,7 +150,7 @@ class Test_Addmm_Gelu_Model(Zentorch_TestCase):
     @torch.inference_mode()
     def test_addmm_view_model(self, dtype, freeze_opt):
         self.skip_if_bfloat16_path_issue(dtype)
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         model = Custom_Model_Addmm_View().eval()
         for inp in self.data.M:
             for i in range(len(self.data.x1)):
@@ -169,7 +169,7 @@ class Test_Addmm_Gelu_Model(Zentorch_TestCase):
     @torch.inference_mode()
     def test_addmm_diff_user_in_btw_model(self, dtype, freeze_opt):
         self.skip_if_bfloat16_path_issue(dtype)
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         model = Custom_Model_Addmm_Diff_User_In_Btw().eval()
         for inp in self.data.M:
             for i in range(len(self.data.x1)):

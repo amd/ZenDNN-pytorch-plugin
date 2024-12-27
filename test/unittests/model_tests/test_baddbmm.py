@@ -51,7 +51,7 @@ class Test_Baddbmm_Model(Zentorch_TestCase):
     @torch.inference_mode()
     def test_baddbmm_model(self, dtype, freeze_opt):
         self.skip_if_bfloat16_path_issue(dtype)
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         model = Custom_Model_Baddbmm().eval()
         for i in range(len(self.data.x2)):
             for j in range(len(self.data.y2)):
@@ -71,7 +71,7 @@ class Test_Baddbmm_Model(Zentorch_TestCase):
     @torch.inference_mode()
     def test_baddbmm_unsupport_model(self, dtype, freeze_opt):
         self.skip_if_bfloat16_path_issue(dtype)
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         model = Custom_Model_Baddbmm_Unsupport().eval()
         model_output = model(self.data.M3, self.data.x2[0], self.data.y2[0])
         reset_dynamo()

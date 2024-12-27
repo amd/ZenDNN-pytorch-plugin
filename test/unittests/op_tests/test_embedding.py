@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2024 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -22,7 +22,7 @@ from unittest_utils import (  # noqa: 402
 class Test_Embedding(Zentorch_TestCase):
     @parameterized.expand(supported_dtypes)
     def test_embedding(self, dtype):
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         y_eb = torch._C._VariableFunctions.embedding(
             self.data.embedding_matrix, self.data.emb_input
         )
@@ -33,7 +33,7 @@ class Test_Embedding(Zentorch_TestCase):
 
     @parameterized.expand(supported_dtypes)
     def test_embedding_sparse_scale(self, dtype):
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         sparse_opt = [True, False]
         scale_grad_opt = [True, False]
 

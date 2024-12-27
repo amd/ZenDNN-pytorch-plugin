@@ -138,7 +138,7 @@ class Test_WOQ_Linear_Model(Zentorch_TestCase):
         group_size_val,
         freeze_opt
     ):
-        self.data.create_data(dtype, group_size_val)
+        self.data.create_unittest_data(dtype, group_size_val)
         model = Custom_Model_WOQ_Linear_Add_Sequential().eval()
         zentorch_model = model
         _ = model(
@@ -198,7 +198,7 @@ class Test_WOQ_Linear_Model(Zentorch_TestCase):
         group_size_val,
         freeze_opt
     ):
-        self.data.create_data(dtype, group_size_val)
+        self.data.create_unittest_data(dtype, group_size_val)
         model = Custom_Model_WOQ_Linear_Add_Sequential().eval()
         zentorch_model = copy.deepcopy(model)
 
@@ -253,7 +253,7 @@ class Test_WOQ_Linear_Model(Zentorch_TestCase):
         group_size_val,
         freeze_opt
     ):
-        self.data.create_data(dtype, group_size_val)
+        self.data.create_unittest_data(dtype, group_size_val)
         model = Custom_Model_WOQ_Linear_Silu_Mul().eval()
         zentorch_model = copy.deepcopy(model)
 
@@ -304,7 +304,7 @@ class Test_WOQ_Linear_Model(Zentorch_TestCase):
         group_size_val,
         freeze_opt
     ):
-        self.data.create_data(dtype, group_size_val)
+        self.data.create_unittest_data(dtype, group_size_val)
         model = Custom_Model_WOQ_Linear_Add_Parallel().eval()
         zentorch_model = copy.deepcopy(model)
         _ = model(
@@ -362,7 +362,7 @@ class Test_WOQ_Linear_Model(Zentorch_TestCase):
         group_size_val,
         freeze_opt
     ):
-        self.data.create_data(dtype, group_size_val)
+        self.data.create_unittest_data(dtype, group_size_val)
         model = Custom_Model_WOQ_Linear_Silu_Mul().eval()
         zentorch_model = copy.deepcopy(model)
         _ = model(

@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2024 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -24,7 +24,7 @@ class Test_Addmm_SiLU_Mul(Zentorch_TestCase):
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
     def test_addmm_silu_mul(self, dtype):
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         bias = self.data.input.clone()
         native_output = (
             torch.nn.functional.silu(torch.addmm(bias, self.data.x, self.data.y))
@@ -38,7 +38,7 @@ class Test_Addmm_SiLU_Mul(Zentorch_TestCase):
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
     def test_addmm_silu_mul_mismatched_dimensions(self, dtype):
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_addmm_silu_mul(
                 self.data.input,
@@ -57,7 +57,7 @@ class Test_Addmm_SiLU_Mul(Zentorch_TestCase):
     @parameterized.expand(supported_dtypes)
     @torch.inference_mode()
     def test_addmm_silu_mul_mismatched_sizes(self, dtype):
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_addmm_silu_mul(
                 self.data.input, self.data.x, self.data.y, self.data.x

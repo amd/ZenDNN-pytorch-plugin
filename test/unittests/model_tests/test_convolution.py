@@ -40,7 +40,7 @@ class Test_Convolution_Model(Zentorch_TestCase):
     @parameterized.expand(product(supported_dtypes, freeze_opt))
     @torch.inference_mode()
     def test_convolution_model(self, dtype, freeze_opt):
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         model = Custom_Model_Convolution()
         if dtype == "bfloat16":
             model = model.to(torch.bfloat16)

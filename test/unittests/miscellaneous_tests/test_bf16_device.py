@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2024 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -8,11 +8,16 @@ import sys
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
-from unittest_utils import TestCase, has_zentorch, run_tests, zentorch  # noqa: 402
+from unittest_utils import(  # noqa: 402
+    Zentorch_TestCase,
+    has_zentorch,
+    run_tests,
+    zentorch,
+)
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
-class Test_BF16_Device(TestCase):
+class Test_BF16_Device(Zentorch_TestCase):
     @unittest.skipIf(
         not zentorch._C.is_bf16_supported(), "CPU does not support AVX512 BF16."
     )

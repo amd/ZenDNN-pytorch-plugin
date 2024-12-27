@@ -121,7 +121,7 @@ class Test_Addmm_1dbias_Model(Zentorch_TestCase):
     @torch.inference_mode()
     def test_addmm_1dbias_model(self, dtype, freeze_opt):
 
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
 
         model = Custom_Model_Addmm_1dbias(self.data.k, self.data.get_torch_type(dtype))
 
@@ -139,7 +139,7 @@ class Test_Addmm_1dbias_Model(Zentorch_TestCase):
     @torch.inference_mode()
     def test_addmm_1dbias_relu_model(self, dtype, freeze_opt):
 
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
 
         model = Custom_Model_Addmm_1dbias_Relu(
             self.data.k, self.data.get_torch_type(dtype)
@@ -159,7 +159,7 @@ class Test_Addmm_1dbias_Model(Zentorch_TestCase):
     @torch.inference_mode()
     def test_addmm_1dbias_relu_gelu_model(self, dtype, freeze_opt):
 
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
 
         model = Custom_Model_Addmm_1dbias_Relu_Gelu(
             self.data.k, self.data.get_torch_type(dtype)

@@ -35,7 +35,7 @@ class Test_Qlinear_Binary(Zentorch_TestCase):
             self.skipTest(
                 "Skipping hardware test, as AVX512 instructions are supported."
             )
-        self.data.create_data("float32")
+        self.data.create_unittest_data("float32")
 
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_qlinear_mul_add(
@@ -79,7 +79,7 @@ class Test_Qlinear_Binary(Zentorch_TestCase):
         input_dtype,
     ):
         self.skip_if_bfloat16_not_yet_supported(dtype)
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         qdq_linear_mul_add_output = torch.add(
             qdq_linear(
                 self.data.x_for_qlinear[input_dtype][input_dim],

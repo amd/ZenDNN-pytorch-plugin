@@ -12,7 +12,7 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
 from unittest_utils import(  # noqa: 402
-    TestCase,
+    Zentorch_TestCase,
     run_tests,
     skip_test_pt_2_3,
     zentorch,
@@ -25,8 +25,9 @@ from unittest_utils import(  # noqa: 402
 @unittest.skipIf(
     skip_test_pt_2_3, "Skipping test as OP support available from PyTorch 2.3"
 )
-class Test_Rope(TestCase):
+class Test_Rope(Zentorch_TestCase):
     def setUp(self):
+        super().setUp()
         self.max_seq_len = 512
         self.batch_size = 4
         self.seq_len = 32

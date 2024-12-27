@@ -48,7 +48,7 @@ class Test_Sdpa_Model(Zentorch_TestCase):
     @parameterized.expand(product(supported_dtypes, seq_length_opt, batch_size_opt))
     @torch.inference_mode()
     def test_sdpa_model(self, dtype, seq_length, batch_size):
-        self.data.create_data(dtype)
+        self.data.create_unittest_data(dtype)
         torch_type = self.data.get_torch_type(dtype)
         amp_enabled = True if dtype == "bfloat16" else False
         native_model = Custom_Model_Sdpa().eval()
