@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2024 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -31,9 +31,9 @@ class Test_Addmm_1dbias(Zentorch_TestCase):
             torch.ops.zentorch.zentorch_addmm_1dbias(
                 self.data.x, self.data.x, self.data.x
             )
-            self.assertTrue(
-                "unsupported dims for self, mat1 and mat2!" in str(context.exception)
-            )
+        self.assertTrue(
+            "unsupported dims for self, mat1 and mat2" in str(context.exception)
+        )
 
 
 if __name__ == "__main__":

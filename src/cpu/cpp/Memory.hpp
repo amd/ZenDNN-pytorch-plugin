@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright (c) 2023-2024 Advanced Micro Devices, Inc.
+ * Copyright (c) 2023-2025 Advanced Micro Devices, Inc.
  * All rights reserved.
  ******************************************************************************/
 
@@ -110,6 +110,19 @@ inline memory zen_memory(const at::Tensor &atensor,
   default:
     ZENTORCH_CHECK(false, "Invalid data type, creating zendnn memory failed.");
   }
+}
+
+// The reorder API allows us to transform data between various memory formats
+// and data layouts. This is essential for optimizing performance, as some
+// specific operations perform better with specific memory layouts.
+// Reordering ensures that the data is in the correct format required by
+// various computational primitives, such as GEMM and convolution.
+inline memory zentorch_reorder(const memory &src, const memory &dst,
+                               const primitive_attr &op_attr) {
+  reorder::primitive_desc pd = reorder::primitive_desc(src, dst, op_attr);
+  reorder(pd).execute(utils::stream::default_stream(),
+                      {{ZENDNN_ARG_FROM, src}, {ZENDNN_ARG_TO, dst}});
+  return dst;
 }
 
 } // namespace zentorch

@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2024 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -19,9 +19,9 @@ from unittest_utils import (  # noqa: 402
     has_zentorch,
     reset_dynamo,
     run_tests,
-    woq_bias_opt,
+    bias_opt,
     woq_dtypes,
-    woq_input_dim_opt,
+    input_dim_opt,
     woq_qzeros_opt,
     group_size_opt,
     skip_test_pt_2_1,
@@ -115,7 +115,7 @@ class Custom_Model_WOQ_Linear_Silu_Mul(nn.Module):
 class Test_WOQ_Linear_Model(Zentorch_TestCase):
     @parameterized.expand(
         product(
-            woq_dtypes, woq_input_dim_opt, woq_bias_opt, woq_qzeros_opt, group_size_opt
+            woq_dtypes, input_dim_opt, bias_opt, woq_qzeros_opt, group_size_opt
         ),
         skip_on_empty=True,
     )
@@ -158,7 +158,7 @@ class Test_WOQ_Linear_Model(Zentorch_TestCase):
     # Add op level test cases for woq_linear_add and woq_linear_mul
     @parameterized.expand(
         product(
-            woq_dtypes, woq_input_dim_opt, woq_bias_opt, woq_qzeros_opt, group_size_opt
+            woq_dtypes, input_dim_opt, bias_opt, woq_qzeros_opt, group_size_opt
         ),
         skip_on_empty=True,
     )
@@ -196,7 +196,7 @@ class Test_WOQ_Linear_Model(Zentorch_TestCase):
 
     @parameterized.expand(
         product(
-            woq_dtypes, woq_input_dim_opt, woq_bias_opt, woq_qzeros_opt, group_size_opt
+            woq_dtypes, input_dim_opt, bias_opt, woq_qzeros_opt, group_size_opt
         ),
         skip_on_empty=True,
     )
@@ -230,7 +230,7 @@ class Test_WOQ_Linear_Model(Zentorch_TestCase):
 
     @parameterized.expand(
         product(
-            woq_dtypes, woq_input_dim_opt, woq_bias_opt, woq_qzeros_opt, group_size_opt
+            woq_dtypes, input_dim_opt, bias_opt, woq_qzeros_opt, group_size_opt
         ),
         skip_on_empty=True,
     )
@@ -271,7 +271,7 @@ class Test_WOQ_Linear_Model(Zentorch_TestCase):
 
     @parameterized.expand(
         product(
-            woq_dtypes, woq_input_dim_opt, woq_bias_opt, woq_qzeros_opt, group_size_opt
+            woq_dtypes, input_dim_opt, bias_opt, woq_qzeros_opt, group_size_opt
         ),
         skip_on_empty=True,
     )
