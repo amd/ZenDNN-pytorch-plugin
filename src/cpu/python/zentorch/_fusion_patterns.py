@@ -414,11 +414,11 @@ def _matmul_dtypes_check(match):
 
 def _woq_check(match):
     expected_dtype = {
-        "arg_0": (torch.bfloat16,),
-        "arg_1": (torch.int32,),
-        "arg_2": (torch.float32, torch.bfloat16,),
-        "arg_3": (torch.int32,),
-        "bias_0": (torch.bfloat16,),
+        "arg_0": torch.bfloat16,
+        "arg_1": torch.int32,
+        "arg_2": torch.float32,
+        "arg_3": torch.int32,
+        "bias_0": torch.bfloat16,
     }
 
     post_op_dtypes_bf16 = True
@@ -432,7 +432,7 @@ def _woq_check(match):
             )
         if not (torch.is_tensor(v.meta["val"]) and k in expected_dtype.keys()):
             continue
-        if v.meta["val"].dtype not in expected_dtype[str(k)]:
+        if expected_dtype[str(k)] != v.meta["val"].dtype:
             return False
 
     return post_op_dtypes_bf16

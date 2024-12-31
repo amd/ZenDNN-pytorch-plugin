@@ -9,8 +9,6 @@ import torch
 from parameterized import parameterized
 import sys
 from pathlib import Path
-from utils import supported_dtypes
-from torch import nn
 
 sys.path.append(str(Path(__file__).parent.parent))
 from unittest_utils import (  # noqa: 402
@@ -25,37 +23,6 @@ from unittest_utils import (  # noqa: 402
 )
 
 
-def get_weight_tensor(qweight: torch.Tensor, scales: torch.Tensor, group_size: int):
-    if group_size == -1:
-        group_size = qweight.shape[0] // scales.shape[0]
-    else:
-        group_size = group_size
-
-    # unpacking
-    from ._pack import create_pack_method
-
-    packmethod = create_pack_method("awq", "int4")
-    weight_tensor = packmethod.unpack(qweight, False)
-
-    # dequanitzation
-    scales = scales.repeat_interleave(group_size, dim=0)
-    weight_tensor = weight_tensor * scales.t()
-
-    weight_tensor = weight_tensor.to(torch.bfloat16)
-    return weight_tensor
-
-
-class Zentorch_Simulated_Woq_Linear(nn.Module):
-    def __init__(self, in_features, out_features):
-        super(Zentorch_Simulated_Woq_Linear, self).__init__()
-
-    def forward(self, input, qweight, scales, bias, group_size):
-        weight_tensor = get_weight_tensor(qweight, scales, group_size)
-        output = torch.nn.functional.linear(input, weight_tensor, bias)
-        return output
-
-
-# TODO:raise a separate patch to fill gaps in quantization testing
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class Test_WOQ_Linear(Zentorch_TestCase):
     @parameterized.expand(
@@ -65,7 +32,7 @@ class Test_WOQ_Linear(Zentorch_TestCase):
         skip_on_empty=True,
     )
     @torch.inference_mode()
-    def test_woq_linear_torch_checks(
+    def test_zentorch_woq_linear_torch_checks(
         self, dtype, woq_input_dim, woq_bias_idx, woq_qzeros_idx, group_size_val
     ):
         self.data.create_data(dtype, group_size_val)
@@ -210,13 +177,15 @@ class Test_WOQ_Linear(Zentorch_TestCase):
             torch.ops.zentorch.zentorch_woq_linear(
                 self.data.woq_input[woq_input_dim],
                 self.data.woq_qweight,
-                self.data.woq_scales.to(torch.float16),  # scales with unsupported dtype
+                self.data.woq_scales.to(
+                    torch.bfloat16
+                ),  # scales with unsupported dtype
                 self.data.woq_qzeros[woq_qzeros_idx],
                 self.data.woq_bias[woq_bias_idx],
                 self.data.woq_group_size,
             )
         self.assertTrue(
-            "only float32 and bfloat16 weight_scales "
+            "only float32 weight_scales "
             "are currently supported" in str(context.exception)
         )
 
@@ -349,37 +318,6 @@ class Test_WOQ_Linear(Zentorch_TestCase):
             "unsupported dims for "
             "qweight and weight_scales" in str(context.exception)
         )
-
-    @parameterized.expand(
-        product(supported_dtypes, woq_input_dim_opt, woq_bias_opt, woq_qzeros_opt),
-        skip_on_empty=True,
-    )
-    @torch.inference_mode()
-    def test_woq_supported_scale_dtype(
-        self, dtype, woq_input_dim, woq_bias_idx, woq_qzeros_idx
-    ):
-        self.data.create_data("bfloat16")
-        if dtype == "float32":
-            woq_scales = self.data.woq_scales.to(torch.float32)
-        else:
-            woq_scales = self.data.woq_scales
-        op = Zentorch_Simulated_Woq_Linear(1, 8).eval()
-        simulated_output = op(
-            self.data.woq_input[woq_input_dim],
-            self.data.woq_qweight,
-            woq_scales,
-            self.data.woq_bias[woq_bias_idx],
-            -1,
-        )
-        output = torch.ops.zentorch.zentorch_woq_linear(
-            self.data.woq_input[woq_input_dim],
-            self.data.woq_qweight,
-            woq_scales,
-            self.data.woq_qzeros[woq_qzeros_idx],
-            self.data.woq_bias[woq_bias_idx],
-            -1,
-        )
-        self.assertEqual(output, simulated_output)
 
 
 if __name__ == "__main__":
