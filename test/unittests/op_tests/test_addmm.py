@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2024 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -125,9 +125,10 @@ class Test_Addmm_Op(Zentorch_TestCase):
         )
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_addmm(self.data.x3d, self.data.x, self.data.x)
-            self.assertTrue(
-                "unsupported dims for self, mat1 and mat2!" in str(context.exception)
-            )
+        self.assertTrue(
+            "Incompatible dimensions/shape for input tensor in addmm op"
+            in str(context.exception)
+        )
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_addmm(self.data.x, self.data.x, self.data.y)
         self.assertTrue(

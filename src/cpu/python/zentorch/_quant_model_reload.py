@@ -199,7 +199,7 @@ def get_model_config(config_json_path):
         }
         supported_config = {
             "pack_method": ("order",),
-            "activation_symmetric": (True,),
+            "activation_symmetric": (True, False),
             "weight_symmetric": (True,),
             "torch_dtype": ("float32",),
             "activation_qscheme": ("per_tensor",),

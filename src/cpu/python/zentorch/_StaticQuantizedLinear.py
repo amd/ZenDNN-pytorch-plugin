@@ -7,39 +7,6 @@ import torch
 import torch.nn as nn
 
 
-def get_dequantized_tensors(
-    input: torch.Tensor,
-    weight: torch.Tensor,
-    weight_scales: torch.Tensor,
-    input_scales: torch.Tensor,
-    input_zero_points: torch.Tensor,
-):
-
-    weight_scales = weight_scales.unsqueeze(1)
-    weight_tensor = weight * weight_scales
-    weight_tensor = weight_tensor.to(torch.float32)
-    input = input.to(torch.float)
-    input_tensor = torch.fake_quantize_per_tensor_affine(
-        input, input_scales, input_zero_points, -127, 128
-    )
-    return weight_tensor, input_tensor
-
-
-class Zentorch_Simulated_Static_Linear(nn.Module):
-    def __init__(self):
-        super(Zentorch_Simulated_Static_Linear, self).__init__()
-
-    def forward(
-        self, input, weight, weight_scales, input_scales, bias, input_zero_points
-    ):
-        #  Convert the quantized tensor to a dequantized tensor to compute it in fp32.
-        weight_tensor, input_tensor = get_dequantized_tensors(
-            input, weight, weight_scales, input_scales, input_zero_points
-        )
-        output = torch.nn.functional.linear(input_tensor, weight_tensor, bias)
-        return output
-
-
 # this custom OpContext is created to store weight, weight_scales, weight_zero_points,
 # input_scales, input_zero_points, bias, group_size, weight_bits and
 # compute_dtype as single parameter for ZenTorchStaticQuantizedLinear module.
@@ -175,17 +142,15 @@ class ZenTorchStaticQuantizedLinear(nn.Linear):
         return extra_repr_str
 
     def forward(self, x):
-        op = Zentorch_Simulated_Static_Linear().eval()
-        simulated_output = op(
+        # zentorch op for qlinear
+        linear_out = torch.ops.zentorch.zentorch_qlinear.default(
             x,
             self._op_context.weight,
-            self._op_context.weight_scales,
-            self._op_context.input_scales,
             self._op_context.bias,
-            (
-                self._op_context.input_zero_points
-                if self._op_context.input_zero_points
-                else torch.tensor(0)
-            ),
+            self._op_context.input_scales,
+            self._op_context.input_zero_points,
+            self._op_context.weight_scales,
+            self._op_context.weight_zero_points,
+            x.dtype,
         )
-        return simulated_output
+        return linear_out

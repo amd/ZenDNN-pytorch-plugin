@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2023-2024 Advanced Micro Devices, Inc.
+# Copyright (c) 2023-2025 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -686,6 +686,31 @@ def meta_zentorch_convolution(
     return output
 
 
+@register_meta("zentorch_qlinear")
+def meta_zentorch_qlinear(
+    input,
+    weight,
+    bias,
+    input_scales,
+    input_zero_points,
+    weight_scales,
+    weight_zero_points,
+    output_dtype,
+    output_scales=None,
+    output_zero_points=None,
+):
+    torch._check(
+        output_dtype == torch.float32,
+        lambda: (
+            f"zentorch_qlinear: output_dtype = {output_dtype} is not yet supported, "
+            f"expected output_dtype is torch.float32"
+        ),
+    )
+    out_dim = list(input.size())
+    out_dim[-1] = weight.size(0)
+    return input.new_empty(out_dim, dtype=output_dtype)
+
+
 make_fallback(torch.ops.zentorch.zentorch_addmm)
 make_fallback(torch.ops.zentorch.zentorch_addmm_relu)
 make_fallback(torch.ops.zentorch.zentorch_addmm_silu)
@@ -724,4 +749,6 @@ make_fallback(torch.ops.zentorch.zentorch_woq_linear_gelu_erf)
 make_fallback(torch.ops.zentorch.zentorch_woq_linear_gelu_tanh)
 make_fallback(torch.ops.zentorch.zentorch_woq_linear_add)
 make_fallback(torch.ops.zentorch.zentorch_woq_linear_add_add)
+make_fallback(torch.ops.zentorch.zentorch_woq_linear_silu_mul)
 make_fallback(torch.ops.zentorch.zentorch_convolution)
+make_fallback(torch.ops.zentorch.zentorch_qlinear)

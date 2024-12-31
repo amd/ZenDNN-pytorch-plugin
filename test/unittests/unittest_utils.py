@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2024 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -31,10 +31,13 @@ include_last_offset_opt = [True, False]
 scale_grad_opt = [True, False]
 mode_opt = [0, 1, 2]
 sparse_opt = [True, False]
-woq_input_dim_opt = [2, 3, 4]
-woq_bias_opt = [0, 1]
+input_dim_opt = [2, 3, 4]
+q_weight_list_opt = [0, 1]
+bias_opt = [0, 1]
 woq_qzeros_opt = [0, 1]
 group_size_opt = [-1, 1, 2, 3, 4, 5, 7, 8, 10]
+q_granularity_opt = ["per_tensor", "per_channel"]
+q_zero_points_dtype_opt = ["int8", "uint8"]
 conv_stride = [[1, 1], [2, 2]]
 conv_padding = [[0, 0], [1, 1]]
 
@@ -119,6 +122,41 @@ class Test_Data(metaclass=Singleton):
             torch.randn(60, 50, 40).transpose(1, 2).type(torch_type),
             torch.randn(50, 40, 60).transpose(0, 2).type(torch_type),
         ]
+
+        self.p, self.q = (torch.randint(1, 11, (1,)).item() for _ in range(2))
+
+        self.x_for_qlinear = {
+            2: torch.randn(self.m, self.k).type(torch_type),
+            3: torch.randn(self.m, self.p, self.k).type(torch_type),
+            4: torch.randn(self.m, self.p, self.q, self.k).type(torch_type),
+        }
+        self.y_int8 = [
+            torch.randint(-128, 127, (self.k, self.n)).type(torch.int8).t(),
+            torch.randint(-128, 127, (self.n, self.k)).type(torch.int8),
+        ]
+        self.bias_for_qlinear = [
+            None,
+            torch.randn(self.n).type(torch_type),
+        ]
+        self.x_scales = {
+            "per_tensor": torch.randn((1,)).type(torch.float32),
+        }
+        self.x_zero_points = {
+            "per_tensor": {
+                "int8": torch.tensor(0).type(torch.int8),
+                "uint8": torch.randint(0, 255, (1,)).type(torch.uint8),
+            },
+        }
+        self.y_scales = {
+            "per_tensor": torch.randn((1,)).type(torch.float32),
+            "per_channel": torch.randn(self.n).type(torch.float32),
+        }
+        self.y_zero_points = {
+            "per_tensor": torch.tensor(0).type(torch.int8),
+            "per_channel": torch.zeros(self.n).type(torch.int8),
+        }
+        self.wrong_scales_per_channel = torch.randn(self.n + 1).type(torch.float32)
+        self.wrong_zero_points_per_channel = torch.zeros(self.n + 1).type(torch.int8)
 
         self.woq_m, self.woq_x, self.woq_y = (
             torch.randint(1, 11, (1,)).item() for _ in range(3)
@@ -214,6 +252,13 @@ class Zentorch_TestCase(TestCase):
     def skip_if_bfloat16_path_issue(self, dtype):
         if dtype == "bfloat16":
             self.skipTest("Skipping it due to issue with BF16 path.")
+
+    def skip_if_bfloat16_not_yet_supported(self, dtype):
+        if dtype == "bfloat16":
+            self.skipTest(
+                "Warning: Skipping Bfloat16 Testcases since they are not "
+                + "yet supported"
+            )
 
     def skip_if_bfloat16_unsupported_hardware(self):
         if not zentorch._C.is_bf16_supported():

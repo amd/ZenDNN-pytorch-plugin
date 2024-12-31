@@ -17,9 +17,9 @@ from unittest_utils import (  # noqa: 402
     Zentorch_TestCase,
     has_zentorch,
     run_tests,
-    woq_bias_opt,
+    bias_opt,
     woq_dtypes,
-    woq_input_dim_opt,
+    input_dim_opt,
     woq_qzeros_opt,
     group_size_opt,
 )
@@ -60,7 +60,7 @@ class Zentorch_Simulated_Woq_Linear(nn.Module):
 class Test_WOQ_Linear(Zentorch_TestCase):
     @parameterized.expand(
         product(
-            woq_dtypes, woq_input_dim_opt, woq_bias_opt, woq_qzeros_opt, group_size_opt
+            woq_dtypes, input_dim_opt, bias_opt, woq_qzeros_opt, group_size_opt
         ),
         skip_on_empty=True,
     )
@@ -351,7 +351,7 @@ class Test_WOQ_Linear(Zentorch_TestCase):
         )
 
     @parameterized.expand(
-        product(supported_dtypes, woq_input_dim_opt, woq_bias_opt, woq_qzeros_opt),
+        product(supported_dtypes, input_dim_opt, bias_opt, woq_qzeros_opt),
         skip_on_empty=True,
     )
     @torch.inference_mode()
