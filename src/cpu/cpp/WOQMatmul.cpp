@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright (c) 2024 Advanced Micro Devices, Inc.
+ * Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
  * All rights reserved.
  ******************************************************************************/
 
@@ -119,8 +119,9 @@ zentorch_woq_linear(const at::Tensor &input, const at::Tensor &qweight,
       unpacking_ratio, zentorch_op_name);
 }
 
-template <BINARY_POST_OP fuse>
-at::Tensor zentorch_woq_linear_binary(
+// unary-binary fusions and binary fusions will be handled by this
+template <UNARY_POST_OP fuse1, BINARY_POST_OP fuse2>
+at::Tensor zentorch_woq_linear_unary_binary(
     const at::Tensor &input, const at::Tensor &qweight,
     const at::Tensor &weight_scales,
     const c10::optional<at::Tensor> &weight_zero_point,
@@ -134,7 +135,10 @@ at::Tensor zentorch_woq_linear_binary(
   at::Tensor result = at::empty(binary_input.sizes(), binary_input.options());
 
   std::vector<at::Tensor> post_op_buffers = {binary_input};
-  std::vector<int64_t> post_op_ids = {fuse};
+  std::vector<int64_t> post_op_ids;
+  if (fuse1 != UNARY_POST_OP::POST_OP_NONE)
+    post_op_ids.push_back(fuse1);
+  post_op_ids.push_back(fuse2);
 
   LOG(INFO) << "Calling  zentorch_woq_linear_impl from " << __FUNCTION__
             << "!\n";
@@ -144,46 +148,23 @@ at::Tensor zentorch_woq_linear_binary(
       unpacking_ratio, zentorch_op_name);
 }
 
-at::Tensor zentorch_woq_linear_silu_mul(
+template <BINARY_POST_OP fuse1, BINARY_POST_OP fuse2>
+at::Tensor zentorch_woq_linear_binary_binary(
     const at::Tensor &input, const at::Tensor &qweight,
     const at::Tensor &weight_scales,
     const c10::optional<at::Tensor> &weight_zero_point,
-    const c10::optional<at::Tensor> &bias, const at::Tensor &mul_input,
-    const int64_t &group_size, const int64_t &weight_bits,
-    const std::string &compute_dtype, std::string zentorch_op_name) {
-  LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
-            << "Executing function: " << __FUNCTION__;
-  const int64_t unpacking_ratio = get_unpacking_ratio(qweight, weight_bits);
-
-  at::Tensor result = at::empty(mul_input.sizes(), mul_input.options());
-
-  std::vector<at::Tensor> post_op_buffers = {mul_input};
-  std::vector<int64_t> post_op_ids = {UNARY_POST_OP::SILU, BINARY_POST_OP::MUL};
-
-  LOG(INFO) << "Calling zentorch_woq_linear_impl from " << __FUNCTION__
-            << "!\n";
-  return zentorch_woq_linear_impl(
-      input, qweight, weight_scales, weight_zero_point, bias, result,
-      post_op_ids, post_op_buffers, group_size, weight_bits, compute_dtype,
-      unpacking_ratio, zentorch_op_name);
-}
-
-at::Tensor zentorch_woq_linear_add_add(
-    const at::Tensor &input, const at::Tensor &qweight,
-    const at::Tensor &weight_scales,
-    const c10::optional<at::Tensor> &weight_zero_point,
-    const c10::optional<at::Tensor> &bias, const at::Tensor &add1_input,
-    const at::Tensor &add2_input, const int64_t &group_size,
+    const c10::optional<at::Tensor> &bias, const at::Tensor &binary1_input,
+    const at::Tensor &binary2_input, const int64_t &group_size,
     const int64_t &weight_bits, const std::string &compute_dtype,
     std::string zentorch_op_name) {
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
   const int64_t unpacking_ratio = get_unpacking_ratio(qweight, weight_bits);
 
-  at::Tensor result = at::empty(add2_input.sizes(), add2_input.options());
+  at::Tensor result = at::empty(binary2_input.sizes(), binary2_input.options());
 
-  std::vector<at::Tensor> post_op_buffers = {add1_input, add2_input};
-  std::vector<int64_t> post_op_ids = {BINARY_POST_OP::ADD, BINARY_POST_OP::ADD};
+  std::vector<at::Tensor> post_op_buffers = {binary1_input, binary2_input};
+  std::vector<int64_t> post_op_ids = {fuse1, fuse2};
 
   LOG(INFO) << "Calling  zentorch_woq_linear_impl from " << __FUNCTION__
             << "!\n";
@@ -254,8 +235,13 @@ TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
   m.impl("zentorch_woq_linear_gelu_tanh",
          zentorch_woq_linear<UNARY_POST_OP::GELU_TANH>);
   m.impl("zentorch_woq_linear_add",
-         zentorch_woq_linear_binary<BINARY_POST_OP::ADD>);
-  m.impl("zentorch_woq_linear_silu_mul", zentorch_woq_linear_silu_mul);
-  m.impl("zentorch_woq_linear_add_add", zentorch_woq_linear_add_add);
+         zentorch_woq_linear_unary_binary<UNARY_POST_OP::POST_OP_NONE,
+                                          BINARY_POST_OP::ADD>);
+  m.impl("zentorch_woq_linear_silu_mul",
+         zentorch_woq_linear_unary_binary<UNARY_POST_OP::SILU,
+                                          BINARY_POST_OP::MUL>);
+  m.impl("zentorch_woq_linear_add_add",
+         zentorch_woq_linear_binary_binary<BINARY_POST_OP::ADD,
+                                           BINARY_POST_OP::ADD>);
 }
 } // namespace zentorch
