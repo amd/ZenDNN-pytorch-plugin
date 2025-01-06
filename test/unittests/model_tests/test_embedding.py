@@ -1,11 +1,12 @@
 # ******************************************************************************
-# Copyright (c) 2024 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
 import unittest
 import torch
 from parameterized import parameterized
+from itertools import product
 from torch import nn
 import sys
 from pathlib import Path
@@ -17,6 +18,9 @@ from unittest_utils import (  # noqa: 402
     reset_dynamo,
     run_tests,
     supported_dtypes,
+    zentorch,
+    freeze_opt,
+    test_with_freeze_opt,
 )
 
 
@@ -33,16 +37,20 @@ class Custom_Model_Embedding(nn.Module):
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class Test_Embedding_Model(Zentorch_TestCase):
-    @parameterized.expand(supported_dtypes)
+    @parameterized.expand(product(supported_dtypes, freeze_opt))
     @torch.inference_mode()
-    def test_embedding_compile_model(self, dtype):
+    def test_embedding_compile_model(self, dtype, freeze_opt):
         new_dtype = self.data.get_torch_type(dtype)
         model = Custom_Model_Embedding(100, dtype=new_dtype)
         input = torch.randint(0, 10000, (10,))
         model_output = model(input)
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
-        compiled_graph_output = compiled_graph(input)
+        compiled_graph_output = test_with_freeze_opt(
+            compiled_graph,
+            (input),
+            freeze_opt
+        )
         self.assertEqual(model_output, compiled_graph_output)
 
 

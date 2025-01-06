@@ -1,16 +1,24 @@
 # ******************************************************************************
-# Copyright (c) 2024 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
 import unittest
+from parameterized import parameterized
 from itertools import product
 import torch
 import sys
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
-from unittest_utils import TestCase, run_tests, skip_test_pt_2_3  # noqa: 402
+from unittest_utils import(  # noqa: 402
+    TestCase,
+    run_tests,
+    skip_test_pt_2_3,
+    zentorch,
+    freeze_opt,
+    test_with_freeze_opt,
+)
 
 
 # small testcase for rope, does not have all combinations
@@ -33,7 +41,8 @@ class Test_Rope(TestCase):
         ).float()
         return torch.cat((torch.sin(sinusoid_inp), torch.cos(sinusoid_inp)), dim=1)
 
-    def test_rope(self):
+    @parameterized.expand(freeze_opt)
+    def test_rope(self, freeze_opt):
         def _get_embed_positions(embed_positions, position_ids):
             if embed_positions.device != position_ids.device:
                 embed_positions = embed_positions.to(position_ids.device)
@@ -196,24 +205,31 @@ class Test_Rope(TestCase):
             # torch compile with zentorch backend.
             torch._dynamo.reset()
             func_compile = torch.compile(func, backend="zentorch")
-
-            query_compile_no_concat, _, _ = func_compile(
-                query,
-                embed_positions,
-                position_ids,
-                self.num_heads,
-                self.head_size,
-                offset,
-                rotary_dim,
+            query_compile_no_concat, _, _ = test_with_freeze_opt(
+                func_compile,
+                (
+                    query,
+                    embed_positions,
+                    position_ids,
+                    self.num_heads,
+                    self.head_size,
+                    offset,
+                    rotary_dim,
+                ),
+                freeze_opt
             )
-            query_compile, key_compile, value_compile = func_compile(
-                linear_outs,
-                embed_positions,
-                position_ids,
-                self.num_heads,
-                self.head_size,
-                offset,
-                rotary_dim,
+            query_compile, key_compile, value_compile = test_with_freeze_opt(
+                func_compile,
+                (
+                    linear_outs,
+                    embed_positions,
+                    position_ids,
+                    self.num_heads,
+                    self.head_size,
+                    offset,
+                    rotary_dim,
+                ),
+                freeze_opt
             )
             # test for chatglm fix
             q_t = torch.rand(1, 8, self.num_heads, self.head_size).transpose(0, 1)

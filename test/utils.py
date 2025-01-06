@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2024 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -10,6 +10,7 @@ from packaging.version import parse
 from torch.testing._internal.common_utils import TestCase, run_tests, SEED  # noqa: F401
 
 supported_dtypes = [("float32")]
+freeze_opt = [True, False]
 
 try:
     import zentorch
@@ -70,3 +71,15 @@ def reset_dynamo():
     # wouldn't be pass through zentorch.optimize
     # WARNING: torch._dynamo hit config.cache_size_limit (8)
     torch._dynamo.reset()
+
+
+# Method to hadle test with freezeing enable
+# and parameterized based on freezing option
+def test_with_freeze_opt(compiled_graph, inputs, freeze_opt):
+    if not isinstance(inputs, (tuple, list)):
+        inputs = (inputs,)
+    if freeze_opt:
+        with zentorch.freezing_enabled():
+            return compiled_graph(*inputs)
+    else:
+        return compiled_graph(*inputs)

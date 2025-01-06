@@ -20,6 +20,8 @@ from utils import (  # noqa: 402 # noqa: F401
     skip_test_pt_2_3,
     reset_dynamo,
     set_seed,
+    freeze_opt,
+    test_with_freeze_opt,
 )
 
 woq_dtypes = []

@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2023-2024 Advanced Micro Devices, Inc.
+# Copyright (c) 2023-2025 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -18,6 +18,9 @@ from utils import (  # noqa: 402 # noqa: F401
     supported_dtypes,
     reset_dynamo,
     set_seed,
+    zentorch,
+    freeze_opt,
+    test_with_freeze_opt,
 )
 
 

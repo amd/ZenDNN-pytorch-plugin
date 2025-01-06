@@ -25,6 +25,9 @@ from unittest_utils import (  # noqa: 402
     woq_qzeros_opt,
     group_size_opt,
     skip_test_pt_2_1,
+    zentorch,
+    freeze_opt,
+    test_with_freeze_opt,
 )
 
 
@@ -115,13 +118,24 @@ class Custom_Model_WOQ_Linear_Silu_Mul(nn.Module):
 class Test_WOQ_Linear_Model(Zentorch_TestCase):
     @parameterized.expand(
         product(
-            woq_dtypes, input_dim_opt, bias_opt, woq_qzeros_opt, group_size_opt
+            woq_dtypes,
+            input_dim_opt,
+            bias_opt,
+            woq_qzeros_opt,
+            group_size_opt,
+            freeze_opt
         ),
         skip_on_empty=True,
     )
     @torch.inference_mode()
     def test_woq_linear_add_sequential_model(
-        self, dtype, woq_input_dim, woq_bias_idx, woq_qzeros_idx, group_size_val
+        self,
+        dtype,
+        woq_input_dim,
+        woq_bias_idx,
+        woq_qzeros_idx,
+        group_size_val,
+        freeze_opt
     ):
         self.data.create_data(dtype, group_size_val)
         model = Custom_Model_WOQ_Linear_Add_Sequential().eval()
@@ -141,15 +155,19 @@ class Test_WOQ_Linear_Model(Zentorch_TestCase):
         counters.clear()
         self.assertEqual(counters["zentorch"]["pattern_matcher_woq_add_add"], 0)
         self.assertEqual(counters["zentorch"]["pattern_matcher_woq_add"], 0)
-        _ = compiled_graph(
-            self.data.woq_input[woq_input_dim],
-            self.data.woq_qweight,
-            self.data.woq_scales,
-            self.data.woq_qzeros[woq_qzeros_idx],
-            self.data.woq_bias[woq_bias_idx],
-            self.data.woq_add[woq_input_dim],
-            self.data.woq_add[woq_input_dim],
-            self.data.woq_group_size,
+        _ = test_with_freeze_opt(
+            compiled_graph,
+            (
+                self.data.woq_input[woq_input_dim],
+                self.data.woq_qweight,
+                self.data.woq_scales,
+                self.data.woq_qzeros[woq_qzeros_idx],
+                self.data.woq_bias[woq_bias_idx],
+                self.data.woq_add[woq_input_dim],
+                self.data.woq_add[woq_input_dim],
+                self.data.woq_group_size,
+            ),
+            freeze_opt
         )
         self.assertEqual(counters["zentorch"]["pattern_matcher_woq_add_add"], 1)
         self.assertEqual(counters["zentorch"]["pattern_matcher_woq_add"], 1)
@@ -158,13 +176,24 @@ class Test_WOQ_Linear_Model(Zentorch_TestCase):
     # Add op level test cases for woq_linear_add and woq_linear_mul
     @parameterized.expand(
         product(
-            woq_dtypes, input_dim_opt, bias_opt, woq_qzeros_opt, group_size_opt
+            woq_dtypes,
+            input_dim_opt,
+            bias_opt,
+            woq_qzeros_opt,
+            group_size_opt,
+            freeze_opt
         ),
         skip_on_empty=True,
     )
     @torch.inference_mode()
     def test_woq_linear_add_sequential_postop_float_model(
-        self, dtype, woq_input_dim, woq_bias_idx, woq_qzeros_idx, group_size_val
+        self,
+        dtype,
+        woq_input_dim,
+        woq_bias_idx,
+        woq_qzeros_idx,
+        group_size_val,
+        freeze_opt
     ):
         self.data.create_data(dtype, group_size_val)
         model = Custom_Model_WOQ_Linear_Add_Sequential().eval()
@@ -177,15 +206,19 @@ class Test_WOQ_Linear_Model(Zentorch_TestCase):
         self.assertEqual(counters["zentorch"]["pattern_matcher_woq_add_add"], 0)
         self.assertEqual(counters["zentorch"]["pattern_matcher_woq_add"], 0)
         with self.assertRaises(RuntimeError) as context:
-            _ = compiled_graph(
-                self.data.woq_input[woq_input_dim],
-                self.data.woq_qweight,
-                self.data.woq_scales,
-                self.data.woq_qzeros[woq_qzeros_idx],
-                self.data.woq_bias[woq_bias_idx],
-                self.data.woq_add[woq_input_dim].to(torch.float32),
-                self.data.woq_add[woq_input_dim].to(torch.float32),
-                self.data.woq_group_size,
+            _ = test_with_freeze_opt(
+                compiled_graph,
+                (
+                    self.data.woq_input[woq_input_dim],
+                    self.data.woq_qweight,
+                    self.data.woq_scales,
+                    self.data.woq_qzeros[woq_qzeros_idx],
+                    self.data.woq_bias[woq_bias_idx],
+                    self.data.woq_add[woq_input_dim].to(torch.float32),
+                    self.data.woq_add[woq_input_dim].to(torch.float32),
+                    self.data.woq_group_size,
+                ),
+                freeze_opt
             )
         self.assertEqual(counters["zentorch"]["pattern_matcher_woq_add_add"], 0)
         self.assertEqual(counters["zentorch"]["pattern_matcher_woq_add"], 0)
@@ -196,13 +229,24 @@ class Test_WOQ_Linear_Model(Zentorch_TestCase):
 
     @parameterized.expand(
         product(
-            woq_dtypes, input_dim_opt, bias_opt, woq_qzeros_opt, group_size_opt
+            woq_dtypes,
+            input_dim_opt,
+            bias_opt,
+            woq_qzeros_opt,
+            group_size_opt,
+            freeze_opt
         ),
         skip_on_empty=True,
     )
     @torch.inference_mode()
     def test_woq_linear_silu_mul_postop_float_model(
-        self, dtype, woq_input_dim, woq_bias_idx, woq_qzeros_idx, group_size_val
+        self,
+        dtype,
+        woq_input_dim,
+        woq_bias_idx,
+        woq_qzeros_idx,
+        group_size_val,
+        freeze_opt
     ):
         self.data.create_data(dtype, group_size_val)
         model = Custom_Model_WOQ_Linear_Silu_Mul().eval()
@@ -215,14 +259,18 @@ class Test_WOQ_Linear_Model(Zentorch_TestCase):
         self.assertEqual(counters["zentorch"]["pattern_matcher_woq_add_add"], 0)
         self.assertEqual(counters["zentorch"]["pattern_matcher_woq_add"], 0)
         self.assertEqual(counters["zentorch"]["pattern_matcher_woq_silu_mul"], 0)
-        _ = compiled_graph(
-            self.data.woq_input[woq_input_dim],
-            self.data.woq_qweight,
-            self.data.woq_scales,
-            self.data.woq_qzeros[woq_qzeros_idx],
-            self.data.woq_bias[woq_bias_idx],
-            self.data.woq_mul[woq_input_dim].to(torch.float32),
-            self.data.woq_group_size,
+        _ = test_with_freeze_opt(
+            compiled_graph,
+            (
+                self.data.woq_input[woq_input_dim],
+                self.data.woq_qweight,
+                self.data.woq_scales,
+                self.data.woq_qzeros[woq_qzeros_idx],
+                self.data.woq_bias[woq_bias_idx],
+                self.data.woq_mul[woq_input_dim].to(torch.float32),
+                self.data.woq_group_size,
+            ),
+            freeze_opt
         )
         self.assertEqual(counters["zentorch"]["pattern_matcher_woq_add_add"], 0)
         self.assertEqual(counters["zentorch"]["pattern_matcher_woq_add"], 0)
@@ -230,13 +278,24 @@ class Test_WOQ_Linear_Model(Zentorch_TestCase):
 
     @parameterized.expand(
         product(
-            woq_dtypes, input_dim_opt, bias_opt, woq_qzeros_opt, group_size_opt
+            woq_dtypes,
+            input_dim_opt,
+            bias_opt,
+            woq_qzeros_opt,
+            group_size_opt,
+            freeze_opt
         ),
         skip_on_empty=True,
     )
     @torch.inference_mode()
     def test_woq_linear_add_parallel_model(
-        self, dtype, woq_input_dim, woq_bias_idx, woq_qzeros_idx, group_size_val
+        self,
+        dtype,
+        woq_input_dim,
+        woq_bias_idx,
+        woq_qzeros_idx,
+        group_size_val,
+        freeze_opt
     ):
         self.data.create_data(dtype, group_size_val)
         model = Custom_Model_WOQ_Linear_Add_Parallel().eval()
@@ -256,28 +315,43 @@ class Test_WOQ_Linear_Model(Zentorch_TestCase):
         counters.clear()
         self.assertEqual(counters["zentorch"]["pattern_matcher_woq_add_add"], 0)
         self.assertEqual(counters["zentorch"]["pattern_matcher_woq_add"], 0)
-        _ = compiled_graph(
-            self.data.woq_input[woq_input_dim],
-            self.data.woq_qweight,
-            self.data.woq_scales,
-            self.data.woq_qzeros[woq_qzeros_idx],
-            self.data.woq_bias[woq_bias_idx],
-            self.data.woq_add[woq_input_dim],
-            self.data.woq_add[woq_input_dim],
-            self.data.woq_group_size,
+        _ = test_with_freeze_opt(
+            compiled_graph,
+            (
+                self.data.woq_input[woq_input_dim],
+                self.data.woq_qweight,
+                self.data.woq_scales,
+                self.data.woq_qzeros[woq_qzeros_idx],
+                self.data.woq_bias[woq_bias_idx],
+                self.data.woq_add[woq_input_dim],
+                self.data.woq_add[woq_input_dim],
+                self.data.woq_group_size,
+            ),
+            freeze_opt
         )
         self.assertEqual(counters["zentorch"]["pattern_matcher_woq_add_add"], 1)
         self.assertEqual(counters["zentorch"]["pattern_matcher_woq_add"], 1)
 
     @parameterized.expand(
         product(
-            woq_dtypes, input_dim_opt, bias_opt, woq_qzeros_opt, group_size_opt
+            woq_dtypes,
+            input_dim_opt,
+            bias_opt,
+            woq_qzeros_opt,
+            group_size_opt,
+            freeze_opt
         ),
         skip_on_empty=True,
     )
     @torch.inference_mode()
     def test_woq_linear_silu_mul_model(
-        self, dtype, woq_input_dim, woq_bias_idx, woq_qzeros_idx, group_size_val
+        self,
+        dtype,
+        woq_input_dim,
+        woq_bias_idx,
+        woq_qzeros_idx,
+        group_size_val,
+        freeze_opt
     ):
         self.data.create_data(dtype, group_size_val)
         model = Custom_Model_WOQ_Linear_Silu_Mul().eval()
@@ -295,14 +369,18 @@ class Test_WOQ_Linear_Model(Zentorch_TestCase):
         compiled_graph = torch.compile(zentorch_model, backend="zentorch")
         counters.clear()
         self.assertEqual(counters["zentorch"]["pattern_matcher_woq_silu_mul"], 0)
-        _ = compiled_graph(
-            self.data.woq_input[woq_input_dim],
-            self.data.woq_qweight,
-            self.data.woq_scales,
-            self.data.woq_qzeros[woq_qzeros_idx],
-            self.data.woq_bias[woq_bias_idx],
-            self.data.woq_mul[woq_input_dim],
-            self.data.woq_group_size,
+        _ = test_with_freeze_opt(
+            compiled_graph,
+            (
+                self.data.woq_input[woq_input_dim],
+                self.data.woq_qweight,
+                self.data.woq_scales,
+                self.data.woq_qzeros[woq_qzeros_idx],
+                self.data.woq_bias[woq_bias_idx],
+                self.data.woq_mul[woq_input_dim],
+                self.data.woq_group_size,
+            ),
+            freeze_opt
         )
         self.assertEqual(counters["zentorch"]["pattern_matcher_woq_silu_mul"], 1)
 

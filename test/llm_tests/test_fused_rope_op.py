@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Modifications Copyright (c) 2024 Advanced Micro Devices, Inc.
+# Modifications Copyright (c) 2025 Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Was sourced from
@@ -15,7 +15,15 @@ import sys
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
-from utils import TestCase, run_tests, skip_test_pt_2_3, set_seed  # noqa: 402
+from utils import(  # noqa: 402
+    TestCase,
+    run_tests,
+    skip_test_pt_2_3,
+    set_seed,
+    zentorch,
+    freeze_opt,
+    test_with_freeze_opt,
+)
 
 batch_sz_lst = [1, 2, 4, 8, 16, 32, 64]
 seq_ln_lst = [32, 64, 128, 256, 512]
@@ -40,8 +48,8 @@ class Test_Fused_Rope(TestCase):
         ).float()
         return torch.cat((torch.sin(sinusoid_inp), torch.cos(sinusoid_inp)), dim=1)
 
-    @parameterized.expand(product(batch_sz_lst, seq_ln_lst))
-    def test_llm_rope(self, batch_sz, seq_ln):
+    @parameterized.expand(product(batch_sz_lst, seq_ln_lst, freeze_opt))
+    def test_llm_rope(self, batch_sz, seq_ln, freeze_opt):
         def _get_embed_positions(embed_positions, position_ids):
             if embed_positions.device != position_ids.device:
                 embed_positions = embed_positions.to(position_ids.device)
@@ -204,24 +212,31 @@ class Test_Fused_Rope(TestCase):
             # torch compile with zentorch backend.
             torch._dynamo.reset()
             func_compile = torch.compile(func, backend="zentorch")
-
-            query_compile_no_concat, _, _ = func_compile(
-                query,
-                embed_positions,
-                position_ids,
-                self.num_heads,
-                self.head_size,
-                offset,
-                rotary_dim,
+            query_compile_no_concat, _, _ = test_with_freeze_opt(
+                func_compile,
+                (
+                    query,
+                    embed_positions,
+                    position_ids,
+                    self.num_heads,
+                    self.head_size,
+                    offset,
+                    rotary_dim,
+                ),
+                freeze_opt
             )
-            query_compile, key_compile, value_compile = func_compile(
-                linear_outs,
-                embed_positions,
-                position_ids,
-                self.num_heads,
-                self.head_size,
-                offset,
-                rotary_dim,
+            query_compile, key_compile, value_compile = test_with_freeze_opt(
+                func_compile,
+                (
+                    linear_outs,
+                    embed_positions,
+                    position_ids,
+                    self.num_heads,
+                    self.head_size,
+                    offset,
+                    rotary_dim,
+                ),
+                freeze_opt
             )
 
             atol = 1e-5 if dtype == torch.float32 else 5e-3
