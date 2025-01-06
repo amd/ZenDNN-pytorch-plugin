@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2024 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -7,6 +7,7 @@ import copy
 import unittest
 import torch
 from parameterized import parameterized
+from itertools import product
 from torch import nn
 import sys
 from pathlib import Path
@@ -18,6 +19,9 @@ from unittest_utils import (  # noqa: 402
     reset_dynamo,
     run_tests,
     supported_dtypes,
+    zentorch,
+    freeze_opt,
+    test_with_freeze_opt,
 )
 
 
@@ -48,9 +52,9 @@ class Custom_Model_Addmm_Relu1(nn.Module):
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class Test_Addmm_Relu_Model(Zentorch_TestCase):
-    @parameterized.expand(supported_dtypes)
+    @parameterized.expand(product(supported_dtypes, freeze_opt))
     @torch.inference_mode()
-    def test_addmm_relu2_model(self, dtype):
+    def test_addmm_relu2_model(self, dtype, freeze_opt):
         self.skip_if_bfloat16_path_issue(dtype)
         self.data.create_data(dtype)
         model = Custom_Model_Addmm_Relu2().eval()
@@ -60,14 +64,16 @@ class Test_Addmm_Relu_Model(Zentorch_TestCase):
                     model_output = model(inp, self.data.x1[i], self.data.y1[j])
                     reset_dynamo()
                     compiled_graph = torch.compile(model, backend="zentorch")
-                    compiled_graph_output = compiled_graph(
-                        inp, self.data.x1[i], self.data.y1[j]
+                    compiled_graph_output = test_with_freeze_opt(
+                        compiled_graph,
+                        (inp, self.data.x1[i], self.data.y1[j]),
+                        freeze_opt
                     )
                     self.assertEqual(model_output, compiled_graph_output)
 
-    @parameterized.expand(supported_dtypes)
+    @parameterized.expand(product(supported_dtypes, freeze_opt))
     @torch.inference_mode()
-    def test_addmm_relu1_model(self, dtype):
+    def test_addmm_relu1_model(self, dtype, freeze_opt):
         self.data.create_data(dtype)
         model = Custom_Model_Addmm_Relu1(self.data.n, self.data.m).eval()
         if dtype == "bfloat16":
@@ -75,13 +81,17 @@ class Test_Addmm_Relu_Model(Zentorch_TestCase):
         model_output = model(self.data.input)
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
-        compiled_graph_output = compiled_graph(self.data.input)
+        compiled_graph_output = test_with_freeze_opt(
+            compiled_graph,
+            (self.data.input),
+            freeze_opt
+        )
         self.assertEqual(model_output, compiled_graph_output)
 
-    @parameterized.expand(supported_dtypes)
+    @parameterized.expand(product(supported_dtypes, freeze_opt))
     @torch.inference_mode()
     @unittest.skip("Nan and Inf giving non-deterministic output")
-    def test_addmm_relu1_model_with_nan_or_inf(self, dtype):
+    def test_addmm_relu1_model_with_nan_or_inf(self, dtype, freeze_opt):
         if dtype == "bfloat16":
             self.skipTest("Skipping it since this testcase is not applicable for BF16.")
 
@@ -96,7 +106,11 @@ class Test_Addmm_Relu_Model(Zentorch_TestCase):
         inductor_graph_output = inductor_graph(self.data.input)
         reset_dynamo()
         zentorch_graph = torch.compile(zentorch_model, backend="zentorch")
-        zentorch_graph_output = zentorch_graph(self.data.input)
+        zentorch_graph_output = test_with_freeze_opt(
+            zentorch_graph,
+            (self.data.input),
+            freeze_opt
+        )
         self.assertEqual(inductor_graph_output, zentorch_graph_output)
 
 

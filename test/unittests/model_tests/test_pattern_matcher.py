@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2024 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -7,6 +7,7 @@ import copy
 import unittest
 import torch
 from parameterized import parameterized
+from itertools import product
 from torch import nn
 import sys
 from pathlib import Path
@@ -21,6 +22,8 @@ from unittest_utils import (  # noqa: 402
     supported_dtypes,
     zentorch,
     skip_test_pt_2_1,
+    freeze_opt,
+    test_with_freeze_opt,
 )
 
 
@@ -128,9 +131,10 @@ class Custom_Model_MM_Silu(torch.nn.Module):
     skip_test_pt_2_1, "Pattern matcher disabled for Torch < 2.2"
 )
 class Test_Pattern_Matcher_Model(Zentorch_TestCase):
-    @parameterized.expand(supported_dtypes)
+    @parameterized.expand(product(supported_dtypes, freeze_opt))
     @torch.inference_mode()
-    def test_addmm_silu_mul_pattern_model(self, dtype):
+    def test_addmm_silu_mul_pattern_model(self, dtype, freeze_opt):
+        reset_dynamo()
         decomp_mm_silu_model = Custom_Model_Addmm_Silu_Mul()
         model = decomp_mm_silu_model.to("cpu").eval()
         compiled_model = torch.compile(model, backend="zentorch")
@@ -142,13 +146,18 @@ class Test_Pattern_Matcher_Model(Zentorch_TestCase):
         counters.clear()
         self.assertEqual(counters["zentorch"]["pattern_matcher_addmm_silu_mul"], 0)
         with torch.autocast(device_type="cpu", enabled=amp_enabled):
-            _ = compiled_model(inp_0, inp_1, inp_2, inp_2)
+            _ = test_with_freeze_opt(
+                compiled_model,
+                (inp_0, inp_1, inp_2, inp_2),
+                freeze_opt
+            )
             # test for both dtypes, two separate tests will be run
             self.assertEqual(counters["zentorch"]["pattern_matcher_addmm_silu_mul"], 1)
 
-    @parameterized.expand(supported_dtypes)
+    @parameterized.expand(product(supported_dtypes, freeze_opt))
     @torch.inference_mode()
-    def test_addmm_alpha_beta_silu_mul_pattern_model(self, dtype):
+    def test_addmm_alpha_beta_silu_mul_pattern_model(self, dtype, freeze_opt):
+        reset_dynamo()
         decomp_mm_silu_model = Custom_Model_Addmm_Alpha_Beta_Silu_Mul()
         model = decomp_mm_silu_model.to("cpu").eval()
         compiled_model = torch.compile(model, backend="zentorch")
@@ -160,12 +169,17 @@ class Test_Pattern_Matcher_Model(Zentorch_TestCase):
         counters.clear()
         self.assertEqual(counters["zentorch"]["pattern_matcher_addmm_silu_mul"], 0)
         with torch.autocast(device_type="cpu", enabled=amp_enabled):
-            _ = compiled_model(inp_0, inp_1, inp_2, inp_2)
+            _ = test_with_freeze_opt(
+                compiled_model,
+                (inp_0, inp_1, inp_2, inp_2),
+                freeze_opt
+            )
             self.assertEqual(counters["zentorch"]["pattern_matcher_addmm_silu_mul"], 1)
 
-    @parameterized.expand(supported_dtypes)
+    @parameterized.expand(product(supported_dtypes, freeze_opt))
     @torch.inference_mode()
-    def test_gelu_erf_pattern_model(self, dtype):
+    def test_gelu_erf_pattern_model(self, dtype, freeze_opt):
+        reset_dynamo()
         decomp_gelu_model = Custom_Model_Gelu_Erf()
         model = decomp_gelu_model.to("cpu").eval()
         compiled_model = torch.compile(model, backend="zentorch")
@@ -173,12 +187,18 @@ class Test_Pattern_Matcher_Model(Zentorch_TestCase):
         inp = torch.empty((4, 11), dtype=new_dtype)
         counters.clear()
         self.assertEqual(counters["zentorch"]["pattern_matcher_gelu"], 0)
-        _ = compiled_model(inp)
+        _ = test_with_freeze_opt(
+            compiled_model,
+            (inp),
+            freeze_opt
+        )
         # test for both dtypes, two separate tests will be run
         self.assertEqual(counters["zentorch"]["pattern_matcher_gelu"], 1)
 
+    @parameterized.expand(freeze_opt)
     @torch.inference_mode()
-    def test_gelu_erf_autocast_pattern_model(self):
+    def test_gelu_erf_autocast_pattern_model(self, freeze_opt):
+        reset_dynamo()
         inp = torch.empty((5, 13))
         decomp_gelu_model = Custom_Model_Gelu_Erf()
         model = decomp_gelu_model.to("cpu").eval()
@@ -186,12 +206,17 @@ class Test_Pattern_Matcher_Model(Zentorch_TestCase):
         counters.clear()
         self.assertEqual(counters["zentorch"]["pattern_matcher_gelu"], 0)
         with torch.autocast("cpu"):
-            _ = compiled_model(inp)
+            _ = test_with_freeze_opt(
+                compiled_model,
+                (inp),
+                freeze_opt
+            )
             self.assertEqual(counters["zentorch"]["pattern_matcher_gelu"], 1)
 
-    @parameterized.expand(supported_dtypes)
+    @parameterized.expand(product(supported_dtypes, freeze_opt))
     @torch.inference_mode()
-    def test_bmm1_pattern_model(self, dtype):
+    def test_bmm1_pattern_model(self, dtype, freeze_opt):
+        reset_dynamo()
         custom_expand_model = Custom_Model_BMM1()
         new_dtype = self.data.get_torch_type(dtype)
         # case 1: arg_o.size(1) == 1
@@ -204,7 +229,11 @@ class Test_Pattern_Matcher_Model(Zentorch_TestCase):
         compiled_model = torch.compile(model_case1, backend="zentorch")
         counters.clear()
         self.assertEqual(counters["zentorch"]["pattern_matcher_bmm_to_mm"], 0)
-        zentorch_graph_output = compiled_model(arg_0, arg_1)
+        zentorch_graph_output = test_with_freeze_opt(
+            compiled_model,
+            (arg_0, arg_1),
+            freeze_opt
+        )
         self.assertEqual(counters["zentorch"]["pattern_matcher_bmm_to_mm"], 1)
         self.assertEqual(native_output, zentorch_graph_output)
 
@@ -216,7 +245,11 @@ class Test_Pattern_Matcher_Model(Zentorch_TestCase):
         compiled_model = torch.compile(model_case2, backend="zentorch")
         counters.clear()
         self.assertEqual(counters["zentorch"]["pattern_matcher_bmm_to_mm"], 0)
-        zentorch_graph_output = compiled_model(arg_0, arg_1)
+        zentorch_graph_output = test_with_freeze_opt(
+            compiled_model,
+            (arg_0, arg_1),
+            freeze_opt
+        )
         self.assertEqual(counters["zentorch"]["pattern_matcher_bmm_to_mm"], 0)
         self.assertEqual(native_output, zentorch_graph_output)
 
@@ -231,13 +264,18 @@ class Test_Pattern_Matcher_Model(Zentorch_TestCase):
         compiled_model = torch.compile(model_case1, backend="zentorch")
         counters.clear()
         self.assertEqual(counters["zentorch"]["pattern_matcher_bmm_to_mm"], 0)
-        zentorch_graph_output = compiled_model(arg_0, arg_1)
+        zentorch_graph_output = test_with_freeze_opt(
+            compiled_model,
+            (arg_0, arg_1),
+            freeze_opt
+        )
         self.assertEqual(counters["zentorch"]["pattern_matcher_bmm_to_mm"], 0)
         self.assertEqual(native_output, zentorch_graph_output)
 
-    @parameterized.expand(supported_dtypes)
+    @parameterized.expand(product(supported_dtypes, freeze_opt))
     @torch.inference_mode()
-    def test_bmm2_pattern_model(self, dtype):
+    def test_bmm2_pattern_model(self, dtype, freeze_opt):
+        reset_dynamo()
         custom_expand_model = Custom_Model_BMM2()
         model = custom_expand_model.to("cpu").eval()
         new_dtype = self.data.get_torch_type(dtype)
@@ -248,13 +286,18 @@ class Test_Pattern_Matcher_Model(Zentorch_TestCase):
         reset_dynamo()
         compiled_model = torch.compile(model, backend="zentorch")
         self.assertEqual(counters["zentorch"]["pattern_matcher_bmm_to_mm"], 0)
-        zentorch_graph_output = compiled_model(arg_0, arg_1)
+        zentorch_graph_output = test_with_freeze_opt(
+            compiled_model,
+            (arg_0, arg_1),
+            freeze_opt
+        )
         self.assertEqual(counters["zentorch"]["pattern_matcher_bmm_to_mm"], 1)
         self.assertEqual(native_output, zentorch_graph_output)
 
-    @parameterized.expand(supported_dtypes)
+    @parameterized.expand(product(supported_dtypes, freeze_opt))
     @torch.inference_mode()
-    def test_mm_silu_pattern_model(self, dtype):
+    def test_mm_silu_pattern_model(self, dtype, freeze_opt):
+        reset_dynamo()
         mm_split_model = Custom_Model_MM_Silu(4, 64, 30)
         model = mm_split_model.to("cpu").eval()
         if dtype == "bfloat16":
@@ -271,11 +314,19 @@ class Test_Pattern_Matcher_Model(Zentorch_TestCase):
             self.skip_if_bfloat16_unsupported_hardware()
             self.assertEqual(counters["zentorch"]["pattern_matcher_split_mm"], 0)
             with torch.autocast("cpu"):
-                _ = compiled_model(inp)
+                _ = test_with_freeze_opt(
+                    compiled_model,
+                    (inp),
+                    freeze_opt
+                )
                 self.assertEqual(counters["zentorch"]["pattern_matcher_split_mm"], 1)
                 counters.clear()
         self.assertEqual(counters["zentorch"]["pattern_matcher_split_mm"], 0)
-        compiled_model_op = compiled_model(inp)
+        compiled_model_op = test_with_freeze_opt(
+            compiled_model,
+            (inp),
+            freeze_opt
+        )
         self.assertEqual(counters["zentorch"]["pattern_matcher_split_mm"], 1)
         self.assertEqual(model_op, compiled_model_op)
 

@@ -1,11 +1,12 @@
 # ******************************************************************************
-# Copyright (c) 2024 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
 import unittest
 import torch
 from parameterized import parameterized
+from itertools import product
 from torch import nn
 import sys
 from pathlib import Path
@@ -17,6 +18,9 @@ from unittest_utils import (  # noqa: 402
     reset_dynamo,
     run_tests,
     supported_dtypes,
+    zentorch,
+    freeze_opt,
+    test_with_freeze_opt,
 )
 
 
@@ -65,9 +69,9 @@ class Custom_Model_Group_Addmm_1dbias_Embedding_Bag(nn.Module):
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class Test_Group_Embedding_Bad_Addmm_1dbias_Model(Zentorch_TestCase):
-    @parameterized.expand(supported_dtypes)
+    @parameterized.expand(product(supported_dtypes, freeze_opt))
     @torch.inference_mode()
-    def test_group_embedding_bag_addmm_1dbias_model(self, dtype):
+    def test_group_embedding_bag_addmm_1dbias_model(self, dtype, freeze_opt):
         self.data.create_data(dtype)
         indices = self.data.emb_input
         offsets = self.data.offsets
@@ -76,12 +80,16 @@ class Test_Group_Embedding_Bad_Addmm_1dbias_Model(Zentorch_TestCase):
         native_output = model(indices, offsets, mlp_inputs)
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
-        compiled_output = compiled_graph(indices, offsets, mlp_inputs)
+        compiled_output = test_with_freeze_opt(
+            compiled_graph,
+            (indices, offsets, mlp_inputs),
+            freeze_opt
+        )
         self.assertEqual(native_output, compiled_output)
 
-    @parameterized.expand(supported_dtypes)
+    @parameterized.expand(product(supported_dtypes, freeze_opt))
     @torch.inference_mode()
-    def test_group_addmm_1dbias_embedding_bag_model(self, dtype):
+    def test_group_addmm_1dbias_embedding_bag_model(self, dtype, freeze_opt):
         self.data.create_data(dtype)
         indices = self.data.emb_input
         offsets = self.data.offsets
@@ -90,6 +98,9 @@ class Test_Group_Embedding_Bad_Addmm_1dbias_Model(Zentorch_TestCase):
         native_output = model(indices, offsets, mlp_inputs)
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
-
-        compiled_output = compiled_graph(indices, offsets, mlp_inputs)
+        compiled_output = test_with_freeze_opt(
+            compiled_graph,
+            (indices, offsets, mlp_inputs),
+            freeze_opt
+        )
         self.assertEqual(native_output, compiled_output)

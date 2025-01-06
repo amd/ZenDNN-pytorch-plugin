@@ -1,10 +1,11 @@
 # ******************************************************************************
-# Copyright (c) 2024 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 import unittest
 import copy
 import torch
+from parameterized import parameterized
 from torch import nn
 import sys
 from pathlib import Path
@@ -12,10 +13,14 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))
 from unittest_utils import (  # noqa: 402
     Zentorch_TestCase,
+    reset_dynamo,
     counters,
     run_tests,
     zentorch,
     skip_test_pt_2_1,
+    zentorch,
+    freeze_opt,
+    test_with_freeze_opt,
 )
 
 
@@ -45,8 +50,10 @@ class Custom_Model_Addmm_1dbias_Alpha_Beta_SiLU_Mul(nn.Module):
 
 @unittest.skipIf(skip_test_pt_2_1, "Pattern matcher disabled for Torch < 2.2")
 class Test_Pattern_Matcher_Test_With_Different_Dtypes_Model(Zentorch_TestCase):
+    @parameterized.expand(freeze_opt)
     @torch.inference_mode()
-    def test_float32_addmm_1dbias_silu_float32_mul_pattern_model(self):
+    def test_float32_addmm_1dbias_silu_float32_mul_pattern_model(self, freeze_opt):
+        reset_dynamo()
         self.data.create_data("float32")
         model = Custom_Model_Addmm_1dbias_SiLU_Mul(self.data, bias=True)
 
@@ -59,15 +66,24 @@ class Test_Pattern_Matcher_Test_With_Different_Dtypes_Model(Zentorch_TestCase):
         )
         zentorch_model = copy.deepcopy(model)
         compiled_model = torch.compile(zentorch_model, backend="zentorch")
-        _ = compiled_model(
-            self.data.input.view(1, self.data.m, self.data.n), mul_tensor
+        _ = test_with_freeze_opt(
+            compiled_model,
+            (
+                self.data.input.view(1, self.data.m, self.data.n), mul_tensor
+            ),
+            freeze_opt
         )
         self.assertEqual(
             counters["zentorch"]["pattern_matcher_addmm_1dbias_silu_mul"], 1
         )
 
+    @parameterized.expand(freeze_opt)
     @torch.inference_mode()
-    def test_float32_addmm_1dbias_alpha_beta_silu_float32_mul_pattern_model(self):
+    def test_float32_addmm_1dbias_alpha_beta_silu_float32_mul_pattern_model(
+        self,
+        freeze_opt
+    ):
+        reset_dynamo()
         model = Custom_Model_Addmm_1dbias_Alpha_Beta_SiLU_Mul()
         self.data.create_data("float32")
 
@@ -83,13 +99,19 @@ class Test_Pattern_Matcher_Test_With_Different_Dtypes_Model(Zentorch_TestCase):
 
         zentorch_model = copy.deepcopy(model)
         compiled_model = torch.compile(zentorch_model, backend="zentorch")
-        _ = compiled_model(mat1_tensor, mat2_tensor, bias_tensor, mul_tensor)
+        _ = test_with_freeze_opt(
+            compiled_model,
+            (mat1_tensor, mat2_tensor, bias_tensor, mul_tensor),
+            freeze_opt
+        )
         self.assertEqual(
             counters["zentorch"]["pattern_matcher_addmm_1dbias_silu_mul"], 1
         )
 
+    @parameterized.expand(freeze_opt)
     @torch.inference_mode()
-    def test_float32_addmm_1dbias_silu_bfloat16_mul_pattern_model(self):
+    def test_float32_addmm_1dbias_silu_bfloat16_mul_pattern_model(self, freeze_opt):
+        reset_dynamo()
         self.data.create_data("float32")
         model = Custom_Model_Addmm_1dbias_SiLU_Mul(self.data, bias=True)
         mul_tensor = torch.reshape(self.data.x, (1, self.data.m, self.data.k)).to(
@@ -101,15 +123,21 @@ class Test_Pattern_Matcher_Test_With_Different_Dtypes_Model(Zentorch_TestCase):
         )
         zentorch_model = copy.deepcopy(model)
         compiled_model = torch.compile(zentorch_model, backend="zentorch")
-        _ = compiled_model(
-            self.data.input.view(1, self.data.m, self.data.n), mul_tensor
+        _ = test_with_freeze_opt(
+            compiled_model,
+            (
+                self.data.input.view(1, self.data.m, self.data.n), mul_tensor
+            ),
+            freeze_opt
         )
         self.assertEqual(
             counters["zentorch"]["pattern_matcher_addmm_1dbias_silu_mul"], 0
         )
 
+    @parameterized.expand(freeze_opt)
     @torch.inference_mode()
-    def test_bfloat16_addmm_1dbias_silu_float32_mul_pattern_model(self):
+    def test_bfloat16_addmm_1dbias_silu_float32_mul_pattern_model(self, freeze_opt):
+        reset_dynamo()
         self.skip_if_bfloat16_unsupported_hardware()
         self.data.create_data("bfloat16")
         model = Custom_Model_Addmm_1dbias_SiLU_Mul(self.data, bias=True)
@@ -123,15 +151,21 @@ class Test_Pattern_Matcher_Test_With_Different_Dtypes_Model(Zentorch_TestCase):
         )
         zentorch_model = copy.deepcopy(model).to(dtype=torch.bfloat16)
         compiled_model = torch.compile(zentorch_model, backend="zentorch")
-        _ = compiled_model(
-            self.data.input.view(1, self.data.m, self.data.n), mul_tensor
+        _ = test_with_freeze_opt(
+            compiled_model,
+            (
+                self.data.input.view(1, self.data.m, self.data.n), mul_tensor
+            ),
+            freeze_opt
         )
         self.assertEqual(
             counters["zentorch"]["pattern_matcher_addmm_1dbias_silu_mul"], 0
         )
 
+    @parameterized.expand(freeze_opt)
     @torch.inference_mode()
-    def test_bfloat16_addmm_1dbias_silu_bfloat16_mul_pattern_model(self):
+    def test_bfloat16_addmm_1dbias_silu_bfloat16_mul_pattern_model(self, freeze_opt):
+        reset_dynamo()
         self.skip_if_bfloat16_unsupported_hardware()
         self.data.create_data("bfloat16")
         model = Custom_Model_Addmm_1dbias_SiLU_Mul(self.data, bias=True)
@@ -144,15 +178,21 @@ class Test_Pattern_Matcher_Test_With_Different_Dtypes_Model(Zentorch_TestCase):
         )
         zentorch_model = model.to(dtype=torch.bfloat16)
         compiled_model = torch.compile(zentorch_model, backend="zentorch")
-        _ = compiled_model(
-            self.data.input.view(1, self.data.m, self.data.n), mul_tensor
+        _ = test_with_freeze_opt(
+            compiled_model,
+            (
+                self.data.input.view(1, self.data.m, self.data.n), mul_tensor
+            ),
+            freeze_opt
         )
         self.assertEqual(
             counters["zentorch"]["pattern_matcher_addmm_1dbias_silu_mul"], 1
         )
 
+    @parameterized.expand(freeze_opt)
     @torch.inference_mode()
-    def test_float32_mm_silu_float32_mul_pattern_model(self):
+    def test_float32_mm_silu_float32_mul_pattern_model(self, freeze_opt):
+        reset_dynamo()
         self.data.create_data("float32")
         model = Custom_Model_Addmm_1dbias_SiLU_Mul(self.data, bias=False)
 
@@ -163,13 +203,19 @@ class Test_Pattern_Matcher_Test_With_Different_Dtypes_Model(Zentorch_TestCase):
         self.assertEqual(counters["zentorch"]["pattern_matcher_mm_silu_mul"], 0)
         zentorch_model = model
         compiled_model = torch.compile(zentorch_model, backend="zentorch")
-        _ = compiled_model(
-            self.data.input.view(1, self.data.m, self.data.n), mul_tensor
+        _ = test_with_freeze_opt(
+            compiled_model,
+            (
+                self.data.input.view(1, self.data.m, self.data.n), mul_tensor
+            ),
+            freeze_opt
         )
         self.assertEqual(counters["zentorch"]["pattern_matcher_mm_silu_mul"], 1)
 
+    @parameterized.expand(freeze_opt)
     @torch.inference_mode()
-    def test_float32_mm_silu_bfloat16_mul_pattern_model(self):
+    def test_float32_mm_silu_bfloat16_mul_pattern_model(self, freeze_opt):
+        reset_dynamo()
         self.data.create_data("float32")
         model = Custom_Model_Addmm_1dbias_SiLU_Mul(self.data, bias=False)
         mul_tensor = torch.reshape(self.data.x, (1, self.data.m, self.data.k)).to(
@@ -179,13 +225,19 @@ class Test_Pattern_Matcher_Test_With_Different_Dtypes_Model(Zentorch_TestCase):
         self.assertEqual(counters["zentorch"]["pattern_matcher_mm_silu_mul"], 0)
         zentorch_model = model
         compiled_model = torch.compile(zentorch_model, backend="zentorch")
-        _ = compiled_model(
-            self.data.input.view(1, self.data.m, self.data.n), mul_tensor
+        _ = test_with_freeze_opt(
+            compiled_model,
+            (
+                self.data.input.view(1, self.data.m, self.data.n), mul_tensor
+            ),
+            freeze_opt
         )
         self.assertEqual(counters["zentorch"]["pattern_matcher_mm_silu_mul"], 0)
 
+    @parameterized.expand(freeze_opt)
     @torch.inference_mode()
-    def test_bfloat16_mm_silu_float32_mul_pattern_model(self):
+    def test_bfloat16_mm_silu_float32_mul_pattern_model(self, freeze_opt):
+        reset_dynamo()
         self.skip_if_bfloat16_unsupported_hardware()
         self.data.create_data("bfloat16")
         model = Custom_Model_Addmm_1dbias_SiLU_Mul(self.data, bias=False)
@@ -197,13 +249,19 @@ class Test_Pattern_Matcher_Test_With_Different_Dtypes_Model(Zentorch_TestCase):
         self.assertEqual(counters["zentorch"]["pattern_matcher_mm_silu_mul"], 0)
         zentorch_model = model.to(dtype=torch.bfloat16)
         compiled_model = torch.compile(zentorch_model, backend="zentorch")
-        _ = compiled_model(
-            self.data.input.view(1, self.data.m, self.data.n), mul_tensor
+        _ = test_with_freeze_opt(
+            compiled_model,
+            (
+                self.data.input.view(1, self.data.m, self.data.n), mul_tensor
+            ),
+            freeze_opt
         )
         self.assertEqual(counters["zentorch"]["pattern_matcher_mm_silu_mul"], 0)
 
+    @parameterized.expand(freeze_opt)
     @torch.inference_mode()
-    def test_bfloat16_mm_silu_bfloat16_mul_pattern_model(self):
+    def test_bfloat16_mm_silu_bfloat16_mul_pattern_model(self, freeze_opt):
+        reset_dynamo()
         self.skip_if_bfloat16_unsupported_hardware()
         self.data.create_data("bfloat16")
         model = Custom_Model_Addmm_1dbias_SiLU_Mul(self.data, bias=False)
@@ -214,8 +272,12 @@ class Test_Pattern_Matcher_Test_With_Different_Dtypes_Model(Zentorch_TestCase):
         self.assertEqual(counters["zentorch"]["pattern_matcher_mm_silu_mul"], 0)
         zentorch_model = model.to(dtype=torch.bfloat16)
         compiled_model = torch.compile(zentorch_model, backend="zentorch")
-        _ = compiled_model(
-            self.data.input.view(1, self.data.m, self.data.n), mul_tensor
+        _ = test_with_freeze_opt(
+            compiled_model,
+            (
+                self.data.input.view(1, self.data.m, self.data.n), mul_tensor
+            ),
+            freeze_opt
         )
         self.assertEqual(counters["zentorch"]["pattern_matcher_mm_silu_mul"], 1)
 

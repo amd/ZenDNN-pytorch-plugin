@@ -1,11 +1,12 @@
 # ******************************************************************************
-# Copyright (c) 2024 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
 import unittest
 import torch
 from parameterized import parameterized
+from itertools import product
 from torch import nn
 import sys
 from pathlib import Path
@@ -19,7 +20,10 @@ from unittest_utils import (  # noqa: 402
     run_tests,
     supported_dtypes,
     zentorch,
-    skip_test_pt_2_1
+    skip_test_pt_2_1,
+    zentorch,
+    freeze_opt,
+    test_with_freeze_opt,
 )
 
 
@@ -51,9 +55,9 @@ class Custom_Model_MM_Silu_Mul(nn.Module):
 )
 class Test_MM_SiLU_Mul_Model(Zentorch_TestCase):
 
-    @parameterized.expand(supported_dtypes)
+    @parameterized.expand(product(supported_dtypes, freeze_opt))
     @torch.inference_mode()
-    def test_mm_silu_mul_with_bias_model(self, dtype):
+    def test_mm_silu_mul_with_bias_model(self, dtype, freeze_opt):
         self.data.create_data(dtype)
         model = Custom_Model_MM_Silu_Mul(self.data, bias=True)
         model_input = self.data.input.view(1, self.data.m, self.data.n)
@@ -82,15 +86,19 @@ class Test_MM_SiLU_Mul_Model(Zentorch_TestCase):
         self.assertEqual(
             counters["zentorch"]["pattern_matcher_addmm_1dbias_silu_mul"], 0
         )
-        compiled_graph_output = compiled_graph(model_input)
+        compiled_graph_output = test_with_freeze_opt(
+            compiled_graph,
+            (model_input),
+            freeze_opt
+        )
         self.assertEqual(
             counters["zentorch"]["pattern_matcher_addmm_1dbias_silu_mul"], 1
         )
         self.assertEqual(model_output, compiled_graph_output)
 
-    @parameterized.expand(supported_dtypes)
+    @parameterized.expand(product(supported_dtypes, freeze_opt))
     @torch.inference_mode()
-    def test_mm_silu_mul_without_bias_model(self, dtype):
+    def test_mm_silu_mul_without_bias_model(self, dtype, freeze_opt):
         self.data.create_data(dtype)
         model = Custom_Model_MM_Silu_Mul(self.data, bias=False)
         model_input = self.data.input.view(1, self.data.m, self.data.n)
@@ -113,7 +121,11 @@ class Test_MM_SiLU_Mul_Model(Zentorch_TestCase):
                 self.assertEqual(counters["zentorch"]["pattern_matcher_mm_silu_mul"], 1)
                 counters.clear()
         self.assertEqual(counters["zentorch"]["pattern_matcher_mm_silu_mul"], 0)
-        compiled_graph_output = compiled_graph(model_input)
+        compiled_graph_output = test_with_freeze_opt(
+            compiled_graph,
+            (model_input),
+            freeze_opt
+        )
         self.assertEqual(counters["zentorch"]["pattern_matcher_mm_silu_mul"], 1)
         self.assertEqual(model_output, compiled_graph_output)
 

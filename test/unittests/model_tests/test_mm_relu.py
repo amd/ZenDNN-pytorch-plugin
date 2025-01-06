@@ -1,11 +1,12 @@
 # ******************************************************************************
-# Copyright (c) 2024 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
 import unittest
 import torch
 from parameterized import parameterized
+from itertools import product
 from torch import nn
 import sys
 from pathlib import Path
@@ -17,6 +18,9 @@ from unittest_utils import (  # noqa: 402
     reset_dynamo,
     run_tests,
     supported_dtypes,
+    zentorch,
+    freeze_opt,
+    test_with_freeze_opt,
 )
 
 
@@ -46,9 +50,9 @@ class Custom_Model_MM_ReLU1(nn.Module):
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class Test_MM_RELU_Model(Zentorch_TestCase):
-    @parameterized.expand(supported_dtypes)
+    @parameterized.expand(product(supported_dtypes, freeze_opt))
     @torch.inference_mode()
-    def test_mm_relu2_optimize_model(self, dtype):
+    def test_mm_relu2_optimize_model(self, dtype, freeze_opt):
 
         self.data.create_data(dtype)
         model = Custom_Model_MM_Relu2().eval()
@@ -57,38 +61,54 @@ class Test_MM_RELU_Model(Zentorch_TestCase):
                 model_output = model(self.data.x1[i], self.data.y1[j])
                 reset_dynamo()
                 compiled_graph = torch.compile(model, backend="zentorch")
-                compiled_graph_output = compiled_graph(self.data.x1[i], self.data.y1[j])
+                compiled_graph_output = test_with_freeze_opt(
+                    compiled_graph,
+                    (
+                        self.data.x1[i],
+                        self.data.y1[j]
+                    ),
+                    freeze_opt
+                )
                 self.assertEqual(model_output, compiled_graph_output)
 
-    @parameterized.expand(supported_dtypes)
+    @parameterized.expand(product(supported_dtypes, freeze_opt))
     @torch.inference_mode()
-    def test_mm_relu2_zero_input_optimize_model(self, dtype):
+    def test_mm_relu2_zero_input_optimize_model(self, dtype, freeze_opt):
 
         self.data.create_data(dtype)
         model = Custom_Model_MM_Relu2().eval()
         model_output = model(self.data.x1[0] * 0, self.data.y1[0] * 0)
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
-        compiled_graph_output = compiled_graph(self.data.x1[0] * 0, self.data.y1[0] * 0)
+        compiled_graph_output = test_with_freeze_opt(
+            compiled_graph,
+            (
+                self.data.x1[0] * 0,
+                self.data.y1[0] * 0
+            ),
+            freeze_opt
+        )
         self.assertEqual(model_output, compiled_graph_output)
 
-    @parameterized.expand(supported_dtypes)
+    @parameterized.expand(product(supported_dtypes, freeze_opt))
     @torch.inference_mode()
-    def test_mm_relu2_negative_input_optimize_model(self, dtype):
+    def test_mm_relu2_negative_input_optimize_model(self, dtype, freeze_opt):
 
         self.data.create_data(dtype)
         model = Custom_Model_MM_Relu2().eval()
         model_output = model(self.data.x1[0] * -1, self.data.y1[0] * -1)
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
-        compiled_graph_output = compiled_graph(
-            self.data.x1[0] * -1, self.data.y1[0] * -1
+        compiled_graph_output = test_with_freeze_opt(
+            compiled_graph,
+            (self.data.x1[0] * -1, self.data.y1[0] * -1),
+            freeze_opt
         )
         self.assertEqual(model_output, compiled_graph_output)
 
-    @parameterized.expand(supported_dtypes)
+    @parameterized.expand(product(supported_dtypes, freeze_opt))
     @torch.inference_mode()
-    def test_mm_relu1_model(self, dtype):
+    def test_mm_relu1_model(self, dtype, freeze_opt):
 
         self.data.create_data(dtype)
         model = Custom_Model_MM_ReLU1(self.data.n, self.data.m, self.data.k).eval()
@@ -97,7 +117,11 @@ class Test_MM_RELU_Model(Zentorch_TestCase):
         model_output = model(self.data.input)
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
-        compiled_graph_output = compiled_graph(self.data.input)
+        compiled_graph_output = test_with_freeze_opt(
+            compiled_graph,
+            (self.data.input),
+            freeze_opt
+        )
         self.assertEqual(model_output, compiled_graph_output)
 
 

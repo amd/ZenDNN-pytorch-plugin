@@ -1,11 +1,12 @@
 # ******************************************************************************
-# Copyright (c) 2024 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
 import unittest
 import torch
 from parameterized import parameterized
+from itertools import product
 from torch import nn
 from torch.fx.experimental.proxy_tensor import make_fx
 import sys
@@ -19,6 +20,8 @@ from unittest_utils import (  # noqa: 402
     run_tests,
     supported_dtypes,
     zentorch,
+    freeze_opt,
+    test_with_freeze_opt,
 )
 
 
@@ -129,21 +132,25 @@ class Test_Embedding_Group_Model(Zentorch_TestCase):
                 group_eb_count += 1
         self.assertEqual(group_eb_count, 3)
 
-    @parameterized.expand(supported_dtypes)
+    @parameterized.expand(product(supported_dtypes, freeze_opt))
     @torch.inference_mode()
-    def test_embedding_group_compile_model(self, dtype):
+    def test_embedding_group_compile_model(self, dtype, freeze_opt):
         self.data.create_data(dtype)
         model = Custom_Model_Embedding_Group(self.data.R)
         x = self.data.emb_input
         native_output = model(x)
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
-        compiled_output = compiled_graph(x)
+        compiled_output = test_with_freeze_opt(
+            compiled_graph,
+            (x),
+            freeze_opt
+        )
         self.assertEqual(native_output, compiled_output)
 
-    @parameterized.expand(supported_dtypes)
+    @parameterized.expand(product(supported_dtypes, freeze_opt))
     @torch.inference_mode()
-    def test_emb_emb_bag_common_node_model(self, dtype):
+    def test_emb_emb_bag_common_node_model(self, dtype, freeze_opt):
         self.data.create_data(dtype)
         model = Custom_Model_Emb_Emb_Bag_Common_Node(self.data.R)
         indices = self.data.emb_input
@@ -151,12 +158,16 @@ class Test_Embedding_Group_Model(Zentorch_TestCase):
         native_output = model(indices, offsets)
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
-        compiled_output = compiled_graph(indices, offsets)
+        compiled_output = test_with_freeze_opt(
+            compiled_graph,
+            (indices, offsets),
+            freeze_opt
+        )
         self.assertEqual(native_output, compiled_output)
 
-    @parameterized.expand(supported_dtypes)
+    @parameterized.expand(product(supported_dtypes, freeze_opt))
     @torch.inference_mode()
-    def test_emb_emb_bag_diff_node_model(self, dtype):
+    def test_emb_emb_bag_diff_node_model(self, dtype, freeze_opt):
         self.data.create_data(dtype)
         model = Custom_Model_Emb_Emb_Bag_Diff_Node(self.data.R)
         indices = self.data.emb_input
@@ -164,19 +175,27 @@ class Test_Embedding_Group_Model(Zentorch_TestCase):
         native_output = model(indices, offsets)
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
-        compiled_output = compiled_graph(indices, offsets)
+        compiled_output = test_with_freeze_opt(
+            compiled_graph,
+            (indices, offsets),
+            freeze_opt
+        )
         self.assertEqual(native_output, compiled_output)
 
-    @parameterized.expand(supported_dtypes)
+    @parameterized.expand(product(supported_dtypes, freeze_opt))
     @torch.inference_mode()
-    def test_embedding_model(self, dtype):
+    def test_embedding_model(self, dtype, freeze_opt):
         self.data.create_data(dtype)
         model = Custom_Model_Embedding(self.data.R)
         indices = torch.cat([torch.unsqueeze(self.data.emb_input, dim=0)] * 2)
         native_output = model(indices)
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
-        compiled_output = compiled_graph(indices)
+        compiled_output = test_with_freeze_opt(
+            compiled_graph,
+            (indices),
+            freeze_opt
+        )
         self.assertEqual(native_output, compiled_output)
 
 

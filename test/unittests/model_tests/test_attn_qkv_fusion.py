@@ -1,11 +1,12 @@
 # ******************************************************************************
-# Copyright (c) 2024 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
 import unittest
 import torch
 from parameterized import parameterized
+from itertools import product
 from torch import nn
 import sys
 from pathlib import Path
@@ -18,6 +19,9 @@ from unittest_utils import (  # noqa: 402
     reset_dynamo,
     run_tests,
     supported_dtypes,
+    zentorch,
+    freeze_opt,
+    test_with_freeze_opt,
 )
 
 
@@ -195,32 +199,40 @@ class Custom_Model_Attn_QKV_Fusion(nn.Module):
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class Test_Attn_QKV_Fusion_Model(Zentorch_TestCase):
-    @parameterized.expand(supported_dtypes)
+    @parameterized.expand(product(supported_dtypes, freeze_opt))
     @torch.inference_mode()
-    def test_attn_qkv_fusion_model(self, dtype):
+    def test_attn_qkv_fusion_model(self, dtype, freeze_opt):
         self.data.create_data(dtype)
         model = Custom_Model_Attn_QKV_Fusion(self.data.get_torch_type(dtype))
         native_output = model(self.data.x2[0], self.data.y2[0])
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
-        compiled_output = compiled_graph(self.data.x2[0], self.data.y2[0])
+        compiled_output = test_with_freeze_opt(
+            compiled_graph,
+            (self.data.x2[0], self.data.y2[0]),
+            freeze_opt
+        )
         self.assertEqual(native_output, compiled_output)
 
-    @parameterized.expand(supported_dtypes)
+    @parameterized.expand(product(supported_dtypes, freeze_opt))
     @torch.inference_mode()
-    def test_attn_qkv_fusion_multi_mm_model(self, dtype):
+    def test_attn_qkv_fusion_multi_mm_model(self, dtype, freeze_opt):
         self.data.create_data(dtype)
         model = Custom_Model_Attn_QKV_Fusion_multi_mm(self.data.get_torch_type(dtype))
         reset_dynamo()
         counters.clear()
         self.assertEqual(counters["zentorch"]["qkv_fusion"], 0)
         compiled_graph = torch.compile(model, backend="zentorch")
-        _ = compiled_graph(self.data.x2[0], self.data.y2[0])
+        _ = test_with_freeze_opt(
+            compiled_graph,
+            (self.data.x2[0], self.data.y2[0]),
+            freeze_opt
+        )
         self.assertEqual(counters["zentorch"]["qkv_fusion"], 1)
 
-    @parameterized.expand(supported_dtypes)
+    @parameterized.expand(product(supported_dtypes, freeze_opt))
     @torch.inference_mode()
-    def test_attn_qkv_fusion_multi_user_model(self, dtype):
+    def test_attn_qkv_fusion_multi_user_model(self, dtype, freeze_opt):
 
         self.data.create_data(dtype)
         model = Custom_Model_Attn_QKV_Fusion_multi_user(
@@ -231,12 +243,19 @@ class Test_Attn_QKV_Fusion_Model(Zentorch_TestCase):
                 native_output = model(self.data.x2[i], self.data.y2[j])
                 reset_dynamo()
                 compiled_graph = torch.compile(model, backend="zentorch")
-                compiled_output = compiled_graph(self.data.x2[i], self.data.y2[j])
+                compiled_output = test_with_freeze_opt(
+                    compiled_graph,
+                    (
+                        self.data.x2[i],
+                        self.data.y2[j]
+                    ),
+                    freeze_opt
+                )
                 self.assertEqual(native_output, compiled_output)
 
-    @parameterized.expand(supported_dtypes)
+    @parameterized.expand(product(supported_dtypes, freeze_opt))
     @torch.inference_mode()
-    def test_attn_qkv_fusion_multi_level_model(self, dtype):
+    def test_attn_qkv_fusion_multi_level_model(self, dtype, freeze_opt):
 
         self.data.create_data(dtype)
         model = Custom_Model_Attn_QKV_Fusion_multi_level(
@@ -246,11 +265,15 @@ class Test_Attn_QKV_Fusion_Model(Zentorch_TestCase):
         counters.clear()
         self.assertEqual(counters["zentorch"]["qkv_fusion"], 0)
         compiled_graph = torch.compile(model, backend="zentorch")
-        _ = compiled_graph(self.data.x2[0], self.data.y2[0])
+        _ = test_with_freeze_opt(
+            compiled_graph,
+            (self.data.x2[0], self.data.y2[0]),
+            freeze_opt
+        )
         self.assertEqual(counters["zentorch"]["qkv_fusion"], 1)
 
-    @parameterized.expand(supported_dtypes)
-    def test_addmm_with_same_params_model(self, dtype):
+    @parameterized.expand(product(supported_dtypes, freeze_opt))
+    def test_addmm_with_same_params_model(self, dtype, freeze_opt):
         self.data.create_data(dtype)
         model = Custom_Model_Parallel_Addmm()
 
@@ -262,14 +285,16 @@ class Test_Attn_QKV_Fusion_Model(Zentorch_TestCase):
 
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
-
-        compiled_output = compiled_graph(self_tensor, mat1_tensors, mat2_tensor)
-
+        compiled_output = test_with_freeze_opt(
+            compiled_graph,
+            (self_tensor, mat1_tensors, mat2_tensor),
+            freeze_opt
+        )
         self.assertEqual(native_output, compiled_output)
 
-    @parameterized.expand(supported_dtypes)
+    @parameterized.expand(product(supported_dtypes, freeze_opt))
     @torch.inference_mode()
-    def test_baddbmm_with_same_params_model(self, dtype):
+    def test_baddbmm_with_same_params_model(self, dtype, freeze_opt):
         self.data.create_data(dtype)
         model = Custom_Model_Parallel_Baddbmm()
 
@@ -281,8 +306,11 @@ class Test_Attn_QKV_Fusion_Model(Zentorch_TestCase):
 
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
-
-        compiled_output = compiled_graph(self_tensor, mat1_tensors, mat2_tensor)
+        compiled_output = test_with_freeze_opt(
+            compiled_graph,
+            (self_tensor, mat1_tensors, mat2_tensor),
+            freeze_opt
+        )
         self.assertEqual(native_output, compiled_output)
 
 

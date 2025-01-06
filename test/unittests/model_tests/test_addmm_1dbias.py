@@ -1,11 +1,12 @@
 # ******************************************************************************
-# Copyright (c) 2024 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
 import unittest
 import torch
 from parameterized import parameterized
+from itertools import product
 from torch import nn
 import sys
 from pathlib import Path
@@ -17,6 +18,9 @@ from unittest_utils import (  # noqa: 402
     reset_dynamo,
     run_tests,
     supported_dtypes,
+    zentorch,
+    freeze_opt,
+    test_with_freeze_opt,
 )
 
 
@@ -113,9 +117,9 @@ class Custom_Model_Addmm_1dbias_Relu_Gelu(nn.Module):
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class Test_Addmm_1dbias_Model(Zentorch_TestCase):
-    @parameterized.expand(supported_dtypes)
+    @parameterized.expand(product(supported_dtypes, freeze_opt))
     @torch.inference_mode()
-    def test_addmm_1dbias_model(self, dtype):
+    def test_addmm_1dbias_model(self, dtype, freeze_opt):
 
         self.data.create_data(dtype)
 
@@ -124,13 +128,16 @@ class Test_Addmm_1dbias_Model(Zentorch_TestCase):
         native_output = model(self.data.x)
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
-
-        compiled_output = compiled_graph(self.data.x)
+        compiled_output = test_with_freeze_opt(
+            compiled_graph,
+            (self.data.x),
+            freeze_opt
+        )
         self.assertEqual(native_output, compiled_output)
 
-    @parameterized.expand(supported_dtypes)
+    @parameterized.expand(product(supported_dtypes, freeze_opt))
     @torch.inference_mode()
-    def test_addmm_1dbias_relu_model(self, dtype):
+    def test_addmm_1dbias_relu_model(self, dtype, freeze_opt):
 
         self.data.create_data(dtype)
 
@@ -141,13 +148,16 @@ class Test_Addmm_1dbias_Model(Zentorch_TestCase):
         native_output = model(self.data.x)
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
-
-        compiled_output = compiled_graph(self.data.x)
+        compiled_output = test_with_freeze_opt(
+            compiled_graph,
+            (self.data.x),
+            freeze_opt
+        )
         self.assertEqual(native_output, compiled_output)
 
-    @parameterized.expand(supported_dtypes)
+    @parameterized.expand(product(supported_dtypes, freeze_opt))
     @torch.inference_mode()
-    def test_addmm_1dbias_relu_gelu_model(self, dtype):
+    def test_addmm_1dbias_relu_gelu_model(self, dtype, freeze_opt):
 
         self.data.create_data(dtype)
 
@@ -158,8 +168,11 @@ class Test_Addmm_1dbias_Model(Zentorch_TestCase):
         native_output = model(self.data.x)
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
-
-        compiled_output = compiled_graph(self.data.x)
+        compiled_output = test_with_freeze_opt(
+            compiled_graph,
+            (self.data.x),
+            freeze_opt
+        )
         self.assertEqual(native_output, compiled_output, atol=1e-3, rtol=1e-5)
 
 
