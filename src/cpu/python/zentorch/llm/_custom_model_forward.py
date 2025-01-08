@@ -1,13 +1,22 @@
 # *******************************************************************************************************************************************************
-# Modifications Copyright (c) 2024 Advanced Micro Devices, Inc.
+# Modifications Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
 # All rights reserved.
 #
-# Was sourced from
+# _GLM2Attention_forward was sourced from
 # https://github.com/intel/intel-extension-for-pytorch/blob/v2.3.0%2Bcpu/intel_extension_for_pytorch/transformers/models/reference/modules/attentions.py
+#
 # RotaryEmbedding_forward was sourced from
 # https://github.com/intel/intel-extension-for-pytorch/blob/v2.4.0%2Bcpu/intel_extension_for_pytorch/transformers/models/reference/fusions/mha_fusion.py
+#
+# zentorch_prepare_4d_causal_attention_mask was sourced from
+# https://github.com/huggingface/transformers/blob/v4.43.2/src/transformers/modeling_attn_mask_utils.py
+#
+# MistralModel_forward was sourced from
+# https://github.com/intel/intel-extension-for-pytorch/blob/v2.4.0%2Bcpu/intel_extension_for_pytorch/transformers/models/reference/models.py
 # *******************************************************************************************************************************************************
 import torch
+from typing import Optional, Tuple, List, Union
+from transformers.modeling_outputs import BaseModelOutputWithPast
 
 
 # _GLM2Attention_forward is inspired from IPEX 2.3.0 (commit id: d3c5244)
@@ -239,3 +248,267 @@ def RotaryEmbedding_forward(self, seq_len=None):
         )
         self.max_seq_len_cached = max_seq_len_cached
     return self.sin_cos, self.sin_cached, self.cos_cached
+
+
+def zentorch_prepare_4d_causal_attention_mask(
+    attention_mask: Optional[torch.Tensor],
+    input_shape: Union[torch.Size, Tuple, List],
+    inputs_embeds: torch.Tensor,
+    past_key_values_length: int,
+    sliding_window: Optional[int] = None,
+):
+
+    if attention_mask is not None and len(attention_mask.shape) == 2:
+        # This op is not registered in meta registrations of zentorch
+        # because of the dynamicity introduced by the
+        # past_key_values_length. This variable is changing for every
+        # token which is causing many recompiles and thus the
+        # performance is degrading. So, this op will cause graph breaks
+        # as of now which is better than too many recompiles.
+        # TODO
+        # Address the dynamicity issue and register this op in meta
+        # registrations
+        attention_mask = attention_mask.to(inputs_embeds.dtype)
+        attention_mask = torch.ops.zentorch.prepare_4d_causal_attention_mask(
+            attention_mask,
+            inputs_embeds,
+            past_key_values_length,
+            torch.tensor(torch.finfo(inputs_embeds.dtype).min).contiguous(),
+            sliding_window,
+        )
+    elif attention_mask is not None and len(attention_mask.shape) == 4:
+        key_value_length = input_shape[-1] + past_key_values_length
+        expected_shape = (input_shape[0], 1, input_shape[1], key_value_length)
+        if tuple(attention_mask.shape) != expected_shape:
+            raise ValueError(
+                f"Incorrect 4D attention_mask shape: \
+                    {tuple(attention_mask.shape)}; expected: {expected_shape}."
+            )
+        else:
+            # if the 4D mask has correct shape,
+            # invert it and fill with negative infinity
+            inverted_mask = 1.0 - attention_mask
+            attention_mask = inverted_mask.masked_fill(
+                inverted_mask.to(torch.bool),
+                torch.finfo(inputs_embeds.dtype).min
+            )
+    else:
+
+        input_shape = (input_shape[0], input_shape[-1])
+
+        # create causal mask
+        # [bsz, seq_len] -> [bsz, 1, tgt_seq_len, src_seq_len]
+        attention_mask = None
+        if input_shape[-1] > 1 or sliding_window is not None:
+
+            bsz, tgt_len = input_shape
+            mask = torch.full(
+                (tgt_len, tgt_len),
+                torch.finfo(inputs_embeds.dtype).min,
+                device=inputs_embeds.device,
+            )
+            mask_cond = torch.arange(mask.size(-1), device=inputs_embeds.device)
+            mask.masked_fill_(mask_cond < (mask_cond + 1).view(mask.size(-1), 1), 0)
+
+            mask = mask.to(inputs_embeds.dtype)
+
+            if past_key_values_length > 0:
+                mask = torch.cat(
+                    [
+                        torch.zeros(
+                            tgt_len,
+                            past_key_values_length,
+                            dtype=inputs_embeds.dtype,
+                            device=inputs_embeds.device,
+                        ),
+                        mask,
+                    ],
+                    dim=-1,
+                )
+
+            # add lower triangular sliding window mask if necessary
+            if sliding_window is not None:
+                diagonal = past_key_values_length - sliding_window - 1
+
+                context_mask = torch.tril(
+                    torch.ones_like(mask, dtype=torch.bool), diagonal=diagonal
+                )
+                mask.masked_fill_(context_mask, torch.finfo(inputs_embeds.dtype).min)
+
+            attention_mask = mask[None, None, :, :].expand(
+                bsz, 1, tgt_len, tgt_len + past_key_values_length
+            )
+
+    return attention_mask
+
+
+# MistralModel_forward is inspired from IPEX 2.4.0
+def MistralModel_forward(
+    self,
+    input_ids: torch.LongTensor = None,
+    attention_mask: Optional[torch.Tensor] = None,
+    position_ids: Optional[torch.LongTensor] = None,
+    past_key_values: Optional[List[torch.FloatTensor]] = None,
+    inputs_embeds: Optional[torch.FloatTensor] = None,
+    use_cache: Optional[bool] = None,
+    output_attentions: Optional[bool] = None,
+    output_hidden_states: Optional[bool] = None,
+    return_dict: Optional[bool] = None,
+) -> Union[Tuple, BaseModelOutputWithPast]:
+    output_attentions = (
+        output_attentions
+        if output_attentions is not None
+        else self.config.output_attentions
+    )
+    output_hidden_states = (
+        output_hidden_states
+        if output_hidden_states is not None
+        else self.config.output_hidden_states
+    )
+    use_cache = use_cache if use_cache is not None else self.config.use_cache
+
+    return_dict = (
+        return_dict if return_dict is not None else self.config.use_return_dict
+    )
+
+    # retrieve input_ids and inputs_embeds
+    if input_ids is not None and inputs_embeds is not None:
+        raise ValueError(
+            "You cannot specify both decoder_input_ids"
+            " and decoder_inputs_embeds at the same time"
+        )
+    elif input_ids is not None:
+        batch_size, seq_length = input_ids.shape
+    elif inputs_embeds is not None:
+        batch_size, seq_length, _ = inputs_embeds.shape
+    else:
+        raise ValueError(
+            "You have to specify either decoder_input_ids or decoder_inputs_embeds"
+        )
+
+    seq_length_with_past = seq_length
+    past_key_values_length = 0
+
+    if past_key_values is not None:
+        past_key_values_length = past_key_values[0][0].shape[2]
+        seq_length_with_past = seq_length_with_past + past_key_values_length
+
+    if position_ids is None:
+        device = input_ids.device if input_ids is not None else inputs_embeds.device
+        position_ids = torch.arange(
+            past_key_values_length,
+            seq_length + past_key_values_length,
+            dtype=torch.long,
+            device=device,
+        )
+        position_ids = position_ids.unsqueeze(0).view(-1, seq_length)
+    else:
+        position_ids = position_ids.view(-1, seq_length).long()
+
+    if inputs_embeds is None:
+        inputs_embeds = self.embed_tokens(input_ids)
+
+    if (
+        attention_mask is not None
+        and hasattr(self.config, "_flash_attn_2_enabled")
+        and self.config._flash_attn_2_enabled
+        and past_key_values is not None
+    ):
+        is_padding_right = attention_mask[:, -1].sum().item() != batch_size
+        if is_padding_right:
+            raise ValueError(
+                "You are attempting to perform batched "
+                " generation with padding_side='right'"
+                " this may lead to unexpected behaviour for"
+                " Flash Attention version of Mistral. Make sure to "
+                " call `tokenizer.padding_side  = 'left'` before tokenizing the input. "
+            )
+
+    if hasattr(self, "_prepare_decoder_attention_mask"):
+        attention_mask = self._prepare_decoder_attention_mask(
+            attention_mask,
+            (batch_size, seq_length),
+            inputs_embeds,
+            past_key_values_length,
+            sliding_window=self.config.sliding_window,
+        )
+    else:
+        # 4d mask is passed through the layers
+        attention_mask = zentorch_prepare_4d_causal_attention_mask(
+            attention_mask,
+            (batch_size, seq_length),
+            inputs_embeds,
+            past_key_values_length,
+            sliding_window=self.config.sliding_window,
+        )
+
+    hidden_states = inputs_embeds
+
+    if self.gradient_checkpointing and self.training:
+        if use_cache:
+            # logger.warning_once(
+            #     "`use_cache=True` is incompatible with gradient checkpointing.
+            # Setting `use_cache=False`...",
+            #      _type=WarningType.WrongArgument,
+            # )
+            use_cache = False
+
+    # decoder layers
+    all_hidden_states = () if output_hidden_states else None
+    all_self_attns = () if output_attentions else None
+    next_decoder_cache = () if use_cache else None
+
+    for idx, decoder_layer in enumerate(self.layers):
+        if output_hidden_states:
+            all_hidden_states += (hidden_states,)
+
+        past_key_value = past_key_values[idx] if past_key_values is not None else None
+
+        if self.gradient_checkpointing and self.training:
+            layer_outputs = self._gradient_checkpointing_func(
+                decoder_layer.__call__,
+                hidden_states,
+                attention_mask,
+                position_ids,
+                past_key_value,
+                output_attentions,
+                use_cache,
+            )
+        else:
+            layer_outputs = decoder_layer(
+                hidden_states,
+                attention_mask=attention_mask,
+                position_ids=position_ids,
+                past_key_value=past_key_value,
+                output_attentions=output_attentions,
+                use_cache=use_cache,
+            )
+
+        hidden_states = layer_outputs[0]
+
+        if use_cache:
+            next_decoder_cache += (layer_outputs[2 if output_attentions else 1],)
+
+        if output_attentions:
+            all_self_attns += (layer_outputs[1],)
+
+    hidden_states = self.norm(hidden_states)
+
+    # add hidden states from the last decoder layer
+    if output_hidden_states:
+        all_hidden_states += (hidden_states,)
+
+    next_cache = next_decoder_cache if use_cache else None
+    if not return_dict:
+        return tuple(
+            v
+            for v in [hidden_states, next_cache, all_hidden_states, all_self_attns]
+            if v is not None
+        )
+
+    return BaseModelOutputWithPast(
+        last_hidden_state=hidden_states,
+        past_key_values=next_cache,
+        hidden_states=all_hidden_states,
+        attentions=all_self_attns,
+    )

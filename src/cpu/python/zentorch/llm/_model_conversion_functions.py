@@ -1,5 +1,5 @@
 # ****************************************************************************************************************************
-# Modifications Copyright (c) 2024 Advanced Micro Devices, Inc.
+# Modifications Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Was sourced from
@@ -222,6 +222,14 @@ def customize_model(model):
         from ._custom_model_forward import _GLM2Attention_forward
         attentions._GLM2Attention_forward = (
             _GLM2Attention_forward
+        )
+    if model.config.architectures[0] == "MistralForCausalLM":
+        from intel_extension_for_pytorch.transformers.models.reference import (
+            models,
+        )
+        from ._custom_model_forward import MistralModel_forward
+        models.MistralModel_forward = (
+            MistralModel_forward
         )
     # Over riding forward of RotaryEmbedding class for modifying
     # the longrope op to address graph breaks for v2.4 and above.
