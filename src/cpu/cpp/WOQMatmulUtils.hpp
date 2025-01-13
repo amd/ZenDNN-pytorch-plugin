@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright (c) 2024 Advanced Micro Devices, Inc.
+ * Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
  * All rights reserved.
  ******************************************************************************/
 
@@ -169,8 +169,9 @@ inline void check_valid_shapes_for_woq(
                    "group_size > 0 is currently supported");
   }
 
-  ZENTORCH_CHECK(weight_scales.scalar_type() == c10::kFloat,
-                 "only float32 "
+  ZENTORCH_CHECK(weight_scales.scalar_type() == c10::kFloat ||
+                     weight_scales.scalar_type() == c10::kBFloat16,
+                 "only float32 and bfloat16 "
                  "weight_scales are currently supported");
   ZENTORCH_CHECK(input.size(input.dim() - 1) == qweight_size[0],
                  "unsupported sizes for input and qweight");
