@@ -23,8 +23,8 @@ if parse(__version__) < parse("2.1"):
 
 if parse(__version__) < parse("2.5"):
     warnings.warn(
-        "Consider upgrading to torch version 2.5 for improved performance."
-        , stacklevel=1
+        "Consider upgrading to torch version 2.5 for improved performance.",
+        stacklevel=1,
     )
 
 
@@ -98,9 +98,8 @@ class CustomBuildExtension(BuildExtension):
 
 
 def subproc_communicate(cmd):
-    p1 = subprocess.Popen(
-        [cmd], stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True
-    )
+
+    p1 = subprocess.Popen(cmd.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     out, err = p1.communicate()
     rc = p1.returncode
     return rc, out.decode("ascii", "ignore"), err.decode("ascii", "ignore")
