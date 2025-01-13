@@ -56,7 +56,7 @@ def build_and_replace_with_Q_Linear(
     input_bits=None,
 ):
     from ._WOQLinear import ZenTorchWOQLinear
-    from ._StaticLinear import ZenTorchStaticQuantizedLinear
+    from ._StaticQuantizedLinear import ZenTorchStaticQuantizedLinear
 
     dummy_weight_dtype = None
     # This workaround is required for Woq ChatGLMModel with zentorch.llm.optimize.
@@ -181,7 +181,9 @@ def get_model_config(config_json_path):
     if quant_config["quant_method"] == "quark":
         logger.info("Static model config")
         model_config = {
-            "symmetric": quant_config["global_quant_config"]["input_tensors"][
+            "activation_symmetric": quant_config["global_quant_config"]
+            ["input_tensors"]["symmetric"],
+            "weight_symmetric": quant_config["global_quant_config"]["weight"][
                 "symmetric"
             ],
             "pack_method": config["quantization_config"]["export"]["pack_method"],
@@ -197,7 +199,8 @@ def get_model_config(config_json_path):
         }
         supported_config = {
             "pack_method": ("order",),
-            "symmetric": (True,),
+            "activation_symmetric": (True,),
+            "weight_symmetric": (True,),
             "torch_dtype": ("float32",),
             "activation_qscheme": ("per_tensor",),
             "weight_qscheme": ("per_channel", "per_tensor"),
