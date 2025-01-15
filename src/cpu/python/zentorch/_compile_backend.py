@@ -15,7 +15,8 @@ from torch._functorch.aot_autograd import aot_module_simplified
 from torch.torch_version import TorchVersion
 from ._mkldnn import mkldnn_fuse_fx
 from torch._inductor.fx_passes.pre_grad import fuse_conv_bn, remove_identity
-if is_version_compatible_import(['_dynamo', 'utils'], ['is_parameter_freezing']):
+
+if is_version_compatible_import(["_dynamo", "utils"], ["is_parameter_freezing"]):
     from torch._dynamo.utils import is_parameter_freezing
 else:
     def is_parameter_freezing():  # for PT 2.4.x or below
@@ -47,9 +48,24 @@ We are making use of existing pytorch functions fuse_conv_bn, remove_identity \
 REMOVE_DECOMP = True
 
 disable_inductor_flag = False
-enable_zentorch_conv_flag = False
 
 logger = get_logger(__name__)
+
+
+class ConvConfig:
+    _instance = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(ConvConfig, cls).__new__(cls)
+            cls._instance.enable_zentorch_conv_flag = False
+        return cls._instance
+
+    def enable_zentorch_conv(self, enabled: bool):
+        self.enable_zentorch_conv_flag = enabled
+
+
+conv_config = ConvConfig()
 
 
 # this is only invoked for non-freezing path
@@ -114,7 +130,7 @@ def zentorch_compile(
     if not torch.is_grad_enabled():
         gm = remove_identity(gm)
         gm = fuse_conv_bn(gm)
-        if not enable_zentorch_conv_flag:
+        if not conv_config.enable_zentorch_conv_flag:
             if not dynamic:
                 gm = mkldnn_fuse_fx(gm, example_inputs)
 
@@ -213,6 +229,4 @@ def enable_zentorch_conv(enabled: bool):
     enabled - True will enable zentorch conv path changes. False will
     go through mkldnn path.
     """
-
-    global enable_zentorch_conv_flag
-    enable_zentorch_conv_flag = enabled
+    conv_config.enable_zentorch_conv(enabled)

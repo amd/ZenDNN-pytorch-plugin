@@ -1,9 +1,10 @@
 # ******************************************************************************
-# Copyright (c) 2024 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
 import torch
+
 
 # import the custom logging module
 from ._logging import get_logger
@@ -109,12 +110,18 @@ def is_embedding_op_replacable(fx_graph, node):
 def is_convolution_op_replaceable(fx_graph, node):
     input = get_tensor(fx_graph, node, 0)
     weight = get_tensor(fx_graph, node, 1)
-    if input.is_contiguous(memory_format=torch.channels_last) and weight.is_contiguous(
-        memory_format=torch.channels_last
-    ):
-        return True
-    else:
+    from ._compile_backend import conv_config
+
+    # Replace only if torch.grad is disabled as ZenDNN implements
+    # Convolution for inference only.
+    # Replace only if enable_zentorch_conv_flag is enabled
+    if not torch.is_grad_enabled() and conv_config.enable_zentorch_conv_flag:
+        if input.is_contiguous(
+            memory_format=torch.channels_last
+        ) and weight.is_contiguous(memory_format=torch.channels_last):
+            return True
         return False
+    return False
 
 
 def is_bias_1d_tensor(fx_graph, node):
@@ -124,10 +131,7 @@ def is_bias_1d_tensor(fx_graph, node):
 
 
 at_to_zen_op_dict = {
-    at_ops._embedding_bag.default: (
-        zt_ops.zentorch_embedding_bag.default,
-        None
-    ),
+    at_ops._embedding_bag.default: (zt_ops.zentorch_embedding_bag.default, None),
     at_ops.embedding.default: (
         zt_ops.zentorch_embedding.default,
         is_embedding_op_replacable,
