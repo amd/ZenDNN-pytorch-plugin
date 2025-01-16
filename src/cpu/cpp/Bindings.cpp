@@ -19,8 +19,8 @@
 
 // needs to be included only once in library.
 #include "Ops.hpp"
-#include "Singletons.hpp"
 #include "Threading.hpp"
+#include "Utils.hpp"
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def("show_config", &zentorch::show_config,

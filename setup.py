@@ -46,6 +46,7 @@ class CustomBuildExtension(BuildExtension):
 
         #  self.build_temp is created as part of following line
         os.makedirs(os.path.join(self.build_temp, "lib"), exist_ok=True)
+        os.makedirs(os.path.join(self.build_lib), exist_ok=True)
 
         rc, out, err = subproc_communicate("which python")
         if rc == 0:
@@ -67,7 +68,13 @@ class CustomBuildExtension(BuildExtension):
             self.build_temp,
             f"-DCMAKE_BUILD_TYPE={build_type}",
             f"-DCMAKE_PREFIX_PATH={torch_cmake_prefix_path}",
+            f"-DINSTALL_LIB_DIR={self.build_lib}",
         ]
+
+        # Add extra compile flags to cmake
+        for flag in extra_compile_args:
+            cmake_cmd.append(f"-DCMAKE_CXX_FLAGS={flag}")
+
         self.spawn(cmake_cmd)
         self.spawn(["make", "-j", "-C", self.build_temp])
 
@@ -82,14 +89,7 @@ class CustomBuildExtension(BuildExtension):
         extension = self.extensions[0]
 
         extra_objects = [
-            Path(project_root_dir, self.build_temp, "lib", "libamdZenDNN.a"),
-            Path(project_root_dir, self.build_temp, "lib", "libblis-mt.a"),
-            Path(project_root_dir, self.build_temp, "lib", "libfbgemm.a"),
-            Path(project_root_dir, self.build_temp, "lib", "libasmjit.a"),
-            Path(project_root_dir, self.build_temp, "lib", "libCPUkernels.a"),
-            Path(project_root_dir, self.build_temp, "lib", "libxsmm.a"),
-            Path(project_root_dir, self.build_temp, "lib", "libxsmmext.a"),
-            Path(project_root_dir, self.build_temp, "lib", "libxsmmnoblas.a"),
+            Path(project_root_dir, self.build_lib, PACKAGE_NAME, "libzentorch.so"),
         ]
 
         extension.extra_objects.extend(extra_objects)
@@ -155,7 +155,8 @@ PT_VERSION = __version__
 
 # Initializing all the parameters for the setup function
 project_root_dir = os.path.abspath(os.path.dirname(__file__))
-sources = glob.glob(Path(project_root_dir, "src", "cpu", "cpp", "*.cpp"))
+sources = glob.glob(Path(project_root_dir, "src", "cpu", "cpp", "Bindings.cpp"))
+
 include_dirs = [
     Path(project_root_dir, "third_party", "ZenDNN", "inc"),
     Path(project_root_dir, "third_party", "FBGEMM", "include"),
@@ -169,6 +170,7 @@ wheel_file_dependencies = ["numpy", "torch", "deprecated", "safetensors"]
 # -Wno-unknown-pragma is for [unroll pragma], to be removed
 # -fopenmp is needed for omp related pragmas (simd etc.)
 extra_compile_args = [
+    "-Wall",
     "-Werror",
     "-fopenmp",
     "-Wno-unknown-pragmas",
@@ -233,6 +235,7 @@ def main():
                 sources=sources,
                 include_dirs=include_dirs,
                 extra_compile_args=extra_compile_args,
+                extra_link_args=['-Wl,-rpath,$ORIGIN'],
             )
         ],
         cmdclass={

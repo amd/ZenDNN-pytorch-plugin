@@ -12,32 +12,56 @@ set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake/modules)
 # build and add ZenDNN and BLIS libraries
 find_package(ZENDNN REQUIRED)
 
+find_package(Torch REQUIRED)
+
 # build mha kernel
 find_package(CPUkernels REQUIRED)
 
-add_dependencies(CPUkernels libamdZenDNN)
-
 configure_file ("${CMAKE_CURRENT_SOURCE_DIR}/src/cpu/cpp/Config.hpp.in"
-            "${CMAKE_CURRENT_SOURCE_DIR}/src/cpu/cpp/Config.hpp" )
+            "${CMAKE_CURRENT_SOURCE_DIR}/src/cpu/cpp/Config.hpp")
 
-# Define our library target
-add_library(zentorch INTERFACE)
+#TODO: Restructure this block to remove warnings
+file(GLOB ZENTORCH_CPP_SOURCES "${CMAKE_SOURCE_DIR}/src/cpu/cpp/*.cpp")
+file(GLOB_RECURSE ZENTORCH_HEADER_FILES "${CMAKE_SOURCE_DIR}/src/cpu/cpp/*.h*")
+list(REMOVE_ITEM ZENTORCH_CPP_SOURCES "${CMAKE_SOURCE_DIR}/src/cpu/cpp/Bindings.cpp")
 
-add_dependencies(zentorch libamdZenDNN)
 
-# Enable C++14
-target_compile_features(zentorch INTERFACE cxx_std_14)
+add_library(zentorch SHARED ${ZENTORCH_CPP_SOURCES})
 
-# Include target directories
-target_include_directories(zentorch INTERFACE
-                           ${ZENDNN_INCLUDE_DIR}
-                           ${CMAKE_SOURCE_DIR}/ATen/native/zendnn/)
+add_dependencies(CPUkernels libamdZenDNN libamdblis)
+add_dependencies(zentorch libamdZenDNN CPUkernels)
+
+# Enable C++17
+target_compile_features(zentorch PUBLIC cxx_std_17)
+
+set_target_properties(zentorch PROPERTIES
+                      LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/lib/)
+
+target_include_directories(zentorch PUBLIC
+                            ${ZENTORCH_HEADER_FILES}
+                            ${ZENDNN_INCLUDE_DIR}
+                            ${FBGEMM_INCLUDE_DIR}
+                            ${TORCH_INCLUDE_DIRS}
+                            ${BLIS_INCLUDE_DIR}
+)
+
+target_link_libraries(zentorch PUBLIC 
+                        ${MHA_LIBRARIES} 
+                        ${ZENDNN_LIBRARIES} 
+                        ${BLIS_LIBRARIES} 
+                        ${FBGEMM_LIBRARIES} 
+                        ${LIBXSMM_LIBRARIES}
+                        ${TORCH_LIBRARIES}
+                        ${CMAKE_CURRENT_BINARY_DIR}/lib/libasmjit.a)
+
+add_custom_command(
+        TARGET zentorch  POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy
+                ${CMAKE_CURRENT_BINARY_DIR}/lib/libzentorch.so
+                ${CMAKE_SOURCE_DIR}/${INSTALL_LIB_DIR}/${PROJECT_NAME}/)
 
 # Set default build type
 if(NOT CMAKE_BUILD_TYPE)
     message(STATUS "Build type not set - defaulting to Release")
     set(CMAKE_BUILD_TYPE "Release")
 endif()
-
-# Link against ZenDNN and AOCL BLIS
-target_link_libraries(zentorch INTERFACE ${MHA_LIBRARIES} ${ZENDNN_LIBRARIES} ${BLIS_LIBRARIES} ${FBGEMM_LIBRARIES} ${LIBXSMM_LIBRARIES})
