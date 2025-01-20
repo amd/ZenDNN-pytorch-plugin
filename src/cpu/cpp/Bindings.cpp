@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright (c) 2023-2024 Advanced Micro Devices, Inc.
+ * Copyright (c) 2023-2025 Advanced Micro Devices, Inc.
  * All rights reserved.
  ******************************************************************************/
 
@@ -21,23 +21,6 @@
 #include "Singletons.hpp"
 
 #include "Ops.hpp"
-#include "kernels/zen_cpukernels_ops.hpp"
-
-TORCH_LIBRARY(zentorch, m) {
-  m.def("zentorch_masked_multihead_self_attention(Tensor query, Tensor key, "
-        "Tensor value, Tensor key_cache, "
-        "Tensor value_cache, Tensor beam_idx, Tensor seq_info, float "
-        "scale_attn, int max_positions, "
-        "Tensor? head_mask, Tensor? attention_mask, bool? "
-        "add_casual_mask=None, str zentorch_op_name = "
-        "'zentorch::zentorch_masked_multihead_self_attention')-> (Tensor, "
-        "Tensor, Tensor, Tensor, Tensor)");
-}
-
-TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
-  m.impl("zentorch_masked_multihead_self_attention",
-         zentorch::zentorch_masked_multihead_self_attention_impl);
-}
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def("show_config", zentorch::show_config);

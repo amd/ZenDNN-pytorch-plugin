@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright (c) 2023-2024 Advanced Micro Devices, Inc.
+ * Copyright (c) 2023-2025 Advanced Micro Devices, Inc.
  * All rights reserved.
  ******************************************************************************/
 
@@ -616,7 +616,7 @@ std::vector<at::Tensor> zentorch_attn_qkv_fusion(
                                     alphas, fuse, true, zentorch_op_name);
 }
 
-TORCH_LIBRARY_FRAGMENT(zentorch, m) {
+TORCH_LIBRARY(zentorch, m) {
   m.def("zentorch_mm(Tensor self, Tensor mat2, *, str "
         "zentorch_op_name='zentorch::zentorch_mm') -> Tensor");
   m.def("zentorch_mm_relu(Tensor self, Tensor mat2, *, str "
