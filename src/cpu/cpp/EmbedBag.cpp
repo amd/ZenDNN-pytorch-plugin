@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright (c) 2023-2024 Advanced Micro Devices, Inc.
+ * Copyright (c) 2023-2025 Advanced Micro Devices, Inc.
  * All rights reserved.
  ******************************************************************************/
 
@@ -172,6 +172,78 @@ std::vector<at::Tensor> zentorch_horizontal_embedding_bag_group(
   LOG(INFO) << "Finished executing: " << __FUNCTION__ << "!\n";
 
   return out_vec;
+}
+
+at::Tensor
+zentorch_get_packed_embedding_weight(at::Tensor &weight,
+                                     at::Tensor &weight_scales,
+                                     at::Tensor &weight_zero_points) {
+
+  uint32_t num_eb_rows = weight.size(0);
+  uint32_t num_eb_cols = weight.size(1);
+  ZENTORCH_CHECK(
+      (weight_scales.size(0) == num_eb_rows) &&
+          (weight_zero_points.size(0) == num_eb_rows),
+      "unsupported dims for embeddingbag weight, scales and zero points");
+  ZENTORCH_CHECK(!(weight.scalar_type() == c10::ScalarType::QInt32 &&
+                   weight_scales.scalar_type() == c10::ScalarType::Float),
+                 "Weight and scales support only int32 and float dtype ");
+  weight = weight.contiguous();
+  weight_scales = weight_scales.contiguous();
+  weight_zero_points = weight_zero_points.contiguous();
+
+  std::vector<at::Half> weight_scales_vec(weight_scales.data_ptr<float>(),
+                                          weight_scales.data_ptr<float>() +
+                                              num_eb_rows);
+  std::vector<at::Half> weight_zero_points_vec(
+      weight_zero_points.data_ptr<int32_t>(),
+      weight_zero_points.data_ptr<int32_t>() + num_eb_rows);
+
+  int32_t *weight_ptr = static_cast<int32_t *>(weight.data_ptr());
+
+  std::vector<int64_t> weight_bias(num_eb_rows);
+
+  for (const auto i : c10::irange(num_eb_rows)) {
+    weight_bias[i] = weight_zero_points_vec[i] * weight_scales_vec[i] * -1;
+  }
+
+  std::vector<int64_t> output_shape = {
+      num_eb_rows,
+      static_cast<std::int32_t>(
+          (num_eb_cols +
+           1))}; // Harding coding for int32 weights and Half dtype of scales
+
+  size_t num_output_cols = output_shape[1];
+  at::Tensor output_tensor = at::empty(output_shape, weight.options());
+  int32_t *output_ptr = output_tensor.data_ptr<int32_t>();
+
+  at::parallel_for(
+      0, num_eb_rows, 1, [&](uint32_t start_idx, uint32_t end_idx) {
+        for (const uint32_t row : c10::irange(start_idx, end_idx)) {
+          int32_t *input_row =
+              reinterpret_cast<int32_t *>(weight_ptr + row * num_eb_cols);
+          int32_t *output_row =
+              reinterpret_cast<int32_t *>(output_ptr + row * num_output_cols);
+          auto output_row_scale_bias =
+              reinterpret_cast<at::Half *>(output_row + num_eb_cols);
+
+          // Ensure weight_scale and weight_bias_half are within the range of
+          // at::Half
+
+          at::Half weight_scale = weight_scales_vec[row];
+
+          at::Half weight_bias_half = weight_bias[row];
+
+          std::memcpy(output_row_scale_bias, &weight_scale,
+                      sizeof(at::Half)); // append weight scale to m/r with size
+                                         // of fp16/half
+          std::memcpy(output_row_scale_bias + 1, &weight_bias_half,
+                      sizeof(at::Half)); // append weight bias to m/r just after
+                                         // scale with size of fp16/half
+          std::memcpy(output_row, input_row, sizeof(int32_t) * (num_eb_cols));
+        }
+      });
+  return output_tensor;
 }
 
 TORCH_LIBRARY_FRAGMENT(zentorch, m) {

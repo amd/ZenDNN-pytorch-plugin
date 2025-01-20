@@ -8,7 +8,7 @@ import torch
 import torch.nn as nn
 import os
 from deprecated import deprecated
-
+import zentorch
 from ._logging import get_logger
 from ._quantization_utils import get_op_by_name, set_op_by_name, get_module_name_str
 
@@ -27,6 +27,7 @@ RELOAD_SUPPORTED_MODELS = {
     "Phi3ForCausalLM",
     "QWenLMHeadModel",
     "Qwen2ForCausalLM",
+    "DLRMV2",
     # following model architectures are not yet supported
     # "BloomForCausalLM",
     # "CodeGenForCausalLM",
@@ -37,6 +38,35 @@ RELOAD_SUPPORTED_MODELS = {
     # "StableLmForCausalLM",
     # "YuanForCausalLM",
 }
+
+
+def build_and_replace_with_Q_EmbeddingBag(
+    float_module,
+    packed_embedding_weight,
+    weight_scales,
+    weight_zero_points,
+    weight_bits,
+    group_size,
+    use_zero_point=False,
+    torch_dtype="bfloat16",
+    scale_dtype="float",
+    quant_dtype="uint4",
+):
+    from ._WOQ_embedding_bag import ZenTorchWOQEmbeddingBag
+
+    quant_module = ZenTorchWOQEmbeddingBag(
+        float_module,
+        packed_embedding_weight,
+        weight_scales,
+        weight_zero_points,
+        group_size,
+        weight_bits,
+        torch_dtype,
+        scale_dtype,
+        quant_dtype,
+    )
+
+    return quant_module
 
 
 def build_and_replace_with_Q_Linear(
@@ -54,6 +84,7 @@ def build_and_replace_with_Q_Linear(
     input_scales=None,
     input_zero_points=None,
     input_bits=None,
+    input_symmetric=False,
 ):
     from ._WOQLinear import ZenTorchWOQLinear
     from ._StaticQuantizedLinear import ZenTorchStaticQuantizedLinear
@@ -77,6 +108,7 @@ def build_and_replace_with_Q_Linear(
             bias_tensor,
             group_size,
             torch_dtype,
+            input_symmetric=input_symmetric,
         )
     else:
         quant_module = ZenTorchWOQLinear(
@@ -95,8 +127,22 @@ def build_and_replace_with_Q_Linear(
 
 def param_check(param_keys, params_dict):
     for k in param_keys:
-        if k not in params_dict:
+        if k not in params_dict.keys():
             raise KeyError(k, " is not available")
+
+
+def get_embedding_module_param_tensors(module_name, params_dict):
+    logger.info("Fetch embedding parameters.")
+    weight_scales_key = module_name + ".weight_scale"
+    weight_zero_points_key = module_name + ".weight_zero_point"
+    param_keys = [weight_scales_key, weight_zero_points_key]
+    param_check(param_keys, params_dict)
+    # access weight_scales and weight_zero_points
+    weight_scales = params_dict[weight_scales_key]
+    weight_zero_points = params_dict[weight_zero_points_key]
+    bias_tensor_key = module_name + ".bias"
+    bias_tensor = params_dict.get(bias_tensor_key, None)
+    return (weight_scales, weight_zero_points, bias_tensor)
 
 
 def get_woq_module_param_tensors(module_name, params_dict):
@@ -109,11 +155,7 @@ def get_woq_module_param_tensors(module_name, params_dict):
     weight_scales = params_dict[weight_scales_key]
     weight_zero_points = params_dict[weight_zero_points_key]
     bias_tensor_key = module_name + ".bias"
-    if bias_tensor_key in params_dict.keys():
-        bias_tensor = params_dict[bias_tensor_key]
-    else:
-        bias_tensor = None
-
+    bias_tensor = params_dict.get(bias_tensor_key, None)
     return (weight_scales, weight_zero_points, bias_tensor)
 
 
@@ -137,10 +179,7 @@ def get_static_module_param_tensors(module_name, params_dict):
     input_scales = params_dict[input_scales_key]
     input_zero_points = params_dict[input_zero_points_key]
     bias_tensor_key = module_name + ".bias"
-    if bias_tensor_key in params_dict.keys():
-        bias_tensor = params_dict[bias_tensor_key]
-    else:
-        bias_tensor = None
+    bias_tensor = params_dict.get(bias_tensor_key, None)
     return (
         input_scales,
         input_zero_points,
@@ -177,12 +216,16 @@ def get_model_config(config_json_path):
 
     with open(config_json_path, "r") as f:
         config = json.load(f)
-    quant_config = config["quantization_config"]
+    if "quantization_config" in config:
+        quant_config = config["quantization_config"]
+    else:
+        raise KeyError("quantization_config is not available")
     if quant_config["quant_method"] == "quark":
         logger.info("Static model config")
         model_config = {
-            "activation_symmetric": quant_config["global_quant_config"]
-            ["input_tensors"]["symmetric"],
+            "activation_symmetric": quant_config["global_quant_config"][
+                "input_tensors"
+            ]["symmetric"],
             "weight_symmetric": quant_config["global_quant_config"]["weight"][
                 "symmetric"
             ],
@@ -199,7 +242,10 @@ def get_model_config(config_json_path):
         }
         supported_config = {
             "pack_method": ("order",),
-            "activation_symmetric": (True, False),
+            "activation_symmetric": (
+                True,
+                False,
+            ),
             "weight_symmetric": (True,),
             "torch_dtype": ("float32",),
             "activation_qscheme": ("per_tensor",),
@@ -207,6 +253,34 @@ def get_model_config(config_json_path):
             "activation_bits": ("8",),
             "weight_bits": ("8",),
         }
+        if bool(quant_config["layer_quant_config"]):
+            # Specialized case for embedding bag, will be extended for KV-cache
+            model_config["layer_quant_config"] = True
+            model_config["eb_symmetric"] = quant_config["layer_quant_config"]["weight"][
+                "symmetric"
+            ]
+            model_config["eb_qscheme"] = quant_config["layer_quant_config"]["weight"][
+                "qscheme"
+            ]
+            model_config["eb_dtype"] = quant_config["layer_quant_config"]["weight"][
+                "dtype"
+            ]
+            model_config["eb_zero_point"] = quant_config["layer_quant_config"][
+                "weight"
+            ]["zero_point"]
+            model_config["eb_bits"] = model_config["eb_dtype"][-1]
+            model_config["eb_scale_type"] = quant_config["layer_quant_config"][
+                "weight"
+            ]["scale_type"]
+
+            # Parallel entries for supported_config
+            supported_config["layer_quant_config"] = (True,)
+            supported_config["eb_symmetric"] = (False,)
+            supported_config["eb_qscheme"] = ("per_channel",)
+            supported_config["eb_dtype"] = ("uint4",)
+            supported_config["eb_bits"] = ("4",)
+            supported_config["eb_zero_point"] = (0,)
+            supported_config["eb_scale_type"] = ("float",)
     else:
         logger.info("WOQ model config")
         model_config = {
@@ -271,8 +345,9 @@ def load_quantized_model(
             + "required for woq model loading. Please install it using "
             + "`pip install safetensors`."
         )
-
-    model_architecture = model.config.architectures[0]
+    with open(os.path.join(saved_model_path, "config.json"), "r") as f:
+        models_config = json.load(f)
+    model_architecture = models_config["architectures"][0]
     if model_architecture not in RELOAD_SUPPORTED_MODELS:
         raise ValueError(
             "This quantized model with model_architecture = "
@@ -341,6 +416,31 @@ def load_quantized_model(
                         + f"into '{weight_tensor.dtype}' tensor, it only supports "
                         + "qweight packed into 'torch.int32' tensor"
                     )
+            elif "embedding_bags" in weight_key:
+                # Ideally, we should be supporting input_tensors, output_tensors
+                # and weight quant information and loading individually.
+                weight_scales, weight_zero_points, bias_tensor = (
+                    get_embedding_module_param_tensors(module_name, params_dict)
+                )
+                packed_embedding_weight = (
+                    zentorch._C.zentorch_get_packed_embedding_weight(
+                        weight_tensor, weight_scales, weight_zero_points)
+                )
+                float_module = get_op_by_name(model, module_name)
+                quant_module = build_and_replace_with_Q_EmbeddingBag(
+                    float_module,
+                    packed_embedding_weight,
+                    weight_scales,
+                    weight_zero_points,
+                    model_config["eb_bits"],
+                    None,  # group_size
+                    model_config["eb_zero_point"],
+                    model_config["torch_dtype"],
+                    model_config["eb_scale_type"],
+                    model_config["eb_dtype"],
+                )
+                set_op_by_name(model, module_name, quant_module)
+
             elif static_key in params_keys:
                 (
                     input_scales,
@@ -366,6 +466,7 @@ def load_quantized_model(
                     input_scales,
                     input_zero_points,
                     model_config["activation_bits"],
+                    model_config["activation_symmetric"],
                 )
                 set_op_by_name(model, module_name, quant_module)
             else:

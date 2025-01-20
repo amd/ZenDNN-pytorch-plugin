@@ -25,17 +25,26 @@ class ZenTorchStaticQuantizedLinearOpContext:
         bias=None,
         group_size=None,
         compute_dtype="bfloat16",
+        input_symmetric=False,
     ):
         self.weight = weight
         self.weight_scales = weight_scales
-        self.weight_zero_points = weight_zero_points
         self.weight_bits = weight_bits
         self.input_scales = input_scales
-        self.input_zero_points = input_zero_points
         self.bias = bias
         self.group_size = None
         self.input_bits = input_bits
         self.compute_dtype = compute_dtype
+        self.weight_zero_points = (
+            weight_zero_points.to(torch.int8)
+            if weight_bits == "8"
+            else weight_zero_points
+        )
+        self.input_zero_points = (
+            input_zero_points.to(torch.int8 if input_symmetric else torch.uint8)
+            if input_bits == "8"
+            else input_zero_points
+        )
 
 
 # this is a custom ZenTorchStaticQuantizedLinear module to support static Linear
@@ -55,6 +64,7 @@ class ZenTorchStaticQuantizedLinear(nn.Linear):
         bias=None,
         group_size=None,
         compute_dtype="bfloat16",
+        input_symmetric=False,
     ):
         r"""Create a ZenTorchStaticQuantizedLinear module
         from a float module and int8 weight.
@@ -75,7 +85,8 @@ class ZenTorchStaticQuantizedLinear(nn.Linear):
             bias (Tensor or None): bias for linear
             group_size (int): Group size for weight quantization
             compute_dtype (str): Dtype of the module computation
-
+            input_symmetric (bool): True for symmetric quantization and
+            False for asymmetric quantization
         """
 
         float_modules = [torch.nn.Linear]
@@ -118,6 +129,7 @@ class ZenTorchStaticQuantizedLinear(nn.Linear):
             bias,
             group_size,
             compute_dtype,
+            input_symmetric,
         )
         del (
             weight,
