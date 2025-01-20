@@ -182,15 +182,19 @@ python setup.py bdist_wheel
 cd dist
 pip install zentorch-5.0.1-cp38-cp38-linux_x86_64.whl
 ```
-#### 2.2.2.6. Run Unit Tests
+#### 2.2.2.6. Run All Unit Tests
 ```python
-python test/test_zentorch.py
+python -m unittest discover -s ./test/unittests
 ```
-#### 2.2.2.7 Run unit test with seed
+#### 2.2.2.7. Run All Tests
 ```python
-python test/test_zentorch.py --seed seed_value
+python -m unittest discover -s ./test
 ```
-#### 2.2.2.8. Build Cleanup
+#### 2.2.2.8 Run Individual Tests
+```python
+python -m unittest test/unittests/op_tests/test_bmm.py
+```
+#### 2.2.2.9. Build Cleanup
 ```bash
 python setup.py clean --all
 ```
