@@ -1,5 +1,5 @@
 /******************************************************************************
- * Modifications Copyright (c) 2024 Advanced Micro Devices, Inc.
+ * Modifications Copyright (c) 2025 Advanced Micro Devices, Inc.
  * All rights reserved.
  *
  * Was sourced from
@@ -16,7 +16,7 @@
 #include "vec/vec512_bfloat16.h"
 
 #include "vec/add_softmax.h"
-#include "zen_MaskedMultiHeadAttention.hpp"
+#include "zen_cpukernels.hpp"
 
 #define AVX512_BF16_COMPUTE_ENABLE 1
 #define AVX512_BF16_STORE_ENABLE 1

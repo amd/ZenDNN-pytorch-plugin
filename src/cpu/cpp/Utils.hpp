@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright (c) 2024 Advanced Micro Devices, Inc.
+ * Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
  * All rights reserved.
  ******************************************************************************/
 
@@ -23,6 +23,14 @@
               ##__VA_ARGS__)
 
 namespace zentorch {
+
+// zentorch:: Check if m/c supports AVX512/AVX256
+inline bool is_avx512_supported() {
+  return cpuinfo_has_x86_avx512f() && cpuinfo_has_x86_avx512vl() &&
+         cpuinfo_has_x86_avx512dq() && cpuinfo_has_x86_avx512vnni() &&
+         cpuinfo_has_x86_avx512bf16() && cpuinfo_has_x86_avx512bw();
+}
+
 enum UNARY_POST_OP {
   // Add unary post ops here
   POST_OP_NONE,

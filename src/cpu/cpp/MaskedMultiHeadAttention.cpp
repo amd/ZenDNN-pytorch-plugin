@@ -1,5 +1,5 @@
 /******************************************************************************
- * Modifications Copyright (c) 2024 Advanced Micro Devices, Inc.
+ * Modifications Copyright (c) 2025 Advanced Micro Devices, Inc.
  * All rights reserved.
  *
  * Was sourced from
@@ -13,17 +13,12 @@
 #include <omp.h>
 #include <torch/all.h>
 
-#include "vec/utils.h"
-#include "zen_MaskedMultiHeadAttention.hpp"
+#include "kernels/vec/utils.h"
+#include "kernels/zen_cpukernels.hpp"
+
+#include "Utils.hpp"
 
 namespace zentorch {
-
-// zentorch:: Check if m/c supports AVX512/AVX256
-bool is_avx512_supported() {
-  return cpuinfo_has_x86_avx512f() && cpuinfo_has_x86_avx512vl() &&
-         cpuinfo_has_x86_avx512dq() && cpuinfo_has_x86_avx512vnni() &&
-         cpuinfo_has_x86_avx512bf16() && cpuinfo_has_x86_avx512bw();
-}
 
 // zentorch:: reduce_head_ref will be invoked on AVX256 m/c
 template <typename T>
@@ -629,5 +624,21 @@ zentorch_masked_multihead_self_attention_impl(
   return masked_multihead_self_attention_kernel_impl_ref(
       query, key, value, key_cache, value_cache, beam_idx, seq_info, scale_attn,
       max_positions, head_mask, attention_mask, add_casual_mask);
+}
+
+TORCH_LIBRARY_FRAGMENT(zentorch, m) {
+  m.def("zentorch_masked_multihead_self_attention(Tensor query, Tensor key, "
+        "Tensor value, Tensor key_cache, "
+        "Tensor value_cache, Tensor beam_idx, Tensor seq_info, float "
+        "scale_attn, int max_positions, "
+        "Tensor? head_mask, Tensor? attention_mask, bool? "
+        "add_casual_mask=None, str zentorch_op_name = "
+        "'zentorch::zentorch_masked_multihead_self_attention')-> (Tensor, "
+        "Tensor, Tensor, Tensor, Tensor)");
+}
+
+TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
+  m.impl("zentorch_masked_multihead_self_attention",
+         zentorch::zentorch_masked_multihead_self_attention_impl);
 }
 } // namespace zentorch
