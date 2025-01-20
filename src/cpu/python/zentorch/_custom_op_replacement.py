@@ -343,7 +343,6 @@ def emb_ops_horizontal_fusion(fx_g):
                 new_args[0] = nodes_list
                 common_output_node.args = tuple(new_args)
 
-    fx_g.graph.set_codegen(torch.fx.graph.CodeGen())
     fx_g.graph.lint()
     fx_g.recompile()
 
@@ -410,7 +409,7 @@ def qlinear_reorder_optimizations(fx_graph):
                     )
                     counters["zentorch"]["optimized_reorder"] += 1
                 pred_node = curr_node
-    fx_graph.graph.set_codegen(torch.fx.graph.CodeGen())
+
     fx_graph.graph.lint()
     fx_graph.recompile()
     return fx_graph
@@ -558,7 +557,6 @@ def vertical_mlp_fusion(fx_graph):
             for addmm in group[::-1]:
                 if addmm != last_addmm:
                     fx_graph.graph.erase_node(addmm)
-    fx_graph.graph.set_codegen(torch.fx.graph.CodeGen())
     fx_graph.recompile()
     return fx_graph
 
@@ -682,7 +680,7 @@ def qkv_fusion(fx_graph):
                 "Horizontal Group fusion not possible with the current \
                             combination of addmm/mm layers"
             )
-    fx_graph.graph.set_codegen(torch.fx.graph.CodeGen())
+
     fx_graph.recompile()
     return fx_graph
 
@@ -810,6 +808,6 @@ def eb_group_mlp_group_fusion(fx_graph):
             # erase the former.
             group_eb_op.replace_all_uses_with(group_mlp_op)
             fx_graph.graph.erase_node(group_eb_op)
-    fx_graph.graph.set_codegen(torch.fx.graph.CodeGen())
+
     fx_graph.recompile()
     return fx_graph

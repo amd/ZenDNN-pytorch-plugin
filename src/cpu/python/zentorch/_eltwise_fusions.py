@@ -199,7 +199,7 @@ def zentorch_eltwise_fusions(fx_graph):
                 fx_graph.graph.erase_node(next_node)
 
     logger.info("Recompiling the fx_graph with fusion changes made.")
-    fx_graph.graph.set_codegen(torch.fx.graph.CodeGen())
+
     fx_graph.graph.lint()
     fx_graph.recompile()
     return fx_graph
