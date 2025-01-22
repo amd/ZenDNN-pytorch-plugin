@@ -69,7 +69,12 @@ inline void zentorch_quantized_matmul_impl(
 
   std::unordered_map<int, memory> execute_args;
   zendnn::primitive_attr op_attr;
-
+  post_ops po;
+  // Setting Post ops
+  if (post_op_ids.size() > 0) {
+    zentorch_post_ops_selection(po, execute_args, post_op_ids, post_op_buffers);
+    op_attr.set_post_ops(po);
+  }
   op_attr.set_plugin_op_name(zentorch_op_name);
 
   // Set the input_zero_points for the matmul operation.
@@ -94,6 +99,7 @@ inline void zentorch_quantized_matmul_impl(
   LOG(INFO) << "Finished executing: " << __FUNCTION__ << "!\n";
 }
 
+template <UNARY_POST_OP fuse>
 at::Tensor zentorch_qlinear(const at::Tensor &input, const at::Tensor &weight,
                             const c10::optional<at::Tensor> &bias,
                             const at::Tensor &input_scales,
@@ -132,7 +138,7 @@ at::Tensor zentorch_qlinear(const at::Tensor &input, const at::Tensor &weight,
 
   // Set unary post ops.
   std::vector<at::Tensor> post_op_buffers = {};
-  std::vector<int64_t> post_op_ids = {UNARY_POST_OP::POST_OP_NONE};
+  std::vector<int64_t> post_op_ids = {fuse};
   LOG(INFO) << "Calling zentorch_quantized_matmul_impl from " << __FUNCTION__
             << "!\n";
   zentorch_quantized_matmul_impl(
@@ -150,10 +156,27 @@ TORCH_LIBRARY_FRAGMENT(zentorch, m) {
         "ScalarType output_dtype, Tensor? output_scales=None, "
         "Tensor? output_zero_points=None, str zentorch_op_name="
         "'zentorch::zentorch_qlinear') -> Tensor");
+  m.def("zentorch_qlinear_relu(Tensor input, Tensor weight, "
+        "Tensor? bias, Tensor input_scales, Tensor input_zero_points, "
+        "Tensor weight_scales, Tensor weight_zero_points, "
+        "ScalarType output_dtype, Tensor? output_scales=None, "
+        "Tensor? output_zero_points=None, str zentorch_op_name="
+        "'zentorch::zentorch_qlinear_relu') -> Tensor");
+  m.def("zentorch_qlinear_sigmoid(Tensor input, Tensor weight, "
+        "Tensor? bias, Tensor input_scales, Tensor input_zero_points, "
+        "Tensor weight_scales, Tensor weight_zero_points, "
+        "ScalarType output_dtype, Tensor? output_scales=None, "
+        "Tensor? output_zero_points=None, str zentorch_op_name="
+        "'zentorch::zentorch_qlinear_sigmoid') -> Tensor");
 }
 
 TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
-  m.impl("zentorch_qlinear", zentorch::zentorch_qlinear);
+  m.impl("zentorch_qlinear",
+         zentorch::zentorch_qlinear<UNARY_POST_OP::POST_OP_NONE>);
+  m.impl("zentorch_qlinear_relu",
+         zentorch::zentorch_qlinear<UNARY_POST_OP::RELU>);
+  m.impl("zentorch_qlinear_sigmoid",
+         zentorch::zentorch_qlinear<UNARY_POST_OP::SIGMOID>);
 }
 
 } // namespace zentorch

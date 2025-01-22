@@ -41,6 +41,22 @@ q_zero_points_dtype_opt = ["int8", "uint8"]
 conv_stride = [[1, 1], [2, 2]]
 conv_padding = [[0, 0], [1, 1]]
 
+at_ops = torch.ops.aten
+zt_ops = torch.ops.zentorch
+
+qlinear_eltwise_map = {
+    "relu": (torch.nn.ReLU(), zt_ops.zentorch_qlinear_relu.default),
+    "sigmoid": (torch.nn.Sigmoid(), zt_ops.zentorch_qlinear_sigmoid.default),
+    # TODO: Enable once silu, gelu_erf, gelu_tanh fusions are supported
+    # with qlinear
+    # "silu": (torch.nn.SiLU(), zt_ops.zentorch_qlinear_silu.default),
+    # "gelu_erf": (torch.nn.GELU(), zt_ops.zentorch_qlinear_gelu_erf.default),
+    # "gelu_tanh": (
+    #     torch.nn.GELU(approximate="tanh"),
+    #     zt_ops.zentorch_qlinear_gelu_tanh.default,
+    # ),
+}
+
 
 class Singleton(type):
     _instances = {}

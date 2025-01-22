@@ -711,6 +711,60 @@ def meta_zentorch_qlinear(
     return input.new_empty(out_dim, dtype=output_dtype)
 
 
+@register_meta("zentorch_qlinear_relu")
+def meta_zentorch_qlinear_relu(
+    input,
+    weight,
+    bias,
+    input_scales,
+    input_zero_points,
+    weight_scales,
+    weight_zero_points,
+    output_dtype,
+    output_scales=None,
+    output_zero_points=None,
+):
+    return meta_zentorch_qlinear(
+        input,
+        weight,
+        bias,
+        input_scales,
+        input_zero_points,
+        weight_scales,
+        weight_zero_points,
+        output_dtype,
+        output_scales,
+        output_zero_points,
+    )
+
+
+@register_meta("zentorch_qlinear_sigmoid")
+def meta_zentorch_qlinear_sigmoid(
+    input,
+    weight,
+    bias,
+    input_scales,
+    input_zero_points,
+    weight_scales,
+    weight_zero_points,
+    output_dtype,
+    output_scales=None,
+    output_zero_points=None,
+):
+    return meta_zentorch_qlinear(
+        input,
+        weight,
+        bias,
+        input_scales,
+        input_zero_points,
+        weight_scales,
+        weight_zero_points,
+        output_dtype,
+        output_scales,
+        output_zero_points,
+    )
+
+
 make_fallback(torch.ops.zentorch.zentorch_addmm)
 make_fallback(torch.ops.zentorch.zentorch_addmm_relu)
 make_fallback(torch.ops.zentorch.zentorch_addmm_silu)
@@ -752,3 +806,5 @@ make_fallback(torch.ops.zentorch.zentorch_woq_linear_add_add)
 make_fallback(torch.ops.zentorch.zentorch_woq_linear_silu_mul)
 make_fallback(torch.ops.zentorch.zentorch_convolution)
 make_fallback(torch.ops.zentorch.zentorch_qlinear)
+make_fallback(torch.ops.zentorch.zentorch_qlinear_relu)
+make_fallback(torch.ops.zentorch.zentorch_qlinear_sigmoid)

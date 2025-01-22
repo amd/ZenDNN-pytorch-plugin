@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2024 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -11,6 +11,7 @@ from ._op_replacement import (
     are_args_same_dtype,
     get_tensor,
 )
+from ._utils import counters
 
 logger = get_logger(__name__)
 
@@ -24,33 +25,39 @@ add_pattern = (zt_ops.zentorch_bmm.default, zt_ops.zentorch_mm.default)
 benign_op = [at_ops.clone.default, at_ops.view.default]
 
 eltwise_targets = {
-    zt_ops.zentorch_mm.default: [
-        zt_ops.zentorch_mm_relu.default,
-        zt_ops.zentorch_mm_silu.default,
-        zt_ops.zentorch_mm_gelu_tanh.default,
-        zt_ops.zentorch_mm_gelu_erf.default,
-    ],
-    zt_ops.zentorch_addmm.default: [
-        zt_ops.zentorch_addmm_relu.default,
-        zt_ops.zentorch_addmm_silu.default,
-        zt_ops.zentorch_addmm_gelu_tanh.default,
-        zt_ops.zentorch_addmm_gelu_erf.default,
-    ],
-    zt_ops.zentorch_addmm_1dbias.default: [
-        zt_ops.zentorch_addmm_1dbias_relu.default,
-        zt_ops.zentorch_addmm_1dbias_silu.default,
-        zt_ops.zentorch_addmm_1dbias_gelu_tanh.default,
-        zt_ops.zentorch_addmm_1dbias_gelu_erf.default,
-    ],
-    zt_ops.zentorch_woq_linear.default: [
-        zt_ops.zentorch_woq_linear_relu.default,
-        zt_ops.zentorch_woq_linear_silu.default,
-        zt_ops.zentorch_woq_linear_gelu_tanh.default,
-        zt_ops.zentorch_woq_linear_gelu_erf.default,
-    ],
+    zt_ops.zentorch_mm.default: {
+        "relu" : zt_ops.zentorch_mm_relu.default,
+        "silu" : zt_ops.zentorch_mm_silu.default,
+        "gelu_tanh" : zt_ops.zentorch_mm_gelu_tanh.default,
+        "gelu_erf" : zt_ops.zentorch_mm_gelu_erf.default,
+    },
+    zt_ops.zentorch_addmm.default: {
+        "relu" : zt_ops.zentorch_addmm_relu.default,
+        "silu" : zt_ops.zentorch_addmm_silu.default,
+        "gelu_tanh" : zt_ops.zentorch_addmm_gelu_tanh.default,
+        "gelu_erf" : zt_ops.zentorch_addmm_gelu_erf.default,
+    },
+    zt_ops.zentorch_addmm_1dbias.default: {
+        "relu" : zt_ops.zentorch_addmm_1dbias_relu.default,
+        "silu" : zt_ops.zentorch_addmm_1dbias_silu.default,
+        "gelu_tanh" : zt_ops.zentorch_addmm_1dbias_gelu_tanh.default,
+        "gelu_erf" : zt_ops.zentorch_addmm_1dbias_gelu_erf.default,
+    },
+    zt_ops.zentorch_woq_linear.default: {
+        "relu" : zt_ops.zentorch_woq_linear_relu.default,
+        "silu" : zt_ops.zentorch_woq_linear_silu.default,
+        "gelu_tanh" : zt_ops.zentorch_woq_linear_gelu_tanh.default,
+        "gelu_erf" : zt_ops.zentorch_woq_linear_gelu_erf.default,
+    },
+    zt_ops.zentorch_qlinear.default: {
+        "relu" : zt_ops.zentorch_qlinear_relu.default,
+        "sigmoid" : zt_ops.zentorch_qlinear_sigmoid.default,
+    },
 }
 
 supported_eltwise_ops = (
+    # TODO: Support sigmoid fusion with mm, addmm,
+    # addmm_1dbias and woq_linear
     at_ops.relu.default,
     at_ops.relu_.default,
     at_ops.gelu.default,
@@ -59,19 +66,37 @@ supported_eltwise_ops = (
     at_ops.silu_.default,
 )
 
+qlinear_supported_eltwise_ops = (
+    # TODO: Support silu, gelu_tanh, gelu_erf fusions with qlinear
+    at_ops.relu.default,
+    at_ops.relu_.default,
+    at_ops.sigmoid.default,
+    at_ops.sigmoid_.default,
+)
 
-# use to fuse relu, gelu(erf/tanh) with mm variants.
-def set_fused_target_for_mm(node, post_op):
+
+# use to fuse relu, gelu(erf/tanh), silu and sigmoid with mm variants.
+def set_fused_target_for_matmul_variants(node, post_op):
     if post_op.target == at_ops.relu.default or post_op.target == at_ops.relu_.default:
-        node.target = eltwise_targets[node.target][0]
+        counters["zentorch"]["relu_fusion"] += 1
+        node.target = eltwise_targets[node.target]["relu"]
     elif (
         post_op.target == at_ops.silu.default or post_op.target == at_ops.silu_.default
     ):
-        node.target = eltwise_targets[node.target][1]
+        counters["zentorch"]["silu_fusion"] += 1
+        node.target = eltwise_targets[node.target]["silu"]
+    elif (
+        post_op.target == at_ops.sigmoid.default
+        or post_op.target == at_ops.sigmoid_.default
+    ):
+        counters["zentorch"]["sigmoid_fusion"] += 1
+        node.target = eltwise_targets[node.target]["sigmoid"]
     elif bool(post_op.kwargs) and post_op.kwargs["approximate"] == "tanh":
-        node.target = eltwise_targets[node.target][2]
+        counters["zentorch"]["gelu_tanh_fusion"] += 1
+        node.target = eltwise_targets[node.target]["gelu_tanh"]
     else:
-        node.target = eltwise_targets[node.target][3]
+        counters["zentorch"]["gelu_erf_fusion"] += 1
+        node.target = eltwise_targets[node.target]["gelu_erf"]
 
 
 def zentorch_eltwise_fusions(fx_graph):
@@ -149,6 +174,10 @@ def zentorch_eltwise_fusions(fx_graph):
         # The last node in the graph pattern should be replaced. Eltwise
         # fusion is an exception.
         if node.target in eltwise_targets:
+            if node.target == zt_ops.zentorch_qlinear.default:
+                supported_eltwise_ops_for_node = qlinear_supported_eltwise_ops
+            else:
+                supported_eltwise_ops_for_node = supported_eltwise_ops
             # create a sub-dict from pattern dict
             if len(node.users) > 1:  # Output of node is used by other nodes
                 continue
@@ -163,9 +192,9 @@ def zentorch_eltwise_fusions(fx_graph):
                 op_list.append(next_node)
                 # store user of next_node
                 next_node = next(iter(next_node.users))
-            if next_node.target in supported_eltwise_ops:
+            if next_node.target in supported_eltwise_ops_for_node:
                 # call the function for eltwise ops
-                set_fused_target_for_mm(node, next_node)
+                set_fused_target_for_matmul_variants(node, next_node)
                 next_node.replace_all_uses_with(op_list[-1])
                 fx_graph.graph.erase_node(next_node)
 
