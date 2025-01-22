@@ -442,6 +442,10 @@ inline void zentorch_post_ops_selection(
       LOG(INFO) << "Setting silu as post op";
       po.append_eltwise(1.0f, algorithm::eltwise_swish, 1.f, 0.f);
       break;
+    case UNARY_POST_OP::SIGMOID:
+      LOG(INFO) << "Setting sigmoid as post op";
+      po.append_eltwise(1.0f, algorithm::eltwise_logistic, 1.f, 0.f);
+      break;
     case BINARY_POST_OP::MUL:
       LOG(INFO) << "Setting mul as post op";
       po.append_binary(algorithm::binary_mul,

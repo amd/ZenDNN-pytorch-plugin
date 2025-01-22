@@ -38,10 +38,11 @@ enum UNARY_POST_OP {
   GELU_TANH,
   GELU_ERF,
   SILU,
+  SIGMOID,
   // Add unary post op before this,
   // if you add any post op
   // update UNARY_OP_COUNT by that post op.
-  UNARY_OP_COUNT = SILU
+  UNARY_OP_COUNT = SIGMOID
 };
 // Initializing the first enum in BINARY_POST_OP so that all post ops will have
 // unique value.
