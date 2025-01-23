@@ -95,6 +95,31 @@ class ZenTorchWOQEmbeddingBag(nn.Module):
         return extra_repr_str
 
     def forward(self, input, offset, per_sample_weights=None):
-        # TODO: Implement the forward pass for WOQ EmbeddingBag
-        empty_eb = torch.empty(self.packed_weight.size(), dtype=self.compute_dtype)
-        return empty_eb[:, :-1]
+        woq_embedding_bag, _, _, _ = torch.ops.zentorch.zentorch_quant_embedding_bag(
+            # Tensor weight
+            self.packed_weight,
+            # Tensor indices
+            input,
+            # Tensor offsets
+            offset,
+            # int num_bits_per_weight
+            4,
+            # TODO
+            # This hardcoding of torch.float32 needs to be runtime dependent,
+            # as we will be supporting bfloat16 execution as well.
+            # ScalarType output_dtype
+            torch.float32,
+            # bool scale_grad_by_freq
+            self.scale_grad_by_freq,
+            # int mode
+            self.mode,
+            # bool sparse
+            self.sparse,
+            # Tensor? per_sample_weights
+            None,
+            # bool include_last_offset
+            self.include_last_offset,
+            # SymInt padding_idx
+            self.padding_idx,
+        )
+        return woq_embedding_bag
