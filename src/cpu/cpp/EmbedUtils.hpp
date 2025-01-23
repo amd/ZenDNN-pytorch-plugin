@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright (c) 2024 Advanced Micro Devices, Inc.
+ * Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
  * All rights reserved.
  ******************************************************************************/
 #pragma once
@@ -112,9 +112,9 @@ eb_tensors_to_memory(const at::Tensor &weight, const at::Tensor &indices,
 
   output = at::empty({num_bags, dim_embedding}, weight.options());
 
-  c10::MaybeOwned<at::Tensor> per_sample_weights_maybe_owned =
+  c10::MaybeOwned<at::Tensor> per_sample_weights_opt_maybe_owned =
       at::borrow_from_optional_tensor(per_sample_weights_opt);
-  const at::Tensor &per_sample_weights = *per_sample_weights_maybe_owned;
+  const at::Tensor &per_sample_weights = *per_sample_weights_opt_maybe_owned;
 
   // creating ZenDNN memory using aten tensors
   z_weight = zen_memory(weight);

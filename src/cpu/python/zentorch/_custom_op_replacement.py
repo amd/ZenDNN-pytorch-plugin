@@ -1,7 +1,8 @@
 # ******************************************************************************
-# Copyright (c) 2024 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
+
 import torch
 from torch._inductor.pattern_matcher import stable_topological_sort
 import operator
@@ -23,6 +24,8 @@ def emb_ops_horizontal_fusion(fx_g):
         zt_ops.zentorch_horizontal_embedding_bag_group.default,
         zt_ops.zentorch_embedding.default:
         zt_ops.zentorch_horizontal_embedding_group.default,
+        zt_ops.zentorch_quant_embedding_bag.default:
+        zt_ops.zentorch_horizontal_quant_embedding_bag_group.default,
     }
     groups = {}
     for node in fx_g.graph.nodes:
@@ -32,7 +35,10 @@ def emb_ops_horizontal_fusion(fx_g):
             if node.target == zt_ops.zentorch_embedding.default:
                 if len(users) == 1:
                     user_node = users[0]
-            elif node.target == zt_ops.zentorch_embedding_bag.default:
+            elif node.target in {
+                zt_ops.zentorch_embedding_bag.default,
+                zt_ops.zentorch_quant_embedding_bag.default,
+            }:
                 for user in users:
                     if user_node is None and len(user.users.keys()) == 1:
                         user_node = user
@@ -44,19 +50,26 @@ def emb_ops_horizontal_fusion(fx_g):
                     common_output_node = user_node
                     node_name = common_output_node.name
                     if node_name in groups:
-                        if groups[node_name]["type"] == "embedding_bag":
+                        if groups[node_name]["type"] in {
+                            "embedding_bag",
+                            "quant_embedding_bag",
+                        }:
+                            other_op = groups[node_name]["type"]
                             logger.info(
-                                "Cannot fuse embedding bag and embedding with "
+                                f"Cannot fuse {other_op} and embedding with "
                                 + "common node. This is because of the function "
                                 + "prototype difference between the "
-                                + "aten.embedding and aten.embeddingbag ops and "
+                                + f"embedding and {other_op} ops and "
                                 + "their corresponding zentorch group ops!"
                             )
                             return fx_g
                         groups[node_name]["nodes"].append(node)
                     else:
                         groups[node_name] = {
-                            "common_output_node_target": common_output_node.target,
+                            "common_output_node": (
+                                common_output_node.name,
+                                common_output_node.target,
+                            ),
                             "type": "embedding",
                             "nodes": [node],
                         }
@@ -64,20 +77,52 @@ def emb_ops_horizontal_fusion(fx_g):
                     common_output_node = list(user_node.users.keys())[0]
                     node_name = common_output_node.name
                     if node_name in groups:
-                        if groups[node_name]["type"] == "embedding":
+                        if groups[node_name]["type"] in {
+                            "embedding",
+                            "quant_embedding_bag",
+                        }:
+                            other_op = groups[node_name]["type"]
                             logger.info(
-                                "Cannot fuse embedding bag and embedding with "
+                                f"Cannot fuse {other_op} and embedding_bag with "
                                 + "common node. This is because of the function "
                                 + "prototype difference between the "
-                                + "aten.embedding and aten.embeddingbag ops and "
+                                + f"embeddingbag and {other_op} ops and "
                                 + "their corresponding zentorch group ops."
                             )
                             return fx_g
                         groups[node_name]["nodes"].append(node)
                     else:
                         groups[node_name] = {
-                            "common_output_node_target": common_output_node.target,
+                            "common_output_node": (
+                                common_output_node.name,
+                                common_output_node.target,
+                            ),
                             "type": "embedding_bag",
+                            "nodes": [node],
+                        }
+                elif node.target == zt_ops.zentorch_quant_embedding_bag.default:
+                    common_output_node = list(user_node.users.keys())[0]
+                    node_name = common_output_node.name
+                    if node_name in groups:
+                        if groups[node_name]["type"] in {"embedding", "embedding_bag"}:
+                            other_op = groups[node_name]["type"]
+                            logger.info(
+                                f"Cannot fuse {other_op} and quant_embedding_bag with "
+                                + "common node. This is because of the function "
+                                + "prototype difference between the "
+                                + f"quantized embedding bag and {other_op} ops and "
+                                + "their corresponding zentorch group ops."
+                            )
+                            return fx_g
+                        groups[node_name]["nodes"].append(node)
+                    else:
+                        # TODO: Add a unittest for all scenarios
+                        groups[node_name] = {
+                            "common_output_node": (
+                                common_output_node.name,
+                                common_output_node.target,
+                            ),
+                            "type": "quant_embedding_bag",
                             "nodes": [node],
                         }
 
@@ -85,18 +130,59 @@ def emb_ops_horizontal_fusion(fx_g):
         # Depending on the already existing values of arguments in
         # list_new_args, the remaining arguments are populated for embedding
         # ops. The type_of_node decides whether the arguments that are
-        # populated are of embedding op or embeddingbag op. Embedding requires
-        # two out of 7 arguments mandatorily and other arguments can have
-        # either default or user specified values. Similarly, EmbeddingBag
-        # requires three out of nine arguments mandatorily and other arguments
-        # can either have default or user specified values.
-        # The list_new_args list is populated as specified above and returned.
+        # populated are of embedding op, embeddingbag op or quantized
+        # embeddingbag op. Embedding requires two out of 7 arguments
+        # mandatorily and other arguments can have either default or user
+        # specified values. Similarly, EmbeddingBag requires three out of nine
+        # arguments mandatorily and other arguments can either have default or
+        # user specified values. Likewise, Quantized EmbeddingBag requires five
+        # out of eleven arguments mandatorily and other arguments can either
+        # have default of user specified values. The list_new_args list is
+        # populated as specified above and returned.
         num_ops = len(list_new_args[0])
         default_args = None
         if type_of_node == "embedding":
+            # embedding(
+            # weight: Tensor,
+            # indices: Tensor,
+            # padding_idx: int = -1,
+            # scale_grad_by_freq: bool = False,
+            # sparse: bool = False,
+            # include_last_offset: bool = False
+            # )
             default_args = [None, None, -1, 0, 0]
         elif type_of_node == "embedding_bag":
+            # embedding_bag(
+            # weight: Tensor,
+            # indices: Tensor,
+            # offsets: Tensor,
+            # scale_grad_by_freq: bool = False,
+            # mode: int = 0,
+            # sparse: bool = False,
+            # per_sample_weights: Optional[Tensor] = None,
+            # include_last_offset: bool = False
+            # )
             default_args = [None, None, None, 0, 0, 0, None, 0, -1]
+        elif type_of_node == "quant_embedding_bag":
+            # quant_embedding_bag(
+            # weight: Tensor,
+            # indices: Tensor,
+            # offsets: Tensor,
+            # num_bits_per_weight: int,
+            # output_dtype: ScalarType,
+            # scale_grad_by_freq: bool = False,
+            # mode: int = 0,
+            # sparse: bool = False,
+            # per_sample_weights: Optional[Tensor] = None,
+            # include_last_offset: bool = False,
+            # padding_idx: int = -1
+            # )
+
+            # Currently, we only support embedding bag quantized to uint4
+            # the op implementation used the num_bits_per_weight in calculation
+            # which in this case is 4 (Because we quantized to uint4 and then
+            # packed the weights into uint32)
+            default_args = [None, None, None, 4, torch.float32, 0, 0, 0, None, 0, -1]
         non_empty_args_idx = 0
         for idx, l in enumerate(list_new_args):
             if len(l) == 0:
@@ -107,15 +193,57 @@ def emb_ops_horizontal_fusion(fx_g):
         return list_new_args
 
     for group in groups:
+        # For FP32 or BF16, the condition for length will be always greater than 1.
+        condition_for_length = len(groups[group]["nodes"]) > 1
+
+        # Since there is no support for quant eb, we replace quant_eb with
+        # quant_eb_group with singular lists. So, condition for length will be
+        # true irrespective of number of quantized embedding ops.
+        # TODO
+        # A more cleaner approach for this would be to move the implementation
+        # of singular quant embedding bag inside the CPP files (EmbedBag.cpp),
+        # and call the group quant embeddingbag function internally. Currently,
+        # we are replacing even singular quant embeddingbag with group counterpart
+        # to avoid the usage of the IntArrayRef and TensorList APIs on the CPP part
+        # as there are some unknows with it.
+        if groups[group]["type"] == "quant_embedding_bag":
+            condition_for_length = True
+
+        # In the case of embeddingbag and quant embeddingbag the group counterparts'
+        # outputs are taken care by getitem nodes. So, irrespective of the output nodes
+        # the outputs of the group counterparts would end up in proper places.
+        # So, for embeddingbag and quant embeddingbag, there can be no condition
+        # for fusing it.
+        # Why do we want to do this?
+        # The support for singular quant embeddingbag is not present currently.
+        # So, we want to use the group quant embeddingbag API with singular lists.
+        # But this replacement should happen irrespective of the common output nodes.
+        # So, even if the common output node is an output node, the replacement must
+        # happen. So the condition for the common output node will always be true in
+        # case of embeddingbag and quant embeddingbag.
+        condition_for_common_output_node = True
+
+        # In the embedding operator, there is only output from it. So, there
+        # are no getitem nodes to to direct the output to proper places. So when
+        # the group counterpart of the embedding operator is introduced in the
+        # graph, it returns a list of tensors. So, the presence of getitem nodes
+        # is necessary for output re-direction.
+        # TODO
+        # Add get-item nodes for embedding operator and its group counterpart.
+        # This will ease our graph passes and make this graph pass more generic.
+        if groups[group]["type"] == "embedding":
+            condition_for_common_output_node = (
+                groups[group]["common_output_node"][1] == at_ops.cat.default
+            )
+
         #  strict checks for common output node to be concat node
-        if (len(groups[group]["nodes"]) > 1) and (
-            groups[group]["common_output_node_target"]
-        ) == at_ops.cat.default:
+        if condition_for_length and condition_for_common_output_node:
             op_count = 0
-            # embedding_bag has more parameters than embedding. So creating new
-            # args list with max of the number of parameters of both ops, which
-            # is 9. Empty lists are further removed.
-            list_new_args = [[] for _ in range(9)]
+            # quant_embedding_bag has more parameters than embedding and
+            # embedding_bag. So creating new args list with max of the number
+            # of parameters of both ops, which is 11. Empty lists are further
+            # removed.
+            list_new_args = [[] for _ in range(11)]
             last_node = groups[group]["nodes"][-1]
             traversed_nodes = set()
             for node in groups[group]["nodes"]:
@@ -135,8 +263,23 @@ def emb_ops_horizontal_fusion(fx_g):
                 list_new_args = populate_default_args(
                     list_new_args, type_of_node="embedding_bag"
                 )
+            elif node.target == zt_ops.zentorch_quant_embedding_bag.default:
+                # The group quant embedding bag expects the output dtype as a
+                # single element rather the list of elements unlike other
+                # arguments. So, the output dtype is at the 4th index in the
+                # argument list. So, the hard-coding of 4 in the subsequent lines.
+                output_dtype = torch.float32
+                if len(list_new_args[4]) != 0:
+                    output_dtype = list_new_args[4][0]
+                list_new_args = populate_default_args(
+                    list_new_args, type_of_node="quant_embedding_bag"
+                )
+                list_new_args[4] = output_dtype
             for node in groups[group]["nodes"]:
-                if node.target == zt_ops.zentorch_embedding_bag.default:
+                if node.target in {
+                    zt_ops.zentorch_embedding_bag.default,
+                    zt_ops.zentorch_quant_embedding_bag.default,
+                }:
                     total_prev_outputs_emb_bag = op_count * 4
                     for temp_node in list(node.users.keys()):
                         if (
@@ -198,8 +341,11 @@ def emb_ops_horizontal_fusion(fx_g):
                 new_args = list(common_output_node.args)
                 new_args[0] = nodes_list
                 common_output_node.args = tuple(new_args)
+
     fx_g.graph.set_codegen(torch.fx.graph.CodeGen())
+    fx_g.graph.lint()
     fx_g.recompile()
+
     return fx_g
 
 
@@ -360,7 +506,7 @@ def qkv_fusion(fx_graph):
         node_name = node.name
         # Pattern check begins with finding the common node
         # for the horizontal matmul pattern
-        if len(node.users) >= 3 and node.op != 'placeholder':
+        if len(node.users) >= 3 and node.op != "placeholder":
             for user in node.users.keys():
                 # This pattern is legit only if the output tensor of common node acts
                 # as input tensor of view ops, should not be used for specifying shape.
@@ -389,7 +535,7 @@ def qkv_fusion(fx_graph):
     for group in groups.values():
         # Check for attention block matmuls
         # fuse only the first 3 matmuls: Query, Key, Value
-        group['nodes'] = group['nodes'][:3]
+        group["nodes"] = group["nodes"][:3]
 
         # Validate if all K,Q,V are of same target value
         target_values = [(group["nodes"][i]).target for i in range(len(group["nodes"]))]
