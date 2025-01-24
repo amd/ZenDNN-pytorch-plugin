@@ -165,7 +165,7 @@ include_dirs = [
 
 zentorch_build_version = os.getenv("ZenTorch_BUILD_VERSION", PACKAGE_VERSION)
 git_sha = get_commit_hash(project_root_dir)
-wheel_file_dependencies = ["numpy", "torch"]
+wheel_file_dependencies = ["numpy", "torch", "deprecated"]
 # -Wno-unknown-pragma is for [unroll pragma], to be removed
 # -fopenmp is needed for omp related pragmas (simd etc.)
 extra_compile_args = [
