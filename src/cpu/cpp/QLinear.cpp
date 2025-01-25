@@ -69,30 +69,35 @@ inline void zentorch_quantized_matmul_impl(
         input.options().dtype(input_zero_points.scalar_type())); // For u8 & s8
   }
 
-  at::Tensor q_bias;
   if (bias_defined) {
     LOG(INFO) << "bias dimensions: " << bias_t.sizes();
-    q_bias = at::empty(bias_t.sizes(), bias_t.options()); // For f32
   }
 
-  // Get the required matmul op scales.
-  ZenTorchMatmulOpScales matmul_op_scales = get_zentorch_matmul_op_scales(
-      input_scales, weight_scales, output_scales_t);
-  // Get the required matmul op zero points.
+  // Get scales and zero points memory for the matmul operation.
+  at::Tensor rq_output_scales;
+  if (output_scales_defined) {
+    rq_output_scales = 1 / output_scales_t;
+  }
+
   at::Tensor input_zero_points_int32_t = input_zero_points.toType(c10::kInt);
   at::Tensor output_zero_points_int32_t;
   if (output_zero_points_defined) {
     output_zero_points_int32_t = output_zero_points_t.toType(c10::kInt);
   }
-  ZenTorchMatmulOpZeroPoints matmul_op_zero_points =
-      get_zentorch_matmul_op_zero_points(input_zero_points_int32_t,
-                                         output_zero_points_int32_t);
 
-  memory z_q_input, z_q_weight, z_q_bias, z_result;
+  // Get the required matmul op scales memory.
+  ZenTorchMatmulOpScalesMemory matmul_op_scales_memory =
+      get_zentorch_matmul_op_scales_memory(input_scales, weight_scales,
+                                           rq_output_scales);
+  // Get the required matmul op zero points memory.
+  ZenTorchMatmulOpZeroPointsMemory matmul_op_zero_points_memory =
+      get_zentorch_matmul_op_zero_points_memory(input_zero_points_int32_t,
+                                                output_zero_points_int32_t);
+
+  memory z_q_input, z_q_weight, z_bias, z_result;
   aten_tensor_to_zen_memory_for_quantized_matmul(
-      input, weight, bias_t, result, matmul_op_scales, matmul_op_zero_points,
-      is_input_quantized, q_input, q_bias, z_q_input, z_q_weight, z_q_bias,
-      z_result);
+      input, weight, bias_t, result, input_scales, input_zero_points_int32_t,
+      is_input_quantized, q_input, z_q_input, z_q_weight, z_bias, z_result);
 
   std::unordered_map<int, memory> execute_args;
   zendnn::primitive_attr op_attr;
@@ -104,10 +109,38 @@ inline void zentorch_quantized_matmul_impl(
   }
   op_attr.set_plugin_op_name(zentorch_op_name);
 
-  // Set the input_zero_points for the matmul operation.
+  // Set the scales for the matmul operation.
+  // Per-tensor config.
+  op_attr.set_scales_mask(
+      ZENDNN_ARG_SRC,
+      /*mask*/ QUANT_GRANULARITY::PER_TENSOR, {},
+      matmul_op_scales_memory.input_scales.get_desc().data_type());
+
+  if (weight_scales.numel() == 1) {
+    // Per-tensor config.
+    op_attr.set_scales_mask(
+        ZENDNN_ARG_WEIGHTS,
+        /*mask*/ QUANT_GRANULARITY::PER_TENSOR, {},
+        matmul_op_scales_memory.weight_scales.get_desc().data_type());
+  } else if (weight_scales.numel() == weight.size(1)) {
+    // Per-channel config.
+    op_attr.set_scales_mask(
+        ZENDNN_ARG_WEIGHTS,
+        /*mask*/ QUANT_GRANULARITY::PER_CHANNEL, {1, 1},
+        matmul_op_scales_memory.weight_scales.get_desc().data_type());
+  }
+  if (output_scales_defined) {
+    // Per-tensor config.
+    op_attr.set_scales_mask(
+        ZENDNN_ARG_DST,
+        /*mask*/ QUANT_GRANULARITY::PER_TENSOR, {},
+        matmul_op_scales_memory.dst_rq_output_scales.get_desc().data_type());
+  }
+
+  // Set the zero_points for the matmul operation.
   op_attr.set_zero_points(ZENDNN_ARG_SRC,
                           /* mask */ QUANT_GRANULARITY::PER_TENSOR,
-                          matmul_op_zero_points.input_zero_points);
+                          {ZENDNN_RUNTIME_S32_VAL});
   // Set dst_output_zero_points only for requantized uint8 output.
   // requantization(rq) = dequantization(dq) + quantization(q)
   // rq_scale = dq_scale / output_scales[0].item<float>();
@@ -117,20 +150,39 @@ inline void zentorch_quantized_matmul_impl(
     if (output_zero_points_t.numel() == 1) {
       op_attr.set_zero_points(ZENDNN_ARG_DST,
                               /* mask */ QUANT_GRANULARITY::PER_TENSOR,
-                              matmul_op_zero_points.dst_output_zero_points);
+                              {ZENDNN_RUNTIME_S32_VAL});
     } else {
       ZENTORCH_CHECK(false, "only per-tensor requantization is supported");
     }
   }
 
-  // Set the dst_output_scales for the quantized matmul operation to
-  // dequantize/requantize the result.
-  set_output_scales_for_op_attr(result, matmul_op_scales.dst_output_scales,
-                                op_attr);
+  // Set the scales and zero_points for input and weight to execute the matmul
+  // operation.
+  execute_args.insert({ZENDNN_ARG_ATTR_SCALES | ZENDNN_ARG_SRC,
+                       matmul_op_scales_memory.input_scales});
+  execute_args.insert({ZENDNN_ARG_ATTR_ZERO_POINTS | ZENDNN_ARG_SRC,
+                       matmul_op_zero_points_memory.input_zero_points});
+  execute_args.insert({ZENDNN_ARG_ATTR_SCALES | ZENDNN_ARG_WEIGHTS,
+                       matmul_op_scales_memory.weight_scales});
 
+  if (output_scales_defined && output_zero_points_defined) {
+    // Set the dst_rq_output_scales and output_zero_points for the quantized
+    // matmul operation to dequantize/requantize the result.
+    execute_args.insert({ZENDNN_ARG_ATTR_SCALES | ZENDNN_ARG_DST,
+                         matmul_op_scales_memory.dst_rq_output_scales});
+    if (output_zero_points_t.scalar_type() == c10::kByte) {
+      if (output_zero_points_t.numel() == 1) {
+        execute_args.insert(
+            {ZENDNN_ARG_ATTR_ZERO_POINTS | ZENDNN_ARG_DST,
+             matmul_op_zero_points_memory.dst_output_zero_points});
+      } else {
+        ZENTORCH_CHECK(false, "only per-tensor requantization is supported");
+      }
+    }
+  }
   // Execute the zendnn::matmul kernel.
-  zentorch_matmul_execute(execute_args, z_q_input, z_q_weight, z_q_bias,
-                          z_result, op_attr, bias_defined);
+  zentorch_matmul_execute(execute_args, z_q_input, z_q_weight, z_bias, z_result,
+                          op_attr, bias_defined);
 
   LOG(INFO) << "Finished executing: " << __FUNCTION__ << "!\n";
 }

@@ -36,9 +36,19 @@ q_weight_list_opt = [0, 1]
 bias_opt = [0, 1]
 woq_qzeros_opt = [0, 1]
 group_size_opt = [-1, 1, 2, 3, 4, 5, 7, 8, 10]
-q_granularity_opt = ["per_tensor", "per_channel"]
-q_zero_points_dtype_opt = ["int8", "uint8"]
-q_linear_dtype_opt = ["float32", "int8", "uint8"]
+q_granularity_opt = [
+    "per_tensor",
+    "per_channel",
+]
+q_zero_points_dtype_opt = [
+    "int8",
+    "uint8",
+]
+q_linear_dtype_opt = [
+    "float32",
+    "int8",
+    "uint8",
+]
 conv_stride = [[1, 1], [2, 2]]
 conv_padding = [[0, 0], [1, 1]]
 
@@ -177,11 +187,15 @@ class Test_Data(metaclass=Singleton):
         self.x_zero_points = {
             "per_tensor": {
                 "float32": {
+                    # Scalar Tensor
                     "int8": torch.tensor(0).type(torch.int8),
+                    # 1D Tensor
                     "uint8": torch.randint(0, 255, (1,)).type(torch.uint8),
                 },
                 "int8": {
-                    "int8": torch.tensor(0).type(torch.int8),
+                    # 1D Tensor
+                    "int8": torch.zeros(1).type(torch.int8),
+                    # Scalar Tensor
                     "uint8": torch.tensor(0).type(
                         torch.int8
                     ),  # made it int8 as uint8 is not supported
