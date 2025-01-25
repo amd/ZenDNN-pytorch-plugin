@@ -171,8 +171,7 @@ check_valid_sizes_for_matmul(const at::Tensor &mat1, const at::Tensor &mat2,
 inline void
 check_valid_dtypes_for_matmul(const at::Tensor &mat1, const at::Tensor &mat2,
                               const at::Tensor &bias, const at::Tensor &result,
-                              const std::vector<at::Tensor> &post_op_buffers,
-                              const bool &quantized_mat2 = false) {
+                              const std::vector<at::Tensor> &post_op_buffers) {
 
   // The flow of this check is as follows:
   // -> The individual datatypes of the tensors are inferred.
@@ -191,12 +190,8 @@ check_valid_dtypes_for_matmul(const at::Tensor &mat1, const at::Tensor &mat2,
   const bool is_bias_defined = bias.numel();
   const bool is_mat1_fp32 = (mat1.scalar_type() == c10::ScalarType::Float);
   const bool is_mat1_bf16 = (mat1.scalar_type() == c10::ScalarType::BFloat16);
-  const bool is_mat2_fp32_or_int8 =
-      quantized_mat2 ? (mat2.scalar_type() == c10::ScalarType::Char)
-                     : (mat2.scalar_type() == c10::ScalarType::Float);
-  const bool is_mat2_bf16_or_int8 =
-      quantized_mat2 ? (mat2.scalar_type() == c10::ScalarType::Char)
-                     : (mat2.scalar_type() == c10::ScalarType::BFloat16);
+  const bool is_mat2_fp32 = (mat2.scalar_type() == c10::ScalarType::Float);
+  const bool is_mat2_bf16 = (mat2.scalar_type() == c10::ScalarType::BFloat16);
   const bool is_result_fp32 = (result.scalar_type() == c10::ScalarType::Float);
   const bool is_result_bf16 =
       (result.scalar_type() == c10::ScalarType::BFloat16);
@@ -209,22 +204,15 @@ check_valid_dtypes_for_matmul(const at::Tensor &mat1, const at::Tensor &mat2,
 
   const bool are_params_fp32 =
       is_bias_defined
-          ? (is_mat1_fp32 && is_mat2_fp32_or_int8 && is_bias_fp32 &&
-             is_result_fp32)
-          : (is_mat1_fp32 && is_mat2_fp32_or_int8 && is_result_fp32);
+          ? (is_mat1_fp32 && is_mat2_fp32 && is_bias_fp32 && is_result_fp32)
+          : (is_mat1_fp32 && is_mat2_fp32 && is_result_fp32);
   const bool are_params_bf16 =
       is_bias_defined
-          ? (is_mat1_bf16 && is_mat2_bf16_or_int8 && is_bias_bf16 &&
-             is_result_bf16)
-          : (is_mat1_bf16 && is_mat2_bf16_or_int8 && is_result_bf16);
-  if (quantized_mat2) {
-    ZENTORCH_CHECK(
-        are_params_fp32 ^ are_params_bf16,
-        "zentorch_matmul only supports Float, BFloat16 and Int8(weight)");
-  } else {
-    ZENTORCH_CHECK(are_params_fp32 ^ are_params_bf16,
-                   "zentorch_matmul only supports Float and BFloat16");
-  }
+          ? (is_mat1_bf16 && is_mat2_bf16 && is_bias_bf16 && is_result_bf16)
+          : (is_mat1_bf16 && is_mat2_bf16 && is_result_bf16);
+
+  ZENTORCH_CHECK(are_params_fp32 ^ are_params_bf16,
+                 "zentorch_matmul only supports Float and BFloat16");
 
   if (are_params_bf16) {
     ZENTORCH_CHECK(utils::zendnn_bf16_device_check(),

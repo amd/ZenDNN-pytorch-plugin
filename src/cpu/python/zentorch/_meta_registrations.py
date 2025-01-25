@@ -700,10 +700,12 @@ def meta_zentorch_qlinear(
     output_zero_points=None,
 ):
     torch._check(
-        output_dtype == torch.float32,
+        output_dtype == torch.float32
+        or output_dtype == torch.uint8
+        or output_dtype == torch.int8,
         lambda: (
             f"zentorch_qlinear: output_dtype = {output_dtype} is not yet supported, "
-            f"expected output_dtype is torch.float32"
+            f"expected output_dtype is torch.float32/torch.uint8/torch.int8"
         ),
     )
     out_dim = list(input.size())
