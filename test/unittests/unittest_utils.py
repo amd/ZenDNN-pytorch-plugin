@@ -38,6 +38,7 @@ woq_qzeros_opt = [0, 1]
 group_size_opt = [-1, 1, 2, 3, 4, 5, 7, 8, 10]
 q_granularity_opt = ["per_tensor", "per_channel"]
 q_zero_points_dtype_opt = ["int8", "uint8"]
+q_linear_dtype_opt = ["float32", "int8", "uint8"]
 conv_stride = [[1, 1], [2, 2]]
 conv_padding = [[0, 0], [1, 1]]
 
@@ -142,9 +143,25 @@ class Test_Data(metaclass=Singleton):
         self.p, self.q = (torch.randint(1, 11, (1,)).item() for _ in range(2))
 
         self.x_for_qlinear = {
-            2: torch.randn(self.m, self.k).type(torch_type),
-            3: torch.randn(self.m, self.p, self.k).type(torch_type),
-            4: torch.randn(self.m, self.p, self.q, self.k).type(torch_type),
+            "float32": {
+                2: torch.randn(self.m, self.k).type(torch_type),
+                3: torch.randn(self.m, self.p, self.k).type(torch_type),
+                4: torch.randn(self.m, self.p, self.q, self.k).type(torch_type),
+            },
+            "int8": {
+                2: torch.randint(-128, 127, (self.m, self.k)).type(torch.int8),
+                3: torch.randint(-128, 127, (self.m, self.p, self.k)).type(torch.int8),
+                4: torch.randint(-128, 127, (self.m, self.p, self.q, self.k)).type(
+                    torch.int8
+                ),
+            },
+            "uint8": {
+                2: torch.randint(0, 255, (self.m, self.k)).type(torch.uint8),
+                3: torch.randint(0, 255, (self.m, self.p, self.k)).type(torch.uint8),
+                4: torch.randint(0, 255, (self.m, self.p, self.q, self.k)).type(
+                    torch.uint8
+                ),
+            },
         }
         self.y_int8 = [
             torch.randint(-128, 127, (self.k, self.n)).type(torch.int8).t(),
@@ -159,8 +176,22 @@ class Test_Data(metaclass=Singleton):
         }
         self.x_zero_points = {
             "per_tensor": {
-                "int8": torch.tensor(0).type(torch.int8),
-                "uint8": torch.randint(0, 255, (1,)).type(torch.uint8),
+                "float32": {
+                    "int8": torch.tensor(0).type(torch.int8),
+                    "uint8": torch.randint(0, 255, (1,)).type(torch.uint8),
+                },
+                "int8": {
+                    "int8": torch.tensor(0).type(torch.int8),
+                    "uint8": torch.tensor(0).type(
+                        torch.int8
+                    ),  # made it int8 as uint8 is not supported
+                },
+                "uint8": {
+                    "int8": torch.randint(0, 255, (1,)).type(
+                        torch.uint8
+                    ),  # made it uint8 as int8 is not supported
+                    "uint8": torch.randint(0, 255, (1,)).type(torch.uint8),
+                },
             },
         }
         self.y_scales = {
@@ -170,6 +201,29 @@ class Test_Data(metaclass=Singleton):
         self.y_zero_points = {
             "per_tensor": torch.tensor(0).type(torch.int8),
             "per_channel": torch.zeros(self.n).type(torch.int8),
+        }
+        self.output_scales = {
+            "per_tensor": {
+                "float32": {
+                    "positive_scales": None,
+                    # "negative_scales" : None,
+                },
+                "uint8": {
+                    "positive_scales": torch.rand((1,)).type(torch.float32),
+                    # "negative_scales" : torch.rand((1,)).type(torch.float32) * -1,
+                },
+                "int8": {
+                    "positive_scales": torch.rand((1,)).type(torch.float32),
+                    # "negative_scales" : torch.rand((1,)).type(torch.float32) * -1,
+                },
+            }
+        }
+        self.output_zero_points = {
+            "per_tensor": {
+                "float32": None,
+                "uint8": torch.randint(0, 255, (1,)).type(torch.uint8),
+                "int8": torch.zeros(1).type(torch.int8),
+            },
         }
         self.wrong_scales_per_channel = torch.randn(self.n + 1).type(torch.float32)
         self.wrong_zero_points_per_channel = torch.zeros(self.n + 1).type(torch.int8)

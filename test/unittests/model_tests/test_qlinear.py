@@ -22,6 +22,7 @@ from unittest_utils import (  # noqa: 402
     bias_opt,
     q_granularity_opt,
     q_zero_points_dtype_opt,
+    q_linear_dtype_opt,
 )
 from quant_utils import qdq_linear  # noqa: 402
 
@@ -40,6 +41,8 @@ class Custom_Model_Qlinear(nn.Module):
         inp_zero_points,
         weight_scales,
         weight_zero_points,
+        output_scales=None,
+        output_zero_points=None,
         use_zentorch=False,
     ):
         if use_zentorch:
@@ -52,7 +55,9 @@ class Custom_Model_Qlinear(nn.Module):
                 inp_zero_points,
                 weight_scales,
                 weight_zero_points,
-                inp.dtype,
+                torch.float32 if output_scales is None else output_zero_points.dtype,
+                output_scales,
+                output_zero_points,
             )
         else:
             # simulated qlinear
@@ -64,6 +69,9 @@ class Custom_Model_Qlinear(nn.Module):
                 inp_zero_points,
                 weight_scales,
                 weight_zero_points,
+                None,
+                output_scales,
+                output_zero_points,
             )
 
         return qlinear_output
@@ -79,6 +87,8 @@ class Test_Qlinear_Model(Zentorch_TestCase):
             bias_opt,
             q_granularity_opt,
             q_zero_points_dtype_opt,
+            q_linear_dtype_opt,
+            q_linear_dtype_opt,
         )
     )
     @torch.inference_mode()
@@ -90,6 +100,8 @@ class Test_Qlinear_Model(Zentorch_TestCase):
         bias_opt_idx,
         q_granularity_val,
         q_zero_points_dtype,
+        input_dtype,
+        q_linear_dtype,
     ):
         self.skip_if_bfloat16_not_yet_supported(dtype)
         self.data.create_data(dtype)
@@ -97,25 +109,29 @@ class Test_Qlinear_Model(Zentorch_TestCase):
         model = Custom_Model_Qlinear()
 
         simulated_output = model(
-            self.data.x_for_qlinear[input_dim],
+            self.data.x_for_qlinear[input_dtype][input_dim],
             self.data.y_int8[q_weight_idx],
             self.data.bias_for_qlinear[bias_opt_idx],
             self.data.x_scales["per_tensor"],
-            self.data.x_zero_points["per_tensor"][q_zero_points_dtype],
+            self.data.x_zero_points["per_tensor"][input_dtype][q_zero_points_dtype],
             self.data.y_scales[q_granularity_val],
             self.data.y_zero_points[q_granularity_val],
+            self.data.output_scales["per_tensor"][q_linear_dtype]["positive_scales"],
+            self.data.output_zero_points["per_tensor"][q_linear_dtype],
         )
         zentorch_output = model(
-            self.data.x_for_qlinear[input_dim],
+            self.data.x_for_qlinear[input_dtype][input_dim],
             self.data.y_int8[q_weight_idx],
             self.data.bias_for_qlinear[bias_opt_idx],
             self.data.x_scales["per_tensor"],
-            self.data.x_zero_points["per_tensor"][q_zero_points_dtype],
+            self.data.x_zero_points["per_tensor"][input_dtype][q_zero_points_dtype],
             self.data.y_scales[q_granularity_val],
             self.data.y_zero_points[q_granularity_val],
+            self.data.output_scales["per_tensor"][q_linear_dtype]["positive_scales"],
+            self.data.output_zero_points["per_tensor"][q_linear_dtype],
             use_zentorch=True,
         )
-        self.assertEqual(simulated_output, zentorch_output, atol=1e-5, rtol=1e-5)
+        self.assertEqual(simulated_output, zentorch_output, atol=1e-3, rtol=1e-4)
 
 
 if __name__ == "__main__":

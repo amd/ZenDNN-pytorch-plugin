@@ -11,16 +11,36 @@ sys.path.append(str(Path(__file__).parent.parent))
 
 
 def qdq_linear(
-    inp, weight, bias, inp_scales, inp_zero_points, weight_scales, weight_zero_points
+    inp,
+    weight,
+    bias,
+    inp_scales,
+    inp_zero_points,
+    weight_scales,
+    weight_zero_points,
+    eltwise_op=None,
+    output_scales=None,
+    output_zero_points=None,
 ):
     inp_min_val = -128 if inp_zero_points.dtype == torch.int8 else 0
     inp_max_val = 127 if inp_zero_points.dtype == torch.int8 else 255
     weight_min_val = -128 if weight_zero_points.dtype == torch.int8 else 0
     weight_max_val = 127 if weight_zero_points.dtype == torch.int8 else 255
     out_features_axis = 0
-    qdq_inp = torch.fake_quantize_per_tensor_affine(
-        inp, inp_scales, inp_zero_points, inp_min_val, inp_max_val
-    )
+
+    if inp.dtype == torch.float32:
+        qdq_inp = torch.fake_quantize_per_tensor_affine(
+            inp, inp_scales, inp_zero_points, inp_min_val, inp_max_val
+        )
+    else:
+        qdq_inp = torch.ops.quantized_decomposed.dequantize_per_tensor.default(
+            inp,
+            inp_scales,
+            inp_zero_points,
+            inp_min_val,
+            inp_max_val,
+            inp.dtype,
+        )
     if weight_scales.numel() == 1:
         dq_weight = torch.ops.quantized_decomposed.dequantize_per_tensor.default(
             weight,
@@ -40,5 +60,22 @@ def qdq_linear(
             weight_max_val,
             weight.dtype,
         )
+
     qdq_linear_output = torch.nn.functional.linear(qdq_inp, dq_weight, bias)
-    return qdq_linear_output
+
+    if eltwise_op is not None:
+        qdq_linear_output = eltwise_op(qdq_linear_output)
+
+    rq_linear_output = qdq_linear_output
+    if output_scales is not None and output_zero_points is not None:
+        output_min_val = -128 if output_zero_points.dtype == torch.int8 else 0
+        output_max_val = 127 if output_zero_points.dtype == torch.int8 else 255
+        rq_linear_output = torch.ops.quantized_decomposed.quantize_per_tensor.default(
+            qdq_linear_output,
+            output_scales,
+            output_zero_points,
+            output_min_val,
+            output_max_val,
+            output_zero_points.dtype,
+        )
+    return rq_linear_output
