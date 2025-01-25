@@ -12,28 +12,24 @@ namespace zentorch {
 
 using namespace zendnn;
 
-// ZenTorchMatmulOpScales struct to store the scales for input,
-// weight, bias and output tensors.
-// input_scales: Dequantization scales for input tensor.
-// q_input_scales: Quantization scales for input tensor.
-// weight_scales: Dequantization scales for weight tensor.
-// q_bias_scales: Quantization scales(Scaling factor) for bias tensor.
-// dst_output_scales: Dequantization scales for output tensor.
-struct ZenTorchMatmulOpScales {
-  std::vector<float> input_scales;
-  std::vector<float> q_input_scales;
-  std::vector<float> weight_scales;
-  std::vector<float> q_bias_scales;
-  std::vector<float> dst_output_scales;
+// ZenTorchMatmulOpScalesMemory struct to store the scales for input,
+// weight and output tensors.
+// input_scales: Dequantization scales memory for input tensor.
+// weight_scales: Dequantization scales memory for weight tensor.
+// dst_rq_output_scales: Requantization scales memory for output tensor.
+struct ZenTorchMatmulOpScalesMemory {
+  memory input_scales;
+  memory weight_scales;
+  memory dst_rq_output_scales;
 };
 
-// ZenTorchMatmulOpZeroPoints struct to store the zero points for input.
-// input_zero_points: Zero points for input tensor.
-// dst_output_zero_points: Zero points for output tensor.
-struct ZenTorchMatmulOpZeroPoints {
+// ZenTorchMatmulOpZeroPointsMemory struct to store the zero points for input.
+// input_zero_points: Zero points memory for input tensor.
+// dst_output_zero_points: Zero points memory for output tensor.
+struct ZenTorchMatmulOpZeroPointsMemory {
   // TODO: Support for weight_zero_points.
-  std::vector<int32_t> input_zero_points;
-  std::vector<int32_t> dst_output_zero_points;
+  memory input_zero_points;
+  memory dst_output_zero_points;
 };
 
 template <typename T>
@@ -42,43 +38,58 @@ inline std::vector<T> get_vector_from_tensor(const at::Tensor &tensor) {
   return std::vector<T>(tensor_ptr, tensor_ptr + tensor.numel());
 }
 
-inline ZenTorchMatmulOpScales
-get_zentorch_matmul_op_scales(const at::Tensor &input_scales,
-                              const at::Tensor &weight_scales,
-                              const at::Tensor &output_scales) {
+inline ZenTorchMatmulOpScalesMemory
+get_zentorch_matmul_op_scales_memory(const at::Tensor &input_scales,
+                                     const at::Tensor &weight_scales,
+                                     const at::Tensor &rq_output_scales) {
+  ZenTorchMatmulOpScalesMemory matmul_op_scales_memory;
 
-  at::Tensor q_input_scales = 1 / input_scales;
-  at::Tensor q_bias_scales = 1 / (weight_scales * input_scales);
-  at::Tensor dst_output_scales;
-  if (!output_scales.defined()) {
-    dst_output_scales = weight_scales * input_scales;
-  } else {
-    dst_output_scales = (weight_scales * input_scales) / output_scales;
+  // TODO: Support for per-group config.
+  // This scales memory creation is utilized for only per-tensor
+  // and per-channel config.
+  // Create input scales memory.
+  memory::desc input_scales_desc = memory::desc(
+      {input_scales.numel()}, get_ztype_from_aten(input_scales), {1});
+  matmul_op_scales_memory.input_scales =
+      zen_memory(input_scales, input_scales_desc);
+  // Create weight scales memory.
+  memory::desc weight_scales_desc = memory::desc(
+      {weight_scales.numel()}, get_ztype_from_aten(weight_scales), {1});
+  matmul_op_scales_memory.weight_scales =
+      zen_memory(weight_scales, weight_scales_desc);
+
+  if (rq_output_scales.defined()) {
+    // Create rq output scales memory.
+    memory::desc rq_output_scales_desc = memory::desc(
+        {rq_output_scales.numel()}, get_ztype_from_aten(rq_output_scales), {1});
+    matmul_op_scales_memory.dst_rq_output_scales =
+        zen_memory(rq_output_scales, rq_output_scales_desc);
   }
 
-  ZenTorchMatmulOpScales matmul_op_scales;
-  matmul_op_scales.input_scales = get_vector_from_tensor<float>(input_scales);
-  matmul_op_scales.q_input_scales =
-      get_vector_from_tensor<float>(q_input_scales);
-  matmul_op_scales.weight_scales = get_vector_from_tensor<float>(weight_scales);
-  matmul_op_scales.q_bias_scales = get_vector_from_tensor<float>(q_bias_scales);
-  matmul_op_scales.dst_output_scales =
-      get_vector_from_tensor<float>(dst_output_scales);
-
-  return matmul_op_scales;
+  return matmul_op_scales_memory;
 }
 
-inline ZenTorchMatmulOpZeroPoints
-get_zentorch_matmul_op_zero_points(const at::Tensor &input_zero_points,
-                                   const at::Tensor &output_zero_points) {
-  ZenTorchMatmulOpZeroPoints matmul_op_zero_points;
-  matmul_op_zero_points.input_zero_points =
-      get_vector_from_tensor<int32_t>(input_zero_points);
+inline ZenTorchMatmulOpZeroPointsMemory
+get_zentorch_matmul_op_zero_points_memory(
+    const at::Tensor &input_zero_points, const at::Tensor &output_zero_points) {
+  ZenTorchMatmulOpZeroPointsMemory matmul_op_zero_points_memory;
+  // TODO: Support for per-group config.
+  // This zero points memory creation is utilized for only per-tensor and
+  // per-channel config. Create input zero points memory.
+  memory::desc input_zero_points_desc = memory::desc(
+      {input_zero_points.numel()}, get_ztype_from_aten(input_zero_points), {1});
+  matmul_op_zero_points_memory.input_zero_points =
+      zen_memory(input_zero_points, input_zero_points_desc);
+  // TODO: Support for weight zero points.
   if (output_zero_points.defined()) {
-    matmul_op_zero_points.dst_output_zero_points =
-        get_vector_from_tensor<int32_t>(output_zero_points);
+    // Create output zero points memory.
+    memory::desc output_zero_points_desc =
+        memory::desc({output_zero_points.numel()},
+                     get_ztype_from_aten(output_zero_points), {1});
+    matmul_op_zero_points_memory.dst_output_zero_points =
+        zen_memory(output_zero_points, output_zero_points_desc);
   }
-  return matmul_op_zero_points;
+  return matmul_op_zero_points_memory;
 }
 
 inline void set_output_scales_for_op_attr(const at::Tensor &original_tensor,
@@ -122,10 +133,10 @@ inline void reorder_tensors_with_scales_and_zero_points(
 // This function maps the aten tensors to the zendnn::memory.
 inline void aten_tensor_to_zen_memory_for_quantized_matmul(
     const at::Tensor &input, const at::Tensor &weight, const at::Tensor &bias,
-    const at::Tensor &result, const ZenTorchMatmulOpScales &matmul_op_scales,
-    const ZenTorchMatmulOpZeroPoints &matmul_op_zero_points,
-    const bool &is_input_quantized, at::Tensor &q_input, at::Tensor &q_bias,
-    memory &z_q_input, memory &z_q_weight, memory &z_q_bias, memory &z_result) {
+    const at::Tensor &result, const at::Tensor &input_scales,
+    const at::Tensor &input_zero_points, const bool &is_input_quantized,
+    at::Tensor &q_input, memory &z_q_input, memory &z_q_weight, memory &z_bias,
+    memory &z_result) {
   // Create input memory.
   memory z_input = zen_memory(input);
 
@@ -138,7 +149,6 @@ inline void aten_tensor_to_zen_memory_for_quantized_matmul(
     z_q_input = z_input;
   } else {
     z_q_input = zen_memory(q_input);
-
     // f32 tensor quantization:
     // q_tensor_s8 =
     // max(quant_min, std::nearby_int(tensor_f32/scale) + zero_point)
@@ -149,9 +159,13 @@ inline void aten_tensor_to_zen_memory_for_quantized_matmul(
     // `input` tensor quantization with q_input_scales & input_zero_points.
     // ZenDNN matmul's quantized kernel only supports u8 & s8 dtype for
     // quantized input & s8 dtype for quantized weight.
+    at::Tensor q_input_scales = 1 / input_scales;
+    std::vector<float> q_input_scales_vec =
+        get_vector_from_tensor<float>(q_input_scales);
+    std::vector<int32_t> input_zero_points_vec =
+        get_vector_from_tensor<int32_t>(input_zero_points);
     reorder_tensors_with_scales_and_zero_points(
-        q_input, z_q_input, z_input, matmul_op_scales.q_input_scales,
-        matmul_op_zero_points.input_zero_points);
+        q_input, z_q_input, z_input, q_input_scales_vec, input_zero_points_vec);
   }
 
   // Create weight memory.
@@ -166,22 +180,7 @@ inline void aten_tensor_to_zen_memory_for_quantized_matmul(
     const memory::format_tag &memory_2d_tag = memory::format_tag::ab;
     const memory::desc &bias_desc = memory::desc(
         {{1, bias.size(0)}, get_ztype_from_aten(bias), memory_2d_tag});
-    memory z_bias = zen_memory(bias, bias_desc);
-
-    // Create quantized bias memory.
-    // Creating q_bias zen_memory with predefined memory::desc
-    // as q_bias is 1d we need to use format_tag as 'ab'
-    // to represent q_bias memory as 2d for bias_desc creation.
-    const memory::desc &q_bias_desc = memory::desc(
-        {{1, q_bias.size(0)}, get_ztype_from_aten(q_bias), memory_2d_tag});
-    z_q_bias = zen_memory(q_bias, q_bias_desc);
-
-    // `bias` tensor scaling with q_bias_scales.
-    // ZenDNN matmul only supports s8, s32 and f32 bias, so
-    // we are going to support bias tensor by scaling it with
-    // bias scales for computation in f32 for better accuracy
-    reorder_tensors_with_scales_and_zero_points(q_bias, z_q_bias, z_bias,
-                                                matmul_op_scales.q_bias_scales);
+    z_bias = zen_memory(bias, bias_desc);
   }
 
   // Create result memory.
