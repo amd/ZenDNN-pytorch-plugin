@@ -177,6 +177,11 @@ class Test_Data(metaclass=Singleton):
             torch.randint(-128, 127, (self.k, self.n)).type(torch.int8).t(),
             torch.randint(-128, 127, (self.n, self.k)).type(torch.int8),
         ]
+        self.binary_input = {
+            2: torch.randn(self.m, self.n),
+            3: torch.randn(self.m, self.p, self.n),
+            4: torch.randn(self.m, self.p, self.q, self.n),
+        }
         self.bias_for_qlinear = [
             None,
             torch.randn(self.n).type(torch_type),

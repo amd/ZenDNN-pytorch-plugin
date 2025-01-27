@@ -380,16 +380,13 @@ class Test_Qlinear(Zentorch_TestCase):
     ):
         self.skip_if_bfloat16_not_yet_supported(dtype)
         self.data.create_data(dtype)
-
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_qlinear(
                 self.data.x_for_qlinear[input_dtype][input_dim],
                 self.data.y_int8[q_weight_idx],
                 self.data.bias_for_qlinear[bias_opt_idx],
                 self.data.x_scales["per_tensor"],
-                self.data.x_zero_points["per_tensor"][input_dtype][
-                    q_zero_points_dtype
-                ],
+                self.data.x_zero_points["per_tensor"][input_dtype][q_zero_points_dtype],
                 self.data.y_scales[q_granularity_val],
                 self.data.y_zero_points[q_granularity_val],
                 torch.float16,  # unsupported output dtype
