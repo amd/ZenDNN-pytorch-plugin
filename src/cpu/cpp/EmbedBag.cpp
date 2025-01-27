@@ -192,16 +192,16 @@ zentorch_get_packed_embedding_weight(at::Tensor &weight,
   weight_scales = weight_scales.contiguous();
   weight_zero_points = weight_zero_points.contiguous();
 
-  std::vector<at::Half> weight_scales_vec(weight_scales.data_ptr<float>(),
-                                          weight_scales.data_ptr<float>() +
-                                              num_eb_rows);
-  std::vector<at::Half> weight_zero_points_vec(
+  std::vector<float> weight_scales_vec(weight_scales.data_ptr<float>(),
+                                       weight_scales.data_ptr<float>() +
+                                           num_eb_rows);
+  std::vector<int32_t> weight_zero_points_vec(
       weight_zero_points.data_ptr<int32_t>(),
       weight_zero_points.data_ptr<int32_t>() + num_eb_rows);
 
   int32_t *weight_ptr = static_cast<int32_t *>(weight.data_ptr());
 
-  std::vector<int64_t> weight_bias(num_eb_rows);
+  std::vector<float> weight_bias(num_eb_rows);
 
   for (const auto i : c10::irange(num_eb_rows)) {
     weight_bias[i] = weight_zero_points_vec[i] * weight_scales_vec[i] * -1;
