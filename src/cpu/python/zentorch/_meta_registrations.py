@@ -777,8 +777,10 @@ def meta_zentorch_qlinear(
         or output_dtype == torch.uint8
         or output_dtype == torch.int8,
         lambda: (
-            f"zentorch_qlinear: output_dtype = {output_dtype} is not yet supported, "
-            f"expected output_dtype is torch.float32/torch.uint8/torch.int8"
+            f"zentorch_qlinear: "
+            f"output_dtype = {output_dtype} "
+            f"is not yet supported, expected output_dtype is "
+            f"torch.float32/torch.uint8/torch.int8"
         ),
     )
     out_dim = list(input.size())
@@ -840,6 +842,35 @@ def meta_zentorch_qlinear_sigmoid(
     )
 
 
+@register_meta("zentorch_qlinear_mul_add")
+def meta_zentorch_qlinear_mul_add(
+    input,
+    weight,
+    bias,
+    input_scales,
+    input_zero_points,
+    weight_scales,
+    weight_zero_points,
+    mul_input,
+    add_input,
+    output_dtype,
+    output_scales=None,
+    output_zero_points=None,
+):
+    torch._check(
+        output_dtype == torch.float32
+        or output_dtype == torch.uint8
+        or output_dtype == torch.int8,
+        lambda: (
+            f"zentorch_qlinear: "
+            f"output_dtype = {output_dtype} "
+            f"is not yet supported, expected output_dtype is "
+            f"torch.float32/torch.uint8/torch.int8"
+        ),
+    )
+    return add_input.new_empty((add_input.size()), dtype=output_dtype)
+
+
 make_fallback(torch.ops.zentorch.zentorch_addmm)
 make_fallback(torch.ops.zentorch.zentorch_addmm_relu)
 make_fallback(torch.ops.zentorch.zentorch_addmm_silu)
@@ -883,5 +914,6 @@ make_fallback(torch.ops.zentorch.zentorch_convolution)
 make_fallback(torch.ops.zentorch.zentorch_qlinear)
 make_fallback(torch.ops.zentorch.zentorch_qlinear_relu)
 make_fallback(torch.ops.zentorch.zentorch_qlinear_sigmoid)
+make_fallback(torch.ops.zentorch.zentorch_qlinear_mul_add)
 make_fallback(torch.ops.zentorch.zentorch_quant_embedding_bag)
 make_fallback(torch.ops.zentorch.zentorch_horizontal_quant_embedding_bag_group)
