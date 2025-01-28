@@ -1,16 +1,17 @@
 #!/bin/bash
 
 # ******************************************************************************
-# Copyright (c) 2023-2024 Advanced Micro Devices, Inc.
+# Copyright (c) 2023-2025 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
+script_path=$(dirname "${BASH_SOURCE[0]}")
 script_name=$(basename "${BASH_SOURCE[0]}")
 
 # Function to display help information
 display_help(){
     echo "Usage: Activate your working conda environment other than base"
-    echo "Usage: source $script_name --framework zentorch/ipex --model llm/recsys/cnn/nlp --threads num_threads --precision bf16/fp32/woq/bf16_amp/int8"
+    echo "Usage: source $script_path/$script_name --framework zentorch/ipex --model llm/recsys/cnn/nlp --threads num_threads --precision bf16/fp32/woq/bf16_amp/int8"
     echo "Options:"
     echo " --framework, -f            Specify the framework ['zentorch', 'ipex'] (if not specified this option, by default set to zentorch)"
     echo " --model, -m                Specify the model ['llm', 'recsys', 'cnn', 'nlp'] (if not specified this option, by default set to llm)"
@@ -75,7 +76,7 @@ model=$(echo "$model" | tr '[:upper:]' '[:lower:]')
 
 # Set default to number of CPUs available on your system if no input is provided.
 if [ -z "$threads" ]; then
-    threads=$(lscpu | awk '/^CPU\(s\):/ {print $2}')
+    threads=$(lscpu | grep "^Core(s) per socket:" | awk '{print $4}')
 fi
 
 threads=$(echo "$threads")
@@ -92,10 +93,10 @@ precision=${precision:-bf16}
 precision=$(echo "$precision" | tr '[:upper:]' '[:lower:]')
 
 # Validate the input for precision
-if ! ( ( [[ "$model" = "cnn" ]] && { [ "$precision" = "fp32" ] || [ "$precision" = "int8" ] || [ "$precision" = "bf16_amp" ]; } ) \
-       || ( [[ "$model" = "nlp" ]] && { [ "$precision" = "fp32" ] || [ "$precision" = "bf16_amp" ]; } ) \
-       || ( [[ "$model" = "recsys" ]] && { [ "$precision" = "fp32" ] || [ "$precision" = "bf16" ] || [ "$precision" = "bf16_amp" ]; } ) \
-       || ( [[ "$model" = "llm" ]] && { [ "$precision" = "bf16" ] || [ "$precision" = "woq" ]; } ) ); then
+if ! ( ( [[ "$model" = "cnn" ]] && { [ "$precision" = "fp32" ] || [ "$precision" = "int8" ] || [ "$precision" = "bf16_amp" ] || [ "$precision" = "bf16" ]; } ) \
+       || ( [[ "$model" = "nlp" ]] && { [ "$precision" = "fp32" ] || [ "$precision" = "bf16_amp" ] || [ "$precision" = "int8" ] || [ "$precision" = "bf16" ]; } ) \
+       || ( [[ "$model" = "recsys" ]] && { [ "$precision" = "fp32" ] || [ "$precision" = "bf16" ] || [ "$precision" = "int8" ] || [ "$precision" = "bf16_amp" ]; } ) \
+       || ( [[ "$model" = "llm" ]] && { [ "$precision" = "bf16" ] || [ "$precision" = "woq" ] || [ "$precision" = "fp32" ] || [ "$precision" = "int8" ] || [ "$precision" = "bf16_amp" ]; } ) ); then
     echo "Invalid combination of model = $model and precision = $precision. Please choose a valid combination."
     display_help
     exit
@@ -184,24 +185,46 @@ if [ "$framework" = "zentorch" ]; then
     export ZENDNN_WEIGHT_CACHE_CAPACITY=1024
     echo "ZENDNN_WEIGHT_CACHE_CAPACITY=$ZENDNN_WEIGHT_CACHE_CAPACITY"
 
-    if [ "$model" = "cnn" ] && { [ "$precision" = "fp32" ] || [ "$precision" = "int8" ] || [ "$precision" = "bf16_amp" ]; }; then
-        export ZENDNN_MATMUL_ALGO=FP32:4,BF16:3
+    if [ "$model" = "cnn" ]; then
+        if [ "$precision" = "fp32" ]; then
+            export ZENDNN_MATMUL_ALGO=FP32:2
+        elif [ "$precision" = "int8" ]; then
+            export ZENDNN_MATMUL_ALGO=INT8:2
+        elif [ "$precision" = "bf16_amp" ]; then
+            export ZENDNN_MATMUL_ALGO=BF16:2
+        elif [ "$precision" = "bf16" ]; then
+            export ZENDNN_MATMUL_ALGO=BF16:0
+        fi
     elif [ "$model" = "nlp" ]; then
         if [ "$precision" = "fp32" ]; then
-            export ZENDNN_MATMUL_ALGO=FP32:3,BF16:0
+            export ZENDNN_MATMUL_ALGO=FP32:2
         elif [ "$precision" = "bf16_amp" ]; then
-            export ZENDNN_MATMUL_ALGO=FP32:4,BF16:3
+            export ZENDNN_MATMUL_ALGO=BF16:4
+        elif [ "$precision" = "bf16" ]; then
+            export ZENDNN_MATMUL_ALGO=BF16:0
+        elif [ "$precision" = "int8" ]; then
+            export ZENDNN_MATMUL_ALGO=INT8:4
         fi
     elif [ "$model" = "recsys" ]; then
         if [ "$precision" = "fp32" ]; then
-            export ZENDNN_MATMUL_ALGO=FP32:3,BF16:0
+            export ZENDNN_MATMUL_ALGO=FP32:2
         elif [ "$precision" = "bf16" ]; then
-            export ZENDNN_MATMUL_ALGO=FP32:4,BF16:2
+            export ZENDNN_MATMUL_ALGO=BF16:2
         elif [ "$precision" = "bf16_amp" ]; then
-            export ZENDNN_MATMUL_ALGO=FP32:4,BF16:3
+            export ZENDNN_MATMUL_ALGO=BF16:4
+        elif [ "$precision" = "int8" ]; then
+            export ZENDNN_MATMUL_ALGO=INT8:1
         fi
-    elif [ "$model" = "llm" ] && { [ "$precision" = "bf16" ] || [ "$precision" = "woq" ]; }; then
-        export ZENDNN_MATMUL_ALGO=FP32:3,BF16:0
+    elif [ "$model" = "llm" ]; then
+        if { [ "$precision" = "bf16" ] || [ "$precision" = "woq" ]; };  then
+            export ZENDNN_MATMUL_ALGO=BF16:0
+        elif [ "$precision" = "fp32" ]; then
+            export ZENDNN_MATMUL_ALGO=FP32:2
+        elif [ "$precision" = "bf16_amp" ]; then
+            export ZENDNN_MATMUL_ALGO=BF16:4
+        elif [ "$precision" = "int8" ]; then
+            export ZENDNN_MATMUL_ALGO=INT8:4
+        fi
     fi
 
     echo "ZENDNN_MATMUL_ALGO = $ZENDNN_MATMUL_ALGO"
