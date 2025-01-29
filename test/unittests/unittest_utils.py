@@ -150,6 +150,22 @@ class Test_Data(metaclass=Singleton):
             torch.randn(50, 40, 60).transpose(0, 2).type(torch_type),
         ]
 
+        # Test data for serialized zentorch_qlinear.
+        self.y_int8_square = [
+            torch.randint(-128, 127, (self.k, self.k)).type(torch.int8),
+        ]
+        self.bias_for_qlinear_square = [
+            None,
+            torch.randn(self.k).type(torch_type),
+        ]
+        self.y_scales_square = {
+            "per_tensor": torch.randn((1,)).type(torch.float32),
+            "per_channel": torch.randn(self.k).type(torch.float32),
+        }
+        self.y_zero_points_square = {
+            "per_tensor": torch.tensor(0).type(torch.int8),
+            "per_channel": torch.zeros(self.k).type(torch.int8),
+        }
         self.p, self.q = (torch.randint(1, 11, (1,)).item() for _ in range(2))
 
         self.x_for_qlinear = {

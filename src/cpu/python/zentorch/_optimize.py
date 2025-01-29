@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2023-2024 Advanced Micro Devices, Inc.
+# Copyright (c) 2023-2025 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -18,6 +18,7 @@ from ._op_replacement import (
 
 from ._custom_op_replacement import (
     emb_ops_horizontal_fusion,
+    qlinear_reorder_optimizations,
     eb_group_mlp_group_fusion,
     qkv_fusion,
 )
@@ -75,6 +76,9 @@ def optimize(fx_graph):
 
     # eltwise fusion replacements
     optimized_graph = fusions_graph_pass(optimized_graph)
+
+    # ZenTorch qlinear reorder optimizations.
+    optimized_graph = qlinear_reorder_optimizations(optimized_graph)
 
     # Fusion of parallel embeddingbags
     optimized_graph = emb_ops_horizontal_fusion(optimized_graph)
