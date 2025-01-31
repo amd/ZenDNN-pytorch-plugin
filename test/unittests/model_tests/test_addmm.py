@@ -14,6 +14,7 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
 from unittest_utils import (  # noqa: 402
+    counters,
     Zentorch_TestCase,
     has_zentorch,
     reset_dynamo,
@@ -32,6 +33,38 @@ class Custom_Model_Addmm(nn.Module):
     def forward(self, input, batch1, batch2):
         mm_res = torch.mm(batch1, batch2)
         add_res = torch.add(mm_res, input)
+        return add_res
+
+
+class Custom_Model_Addmm_1D(nn.Module):
+    def __init__(self):
+        super(Custom_Model_Addmm_1D, self).__init__()
+
+    def forward(self, input, batch1, batch2):
+        mm = torch.mm(input, batch1)
+        view = torch.ops.aten.view.default(mm, [1, mm.shape[0], mm.shape[1]])
+        add_res = torch.add(view, batch2)
+        return add_res
+
+
+class Custom_Model_Addmm_2D(nn.Module):
+    def __init__(self):
+        super(Custom_Model_Addmm_2D, self).__init__()
+
+    def forward(self, input, batch1, batch2):
+        mm = torch.mm(input, batch1)
+        add_res = torch.add(mm, batch2)
+        return add_res
+
+
+class Custom_Model_Addmm_3D(nn.Module):
+    def __init__(self):
+        super(Custom_Model_Addmm_3D, self).__init__()
+
+    def forward(self, input, batch1, batch2):
+        mm = torch.mm(input, batch1)
+        view = torch.ops.aten.view.default(mm, batch2.size())
+        add_res = torch.add(view, batch2)
         return add_res
 
 
@@ -149,6 +182,60 @@ class Test_Addmm_Model(Zentorch_TestCase):
             freeze_opt
         )
         self.assertEqual(model_output, compiled_graph_output)
+
+    @parameterized.expand(supported_dtypes)
+    @torch.inference_mode()
+    def test_addmm_variable_add_1D_model(self, dtype):
+        self.data.create_data(dtype)
+        model = Custom_Model_Addmm_1D().eval()
+        model_output = model(
+            self.data.mm_add_1D[0], self.data.mm_add_1D[1], self.data.mm_add_1D[2]
+        )
+        reset_dynamo()
+        counters.clear()
+        self.assertEqual(counters["zentorch"]["pattern_matcher_mm_view_add"], 0)
+        compiled_graph = torch.compile(model, backend="zentorch")
+        compiled_graph_output = compiled_graph(
+            self.data.mm_add_1D[0], self.data.mm_add_1D[1], self.data.mm_add_1D[2]
+        )
+        self.assertEqual(model_output, compiled_graph_output)
+        self.assertEqual(counters["zentorch"]["pattern_matcher_mm_view_add"], 0)
+
+    @parameterized.expand(supported_dtypes)
+    @torch.inference_mode()
+    def test_addmm_variable_add_2D_model(self, dtype):
+        self.data.create_data(dtype)
+        model = Custom_Model_Addmm_2D().eval()
+        model_output = model(
+            self.data.mm_add_2D[0], self.data.mm_add_2D[1], self.data.mm_add_2D[2]
+        )
+        reset_dynamo()
+        counters.clear()
+        self.assertEqual(counters["zentorch"]["pattern_matcher_mm_add"], 0)
+        compiled_graph = torch.compile(model, backend="zentorch")
+        compiled_graph_output = compiled_graph(
+            self.data.mm_add_2D[0], self.data.mm_add_2D[1], self.data.mm_add_2D[2]
+        )
+        self.assertEqual(model_output, compiled_graph_output)
+        self.assertEqual(counters["zentorch"]["pattern_matcher_mm_add"], 0)
+
+    @parameterized.expand(supported_dtypes)
+    @torch.inference_mode()
+    def test_addmm_variable_add_3D_model(self, dtype):
+        self.data.create_data(dtype)
+        model = Custom_Model_Addmm_3D().eval()
+        model_output = model(
+            self.data.mm_add_3D[0], self.data.mm_add_3D[1], self.data.mm_add_3D[2]
+        )
+        reset_dynamo()
+        counters.clear()
+        self.assertEqual(counters["zentorch"]["pattern_matcher_mm_add"], 0)
+        compiled_graph = torch.compile(model, backend="zentorch")
+        compiled_graph_output = compiled_graph(
+            self.data.mm_add_3D[0], self.data.mm_add_3D[1], self.data.mm_add_3D[2]
+        )
+        self.assertEqual(model_output, compiled_graph_output)
+        self.assertEqual(counters["zentorch"]["pattern_matcher_mm_add"], 1)
 
 
 if __name__ == "__main__":

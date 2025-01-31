@@ -178,10 +178,10 @@ def _addmm_1dbias_view_add_add_replacement(
 
 def _mm_add_pattern(arg_0, arg_1, add_1):
     mm = zt_ops.zentorch_mm(arg_0, arg_1)
-    if add_1.dim() != 2:
+    if add_1.dim() >= 3:  # [256, 32], [32, 512], [4, 64, 512]
         view = at_ops.view.default(mm, add_1.size())
         add_res = at_ops.add(view, add_1)
-    else:
+    else:  # [256, 32], [32, 512], [256, 512]
         add_res = at_ops.add(mm, add_1)
     return add_res
 
@@ -191,8 +191,7 @@ def _mm_add_replacement(arg_0, arg_1, add_1):
     shape_0 = arg_0.size()
     shape_1 = arg_1.size()
     shape_2 = add_1.size()
-
-    if add_1.dim() != 2:
+    if add_1.dim() >= 3:
         view_0 = at_ops.view.default(add_1, [shape_0[0], shape_1[1]])
         addmm = zt_ops.zentorch_addmm.default(view_0, arg_0, arg_1)
         out_0 = at_ops.view.default(addmm, shape_2)
@@ -527,6 +526,12 @@ def _dim_check(match):
     return is_dtype_same
 
 
+def _mm_add_check(match):
+    dtype_check = _matmul_dtypes_check(match)
+    add_check = match.kwargs['add_1'].meta['val'].dim() != 1
+    return add_check and dtype_check
+
+
 def _dummy_check_(match):
     return True
 
@@ -689,9 +694,16 @@ def _get_pattern_with_replacement():
         (
             _mm_add_pattern,
             _mm_add_replacement,
+            [arg_1(), arg_2(), arg_4()],
+            {},
+            _mm_add_check,
+        ),
+        (
+            _mm_add_pattern,
+            _mm_add_replacement,
             [arg_1(), arg_2(), arg_6()],
             {},
-            _matmul_dtypes_check,
+            _mm_add_check,
         ),
         # TODO : check the appropriate order required for different fusions.
         (
