@@ -397,7 +397,9 @@ def qlinear_reorder_optimizations(fx_graph):
             for curr_node in group[1:]:
                 pred_args = pred_node.args
                 curr_args = curr_node.args
-                if pred_args[-1] == torch.float32:
+                if pred_args[-1] in (torch.float, torch.bfloat16):
+                    # TODO: modify the output dtype comparison after
+                    # Quark v1.0.0 release.
                     # Index 3 : input_scales
                     # Index 4 : input_zero_point
                     # Update the node with new args.

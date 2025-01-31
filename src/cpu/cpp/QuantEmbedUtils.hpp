@@ -48,9 +48,11 @@ quant_eb_tensors_to_memory(
     const int64_t &num_bits_per_weight, const at::ScalarType &output_dtype) {
 
   zen_quant_embed_tensor_check(weight, indices, offsets);
-  const bool is_output_fp32 = (output_dtype == c10::ScalarType::Float);
-  ZENTORCH_CHECK(is_output_fp32,
-                 "zentorch_embedding_bag only supports fp32 output type");
+
+  ZENTORCH_CHECK(
+      (output_dtype == c10::ScalarType::Float ||
+       output_dtype == c10::ScalarType::BFloat16),
+      "zentorch_embedding_bag only supports fp32 or bf16 output types");
   ZENTORCH_CHECK(
       num_bits_per_weight == 4,
       "zentorch_embedding_bag only supports uint4 quantized weights");

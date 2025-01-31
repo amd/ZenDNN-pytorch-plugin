@@ -346,6 +346,8 @@ def load_quantized_model(
             "No JSON file titled 'config.json' found at this location : "
             + saved_model_path
         )
+    # TODO: After loading the config, check the model paramas dtype
+    # and then pass the dtype accordingly to build_and_replace_with_Q_Linear().
     if hasattr(model, "config"):
         torch._check(
             hasattr(model.config, "architectures"),

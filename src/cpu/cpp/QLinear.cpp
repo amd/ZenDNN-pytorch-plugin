@@ -48,10 +48,11 @@ inline void zentorch_quantized_matmul_impl(
   const at::Tensor &output_zero_points_t = *output_zero_points_maybe_owned;
   const bool output_zero_points_defined = output_zero_points_t.defined();
 
-  TORCH_CHECK(!(result.scalar_type() == c10::kFloat &&
+  TORCH_CHECK(!((result.scalar_type() == c10::kFloat ||
+                 result.scalar_type() == c10::kBFloat16) &&
                 (output_scales_defined || output_zero_points_defined)),
               "output_scales and output_zero_points are not supported when "
-              "output is dequantized to float32");
+              "output is dequantized to either float32 or bfloat16");
 
   // Torch checks for quantized matmul.
   checks_for_quantized_matmul(bias_t, input, weight, result, input_scales,
@@ -200,10 +201,11 @@ inline at::Tensor zentorch_qlinear_unary(
 
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
-  ZENTORCH_CHECK(output_dtype == c10::kFloat || output_dtype == c10::kByte ||
-                     output_dtype == c10::kChar,
+  ZENTORCH_CHECK(output_dtype == c10::kFloat ||
+                     output_dtype == c10::kBFloat16 ||
+                     output_dtype == c10::kByte || output_dtype == c10::kChar,
                  "output_dtype received is not yet supported, only "
-                 "float32/uint8/int8 is supported");
+                 "float32/bfloat16/uint8/int8 is supported");
 
   ZENTORCH_CHECK(is_avx512_supported(),
                  "Zentorch's INT8 kernels require the CPU to support "
@@ -255,10 +257,11 @@ inline at::Tensor zentorch_qlinear_binary_binary(
     std::string zentorch_op_name) {
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
-  ZENTORCH_CHECK(output_dtype == c10::kFloat || output_dtype == c10::kByte ||
-                     output_dtype == c10::kChar,
+  ZENTORCH_CHECK(output_dtype == c10::kFloat ||
+                     output_dtype == c10::kBFloat16 ||
+                     output_dtype == c10::kByte || output_dtype == c10::kChar,
                  "output_dtype received is not yet supported, only "
-                 "float32/uint8/int8 is supported");
+                 "float32/bfloat16/uint8/int8 is supported");
 
   ZENTORCH_CHECK(is_avx512_supported(),
                  "Zentorch's INT8 kernels require the CPU to support "

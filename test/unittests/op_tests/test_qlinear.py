@@ -80,7 +80,7 @@ class Test_Qlinear(Zentorch_TestCase):
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_qlinear(
                 self.data.x_for_qlinear["float32"][input_dim].to(
-                    torch.bfloat16
+                    torch.float16
                 ),  # unsupported dtype
                 self.data.y_int8[q_weight_idx],
                 self.data.bias_for_qlinear[bias_opt_idx],
@@ -91,7 +91,8 @@ class Test_Qlinear(Zentorch_TestCase):
                 self.data.x_for_qlinear["float32"][input_dim].dtype,
             )
         self.assertTrue(
-            "unsupported dtype for input tensor, only float32/uint8/int8 is supported"
+            "unsupported dtype for input tensor, only "
+            "float32/bfloat16/uint8/int8 is supported"
             in str(context.exception)
         )
 
@@ -123,7 +124,8 @@ class Test_Qlinear(Zentorch_TestCase):
                 self.data.x_for_qlinear["float32"][input_dim].dtype,
             )
         self.assertTrue(
-            "unsupported dtype for bias tensor, only float32 is supported"
+            "unsupported dtype for bias tensor, only float32 or bfloat16 "
+            "is supported"
             in str(context.exception)
         )
 
@@ -132,7 +134,7 @@ class Test_Qlinear(Zentorch_TestCase):
                 self.data.x_for_qlinear["float32"][input_dim],
                 self.data.y_int8[q_weight_idx],
                 self.data.bias_for_qlinear[bias_opt_idx],
-                self.data.x_scales["per_tensor"].to(torch.bfloat16),
+                self.data.x_scales["per_tensor"].to(torch.float16),
                 self.data.x_zero_points["per_tensor"]["float32"][q_zero_points_dtype],
                 self.data.y_scales[q_granularity_val],
                 self.data.y_zero_points[q_granularity_val],
@@ -164,7 +166,7 @@ class Test_Qlinear(Zentorch_TestCase):
                 self.data.bias_for_qlinear[bias_opt_idx],
                 self.data.x_scales["per_tensor"],
                 self.data.x_zero_points["per_tensor"]["float32"][q_zero_points_dtype],
-                self.data.y_scales[q_granularity_val].to(torch.bfloat16),
+                self.data.y_scales[q_granularity_val].to(torch.float16),
                 self.data.y_zero_points[q_granularity_val],
                 self.data.x_for_qlinear["float32"][input_dim].dtype,
             )
@@ -420,7 +422,7 @@ class Test_Qlinear(Zentorch_TestCase):
             )
         self.assertTrue(
             "output_dtype received is not yet supported, only "
-            "float32/uint8/int8 is supported" in str(context.exception)
+            "float32/bfloat16/uint8/int8 is supported" in str(context.exception)
         )
 
     @parameterized.expand(

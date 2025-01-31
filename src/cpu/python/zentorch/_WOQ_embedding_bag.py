@@ -77,7 +77,16 @@ class ZenTorchWOQEmbeddingBag(nn.Module):
         self.weight_bits = weight_bits
         self.compute_dtype = compute_dtype
         self.group_size = group_size
+        self.dtype = self._get_torch_type(compute_dtype)
         super(ZenTorchWOQEmbeddingBag, self).__init__()
+
+    def _get_torch_type(self, str_type):
+        dtypes = {
+            "float32": torch.float32,
+            "bfloat16": torch.bfloat16,
+        }
+        assert str_type in dtypes, "Unsupported dtype for WOQ embedding bag compute!"
+        return dtypes[str_type]
 
     def _get_name(self):
         return "ZenTorchWOQEmbeddingBag"
@@ -104,11 +113,7 @@ class ZenTorchWOQEmbeddingBag(nn.Module):
             offset,
             # int num_bits_per_weight
             4,
-            # TODO
-            # This hardcoding of torch.float32 needs to be runtime dependent,
-            # as we will be supporting bfloat16 execution as well.
-            # ScalarType output_dtype
-            torch.float32,
+            self.dtype,
             # bool scale_grad_by_freq
             self.scale_grad_by_freq,
             # int mode

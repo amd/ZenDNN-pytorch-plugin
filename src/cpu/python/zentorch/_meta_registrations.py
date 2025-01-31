@@ -799,14 +799,12 @@ def meta_zentorch_qlinear(
     output_zero_points=None,
 ):
     torch._check(
-        output_dtype == torch.float32
-        or output_dtype == torch.uint8
-        or output_dtype == torch.int8,
+        output_dtype in (torch.float32, torch.bfloat16, torch.uint8, torch.int8),
         lambda: (
             f"zentorch_qlinear: "
             f"output_dtype = {output_dtype} "
             f"is not yet supported, expected output_dtype is "
-            f"torch.float32/torch.uint8/torch.int8"
+            f"torch.float32/torch.bfloat16/torch.uint8/torch.int8"
         ),
     )
     out_dim = list(input.size())
@@ -884,14 +882,12 @@ def meta_zentorch_qlinear_mul_add(
     output_zero_points=None,
 ):
     torch._check(
-        output_dtype == torch.float32
-        or output_dtype == torch.uint8
-        or output_dtype == torch.int8,
+        output_dtype in (torch.float32, torch.bfloat16, torch.uint8, torch.int8),
         lambda: (
             f"zentorch_qlinear: "
             f"output_dtype = {output_dtype} "
             f"is not yet supported, expected output_dtype is "
-            f"torch.float32/torch.uint8/torch.int8"
+            f"torch.float32/torch.bfloat16/torch.uint8/torch.int8"
         ),
     )
     return add_input.new_empty((add_input.size()), dtype=output_dtype)
