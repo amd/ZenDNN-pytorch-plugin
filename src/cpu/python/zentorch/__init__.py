@@ -11,21 +11,22 @@ from torch.torch_version import __version__ as runtime_torchversion
 # necessary to error out if the runtime Pytorch version
 # differs from the build-time version.
 
-if (runtime_torchversion[:3] != buildtime_torchversion[:3]):
+if runtime_torchversion[:3] != buildtime_torchversion[:3]:
     raise ImportError(
         f"Incompatible PyTorch version {runtime_torchversion} detected. "
         f"The installed zentorch binary is only compatible "
         f"with PyTorch versions {buildtime_torchversion[:3]}.x"
     )
 
-from ._optimize import optimize # noqa
-from ._info import __config__, __version__ # noqa
-from ._compile_backend import * # noqa
-from ._meta_registrations import * # noqa
-from ._freeze_utils import freezing_enabled # noqa
+from ._optimize import optimize  # noqa
+from ._info import __config__, __version__  # noqa
+from ._compile_backend import *  # noqa
+from ._meta_registrations import *  # noqa
+from ._freeze_utils import freezing_enabled  # noqa
 
 # llm optimizations
 from . import llm  # noqa
 
 # model reload utility for quantized models
-from ._quant_model_reload import load_quantized_model, load_woq_model # noqa F401
+from ._quant_model_reload import load_quantized_model, load_woq_model  # noqa F401
+from . import utils  # noqa F401
