@@ -351,6 +351,24 @@ class Test_Data(metaclass=Singleton):
         self.conv_weight3d = torch.randn(1, 3, 3).type(torch_type)
         self.dilation2 = [2, 2]
 
+        self.mm_add_1D = [
+            torch.rand(148, 384).type(torch_type),
+            torch.rand(384, 54).type(torch_type),
+            torch.rand(54).type(torch_type),
+        ]
+
+        self.mm_add_2D = [
+            torch.rand(256, 32).type(torch_type),
+            torch.rand(32, 512).type(torch_type),
+            torch.rand(256, 512).type(torch_type),
+        ]
+
+        self.mm_add_3D = [
+            torch.rand(256, 32).type(torch_type),
+            torch.rand(32, 512).type(torch_type),
+            torch.rand(4, 64, 512).type(torch_type),
+        ]
+
     def get_torch_type(self, str_type):
         dtypes = {
             "float32": torch.float32,
