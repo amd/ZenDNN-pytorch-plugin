@@ -10,7 +10,7 @@ T = TypeVar("T", bound="PackMethod")
 
 
 def pack_check(
-    func: Callable[[T, torch.Tensor, bool], torch.Tensor]
+    func: Callable[[T, torch.Tensor, bool], torch.Tensor],
 ) -> Callable[[T, torch.Tensor, bool], torch.Tensor]:
     @wraps(func)
     def wrapper(self: T, to_pack: torch.Tensor, reorder: bool = True) -> torch.Tensor:
@@ -24,7 +24,7 @@ def pack_check(
 
 
 def unpack_check(
-    func: Callable[[T, torch.Tensor, bool], torch.Tensor]
+    func: Callable[[T, torch.Tensor, bool], torch.Tensor],
 ) -> Callable[[T, torch.Tensor, bool], torch.Tensor]:
     @wraps(func)
     def wrapper(self: T, to_unpack: torch.Tensor, reorder: bool = True) -> torch.Tensor:
@@ -57,10 +57,13 @@ class Pack_4_bits(PackMethod):
     def __init__(self, quant_algo: Optional[str], dtype: str) -> None:
         super().__init__(quant_algo, dtype)
 
-    def pack(self, to_pack: torch.Tensor, reorder: bool = True) -> torch.Tensor:
+    def pack(
+        self, to_pack: torch.Tensor, reorder: bool = True, transpose: bool = True
+    ) -> torch.Tensor:
         if to_pack.ndim > 2:
             raise ValueError("Pack: Only support 1 and 2 dimensions tensor")
-        to_pack = to_pack.t().contiguous()
+        if transpose:
+            to_pack = to_pack.t().contiguous()
         if reorder:
             order_map = [0, 2, 4, 6, 1, 3, 5, 7]
         else:
