@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2024 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -32,3 +32,7 @@ class Test_Addmm_Silu(Zentorch_TestCase):
         )
 
         self.assertEqual(native_output, zentorch_output)
+
+
+if __name__ == "__main__":
+    run_tests()

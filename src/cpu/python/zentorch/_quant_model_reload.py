@@ -337,16 +337,15 @@ def load_quantized_model(
     """
     logger.info("Loading the quantized model...")
 
-    try:
-        import safetensors  # noqa: F401
-    except ImportError:
-        raise ImportError(
-            "'safetensors' package is not installed. 'safetensors' is "
-            + "required for woq model loading. Please install it using "
-            + "`pip install safetensors`."
+    config_path = os.path.join(saved_model_path, "config.json")
+    if os.path.isfile(config_path):
+        with open(config_path, "r") as f:
+            models_config = json.load(f)
+    else:
+        raise FileNotFoundError(
+            "No JSON file titled 'config.json' found at this location : "
+            + saved_model_path
         )
-    with open(os.path.join(saved_model_path, "config.json"), "r") as f:
-        models_config = json.load(f)
     if hasattr(model, "config"):
         torch._check(
             hasattr(model.config, "architectures"),
@@ -384,114 +383,111 @@ def load_quantized_model(
             "zentorch has not yet implemented"
             " static quantization support for chatglm model"
         )
+    if len(weight_keys) == 0:
+        raise ValueError("Encountered a non-standard weight_key")
     for weight_key in weight_keys:
         # TODO: directly load weight_tensor or any other tensors extracted from
         # safetensors into the modules instead of creating local tensor variables
         weight_tensor = params_dict[weight_key]
-
-        if weight_key.endswith("weight"):
-            module_name = get_module_name_str(weight_key)
-            static_key = module_name + ".input_scale"
-            if weight_key.endswith("qweight"):
-                # Woq model's weights are stored as 'qweight' in safetensor file and
-                # Only 4 bit quantized modules will have
-                # weight_tensor.dtype == torch.int32
-                if weight_tensor.dtype == torch.int32:
-                    weight_scales, weight_zero_points, bias_tensor = (
-                        get_woq_module_param_tensors(module_name, params_dict)
-                    )
-                    # get nn.Module for corresponding module_name
-                    float_module = get_op_by_name(model, module_name)
-
-                    quant_module = build_and_replace_with_Q_Linear(
-                        float_module,
-                        weight_tensor,
-                        weight_scales,
-                        weight_zero_points,
-                        bias_tensor,
-                        model_config["group_size"],
-                        model_config["weight_bits"],
-                        model_config["zero_point"],
-                        model_config["torch_dtype"],
-                        model_architecture,
-                        module_name,
-                    )
-                    set_op_by_name(model, module_name, quant_module)
-                else:
-                    raise NotImplementedError(
-                        "zentorch has not yet implemented support for qweights packed "
-                        + f"into '{weight_tensor.dtype}' tensor, it only supports "
-                        + "qweight packed into 'torch.int32' tensor"
-                    )
-            elif "embedding_bags" in weight_key:
-                # Ideally, we should be supporting input_tensors, output_tensors
-                # and weight quant information and loading individually.
+        module_name = get_module_name_str(weight_key)
+        static_key = module_name + ".input_scale"
+        if weight_key.endswith("qweight"):
+            # Woq model's weights are stored as 'qweight' in safetensor file and
+            # Only 4 bit quantized modules will have
+            # weight_tensor.dtype == torch.int32
+            if weight_tensor.dtype == torch.int32:
                 weight_scales, weight_zero_points, bias_tensor = (
-                    get_embedding_module_param_tensors(module_name, params_dict)
+                    get_woq_module_param_tensors(module_name, params_dict)
                 )
-                packed_embedding_weight = (
-                    zentorch._C.zentorch_get_packed_embedding_weight(
-                        weight_tensor, weight_scales, weight_zero_points
-                    )
-                )
-                float_module = get_op_by_name(model, module_name)
-                quant_module = build_and_replace_with_Q_EmbeddingBag(
-                    float_module,
-                    packed_embedding_weight,
-                    weight_scales,
-                    weight_zero_points,
-                    model_config["eb_bits"],
-                    None,  # group_size
-                    model_config["eb_zero_point"],
-                    model_config["torch_dtype"],
-                    model_config["eb_scale_type"],
-                    model_config["eb_dtype"],
-                )
-                set_op_by_name(model, module_name, quant_module)
-
-            elif static_key in params_keys:
-                (
-                    input_scales,
-                    input_zero_points,
-                    weight_scales,
-                    weight_zero_points,
-                    bias_tensor,
-                ) = get_static_module_param_tensors(module_name, params_dict)
                 # get nn.Module for corresponding module_name
                 float_module = get_op_by_name(model, module_name)
+
                 quant_module = build_and_replace_with_Q_Linear(
                     float_module,
                     weight_tensor,
                     weight_scales,
                     weight_zero_points,
                     bias_tensor,
-                    None,
+                    model_config["group_size"],
                     model_config["weight_bits"],
-                    False,
+                    model_config["zero_point"],
                     model_config["torch_dtype"],
                     model_architecture,
                     module_name,
-                    input_scales,
-                    input_zero_points,
-                    model_config["activation_bits"],
-                    model_config["activation_symmetric"],
                 )
                 set_op_by_name(model, module_name, quant_module)
             else:
-                module_name = get_module_name_str(weight_key)
-                float_module = get_op_by_name(model, module_name)
-                weight_device = float_module.weight.device
-                float_module.weight.data = weight_tensor.to(weight_device)
-
-                bias_tensor_key = module_name + ".bias"
-                if bias_tensor_key in params_dict.keys():
-                    bias_tensor = params_dict[bias_tensor_key]
-                    bias_device = float_module.bias.device
-                    float_module.bias.data = bias_tensor.to(bias_device)
-        else:
-            raise ValueError(
-                "Encountered a non-standard weight_key named " + weight_key
+                raise NotImplementedError(
+                    "zentorch has not yet implemented support for qweights packed "
+                    + f"into '{weight_tensor.dtype}' tensor, it only supports "
+                    + "qweight packed into 'torch.int32' tensor"
+                )
+        elif "embedding_bags" in weight_key:
+            # Ideally, we should be supporting input_tensors, output_tensors
+            # and weight quant information and loading individually.
+            weight_scales, weight_zero_points, bias_tensor = (
+                get_embedding_module_param_tensors(module_name, params_dict)
             )
+            packed_embedding_weight = zentorch._C.zentorch_get_packed_embedding_weight(
+                weight_tensor, weight_scales, weight_zero_points
+            )
+            float_module = get_op_by_name(model, module_name)
+            quant_module = build_and_replace_with_Q_EmbeddingBag(
+                float_module,
+                packed_embedding_weight,
+                weight_scales,
+                weight_zero_points,
+                model_config["eb_bits"],
+                None,  # group_size
+                model_config["eb_zero_point"],
+                model_config["torch_dtype"],
+                model_config["eb_scale_type"],
+                model_config["eb_dtype"],
+            )
+            set_op_by_name(model, module_name, quant_module)
+
+        elif static_key in params_keys:
+            (
+                input_scales,
+                input_zero_points,
+                weight_scales,
+                weight_zero_points,
+                bias_tensor,
+            ) = get_static_module_param_tensors(module_name, params_dict)
+            # get nn.Module for corresponding module_name
+            float_module = get_op_by_name(model, module_name)
+            quant_module = build_and_replace_with_Q_Linear(
+                float_module,
+                weight_tensor,
+                weight_scales,
+                weight_zero_points,
+                bias_tensor,
+                None,
+                model_config["weight_bits"],
+                False,
+                model_config["torch_dtype"],
+                model_architecture,
+                module_name,
+                input_scales,
+                input_zero_points,
+                model_config["activation_bits"],
+                model_config["activation_symmetric"],
+            )
+            set_op_by_name(model, module_name, quant_module)
+        # to restrict other weight_keys like "amdweight"
+        if weight_key.endswith(".weight"):
+            module_name = get_module_name_str(weight_key)
+            float_module = get_op_by_name(model, module_name)
+            weight_device = float_module.weight.device
+            float_module.weight.data = weight_tensor.to(weight_device)
+
+            bias_tensor_key = module_name + ".bias"
+            if bias_tensor_key in params_dict.keys():
+                bias_tensor = params_dict[bias_tensor_key]
+                bias_device = float_module.bias.device
+                float_module.bias.data = bias_tensor.to(bias_device)
+        else:
+            raise ValueError("Encountered a non-standard weight_key")
     logger.info("The quantized model is loaded successfully!")
     return model
 

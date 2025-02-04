@@ -7,6 +7,8 @@ import sys
 import copy
 from pathlib import Path
 import torch
+import os
+import shutil
 
 sys.path.append(str(Path(__file__).parent.parent))
 from utils import (  # noqa: 402 # noqa: F401
@@ -380,13 +382,18 @@ class Test_Data(metaclass=Singleton):
         return dtypes[str_type]
 
 
+path = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+
+
 class Zentorch_TestCase(TestCase):
     def setUp(self):
         set_seed()
         self.data = Test_Data()
+        os.makedirs(os.path.join(path, "data"))
 
     def tearDown(self):
         del self.data
+        shutil.rmtree(os.path.join(path, "data"))
 
     def skip_if_bfloat16_path_issue(self, dtype):
         if dtype == "bfloat16":

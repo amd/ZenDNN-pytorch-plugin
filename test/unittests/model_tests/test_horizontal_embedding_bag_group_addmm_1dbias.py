@@ -81,9 +81,7 @@ class Test_Group_Embedding_Bad_Addmm_1dbias_Model(Zentorch_TestCase):
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
         compiled_output = test_with_freeze_opt(
-            compiled_graph,
-            (indices, offsets, mlp_inputs),
-            freeze_opt
+            compiled_graph, (indices, offsets, mlp_inputs), freeze_opt
         )
         self.assertEqual(native_output, compiled_output)
 
@@ -99,8 +97,10 @@ class Test_Group_Embedding_Bad_Addmm_1dbias_Model(Zentorch_TestCase):
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
         compiled_output = test_with_freeze_opt(
-            compiled_graph,
-            (indices, offsets, mlp_inputs),
-            freeze_opt
+            compiled_graph, (indices, offsets, mlp_inputs), freeze_opt
         )
         self.assertEqual(native_output, compiled_output)
+
+
+if __name__ == "__main__":
+    run_tests()
