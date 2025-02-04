@@ -358,6 +358,7 @@ class Test_WOQ_Linear(Zentorch_TestCase):
     def test_woq_supported_scale_dtype(
         self, dtype, woq_input_dim, woq_bias_idx, woq_qzeros_idx
     ):
+        self.skip_if_bfloat16_unsupported_hardware()
         self.data.create_data("bfloat16")
         if dtype == "float32":
             woq_scales = self.data.woq_scales.to(torch.float32)
