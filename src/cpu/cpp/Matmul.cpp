@@ -177,7 +177,7 @@ std::vector<at::Tensor> zentorch_matmul_group_impl(
     // lists cannot be sent from the Python side to the CPP side via bindings
     // using TORCH_LIBRARY_FRAGMENT. So, currently we are using just a single
     // post op and wrapping it in a vector and sending it to ZenDNN Library.
-    z_post_op_ids[i] = {fuse[i]};
+    z_post_op_ids[i] = std::vector<int64_t>{fuse[i]};
   }
   // });
 
