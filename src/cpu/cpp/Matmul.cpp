@@ -209,8 +209,8 @@ std::vector<at::Tensor> zentorch_matmul_group_impl(
 // This template is taking care of only unary post op
 template <UNARY_POST_OP fuse>
 at::Tensor zentorch_addmm_1dbias(const at::Tensor &self, const at::Tensor &mat1,
-                                 const at::Tensor &mat2, const at::Scalar &beta,
-                                 const at::Scalar &alpha,
+                                 const at::Tensor &mat2, at::Scalar beta,
+                                 at::Scalar alpha,
                                  std::string zentorch_op_name) {
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
@@ -233,10 +233,12 @@ at::Tensor zentorch_addmm_1dbias(const at::Tensor &self, const at::Tensor &mat1,
 
 // unary-binary fusions and binary fusions will be handle by this
 template <UNARY_POST_OP fuse1, BINARY_POST_OP fuse2>
-at::Tensor zentorch_addmm_1dbias_unary_binary(
-    const at::Tensor &self, const at::Tensor &mat1, const at::Tensor &mat2,
-    const at::Tensor &binary_input, const at::Scalar &beta,
-    const at::Scalar &alpha, std::string zentorch_op_name) {
+at::Tensor zentorch_addmm_1dbias_unary_binary(const at::Tensor &self,
+                                              const at::Tensor &mat1,
+                                              const at::Tensor &mat2,
+                                              const at::Tensor &binary_input,
+                                              at::Scalar beta, at::Scalar alpha,
+                                              std::string zentorch_op_name) {
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
 
@@ -260,8 +262,7 @@ template <BINARY_POST_OP fuse1, BINARY_POST_OP fuse2>
 at::Tensor zentorch_addmm_1dbias_binary_binary(
     const at::Tensor &self, const at::Tensor &mat1, const at::Tensor &mat2,
     const at::Tensor &binary1_input, const at::Tensor &binary2_input,
-    const at::Scalar &beta, const at::Scalar &alpha,
-    std::string zentorch_op_name) {
+    at::Scalar beta, at::Scalar alpha, std::string zentorch_op_name) {
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
   ZENTORCH_CHECK((binary1_input.dim() == 2 && binary2_input.dim() == 2 &&
@@ -289,9 +290,8 @@ at::Tensor zentorch_addmm_1dbias_binary_binary(
 
 template <UNARY_POST_OP fuse>
 at::Tensor zentorch_addmm(const at::Tensor &self, const at::Tensor &mat1,
-                          const at::Tensor &mat2, const at::Scalar &beta,
-                          const at::Scalar &alpha,
-                          std::string zentorch_op_name) {
+                          const at::Tensor &mat2, at::Scalar beta,
+                          at::Scalar alpha, std::string zentorch_op_name) {
 
   // if alpha is zero, return beta * self directly from here itself.
   // Dont enter the matmul impl.
@@ -371,9 +371,8 @@ at::Tensor zentorch_addmm(const at::Tensor &self, const at::Tensor &mat1,
 }
 
 at::Tensor zentorch_baddbmm(const at::Tensor &self, const at::Tensor &batch1,
-                            const at::Tensor &batch2, const at::Scalar &beta,
-                            const at::Scalar &alpha,
-                            std::string zentorch_op_name) {
+                            const at::Tensor &batch2, at::Scalar beta,
+                            at::Scalar alpha, std::string zentorch_op_name) {
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
 
@@ -463,10 +462,11 @@ at::Tensor zentorch_bmm(const at::Tensor &self, const at::Tensor &mat2,
 
 // unary-binary fusions and binary fusions will be handle by this
 template <UNARY_POST_OP fuse1, BINARY_POST_OP fuse2>
-at::Tensor zentorch_addmm_unary_binary(
-    const at::Tensor &bias, const at::Tensor &mat1, const at::Tensor &mat2,
-    const at::Tensor &binary_input, const at::Scalar &beta,
-    const at::Scalar &alpha, std::string zentorch_op_name) {
+at::Tensor
+zentorch_addmm_unary_binary(const at::Tensor &bias, const at::Tensor &mat1,
+                            const at::Tensor &mat2,
+                            const at::Tensor &binary_input, at::Scalar beta,
+                            at::Scalar alpha, std::string zentorch_op_name) {
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
 
@@ -553,13 +553,11 @@ at::Tensor zentorch_mm_unary_binary(const at::Tensor &mat1,
                               post_op_buffers, beta, alpha, zentorch_op_name);
 }
 
-at::Tensor zentorch_vertical_mlp_group(const at::TensorList &self,
-                                       const at::Tensor &input,
-                                       const at::TensorList &weights,
-                                       const at::ArrayRef<double> &betas,
-                                       const at::ArrayRef<double> &alphas,
-                                       const at::IntArrayRef &fuse,
-                                       std::string zentorch_op_name) {
+at::Tensor
+zentorch_vertical_mlp_group(at::TensorList self, const at::Tensor &input,
+                            at::TensorList weights, at::ArrayRef<double> betas,
+                            at::ArrayRef<double> alphas, at::IntArrayRef fuse,
+                            std::string zentorch_op_name) {
 
   // self = alpha * input * weights + beta * self
 
@@ -591,11 +589,12 @@ at::Tensor zentorch_vertical_mlp_group(const at::TensorList &self,
   return output_vector[num_ops - 1];
 }
 
-std::vector<at::Tensor> zentorch_attn_qkv_fusion(
-    const at::TensorList &self, const at::TensorList &inputs,
-    const at::TensorList &weights, const at::ArrayRef<double> &betas,
-    const at::ArrayRef<double> &alphas, const at::IntArrayRef &fuse,
-    const at::IntArrayRef &is_zentorch_mm, std::string zentorch_op_name) {
+std::vector<at::Tensor>
+zentorch_attn_qkv_fusion(at::TensorList self, at::TensorList inputs,
+                         at::TensorList weights, at::ArrayRef<double> betas,
+                         at::ArrayRef<double> alphas, at::IntArrayRef fuse,
+                         at::IntArrayRef is_zentorch_mm,
+                         std::string zentorch_op_name) {
   // self = alpha * inputs * weights.t + beta * self
   LOG(INFO) << "In zentorch_attention_horizontal_matmul_group_mlp...\n";
   int num_ops = inputs.size();

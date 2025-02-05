@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright (c) 2023-2024 Advanced Micro Devices, Inc.
+ * Copyright (c) 2023-2025 Advanced Micro Devices, Inc.
  * All rights reserved.
  ******************************************************************************/
 
@@ -12,10 +12,8 @@ using namespace zendnn;
 namespace zentorch {
 at::Tensor zentorch_embedding_impl(const at::Tensor &weight,
                                    const at::Tensor &indices,
-                                   const int64_t &padding_idx,
-                                   const bool &scale_grad_by_freq,
-                                   const bool &sparse,
-                                   std::string zentorch_op_name) {
+                                   int64_t padding_idx, bool scale_grad_by_freq,
+                                   bool sparse, std::string zentorch_op_name) {
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
 
@@ -38,9 +36,8 @@ at::Tensor zentorch_embedding_impl(const at::Tensor &weight,
 }
 
 std::vector<at::Tensor> zentorch_horizontal_embedding_group(
-    const at::TensorList &weight, const at::TensorList &indices,
-    const at::IntArrayRef &padding_idx,
-    const at::IntArrayRef &scale_grad_by_freq, const at::IntArrayRef &sparse,
+    at::TensorList weight, at::TensorList indices, at::IntArrayRef padding_idx,
+    at::IntArrayRef scale_grad_by_freq, at::IntArrayRef sparse,
     std::string zentorch_op_name) {
 
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "

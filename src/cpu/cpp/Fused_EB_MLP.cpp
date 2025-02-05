@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright (c) 2024 Advanced Micro Devices, Inc.
+ * Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
  * All rights reserved.
  ******************************************************************************/
 
@@ -14,16 +14,14 @@ using namespace zendnn;
 
 namespace zentorch {
 std::vector<at::Tensor> zentorch_fused_eb_mlp(
-    const at::TensorList &eb_weight, const at::TensorList &eb_indices,
-    const at::TensorList &eb_offsets,
-    const at::IntArrayRef &eb_scale_grad_by_freq,
-    const at::IntArrayRef &eb_mode, const at::IntArrayRef &eb_sparse,
-    const c10::List<c10::optional<at::Tensor>> &eb_per_sample_weights_opt,
-    const at::IntArrayRef &eb_include_last_offset,
-    const at::IntArrayRef &eb_padding_idx, const at::TensorList &mlp_self,
-    const at::Tensor &first_mlp_input, const at::TensorList &mlp_weights,
-    const at::ArrayRef<double> &mlp_betas,
-    const at::ArrayRef<double> &mlp_alphas, const at::IntArrayRef &mlp_fuse,
+    at::TensorList eb_weight, at::TensorList eb_indices,
+    at::TensorList eb_offsets, at::IntArrayRef eb_scale_grad_by_freq,
+    at::IntArrayRef eb_mode, at::IntArrayRef eb_sparse,
+    c10::List<c10::optional<at::Tensor>> eb_per_sample_weights_opt,
+    at::IntArrayRef eb_include_last_offset, at::IntArrayRef eb_padding_idx,
+    at::TensorList mlp_self, const at::Tensor &first_mlp_input,
+    at::TensorList mlp_weights, at::ArrayRef<double> mlp_betas,
+    at::ArrayRef<double> mlp_alphas, at::IntArrayRef mlp_fuse,
     std::string zentorch_op_name) {
 
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "

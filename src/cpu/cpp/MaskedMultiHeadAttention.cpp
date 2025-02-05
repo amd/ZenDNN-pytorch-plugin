@@ -609,9 +609,9 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor>
 zentorch_masked_multihead_self_attention_impl(
     at::Tensor &query, at::Tensor &key, at::Tensor &value,
     at::Tensor &key_cache, at::Tensor &value_cache, at::Tensor &beam_idx,
-    at::Tensor seq_info, const double scale_attn, int64_t max_positions,
-    const c10::optional<at::Tensor> &head_mask /* optional */,
-    const c10::optional<at::Tensor> &attention_mask /* optional */,
+    at::Tensor seq_info, double scale_attn, int64_t max_positions,
+    c10::optional<at::Tensor> head_mask /* optional */,
+    c10::optional<at::Tensor> attention_mask /* optional */,
     c10::optional<bool> add_casual_mask /* optional */,
     std::string zentorch_op_name) {
   std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor> a;

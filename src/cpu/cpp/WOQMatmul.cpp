@@ -94,10 +94,9 @@ template <UNARY_POST_OP fuse>
 at::Tensor
 zentorch_woq_linear(const at::Tensor &input, const at::Tensor &qweight,
                     const at::Tensor &weight_scales,
-                    const c10::optional<at::Tensor> &weight_zero_point,
-                    const c10::optional<at::Tensor> &bias,
-                    const int64_t &group_size, const int64_t &weight_bits,
-                    const std::string &compute_dtype,
+                    c10::optional<at::Tensor> weight_zero_point,
+                    c10::optional<at::Tensor> bias, int64_t group_size,
+                    int64_t weight_bits, const std::string &compute_dtype,
                     std::string zentorch_op_name) {
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
@@ -126,9 +125,8 @@ template <UNARY_POST_OP fuse1, BINARY_POST_OP fuse2>
 at::Tensor zentorch_woq_linear_unary_binary(
     const at::Tensor &input, const at::Tensor &qweight,
     const at::Tensor &weight_scales,
-    const c10::optional<at::Tensor> &weight_zero_point,
-    const c10::optional<at::Tensor> &bias, const at::Tensor &binary_input,
-    const int64_t &group_size, const int64_t &weight_bits,
+    c10::optional<at::Tensor> weight_zero_point, c10::optional<at::Tensor> bias,
+    const at::Tensor &binary_input, int64_t group_size, int64_t weight_bits,
     const std::string &compute_dtype, std::string zentorch_op_name) {
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
@@ -154,10 +152,9 @@ template <BINARY_POST_OP fuse1, BINARY_POST_OP fuse2>
 at::Tensor zentorch_woq_linear_binary_binary(
     const at::Tensor &input, const at::Tensor &qweight,
     const at::Tensor &weight_scales,
-    const c10::optional<at::Tensor> &weight_zero_point,
-    const c10::optional<at::Tensor> &bias, const at::Tensor &binary1_input,
-    const at::Tensor &binary2_input, const int64_t &group_size,
-    const int64_t &weight_bits, const std::string &compute_dtype,
+    c10::optional<at::Tensor> weight_zero_point, c10::optional<at::Tensor> bias,
+    const at::Tensor &binary1_input, const at::Tensor &binary2_input,
+    int64_t group_size, int64_t weight_bits, const std::string &compute_dtype,
     std::string zentorch_op_name) {
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;

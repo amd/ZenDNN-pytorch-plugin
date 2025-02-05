@@ -192,11 +192,11 @@ inline void zentorch_quantized_matmul_impl(
 template <UNARY_POST_OP fuse>
 inline at::Tensor zentorch_qlinear_unary(
     const at::Tensor &input, const at::Tensor &weight,
-    const c10::optional<at::Tensor> &bias, const at::Tensor &input_scales,
+    c10::optional<at::Tensor> bias, const at::Tensor &input_scales,
     const at::Tensor &input_zero_points, const at::Tensor &weight_scales,
     const at::Tensor &weight_zero_points, c10::ScalarType output_dtype,
-    const c10::optional<at::Tensor> &output_scales,
-    const c10::optional<at::Tensor> &output_zero_points,
+    c10::optional<at::Tensor> output_scales,
+    c10::optional<at::Tensor> output_zero_points,
     std::string zentorch_op_name) {
 
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
@@ -248,12 +248,12 @@ inline at::Tensor zentorch_qlinear_unary(
 template <BINARY_POST_OP fuse1, BINARY_POST_OP fuse2>
 inline at::Tensor zentorch_qlinear_binary_binary(
     const at::Tensor &input, const at::Tensor &weight,
-    const c10::optional<at::Tensor> &bias, const at::Tensor &input_scales,
+    c10::optional<at::Tensor> bias, const at::Tensor &input_scales,
     const at::Tensor &input_zero_points, const at::Tensor &weight_scales,
     const at::Tensor &weight_zero_points, const at::Tensor &binary1_input,
     const at::Tensor &binary2_input, c10::ScalarType output_dtype,
-    const c10::optional<at::Tensor> &output_scales,
-    const c10::optional<at::Tensor> &output_zero_points,
+    c10::optional<at::Tensor> output_scales,
+    c10::optional<at::Tensor> output_zero_points,
     std::string zentorch_op_name) {
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;

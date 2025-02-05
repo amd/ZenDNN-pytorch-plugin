@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright (c) 2024 Advanced Micro Devices, Inc.
+ * Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
  * All rights reserved.
  ******************************************************************************/
 
@@ -96,12 +96,13 @@ at::Tensor zentorch_conv_impl(
 }
 
 // adding convolution op
-at::Tensor zentorch_convolution(
-    const at::Tensor &input, const at::Tensor &weight,
-    const c10::optional<at::Tensor> &bias_opt, const at::IntArrayRef &stride,
-    const at::IntArrayRef &padding, const at::IntArrayRef &dilation,
-    const bool &transposed, const at::IntArrayRef &output_padding,
-    const int64_t &groups, std::string zentorch_op_name) {
+at::Tensor zentorch_convolution(const at::Tensor &input,
+                                const at::Tensor &weight,
+                                c10::optional<at::Tensor> bias_opt,
+                                at::IntArrayRef stride, at::IntArrayRef padding,
+                                at::IntArrayRef dilation, bool transposed,
+                                at::IntArrayRef output_padding, int64_t groups,
+                                std::string zentorch_op_name) {
 
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
