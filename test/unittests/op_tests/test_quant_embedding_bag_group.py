@@ -56,7 +56,7 @@ class Test_WOQ_Embedding_Bag(Zentorch_TestCase):
             [zentorch_packed_weights],
             [indices],
             [offsets],
-            [4],  # assumes that weights has been quantized to uint4 hence 4 bits
+            4,  # assumes that weights has been quantized to uint4 hence 4 bits
             torch_type,
             [False],
             [0],

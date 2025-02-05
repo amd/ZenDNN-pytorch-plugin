@@ -412,7 +412,7 @@ def meta_zentorch_horizontal_quant_embedding_bag_group(
             weight[i],
             indices[i],
             offsets[i],
-            num_bits_per_weight[i],
+            num_bits_per_weight,
             output_dtype,
             include_last_offset=include_last_offset[i],
         )
@@ -420,6 +420,45 @@ def meta_zentorch_horizontal_quant_embedding_bag_group(
         output_list.append(output)
 
     return output_list
+
+
+@register_meta("zentorch_quant_group_eb_mlp_concat")
+def meta_zentorch_quant_group_eb_mlp_concat(
+    weight,
+    indices,
+    offsets,
+    num_bits_per_weight,
+    output_dtype,
+    scale_grad_by_freq,
+    mode,
+    sparse,
+    per_sample_weights,
+    include_last_offset,
+    padding_idx,
+    cat_dim,
+    other_arguments_position,
+    other_arguments,
+):
+    output_list = []
+
+    for i in range(len(weight)):
+        output = meta_zentorch_quant_embedding_bag(
+            weight[i],
+            indices[i],
+            offsets[i],
+            num_bits_per_weight,
+            output_dtype,
+            include_last_offset=include_last_offset[i],
+        )
+
+        output_list.append(output)
+
+    for idx, pos in enumerate(other_arguments_position):
+        output_list.insert(pos, other_arguments[idx])
+
+    cat_output = torch.cat(output_list, dim=cat_dim)
+
+    return cat_output
 
 
 zentorch_addmm_mappings = {
@@ -928,3 +967,4 @@ make_fallback(torch.ops.zentorch.zentorch_quant_embedding_bag)
 make_fallback(torch.ops.zentorch.zentorch_horizontal_quant_embedding_bag_group)
 if hasattr(torch.ops.zentorch, "zentorch_sdpa"):
     make_fallback(torch.ops.zentorch.zentorch_sdpa)
+make_fallback(torch.ops.zentorch.zentorch_quant_group_eb_mlp_concat)

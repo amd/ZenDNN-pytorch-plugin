@@ -252,6 +252,40 @@ def emb_ops_horizontal_fusion(fx_g):
                 list_new_args = populate_default_args(
                     list_new_args, type_of_node="quant_embedding_bag"
                 )
+
+                # But before we actually make the list into a singular value,
+                # we want to confirm that all the values in the list are equal
+
+                # We want to check the num_bits_per_weight and output dtype for
+                # all the quant embedding bag nodes. num_bits_per_weight is at
+                # the third position and the output dtype is at the fourth
+                # position. Hence the hard-coding.
+                continue_status_for_graph_iteration = False
+                for idx in [3, 4]:
+                    ref_value = list_new_args[idx][0]
+                    if not all(i == ref_value for i in list_new_args[idx]):
+                        logger.info(
+                            "Cannot fuse zentorch quant embedding bags into a "
+                            + "zentorch_horizontal_quant_embedding_bag_group "
+                            + "as the non-tensor arguments are different "
+                            + "across embedding bags."
+                        )
+                        # Since there can be multiple such sites in the graph where
+                        # a group embedding bag can be followed by a cat node, we
+                        # dont want to just exit out when a check fails. Instead we
+                        # would want to look for next site. So breaking out of the
+                        # current for loop and for continuing the next one.
+                        continue_status_for_graph_iteration = True
+                        break
+                if continue_status_for_graph_iteration:
+                    continue
+
+                # The group quant embedding bag expects the number of bits per
+                # weight as a single element rather the list of elements unlike
+                # other arguments. The number of bits per weight is at the 3rd
+                # index in the argument list. So, the hard-coding of 3 in the
+                # subsequent lines.
+                list_new_args[3] = list_new_args[3][0]
                 # The group quant embedding bag expects the output dtype as a
                 # single element rather the list of elements unlike other
                 # arguments. So, the output dtype is at the 4th index in the
@@ -308,6 +342,165 @@ def emb_ops_horizontal_fusion(fx_g):
     fx_g.recompile()
 
     return fx_g
+
+
+def group_eb_concat_fusion(fx_graph):
+    for node in fx_graph.graph.nodes:
+        # Currently the support is only added for horizontal quant embedding
+        # bag group
+        # TODO
+        # Add support for FP32/BF16 horizontal embedding bag group as well
+        if node.target == (
+            zt_ops.zentorch_horizontal_quant_embedding_bag_group.default
+        ):
+            # The indices of non-tensor arguments are collected here
+            # We want to fuse the cat node with the group embedding bag only
+            # when the non tensor arguments of all embedding bags are the same.
+            # This is a stricter check just to make sure that the output shapes
+            # of all embedding bags are compatible for concatenation, since we
+            # will be doing concatenation in the CPP side. We wouldn't be able
+            # to add too much flexibility on the CPP side as we can on the
+            # Python side. So the stricter check.
+            non_tensor_list_arguments_idx = [5, 6, 7, 8, 9, 10]
+            continue_status_for_graph_iteration = False
+            for idx in non_tensor_list_arguments_idx:
+                argument_list = node.args[idx]
+                ref_value = argument_list[0]
+                # Making sure that the non-tensor arguments for all the
+                # embeddingbags are the same.
+                if not all(i == ref_value for i in argument_list):
+                    logger.info(
+                        "Cannot fuse "
+                        + " zentorch_horizontal_quant_embedding_bag_group and "
+                        + "concat node as the non-tensor arguments are "
+                        + "different across embedding bags."
+                    )
+                    # Since there can be multiple such sites in the graph where
+                    # a group embedding bag can be followed by a cat node, we
+                    # dont want to just exit out when a check fails. Instead we
+                    # would want to look for next site. So breaking out of the
+                    # current for loop and for continuing the next one.
+                    continue_status_for_graph_iteration = True
+                    break
+            if continue_status_for_graph_iteration:
+                continue
+
+            user_of_getitems_is_cat = False
+            cat_node = None
+            for getitem_node in node.users.keys():
+                users_of_getitem = list(getitem_node.users.keys())
+                # The group embedding bag always returns a tuple of outputs.
+                # So, the graph always has getitem nodes to transfer the output
+                # to correct node in the subsequent graph. So now, here, we
+                # want to make sure that the getitem nodes are always a
+                # uni-output node. That is the output of the getitem node is
+                # always used by only one node, which is cat node in this case.
+                # This is because, when we fuse the group embedding bag with
+                # the cat node, we will be removing the getitems and if any of
+                # the getitems have mode than one user, then linking that
+                # output in a concatenated tensor will be really difficult. So
+                # this strict check is added just to make sure that all the
+                # getitem nodes are uni-output.
+                if len(users_of_getitem) == 1:
+                    user_of_getitem = users_of_getitem[0]
+                    # The CPP part provides the fusion for only a cat node
+                    # fusion as this is the pattern found the DLRM models and
+                    # also cat operation is simpler to perform.
+                    # TODO
+                    # See if this fusion can be extended to some more
+                    # operations like torch.sum, torch.stack etc.
+                    if user_of_getitem.target == at_ops.cat.default:
+                        user_of_getitems_is_cat = True
+                        cat_node = user_of_getitem
+                else:
+                    logger.info(
+                        "Cannot fuse "
+                        + " zentorch_horizontal_quant_embedding_bag_group and "
+                        + "concat node as the output of one/more embedding "
+                        + "bags is being used by more than one node."
+                    )
+                    # Since there can be multiple such sites in the graph where
+                    # a group embedding bag can be followed by a cat node, we
+                    # dont want to just exit out when a check fails. Instead we
+                    # would want to look for next site. So breaking out of the
+                    # current for loop and for continuing the next one.
+                    continue_status_for_graph_iteration = True
+                    break
+            if continue_status_for_graph_iteration:
+                continue
+
+            if user_of_getitems_is_cat:
+                cat_dim = 0
+                cat_node_args = cat_node.args
+                # Cat node has maximum of two arguments, the first is the
+                # tensor list and the second one is the dimension along which
+                # the concatenation must happen. So, the assumption of the cat
+                # dim is equal to 0 is made if the arguments length is equal to
+                # 1, else we extract the cat dim from the second argument.
+                if len(cat_node_args) == 2:
+                    cat_dim = cat_node_args[1]
+                (other_arguments_position, other_arguments, getitem_nodes) = (
+                    [], [], []
+                )
+                for idx, input_arg in enumerate(cat_node_args[0]):
+                    # The basic functionality of this pass is to fuse the group
+                    # embedding bag with the subsequent cat node. So, we only
+                    # want to remove the getitems (as previously mentioned, the
+                    # embeddingbag outputs are received via getitems) that come
+                    # from the group embedding bag only. Any other getitem
+                    # nodes or other nodes are considered as other arguments to
+                    # the the cat node and are kept as it is. The getitems from
+                    # the group embedding bag are deleted however, as they no
+                    # longer serve any purpose.
+                    if (input_arg.target == operator.getitem) and (
+                        input_arg.args[0] == node
+                    ):
+                        getitem_nodes.append(input_arg)
+                    else:
+                        other_arguments.append(input_arg)
+                        other_arguments_position.append(idx)
+
+                # As of now, we are assuming that the fx pass will ensure only
+                # one extra tensor will be passed in the other_arguments
+                # TensorList and that the tensor will be always be concatenated
+                # at either zeroth or last position.
+                # TODO
+                # To futureproof this code and accept as many other arguments
+                # and at arbitrary positions in the concatenated tensor, an
+                # optimal approach must be found out and designed.
+
+                if len(other_arguments) > 1:
+                    continue
+                if other_arguments_position[0] == len(getitem_nodes):
+                    other_arguments_position[0] = -1
+
+                if other_arguments_position[0] not in {0, -1}:
+                    continue
+
+                cat_node.replace_all_uses_with(node)
+                fx_graph.graph.erase_node(cat_node)
+                for getitem_node in getitem_nodes:
+                    fx_graph.graph.erase_node(getitem_node)
+
+                new_args = node.args + (
+                    cat_dim,
+                    other_arguments_position,
+                    other_arguments,
+                )
+                node.args = new_args
+                node.target = zt_ops.zentorch_quant_group_eb_mlp_concat.default
+            else:
+                logger.info(
+                    "Cannot fuse zentorch_horizontal_quant_embedding_bag_group"
+                    + " and concat node as the output of one/more embedding "
+                    + "bags is not being used by concat node."
+                )
+                continue
+
+    fx_graph.graph.lint()
+    fx_graph.recompile()
+
+    return fx_graph
 
 
 # TODO : Address the case of mutiple child nodes of a qlinear_* op consuming the

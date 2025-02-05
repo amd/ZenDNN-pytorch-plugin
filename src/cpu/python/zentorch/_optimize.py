@@ -23,6 +23,7 @@ from ._op_replacement import (
 
 from ._custom_op_replacement import (
     emb_ops_horizontal_fusion,
+    group_eb_concat_fusion,
     qlinear_reorder_optimizations,
     eb_group_mlp_group_fusion,
     qkv_fusion,
@@ -98,6 +99,9 @@ def optimize(fx_graph):
 
     # Fusion of parallel embeddingbags
     optimized_graph = emb_ops_horizontal_fusion(optimized_graph)
+
+    # Fusion of embeddingbag outputs and cat node
+    optimized_graph = group_eb_concat_fusion(optimized_graph)
 
     # Vertical fusion of Consecutive MLP layers
     # TODO: Add support for Vertical Fusion

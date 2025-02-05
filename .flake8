@@ -1,5 +1,5 @@
 [flake8]
-exclude = .git,build,dist,third_party
+exclude = .git,build,dist,third_party, benchmark/recsys/dlrmv2-mlperf/inference
 max-line-length = 80
 select = C,E,F,W,B,B950
 extend-ignore = E203,E501,W503
