@@ -21,6 +21,7 @@ from unittest_utils import (  # noqa: 402
     run_tests,
     bias_opt,
     woq_dtypes,
+    supported_dtypes,
     input_dim_opt,
     woq_qzeros_opt,
     group_size_opt,
@@ -112,13 +113,12 @@ class Custom_Model_WOQ_Linear_Silu_Mul(nn.Module):
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
-@unittest.skipIf(
-    skip_test_pt_2_1, "Pattern matcher disabled for Torch < 2.2"
-)
+@unittest.skipIf(skip_test_pt_2_1, "Pattern matcher disabled for Torch < 2.2")
 class Test_WOQ_Linear_Model(Zentorch_TestCase):
     @parameterized.expand(
         product(
             woq_dtypes,
+            supported_dtypes,
             input_dim_opt,
             bias_opt,
             woq_qzeros_opt,
@@ -131,6 +131,7 @@ class Test_WOQ_Linear_Model(Zentorch_TestCase):
     def test_woq_linear_add_sequential_model(
         self,
         dtype,
+        scales_dtype,
         woq_input_dim,
         woq_bias_idx,
         woq_qzeros_idx,
@@ -142,8 +143,8 @@ class Test_WOQ_Linear_Model(Zentorch_TestCase):
         zentorch_model = model
         _ = model(
             self.data.woq_input[woq_input_dim],
-            self.data.woq_qweight,
-            self.data.woq_scales,
+            self.data.woq_qweight[scales_dtype],
+            self.data.woq_scales[scales_dtype],
             self.data.woq_qzeros[woq_qzeros_idx],
             self.data.woq_bias[woq_bias_idx],
             self.data.woq_add[woq_input_dim],
@@ -159,8 +160,8 @@ class Test_WOQ_Linear_Model(Zentorch_TestCase):
             compiled_graph,
             (
                 self.data.woq_input[woq_input_dim],
-                self.data.woq_qweight,
-                self.data.woq_scales,
+                self.data.woq_qweight[scales_dtype],
+                self.data.woq_scales[scales_dtype],
                 self.data.woq_qzeros[woq_qzeros_idx],
                 self.data.woq_bias[woq_bias_idx],
                 self.data.woq_add[woq_input_dim],
@@ -177,6 +178,7 @@ class Test_WOQ_Linear_Model(Zentorch_TestCase):
     @parameterized.expand(
         product(
             woq_dtypes,
+            supported_dtypes,
             input_dim_opt,
             bias_opt,
             woq_qzeros_opt,
@@ -189,6 +191,7 @@ class Test_WOQ_Linear_Model(Zentorch_TestCase):
     def test_woq_linear_add_sequential_postop_float_model(
         self,
         dtype,
+        scales_dtype,
         woq_input_dim,
         woq_bias_idx,
         woq_qzeros_idx,
@@ -210,8 +213,8 @@ class Test_WOQ_Linear_Model(Zentorch_TestCase):
                 compiled_graph,
                 (
                     self.data.woq_input[woq_input_dim],
-                    self.data.woq_qweight,
-                    self.data.woq_scales,
+                    self.data.woq_qweight[scales_dtype],
+                    self.data.woq_scales[scales_dtype],
                     self.data.woq_qzeros[woq_qzeros_idx],
                     self.data.woq_bias[woq_bias_idx],
                     self.data.woq_add[woq_input_dim].to(torch.float32),
@@ -230,6 +233,7 @@ class Test_WOQ_Linear_Model(Zentorch_TestCase):
     @parameterized.expand(
         product(
             woq_dtypes,
+            supported_dtypes,
             input_dim_opt,
             bias_opt,
             woq_qzeros_opt,
@@ -242,6 +246,7 @@ class Test_WOQ_Linear_Model(Zentorch_TestCase):
     def test_woq_linear_silu_mul_postop_float_model(
         self,
         dtype,
+        scales_dtype,
         woq_input_dim,
         woq_bias_idx,
         woq_qzeros_idx,
@@ -263,8 +268,8 @@ class Test_WOQ_Linear_Model(Zentorch_TestCase):
             compiled_graph,
             (
                 self.data.woq_input[woq_input_dim],
-                self.data.woq_qweight,
-                self.data.woq_scales,
+                self.data.woq_qweight[scales_dtype],
+                self.data.woq_scales[scales_dtype],
                 self.data.woq_qzeros[woq_qzeros_idx],
                 self.data.woq_bias[woq_bias_idx],
                 self.data.woq_mul[woq_input_dim].to(torch.float32),
@@ -279,6 +284,7 @@ class Test_WOQ_Linear_Model(Zentorch_TestCase):
     @parameterized.expand(
         product(
             woq_dtypes,
+            supported_dtypes,
             input_dim_opt,
             bias_opt,
             woq_qzeros_opt,
@@ -291,6 +297,7 @@ class Test_WOQ_Linear_Model(Zentorch_TestCase):
     def test_woq_linear_add_parallel_model(
         self,
         dtype,
+        scales_dtype,
         woq_input_dim,
         woq_bias_idx,
         woq_qzeros_idx,
@@ -302,8 +309,8 @@ class Test_WOQ_Linear_Model(Zentorch_TestCase):
         zentorch_model = copy.deepcopy(model)
         _ = model(
             self.data.woq_input[woq_input_dim],
-            self.data.woq_qweight,
-            self.data.woq_scales,
+            self.data.woq_qweight[scales_dtype],
+            self.data.woq_scales[scales_dtype],
             self.data.woq_qzeros[woq_qzeros_idx],
             self.data.woq_bias[woq_bias_idx],
             self.data.woq_add[woq_input_dim],
@@ -319,8 +326,8 @@ class Test_WOQ_Linear_Model(Zentorch_TestCase):
             compiled_graph,
             (
                 self.data.woq_input[woq_input_dim],
-                self.data.woq_qweight,
-                self.data.woq_scales,
+                self.data.woq_qweight[scales_dtype],
+                self.data.woq_scales[scales_dtype],
                 self.data.woq_qzeros[woq_qzeros_idx],
                 self.data.woq_bias[woq_bias_idx],
                 self.data.woq_add[woq_input_dim],
@@ -335,6 +342,7 @@ class Test_WOQ_Linear_Model(Zentorch_TestCase):
     @parameterized.expand(
         product(
             woq_dtypes,
+            supported_dtypes,
             input_dim_opt,
             bias_opt,
             woq_qzeros_opt,
@@ -347,6 +355,7 @@ class Test_WOQ_Linear_Model(Zentorch_TestCase):
     def test_woq_linear_silu_mul_model(
         self,
         dtype,
+        scales_dtype,
         woq_input_dim,
         woq_bias_idx,
         woq_qzeros_idx,
@@ -358,8 +367,8 @@ class Test_WOQ_Linear_Model(Zentorch_TestCase):
         zentorch_model = copy.deepcopy(model)
         _ = model(
             self.data.woq_input[woq_input_dim],
-            self.data.woq_qweight,
-            self.data.woq_scales,
+            self.data.woq_qweight[scales_dtype],
+            self.data.woq_scales[scales_dtype],
             self.data.woq_qzeros[woq_qzeros_idx],
             self.data.woq_bias[woq_bias_idx],
             self.data.woq_mul[woq_input_dim],
@@ -373,8 +382,8 @@ class Test_WOQ_Linear_Model(Zentorch_TestCase):
             compiled_graph,
             (
                 self.data.woq_input[woq_input_dim],
-                self.data.woq_qweight,
-                self.data.woq_scales,
+                self.data.woq_qweight[scales_dtype],
+                self.data.woq_scales[scales_dtype],
                 self.data.woq_qzeros[woq_qzeros_idx],
                 self.data.woq_bias[woq_bias_idx],
                 self.data.woq_mul[woq_input_dim],

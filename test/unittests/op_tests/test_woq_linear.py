@@ -60,13 +60,24 @@ class Zentorch_Simulated_Woq_Linear(nn.Module):
 class Test_WOQ_Linear(Zentorch_TestCase):
     @parameterized.expand(
         product(
-            woq_dtypes, input_dim_opt, bias_opt, woq_qzeros_opt, group_size_opt
+            woq_dtypes,
+            supported_dtypes,
+            input_dim_opt,
+            bias_opt,
+            woq_qzeros_opt,
+            group_size_opt,
         ),
         skip_on_empty=True,
     )
     @torch.inference_mode()
     def test_woq_linear_torch_checks(
-        self, dtype, woq_input_dim, woq_bias_idx, woq_qzeros_idx, group_size_val
+        self,
+        dtype,
+        scales_dtype,
+        woq_input_dim,
+        woq_bias_idx,
+        woq_qzeros_idx,
+        group_size_val,
     ):
         self.data.create_data(dtype, group_size_val)
 
@@ -74,8 +85,8 @@ class Test_WOQ_Linear(Zentorch_TestCase):
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_woq_linear(
                 self.data.woq_input[woq_input_dim],
-                self.data.woq_qweight,
-                self.data.woq_scales,
+                self.data.woq_qweight[scales_dtype],
+                self.data.woq_scales[scales_dtype],
                 self.data.woq_qzeros[woq_qzeros_idx],
                 self.data.woq_bias[woq_bias_idx],
                 self.data.woq_group_size,
@@ -92,8 +103,8 @@ class Test_WOQ_Linear(Zentorch_TestCase):
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_woq_linear(
                 self.data.woq_input[woq_input_dim],
-                self.data.woq_qweight,
-                self.data.woq_scales,
+                self.data.woq_qweight[scales_dtype],
+                self.data.woq_scales[scales_dtype],
                 self.data.woq_qzeros[woq_qzeros_idx],
                 self.data.woq_bias[woq_bias_idx],
                 self.data.woq_group_size,
@@ -105,35 +116,35 @@ class Test_WOQ_Linear(Zentorch_TestCase):
         )
 
         # larger group_size check
-        group_size = self.data.woq_qweight.shape[0] + 1
+        group_size = self.data.woq_qweight[scales_dtype].shape[0] + 1
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_woq_linear(
                 self.data.woq_input[woq_input_dim],
-                self.data.woq_qweight,
-                self.data.woq_scales,
+                self.data.woq_qweight[scales_dtype],
+                self.data.woq_scales[scales_dtype],
                 self.data.woq_qzeros[woq_qzeros_idx],
                 self.data.woq_bias[woq_bias_idx],
                 group_size,  # larger group_size
             )
         self.assertTrue(
             f"group_size = {group_size} is greater than input "
-            + f"channel size = {self.data.woq_qweight.shape[0]}"
+            + f"channel size = {self.data.woq_qweight[scales_dtype].shape[0]}"
             in str(context.exception)
         )
 
         # group_size complete divisibilty check
-        group_size = self.data.woq_qweight.shape[0] - 1
+        group_size = self.data.woq_qweight[scales_dtype].shape[0] - 1
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_woq_linear(
                 self.data.woq_input[woq_input_dim],
-                self.data.woq_qweight,
-                self.data.woq_scales,
+                self.data.woq_qweight[scales_dtype],
+                self.data.woq_scales[scales_dtype],
                 self.data.woq_qzeros[woq_qzeros_idx],
                 self.data.woq_bias[woq_bias_idx],
                 group_size,  # incompatible group_size
             )
         self.assertTrue(
-            f"input channel size = {self.data.woq_qweight.shape[0]} is "
+            f"input channel size = {self.data.woq_qweight[scales_dtype].shape[0]} is "
             + f"not completely divisible by group_size = {group_size}"
             in str(context.exception)
         )
@@ -145,8 +156,8 @@ class Test_WOQ_Linear(Zentorch_TestCase):
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_woq_linear(
                 self.data.woq_input[woq_input_dim],
-                self.data.woq_qweight,
-                self.data.woq_scales,
+                self.data.woq_qweight[scales_dtype],
+                self.data.woq_scales[scales_dtype],
                 self.data.woq_qzeros[woq_qzeros_idx],
                 self.data.woq_bias[woq_bias_idx],
                 group_size,  # incompatible group_size
@@ -162,8 +173,8 @@ class Test_WOQ_Linear(Zentorch_TestCase):
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_woq_linear(
                 self.data.woq_input[woq_input_dim],
-                self.data.woq_qweight,
-                self.data.woq_scales,
+                self.data.woq_qweight[scales_dtype],
+                self.data.woq_scales[scales_dtype],
                 self.data.woq_qzeros[woq_qzeros_idx],
                 self.data.woq_bias[woq_bias_idx],
                 group_size,  # incorrect group_size
@@ -180,8 +191,8 @@ class Test_WOQ_Linear(Zentorch_TestCase):
                 self.data.woq_input[woq_input_dim].to(
                     torch.float32
                 ),  # input with unsupported dtype
-                self.data.woq_qweight,
-                self.data.woq_scales,
+                self.data.woq_qweight[scales_dtype],
+                self.data.woq_scales[scales_dtype],
                 self.data.woq_qzeros[woq_qzeros_idx],
                 self.data.woq_bias[woq_bias_idx],
                 self.data.woq_group_size,
@@ -194,8 +205,10 @@ class Test_WOQ_Linear(Zentorch_TestCase):
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_woq_linear(
                 self.data.woq_input[woq_input_dim],
-                self.data.woq_qweight.to(torch.int8),  # qweight with unsupported dtype
-                self.data.woq_scales,
+                self.data.woq_qweight[scales_dtype].to(
+                    torch.int8
+                ),  # qweight with unsupported dtype
+                self.data.woq_scales[scales_dtype],
                 self.data.woq_qzeros[woq_qzeros_idx],
                 self.data.woq_bias[woq_bias_idx],
                 self.data.woq_group_size,
@@ -209,8 +222,10 @@ class Test_WOQ_Linear(Zentorch_TestCase):
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_woq_linear(
                 self.data.woq_input[woq_input_dim],
-                self.data.woq_qweight,
-                self.data.woq_scales.to(torch.float16),  # scales with unsupported dtype
+                self.data.woq_qweight[scales_dtype],
+                self.data.woq_scales[scales_dtype].to(
+                    torch.float16
+                ),  # scales with unsupported dtype
                 self.data.woq_qzeros[woq_qzeros_idx],
                 self.data.woq_bias[woq_bias_idx],
                 self.data.woq_group_size,
@@ -224,8 +239,8 @@ class Test_WOQ_Linear(Zentorch_TestCase):
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_woq_linear(
                 self.data.woq_input[woq_input_dim],
-                self.data.woq_qweight.t(),  # non-contiguous qweight
-                self.data.woq_scales,
+                self.data.woq_qweight[scales_dtype].t(),  # non-contiguous qweight
+                self.data.woq_scales[scales_dtype],
                 self.data.woq_qzeros[woq_qzeros_idx],
                 self.data.woq_bias[woq_bias_idx],
                 self.data.woq_group_size,
@@ -239,8 +254,8 @@ class Test_WOQ_Linear(Zentorch_TestCase):
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_woq_linear(
                 self.data.input3d,  # input with incompatible shape
-                self.data.woq_qweight,
-                self.data.woq_scales,
+                self.data.woq_qweight[scales_dtype],
+                self.data.woq_scales[scales_dtype],
                 self.data.woq_qzeros[woq_qzeros_idx],
                 self.data.woq_bias[woq_bias_idx],
                 self.data.woq_group_size,
@@ -253,7 +268,7 @@ class Test_WOQ_Linear(Zentorch_TestCase):
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_woq_linear(
                 self.data.woq_input[woq_input_dim],
-                self.data.woq_qweight,
+                self.data.woq_qweight[scales_dtype],
                 self.data.input3d,  # scales with incompatible shape
                 self.data.woq_qzeros[woq_qzeros_idx],
                 self.data.woq_bias[woq_bias_idx],
@@ -268,8 +283,8 @@ class Test_WOQ_Linear(Zentorch_TestCase):
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_woq_linear(
                 self.data.woq_input[woq_input_dim],
-                self.data.woq_qweight,
-                self.data.woq_scales,
+                self.data.woq_qweight[scales_dtype],
+                self.data.woq_scales[scales_dtype],
                 self.data.woq_qzeros_nonzero,  # non-zero qzeros
                 self.data.woq_bias[woq_bias_idx],
                 self.data.woq_group_size,
@@ -280,13 +295,13 @@ class Test_WOQ_Linear(Zentorch_TestCase):
         )
 
         # unsupported scales shape check
-        woq_scales_shape = self.data.woq_scales.shape
+        woq_scales_shape = self.data.woq_scales[scales_dtype].shape
         woq_packing_ratio = self.data.packing_ratio
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_woq_linear(
                 self.data.woq_input[woq_input_dim],
-                self.data.woq_qweight,
-                self.data.woq_scales.view(
+                self.data.woq_qweight[scales_dtype],
+                self.data.woq_scales[scales_dtype].view(
                     woq_scales_shape[0]
                     * (
                         woq_scales_shape[1]
@@ -303,13 +318,13 @@ class Test_WOQ_Linear(Zentorch_TestCase):
         )
 
         # unsupported qzero shape check
-        woq_qweight_shape = self.data.woq_qweight.shape
+        woq_qweight_shape = self.data.woq_qweight[scales_dtype].shape
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_woq_linear(
                 self.data.woq_input[woq_input_dim],
-                self.data.woq_qweight,
-                self.data.woq_scales,
-                self.data.woq_qweight.view(
+                self.data.woq_qweight[scales_dtype],
+                self.data.woq_scales[scales_dtype],
+                self.data.woq_qweight[scales_dtype].view(
                     woq_qweight_shape[0] // woq_packing_ratio,
                     woq_qweight_shape[1] * woq_packing_ratio,
                 ),  # qzero with incompatible shape
@@ -325,8 +340,8 @@ class Test_WOQ_Linear(Zentorch_TestCase):
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_woq_linear(
                 self.data.woq_input[woq_input_dim],
-                self.data.woq_qweight,
-                self.data.woq_scales,
+                self.data.woq_qweight[scales_dtype],
+                self.data.woq_scales[scales_dtype],
                 self.data.woq_qzeros[woq_qzeros_idx],
                 self.data.input1d,  # bias with incompatible shape
                 self.data.woq_group_size,
@@ -340,7 +355,7 @@ class Test_WOQ_Linear(Zentorch_TestCase):
             torch.ops.zentorch.zentorch_woq_linear(
                 self.data.woq_input[woq_input_dim],
                 self.data.input3d.to(torch.int32),  # qweight with incompatible dims
-                self.data.woq_scales,
+                self.data.woq_scales[scales_dtype],
                 self.data.woq_qzeros[woq_qzeros_idx],
                 self.data.woq_bias[woq_bias_idx],
                 self.data.woq_group_size,
@@ -351,31 +366,27 @@ class Test_WOQ_Linear(Zentorch_TestCase):
         )
 
     @parameterized.expand(
-        product(supported_dtypes, input_dim_opt, bias_opt, woq_qzeros_opt),
+        product(woq_dtypes, supported_dtypes, input_dim_opt, bias_opt, woq_qzeros_opt),
         skip_on_empty=True,
     )
     @torch.inference_mode()
     def test_woq_supported_scale_dtype(
-        self, dtype, woq_input_dim, woq_bias_idx, woq_qzeros_idx
+        self, dtype, scales_dtype, woq_input_dim, woq_bias_idx, woq_qzeros_idx
     ):
         self.skip_if_bfloat16_unsupported_hardware()
-        self.data.create_data("bfloat16")
-        if dtype == "float32":
-            woq_scales = self.data.woq_scales.to(torch.float32)
-        else:
-            woq_scales = self.data.woq_scales
+        self.data.create_data(dtype)
         op = Zentorch_Simulated_Woq_Linear(1, 8).eval()
         simulated_output = op(
             self.data.woq_input[woq_input_dim],
-            self.data.woq_qweight,
-            woq_scales,
+            self.data.woq_qweight[scales_dtype],
+            self.data.woq_scales[scales_dtype],
             self.data.woq_bias[woq_bias_idx],
             -1,  # group_size
         )
         output = torch.ops.zentorch.zentorch_woq_linear(
             self.data.woq_input[woq_input_dim],
-            self.data.woq_qweight,
-            woq_scales,
+            self.data.woq_qweight[scales_dtype],
+            self.data.woq_scales[scales_dtype],
             self.data.woq_qzeros[woq_qzeros_idx],
             self.data.woq_bias[woq_bias_idx],
             -1,  # group_size
