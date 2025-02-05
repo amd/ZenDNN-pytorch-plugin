@@ -19,6 +19,7 @@ logger = get_logger(__name__)
 # a valid huggingface transformer model which is supported with load_quantized_model api
 RELOAD_SUPPORTED_MODELS = {
     "ChatGLMModel",
+    "DLRMV2",
     "GPTJForCausalLM",
     "LlamaForCausalLM",
     "MistralForCausalLM",
@@ -27,7 +28,6 @@ RELOAD_SUPPORTED_MODELS = {
     "Phi3ForCausalLM",
     "QWenLMHeadModel",
     "Qwen2ForCausalLM",
-    "DLRMV2",
     # following model architectures are not yet supported
     # "BloomForCausalLM",
     # "CodeGenForCausalLM",
@@ -347,7 +347,14 @@ def load_quantized_model(
         )
     with open(os.path.join(saved_model_path, "config.json"), "r") as f:
         models_config = json.load(f)
-    model_architecture = models_config["architectures"][0]
+    if hasattr(model, "config"):
+        torch._check(
+            hasattr(model.config, "architectures"),
+            "model config does not have a architectures attribute",
+        )
+        model_architecture = model.config.architectures[0]
+    else:
+        model_architecture = models_config["architectures"][0]
     if model_architecture not in RELOAD_SUPPORTED_MODELS:
         raise ValueError(
             "This quantized model with model_architecture = "
@@ -424,7 +431,8 @@ def load_quantized_model(
                 )
                 packed_embedding_weight = (
                     zentorch._C.zentorch_get_packed_embedding_weight(
-                        weight_tensor, weight_scales, weight_zero_points)
+                        weight_tensor, weight_scales, weight_zero_points
+                    )
                 )
                 float_module = get_op_by_name(model, module_name)
                 quant_module = build_and_replace_with_Q_EmbeddingBag(
