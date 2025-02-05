@@ -51,7 +51,7 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 
-# Set default to llm if no input is provided (also convert input to lowercase for case-insensitive comparison)
+# Set default to DLRM if no input is provided (also convert input to lowercase for case-insensitive comparison)
 model=${model:-dlrm}
 model=$(echo "$model" | tr '[:upper:]' '[:lower:]')
 
