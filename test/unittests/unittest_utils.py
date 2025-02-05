@@ -4,6 +4,7 @@
 # ******************************************************************************
 
 import sys
+import copy
 from pathlib import Path
 import torch
 
@@ -301,12 +302,22 @@ class Test_Data(metaclass=Singleton):
                 torch_type
             ),
         }
-        self.woq_qweight = torch.randn(
-            self.woq_k, self.woq_n // self.packing_ratio
-        ).type(torch.int32)
-        self.woq_scales = torch.randn(self.woq_k // group_size, self.woq_n).type(
-            torch.float32
+        woq_qweight = torch.randn(self.woq_k, self.woq_n // self.packing_ratio).type(
+            torch.int32
         )
+        # Here we are creating two different data copies to deal with weight caching
+        # issue.
+        self.woq_qweight = {
+            "bfloat16": copy.deepcopy(woq_qweight),
+            "float32": copy.deepcopy(woq_qweight),
+        }
+        woq_scales = torch.randn(self.woq_k // group_size, self.woq_n).type(
+            torch.bfloat16
+        )
+        self.woq_scales = {
+            "bfloat16": copy.deepcopy(woq_scales),
+            "float32": copy.deepcopy(woq_scales.type(torch.float32)),
+        }
         self.woq_qzeros = [
             None,
             torch.zeros(
