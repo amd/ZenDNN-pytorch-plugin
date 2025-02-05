@@ -12,6 +12,7 @@
 #include <immintrin.h>
 
 #include "utils.h"
+#include "vec512_bfloat16.h"
 #include <ATen/ATen.h>
 #include <ATen/ExpandUtils.h>
 #include <ATen/Parallel.h>

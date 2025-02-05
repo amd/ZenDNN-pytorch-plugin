@@ -32,6 +32,29 @@ def register_meta(op_name, overload_name="default"):
 # More details can be found from below link
 # https://pytorch.org/docs/stable/torch.compiler_fake_tensor.html
 
+if hasattr(torch.ops.zentorch, "zentorch_attention_reshape_and_cache"):
+    @register_meta("zentorch_attention_reshape_and_cache")
+    def meta_zentorch_reshape_and_cache(key, value,
+                                        key_cache, value_cache, slot_mapping):
+        return None
+
+if hasattr(torch.ops.zentorch, "zentorch_attention_single_query_cached_kv_attention"):
+    @register_meta("zentorch_attention_single_query_cached_kv_attention")
+    def meta_zentorch_single_query_cached_kv_attention(
+        out,
+        query,
+        key_cache,
+        value_cache,
+        head_mapping,
+        scale,
+        block_tables,
+        context_lens,
+        block_size,
+        max_context_len,
+        alibi_slopes,
+    ):
+        return out.new_empty(out.size())
+
 
 @register_meta("zentorch_addmm")
 def meta_zentorch_addmm(
@@ -1058,8 +1081,12 @@ make_fallback(torch.ops.zentorch.zentorch_qlinear_sigmoid)
 make_fallback(torch.ops.zentorch.zentorch_qlinear_mul_add)
 make_fallback(torch.ops.zentorch.zentorch_quant_embedding_bag)
 make_fallback(torch.ops.zentorch.zentorch_horizontal_quant_embedding_bag_group)
-if hasattr(torch.ops.zentorch, "zentorch_sdpa"):
-    make_fallback(torch.ops.zentorch.zentorch_sdpa)
 make_fallback(torch.ops.zentorch.zentorch_quant_group_eb_mlp_concat_zendnn)
 make_fallback(torch.ops.zentorch.zentorch_quant_group_eb_mlp_concat_fbgemm)
 make_fallback(torch.ops.zentorch.zentorch_weight_reorder_for_matmul)
+if hasattr(torch.ops.zentorch, "zentorch_sdpa"):
+    make_fallback(torch.ops.zentorch.zentorch_sdpa)
+if hasattr(torch.ops.zentorch, "zentorch_attention_reshape_and_cache"):
+    make_fallback(torch.ops.zentorch.zentorch_attention_reshape_and_cache)
+if hasattr(torch.ops.zentorch, "zentorch_attention_single_query_cached_kv_attention"):
+    make_fallback(torch.ops.zentorch.zentorch_attention_single_query_cached_kv_attention)
