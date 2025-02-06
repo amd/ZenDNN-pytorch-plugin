@@ -203,19 +203,19 @@ template <typename scalar_t>
 ZENTORCH_FORCE_INLINE void
 _dil_normalization_kernel(const float *a, const float &sum, const int &size,
                           scalar_t *out) {
-  auto vec_sum = _mm512_set1_ps(1.0 / sum);
+  auto vec_sum = _mm512_set1_ps(sum);
 
   int i = 0;
   for (; i <= size - 16; i += 16) {
     auto vec_a = _mm512_loadu_ps(a + i);
-    auto vec_out = _mm512_mul_ps(vec_a, vec_sum);
+    auto vec_out = _mm512_div_ps(vec_a, vec_sum);
     _storeu(out + i, vec_out);
   }
 
   if (i < size) {
     __mmask16 mask = (1 << (size - i)) - 1;
     auto vec_a = _mm512_maskz_loadu_ps(mask, a + i);
-    auto vec_out = _mm512_mul_ps(vec_a, vec_sum);
+    auto vec_out = _mm512_div_ps(vec_a, vec_sum);
     _mask_storeu(out + i, vec_out, mask);
   }
 }

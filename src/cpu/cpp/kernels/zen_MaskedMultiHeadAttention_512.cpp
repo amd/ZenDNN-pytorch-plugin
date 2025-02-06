@@ -24,9 +24,8 @@
 namespace zentorch {
 
 template <typename T>
-inline void reduce_head(const T *q_ptr_start, const T *k_ptr_start,
-                        float *attn_w_pos, int64_t head_size, bool store_key,
-                        T *k_cache_start) {
+void reduce_head(const T *q_ptr_start, const T *k_ptr_start, float *attn_w_pos,
+                 int64_t head_size, bool store_key, T *k_cache_start) {
   for (auto hsi = 0; hsi < head_size; hsi++) {
     if (store_key) {
       k_cache_start[hsi] = k_ptr_start[hsi]; // cat the key into the key_cache.
@@ -37,9 +36,9 @@ inline void reduce_head(const T *q_ptr_start, const T *k_ptr_start,
 
 #if defined(CPU_CAPABILITY_AVX512)
 template <>
-inline void reduce_head(const float *q_ptr_start, const float *k_ptr_start,
-                        float *attn_w_pos, int64_t head_size, bool store_key,
-                        float *k_cache_start) {
+void reduce_head(const float *q_ptr_start, const float *k_ptr_start,
+                 float *attn_w_pos, int64_t head_size, bool store_key,
+                 float *k_cache_start) {
   auto hsi = 0;
   auto vec_size = 16; // 512/32
   auto qk_sum_vec = _mm512_setzero_ps();
@@ -66,10 +65,10 @@ inline void reduce_head(const float *q_ptr_start, const float *k_ptr_start,
 }
 
 template <>
-inline void reduce_head(const at::BFloat16 *q_ptr_start,
-                        const at::BFloat16 *k_ptr_start, float *attn_w_pos,
-                        int64_t head_size, bool store_key,
-                        at::BFloat16 *k_cache_start) {
+void reduce_head(const at::BFloat16 *q_ptr_start,
+                 const at::BFloat16 *k_ptr_start, float *attn_w_pos,
+                 int64_t head_size, bool store_key,
+                 at::BFloat16 *k_cache_start) {
   auto hsi = 0;
   auto vec_size = 32; // 512/16
   auto qk_sum_vec = _mm512_setzero_ps();
@@ -115,34 +114,6 @@ inline void reduce_head(const at::BFloat16 *q_ptr_start,
 }
 #endif
 
-template <typename T>
-inline void reduce_head(const T *q_ptr_start, int64_t kv_head_group_size,
-                        const T *k_ptr_start, float *attn_w_pos,
-                        int attn_w_stride, int64_t head_size, bool store_key,
-                        T *k_cache_start) {
-  for (auto i = 0; i < kv_head_group_size; i++) {
-    attn_w_pos[i * attn_w_stride] = 0;
-    reduce_head<T>(q_ptr_start + i * head_size, k_ptr_start,
-                   attn_w_pos + i * attn_w_stride, head_size, store_key,
-                   k_cache_start);
-  }
-}
-
-template <typename T>
-inline void reduce_head(const T *q_ptr_start, int qStrideB,
-                        int64_t kv_head_group_size, const T *k_ptr_start,
-                        float *attn_w_pos, int attn_w_stride, int64_t head_size,
-                        int64_t beam_size) {
-  for (auto i = 0; i < kv_head_group_size; i++) {
-    for (auto b = 0; b < beam_size; b++) {
-      attn_w_pos[i * attn_w_stride + b] = 0;
-      reduce_head<T>(q_ptr_start + i * head_size + b * qStrideB, k_ptr_start,
-                     attn_w_pos + i * attn_w_stride + b, head_size, false,
-                     nullptr);
-    }
-  }
-}
-
 /*
  *reduce the attention_weights with the value embedding by the dimension of
  *head_size for every head
@@ -151,9 +122,10 @@ inline void reduce_head(const T *q_ptr_start, int qStrideB,
 // AVX256 m/c
 
 template <typename T, typename T1>
-inline void mul_attenion_weights_and_value_of_head(
-    float &attn_w, const T *v_ptr_start, T1 *attn_out_start, int64_t head_size,
-    bool store_value, T *v_cache_start, bool accumulate) {
+void mul_attenion_weights_and_value_of_head(float &attn_w, const T *v_ptr_start,
+                                            T1 *attn_out_start,
+                                            int64_t head_size, bool store_value,
+                                            T *v_cache_start, bool accumulate) {
   for (auto hsi = 0; hsi < head_size; hsi++) {
     if (accumulate) {
       attn_out_start[hsi] += attn_w * v_ptr_start[hsi];
@@ -166,47 +138,14 @@ inline void mul_attenion_weights_and_value_of_head(
   }
 }
 
-template <typename T, typename T1>
-inline void mul_attenion_weights_and_value_of_head(
-    float *attn_w, int attn_w_stride, const T *v_ptr_start, T1 *attn_out_start,
-    int attn_out_strideH, int kv_head_group_size, int64_t head_size,
-    bool store_value, T *v_cache_start, uint8_t *flag_access) {
-  for (auto i = 0; i < kv_head_group_size; i++) {
-    mul_attenion_weights_and_value_of_head<T, T1>(
-        attn_w[i * attn_w_stride], v_ptr_start,
-        attn_out_start + i * attn_out_strideH, head_size, store_value,
-        v_cache_start, flag_access[i]);
-    if (flag_access[i] == 0)
-      flag_access[i] = 1;
-  }
-}
-
-template <typename T, typename T1>
-inline void mul_attenion_weights_and_value_of_head(
-    float *attn_w, int attn_w_stride, const T *v_ptr_start, T1 *attn_out_start,
-    int attn_out_strideB, int attn_out_strideH, int kv_head_group_size,
-    int64_t head_size, bool store_value, T *v_cache_start, uint8_t *flag_access,
-    int flag_access_stride, int64_t beam_size) {
-  for (auto i = 0; i < kv_head_group_size; i++) {
-    for (auto b = 0; b < beam_size; b++) {
-      mul_attenion_weights_and_value_of_head<T, T1>(
-          attn_w[i * attn_w_stride + b], v_ptr_start,
-          attn_out_start + i * attn_out_strideH + b * attn_out_strideB,
-          head_size, store_value, v_cache_start,
-          flag_access[b * flag_access_stride + i]);
-      if (flag_access[b * flag_access_stride + i] == 0)
-        flag_access[b * flag_access_stride + i] = 1;
-    }
-  }
-}
-
 #if defined(CPU_CAPABILITY_AVX512)
 template <>
-inline void
-mul_attenion_weights_and_value_of_head(float &attn_w, const float *v_ptr_start,
-                                       float *attn_out_start, int64_t head_size,
-                                       bool store_value, float *v_cache_start,
-                                       bool accumulate) {
+void mul_attenion_weights_and_value_of_head(float &attn_w,
+                                            const float *v_ptr_start,
+                                            float *attn_out_start,
+                                            int64_t head_size, bool store_value,
+                                            float *v_cache_start,
+                                            bool accumulate) {
   auto hsi = 0;
   auto vec_size = 16; // 512/32
   for (hsi = 0; hsi <= head_size - vec_size; hsi += vec_size) {
@@ -238,10 +177,12 @@ mul_attenion_weights_and_value_of_head(float &attn_w, const float *v_ptr_start,
 }
 
 template <>
-inline void mul_attenion_weights_and_value_of_head(
-    float &attn_w, const at::BFloat16 *v_ptr_start,
-    at::BFloat16 *attn_out_start, int64_t head_size, bool store_value,
-    at::BFloat16 *v_cache_start, bool accumulate) {
+void mul_attenion_weights_and_value_of_head(float &attn_w,
+                                            const at::BFloat16 *v_ptr_start,
+                                            at::BFloat16 *attn_out_start,
+                                            int64_t head_size, bool store_value,
+                                            at::BFloat16 *v_cache_start,
+                                            bool accumulate) {
   auto hsi = 0;
   auto vec_size = 16; // 512/32
 
@@ -347,10 +288,12 @@ inline void mul_attenion_weights_and_value_of_head(
 }
 
 template <>
-inline void mul_attenion_weights_and_value_of_head(
-    float &attn_w, const at::BFloat16 *v_ptr_start, float *attn_out_start,
-    int64_t head_size, bool store_value, at::BFloat16 *v_cache_start,
-    bool accumulate) {
+void mul_attenion_weights_and_value_of_head(float &attn_w,
+                                            const at::BFloat16 *v_ptr_start,
+                                            float *attn_out_start,
+                                            int64_t head_size, bool store_value,
+                                            at::BFloat16 *v_cache_start,
+                                            bool accumulate) {
   auto hsi = 0;
   auto vec_size = 16; // 512/32
 
@@ -435,9 +378,9 @@ inline void mul_attenion_weights_and_value_of_head(
 #endif
 
 template <typename T>
-inline void copy_key_value(at::Tensor key_cache, const at::Tensor key,
-                           at::Tensor value_cache, const at::Tensor value,
-                           int beam_batch) {
+void copy_key_value(at::Tensor key_cache, const at::Tensor key,
+                    at::Tensor value_cache, const at::Tensor value,
+                    int beam_batch) {
   RECORD_FUNCTION("zentorch::copy_key_value", c10::ArrayRef<c10::IValue>({}));
   auto bs = key.size(0);
   auto seq_len = key.size(1); // only process cur_len==1
@@ -502,36 +445,12 @@ scale_dot_product_for_indirect_access_kv_cache(
   auto bs = query.size(0);
   auto cur_len = query.size(1); // only process cur_len==1
   auto head_num = query.size(2);
-  auto head_size = query.size(3);
-  auto b_ptr = beam_idx.data_ptr<long>();
-  auto max_cache_size = beam_idx.size(0);
-  long new_beam_idx[beam_batch][offset + query.size(1) + 1] = {};
-  auto prompt_len = b_ptr[(max_cache_size - 2) * beam_batch];
-  auto prompt_bs = b_ptr[(max_cache_size - 1) * beam_batch];
-  auto beam_size = 1;
-  if (prompt_bs != 0) {
-    beam_size = beam_batch / prompt_bs;
-  }
-  auto need_update_beam_idx = offset > 0 and beam_size > 1;
   auto kv_head = key.size(2);
   auto group_size = head_num / kv_head;
+  auto head_size = query.size(3);
   auto seq_len = offset + cur_len;
-  at::Tensor attn_weights, attn_weights2;
-  bool change_attn_w_layout = false;
-  auto target_bs = bs;
-  if (beam_size > 1 && prompt_len <= 2048 && prompt_bs > 20 &&
-      group_size == 1) {
-    change_attn_w_layout = true;
-    attn_weights = at::empty({prompt_bs, head_num, cur_len, seq_len, beam_size},
-                             at::kFloat);
-    attn_weights2 = at::empty(
-        {prompt_bs, head_num, cur_len, beam_size, seq_len}, at::kFloat);
-    target_bs = prompt_bs;
-  } else {
-    attn_weights = at::empty({bs, head_num, cur_len, seq_len}, at::kFloat);
-    attn_weights2 = attn_weights;
-  }
-
+  auto kc_token_stride = beam_batch * kv_head * head_size;
+  auto attn_weights = at::empty({bs, head_num, cur_len, seq_len}, at::kFloat);
   query = query.contiguous();
   key = key.contiguous();
   auto q_ptr = query.data_ptr<QT>();
@@ -541,7 +460,6 @@ scale_dot_product_for_indirect_access_kv_cache(
   auto mask_head_num = attention_mask.size(1);
   auto mask_dim2 = attention_mask.size(2);
   auto mask_bs_stride = mask_head_num * mask_dim2 * seq_len;
-
   // value realted
   value = value.contiguous();
   auto attn_outs =
@@ -551,31 +469,6 @@ scale_dot_product_for_indirect_access_kv_cache(
   auto attn_out_ptr = attn_outs.data_ptr<VT>();
   // zentorch::zero_ker(attn_out_ptr, attn_outs.numel());
   auto attn_w_ptr = attn_weights.data_ptr<float>();
-  auto attn_w_ptr2 = attn_weights2.data_ptr<float>();
-
-  // stride information
-  auto qStrideB = query.stride(0);
-  // auto qStrideS = query.stride(1);
-  auto qStrideH = query.stride(2);
-
-  auto kStrideB = key.stride(0);
-  // auto kStrideS = key.stride(1);
-  auto kStrideH = key.stride(2);
-
-  auto kcStrideB = key_cache.stride(1);
-  auto kcStrideS = key_cache.stride(0);
-  auto kcStrideH = key_cache.stride(2);
-
-  auto vStrideB = value.stride(0);
-  // auto vStrideS = value.stride(1);
-  auto vStrideH = value.stride(2);
-
-  auto vcStrideB = value_cache.stride(1);
-  auto vcStrideS = value_cache.stride(0);
-  auto vcStrideH = value_cache.stride(2);
-
-  auto attn_w_strideH = attn_weights.stride(1);
-
   auto thread_numbers = omp_get_max_threads();
   auto max_parallel_parts = thread_numbers * 4;
 
@@ -584,22 +477,32 @@ scale_dot_product_for_indirect_access_kv_cache(
   // kv_block_size for lower bs. Current target_block_size
   // works optimally for bs >=4.
   auto target_block_size = 128L;
-  if (target_bs <= 8 and seq_len < 65536) {
+  if (bs <= 8 and seq_len < 65536) {
     target_block_size = 32L;
   }
-  auto kv_block_size = target_bs * head_num >= max_parallel_parts
+  auto kv_block_size = bs * head_num >= max_parallel_parts
                            ? seq_len
                            : std::max(seq_len / max_parallel_parts, 1L);
   kv_block_size = std::min(kv_block_size, target_block_size);
   auto kv_block_count = (seq_len + kv_block_size - 1) / kv_block_size;
+  auto need_update_beam_idx = offset > 0 && bs > 1;
+  auto b_ptr = beam_idx.data_ptr<long>();
+  auto max_cache_size = beam_idx.size(0);
+  long new_beam_idx[beam_batch][offset + query.size(1) + 1] = {};
+  auto prompt_len = b_ptr[(max_cache_size - 2) * beam_batch];
+  auto prompt_bs = b_ptr[(max_cache_size - 1) * beam_batch];
+  auto beam_size = beam_batch / prompt_bs;
+
   if (need_update_beam_idx) {
     // according to the last decoded token to get the target beam for the past
     // token
 #pragma omp parallel for
     for (int i = 0; i < bs; i++) {
       new_beam_idx[i][offset - 1] = b_ptr[(offset - 1) * bs + i];
-      for (int j = offset - 2; j >= prompt_len;
+      for (int j = offset - 2; j >= 0;
            j--) { // for the token of input, the target beam is alwarys 0
+        if (j < prompt_len - 1 && bs == beam_size)
+          break; // fast path for latency mode
         new_beam_idx[i][j] = b_ptr[j * bs + new_beam_idx[i][j + 1]];
       }
     }
@@ -609,88 +512,63 @@ scale_dot_product_for_indirect_access_kv_cache(
                     c10::ArrayRef<c10::IValue>({}));
 #pragma omp parallel for collapse(3)
     for (auto block_id = 0; block_id < kv_block_count; block_id++) {
-      for (auto bsi = 0; bsi < prompt_bs; bsi++) {
-        for (auto head_group_start = 0; head_group_start < head_num;
-             head_group_start += group_size) {
+      for (auto bi = 0; bi < bs; bi++) {
+        for (auto hi = 0; hi < head_num; hi++) {
           auto k_start = block_id * kv_block_size;
           auto block_size = std::min(kv_block_size, seq_len - k_start);
           auto query_ti = 0;
-          // maping the query head to key/value head to support MGA/MQA
-          auto kv_hi = head_group_start / group_size;
-          if (change_attn_w_layout) {
-            auto attn_w_stride =
-                (bsi * head_num + head_group_start) * attn_w_strideH;
-            for (auto ti = k_start; ti < k_start + block_size; ti++) {
-              // caculate the innerproduct for the current token and store the
-              // key
-              if (ti == query_ti + offset) {
-                for (auto bbi = 0; bbi < beam_size; bbi++) {
-                  auto bi = bsi * beam_size + bbi;
-                  auto q_ptr_start =
-                      q_ptr + bi * qStrideB + head_group_start * qStrideH;
-                  auto attn_w_pos = attn_w_ptr + attn_w_stride +
-                                    query_ti * seq_len + ti * beam_size + bbi;
-                  auto kc_head_start = k_cache_ptr + ti * kcStrideS +
-                                       bi * kcStrideB + kv_hi * kcStrideH;
-                  auto k_ptr_start = k_ptr + bi * kStrideB + kv_hi * kStrideH;
-                  reduce_head<QT>(q_ptr_start, group_size, k_ptr_start,
-                                  attn_w_pos, attn_w_strideH, head_size, true,
-                                  kc_head_start);
-                }
+          for (auto ti = k_start; ti < k_start + block_size; ti++) {
+            auto kv_hi = hi / group_size; // maping the query head to
+                                          // key/value head to support MGA/MQA
+            auto q_ptr_start =
+                q_ptr + (bi * cur_len + query_ti) * head_num * head_size +
+                hi * head_size;
+            auto attn_w_stride = (bi * head_num + hi) * cur_len * seq_len;
+            auto attn_w_pos =
+                attn_w_ptr + attn_w_stride + query_ti * seq_len + ti;
+            attn_w_pos[0] = 0.0f;
+            auto kc_token_start = ti * kc_token_stride;
+            auto kc_t_beam_start = kc_token_start;
+            auto beam = need_update_beam_idx ? new_beam_idx[bi][ti] : 0;
+            if (ti > query_ti + offset) { // only caculate the innerproduct for
+                                          // the past token and current token
+              attn_w_pos[0] = -10000.0f;
+            } else if (ti == query_ti + offset) { // caculate the innerproduct
+                                                  // for the current token and
+                                                  // store the key
+              if (cur_len > 1) { // this may occur for processing the promt
+                auto beam_size = beam_batch / bs;
+                // need to store key accross beam
+                kc_t_beam_start =
+                    kc_t_beam_start + bi * beam_size * kv_head * head_size;
               } else {
-                auto bi = bsi * beam_size;
-                auto q_ptr_start =
-                    q_ptr + bi * qStrideB + head_group_start * qStrideH;
-                auto attn_w_pos = attn_w_ptr + attn_w_stride +
-                                  query_ti * seq_len + ti * beam_size;
-                if (need_update_beam_idx && ti >= prompt_len) {
-                  for (auto bbi = 0; bbi < beam_size; bbi++) {
-                    auto beam = new_beam_idx[bi + bbi][ti];
-                    auto kc_head_start = k_cache_ptr + ti * kcStrideS +
-                                         beam * kcStrideB + kv_hi * kcStrideH;
-                    reduce_head<QT>(q_ptr_start + bbi * qStrideB, group_size,
-                                    kc_head_start, attn_w_pos + bbi,
-                                    attn_w_strideH, head_size, false, nullptr);
-                  }
-                } else {
-                  auto kc_head_start = k_cache_ptr + ti * kcStrideS +
-                                       bi * kcStrideB + kv_hi * kcStrideH;
-                  reduce_head<QT>(q_ptr_start, qStrideB, group_size,
-                                  kc_head_start, attn_w_pos, attn_w_strideH,
-                                  head_size, beam_size);
-                }
+                kc_t_beam_start = kc_t_beam_start + bi * kv_head * head_size;
               }
-            }
-          } else {
-            for (auto bbi = 0; bbi < beam_size; bbi++) {
-              auto bi = bsi * beam_size + bbi;
-              for (auto ti = k_start; ti < k_start + block_size; ti++) {
-                auto q_ptr_start =
-                    q_ptr + bi * qStrideB + head_group_start * qStrideH;
-                auto attn_w_stride =
-                    (bi * head_num + head_group_start) * attn_w_strideH;
-                auto attn_w_pos =
-                    attn_w_ptr + attn_w_stride + query_ti * seq_len + ti;
-                attn_w_pos[0] = 0.0f;
-                auto beam = need_update_beam_idx && ti >= prompt_len
-                                ? new_beam_idx[bi][ti]
-                                : bsi * beam_size;
-                // caculate the innerproduct for the current token and store the
-                // key
-                if (ti == query_ti + offset) {
-                  auto kc_head_start = k_cache_ptr + ti * kcStrideS +
-                                       bi * kcStrideB + kv_hi * kcStrideH;
-                  auto k_ptr_start = k_ptr + bi * kStrideB + kv_hi * kStrideH;
-                  reduce_head<QT>(q_ptr_start, group_size, k_ptr_start,
-                                  attn_w_pos, attn_w_strideH, head_size, true,
-                                  kc_head_start);
-                } else { // caculate the innerproduct for the past token
-                  auto kc_head_start = k_cache_ptr + ti * kcStrideS +
-                                       beam * kcStrideB + kv_hi * kcStrideH;
-                  reduce_head<QT>(q_ptr_start, group_size, kc_head_start,
-                                  attn_w_pos, attn_w_strideH, head_size, false,
-                                  nullptr);
+              auto kc_head_start =
+                  k_cache_ptr + kc_t_beam_start + kv_hi * head_size;
+              auto k_ptr_start =
+                  k_ptr + (bi * cur_len + ti - offset) * kv_head * head_size +
+                  kv_hi * head_size;
+              reduce_head<QT>(q_ptr_start, k_ptr_start, attn_w_pos, head_size,
+                              true, kc_head_start);
+            } else { // caculate the innerproduct for the past token
+              if (ti >= offset) {
+                auto k_ptr_start =
+                    k_ptr + (bi * cur_len + ti - offset) * kv_head * head_size +
+                    kv_hi * head_size;
+                reduce_head<QT>(q_ptr_start, k_ptr_start, attn_w_pos, head_size,
+                                false, nullptr);
+              } else {
+                kc_t_beam_start = kc_t_beam_start + beam * kv_head * head_size;
+                if (cur_len > 1) {
+                  auto beam_size = beam_batch / bs;
+                  kc_t_beam_start =
+                      kc_t_beam_start + bi * beam_size * kv_head * head_size;
                 }
+                auto kc_head_start =
+                    k_cache_ptr + kc_t_beam_start + kv_hi * head_size;
+                reduce_head<QT>(q_ptr_start, kc_head_start, attn_w_pos,
+                                head_size, false, nullptr);
               }
             }
           }
@@ -702,134 +580,52 @@ scale_dot_product_for_indirect_access_kv_cache(
     RECORD_FUNCTION("zentorch::iakv_sdp::div_add_softmax",
                     c10::ArrayRef<c10::IValue>({}));
 #pragma omp parallel for collapse(2)
-    for (auto bsi = 0; bsi < prompt_bs; bsi++) {
+    for (auto bi = 0; bi < bs; bi++) {
       for (auto hi = 0; hi < head_num; hi++) {
         for (auto query_ti = 0; query_ti < cur_len; query_ti++) {
-          for (auto bbi = 0; bbi < beam_size; bbi++) {
-            auto bi = bsi * beam_size + bbi;
-            auto mask_ptr_start = mask_ptr + bi * mask_bs_stride +
-                                  (hi % mask_head_num) * mask_dim2 * seq_len;
-
+          auto mask_ptr_start = mask_ptr + bi * mask_bs_stride +
+                                (hi % mask_head_num) * mask_dim2 * seq_len;
+          auto attn_w_stride = (bi * head_num + hi) * cur_len * seq_len;
+          auto attn_w_query_start =
+              attn_w_ptr + attn_w_stride + query_ti * seq_len;
 // div+add+softmax
 #if defined(CPU_CAPABILITY_AVX512)
+          for (auto qi = 0; qi < 1; qi++) {
             auto max_val = -100000.0f;
-            if (change_attn_w_layout) {
-              auto attn_w_stride =
-                  (bsi * head_num + hi) * cur_len * seq_len * beam_size;
-              auto attn_w_query_start = attn_w_ptr + attn_w_stride +
-                                        query_ti * seq_len * beam_size + bbi;
-              auto attn_w_query_start2 = attn_w_ptr2 + attn_w_stride +
-                                         query_ti * beam_size * seq_len +
-                                         bbi * seq_len;
-              __m512i decrement_sequence = _mm512_set_epi32(
-                  15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0);
-              __m512i beam_size_vector = _mm512_set1_epi32(beam_size);
-              int ti = 0;
-              for (ti = 0; ti <= seq_len - 16; ti += 16) {
-                __m512i ti_vector = _mm512_set1_epi32(ti);
-                __m512i index_sequence =
-                    _mm512_add_epi32(decrement_sequence, ti_vector);
-                __m512i index =
-                    _mm512_mullo_epi32(index_sequence, beam_size_vector);
+            zentorch::_dil_div_add_reduce_max_fusion_kernel<float, QT>(
+                attn_w_query_start,
+                mask_ptr_start + (query_ti % mask_dim2) * seq_len, scale_factor,
+                seq_len, attn_w_query_start, max_val);
 
-                __m512 data = _mm512_i32gather_ps(index, attn_w_query_start,
-                                                  sizeof(float));
-                _mm512_storeu_ps(attn_w_query_start2 + ti, data);
-              }
-
-              for (; ti < seq_len; ti++) {
-                attn_w_query_start2[ti] = attn_w_query_start[ti * beam_size];
-              }
-              zentorch::_dil_div_add_reduce_max_fusion_kernel<float, QT>(
-                  attn_w_query_start2,
-                  mask_ptr_start + (query_ti % mask_dim2) * seq_len,
-                  scale_factor, seq_len, attn_w_query_start2, max_val);
-
-              zentorch::_dil_exp_reduce_sum_fusion_kernel(
-                  attn_w_query_start2, seq_len, attn_w_query_start2, max_val);
-              zentorch::_dil_normalization_kernel<float>(
-                  attn_w_query_start2, max_val, seq_len, attn_w_query_start2);
-              for (ti = 0; ti <= seq_len - 16; ti += 16) {
-                __m512i ti_vector = _mm512_set1_epi32(ti);
-                __m512i index_sequence =
-                    _mm512_add_epi32(decrement_sequence, ti_vector);
-                __m512i index =
-                    _mm512_mullo_epi32(index_sequence, beam_size_vector);
-                __m512 data = _mm512_loadu_ps(attn_w_query_start2 + ti);
-                _mm512_i32scatter_ps(attn_w_query_start, index, data,
-                                     sizeof(float));
-              }
-              for (; ti < seq_len; ti++) {
-                attn_w_query_start[ti * beam_size] = attn_w_query_start2[ti];
-              }
-            } else {
-              auto attn_w_stride = (bi * head_num + hi) * cur_len * seq_len;
-              auto attn_w_query_start =
-                  attn_w_ptr + attn_w_stride + query_ti * seq_len;
-              zentorch::_dil_div_add_reduce_max_fusion_kernel<float, QT>(
-                  attn_w_query_start,
-                  mask_ptr_start + (query_ti % mask_dim2) * seq_len,
-                  scale_factor, seq_len, attn_w_query_start, max_val);
-              zentorch::_dil_exp_reduce_sum_fusion_kernel(
-                  attn_w_query_start, seq_len, attn_w_query_start, max_val);
-              zentorch::_dil_normalization_kernel<float>(
-                  attn_w_query_start, max_val, seq_len, attn_w_query_start);
-            }
+            zentorch::_dil_exp_reduce_sum_fusion_kernel(
+                attn_w_query_start, seq_len, attn_w_query_start, max_val);
+            zentorch::_dil_normalization_kernel<float>(
+                attn_w_query_start, max_val, seq_len, attn_w_query_start);
           }
 #else
+          for (auto qi = 0; qi < 1; qi++) {
             auto max_val = -100000.0f;
-            if (change_attn_w_layout) {
-              auto attn_w_stride =
-                  (bsi * head_num + hi) * cur_len * seq_len * beam_size;
-              auto attn_w_query_start = attn_w_ptr + attn_w_stride +
-                                        query_ti * seq_len * beam_size + bbi;
-              auto total_len = seq_len * beam_size;
-              // div+add and find max
-              for (auto si = 0; si < total_len; si += beam_size) {
-                attn_w_query_start[si] =
-                    attn_w_query_start[si] / scale_factor +
-                    mask_ptr_start[(query_ti % mask_dim2) * seq_len +
-                                   si / beam_size];
-                if (attn_w_query_start[si] > max_val) {
-                  max_val = attn_w_query_start[si];
-                }
-              }
-              // softmax
-              float sum = 0.0f;
-              // exp and sum
-              for (auto si = 0; si < total_len; si += beam_size) {
-                attn_w_query_start[si] = exp(attn_w_query_start[si] - max_val);
-                sum += attn_w_query_start[si];
-              }
-              // normalization
-              for (auto si = 0; si < total_len; si += beam_size) {
-                attn_w_query_start[si] = attn_w_query_start[si] / sum;
-              }
-            } else {
-              auto attn_w_stride = (bi * head_num + hi) * cur_len * seq_len;
-              auto attn_w_query_start =
-                  attn_w_ptr + attn_w_stride + query_ti * seq_len;
-              // div+add and find max
-              for (auto si = 0; si < seq_len; si++) {
-                attn_w_query_start[si] =
-                    attn_w_query_start[si] / scale_factor +
-                    mask_ptr_start[(query_ti % mask_dim2) * seq_len + si];
-                if (attn_w_query_start[si] > max_val) {
-                  max_val = attn_w_query_start[si];
-                }
-              }
-              // softmax
-              float sum = 0.0f;
-              // exp and sum
-              for (auto si = 0; si < seq_len; si++) {
-                attn_w_query_start[si] = exp(attn_w_query_start[si] - max_val);
-                sum += attn_w_query_start[si];
-              }
-              // normalization
-              for (auto si = 0; si < seq_len; si++) {
-                attn_w_query_start[si] = attn_w_query_start[si] / sum;
+            // div+add and find max
+            for (auto si = 0; si < seq_len; si++) {
+              attn_w_query_start[si] =
+                  attn_w_query_start[si] / scale_factor +
+                  mask_ptr_start[(query_ti % mask_dim2) * seq_len + si];
+              if (attn_w_query_start[si] > max_val) {
+                max_val = attn_w_query_start[si];
               }
             }
+            // softmax
+            float sum = 0.0f;
+            // exp and sum
+            for (auto si = 0; si < seq_len; si++) {
+              attn_w_query_start[si] = exp(attn_w_query_start[si] - max_val);
+              sum += attn_w_query_start[si];
+            }
+            // normalization
+            for (auto si = 0; si < seq_len; si++) {
+              attn_w_query_start[si] = attn_w_query_start[si] / sum;
+            }
+          }
 #endif
         }
       }
@@ -840,151 +636,93 @@ scale_dot_product_for_indirect_access_kv_cache(
   auto private_attn_out_flag =
       at::zeros({thread_numbers, bs, head_num}, at::kByte);
   auto flag_access = private_attn_out_flag.accessor<uint8_t, 3>();
-  uint8_t *flag_access_ptr = flag_access.data();
   auto private_attn_out_ptr = private_attn_outs.data_ptr<float>();
   // private_attn_outs.numel());
-  auto attn_outs_stride_privT = private_attn_outs.stride(0);
-  auto attn_outs_stride_privB = private_attn_outs.stride(1);
-  auto attn_outs_stride_privH = private_attn_outs.stride(2);
-
+  auto attn_outs_stride_priv = bs * head_num * cur_len * head_size;
   {
     RECORD_FUNCTION("zentorch::iakv_sdp::matmul(attn_w, value)",
                     c10::ArrayRef<c10::IValue>({}));
 // TODO Enable BF16 compute for mul_attenion_weights_and_value_of_head
 #pragma omp parallel for collapse(3)
     for (auto block_id = 0; block_id < kv_block_count; block_id++) {
-      for (auto bsi = 0; bsi < prompt_bs; bsi++) {
-        for (auto hi = 0; hi < head_num; hi += group_size) {
+      for (auto bi = 0; bi < bs; bi++) {
+        for (auto hi = 0; hi < head_num; hi++) {
           auto thread_id = 0;
           if (kv_block_size < seq_len)
             thread_id = omp_get_thread_num();
           auto v_start = block_id * kv_block_size;
           auto block_size = std::min(kv_block_size, seq_len - v_start);
           auto query_ti = 0;
-          // maping the query head to key/value head to support MGA/MQA
-          auto kv_hi = hi / group_size;
-          if (change_attn_w_layout) {
-            auto attn_w_stride = (bsi * head_num + hi) * attn_w_strideH;
-            for (auto vi = v_start; vi < v_start + block_size; vi++) {
-              if (vi == offset) {
-                for (auto bbi = 0; bbi < beam_size; bbi++) {
-                  auto bi = bsi * beam_size + bbi;
-                  auto attn_w_query_start = attn_w_ptr + attn_w_stride +
-                                            query_ti * seq_len +
-                                            vi * beam_size + bbi;
-                  // calculate weighted value and store the result to
-                  // attn_outs[bs, head_num, cur_len, head_size]
-                  auto attn_out_start = private_attn_out_ptr +
-                                        thread_id * attn_outs_stride_privT +
-                                        bi * attn_outs_stride_privB +
-                                        hi * attn_outs_stride_privH;
-                  auto flag_access_start = flag_access_ptr +
-                                           head_num * bs * thread_id +
-                                           head_num * bi + hi;
-                  auto v_cache_head_start = v_cache_ptr + vi * vcStrideS +
-                                            bi * vcStrideB + kv_hi * vcStrideH;
-                  auto v_ptr_start = v_ptr + bi * vStrideB + kv_hi * vStrideH;
-                  mul_attenion_weights_and_value_of_head<VT, float>(
-                      attn_w_query_start, attn_w_strideH, v_ptr_start,
-                      attn_out_start, head_size, group_size, head_size, true,
-                      v_cache_head_start, flag_access_start);
-                }
+          for (auto vi = v_start; vi < v_start + block_size; vi++) {
+            auto kv_hi = hi / group_size; // maping the query head to
+                                          // key/value head to support MGA/MQA
+            auto attn_w_stride = (bi * head_num + hi) * cur_len * seq_len;
+            auto attn_w_query_start =
+                attn_w_ptr + attn_w_stride + query_ti * seq_len;
+            // calculate weighted value and store the result to attn_outs[bs,
+            // head_num, cur_len, head_size]
+            auto attn_out_head_stride =
+                thread_id * attn_outs_stride_priv +
+                (bi * head_num + hi) * cur_len * head_size;
+            auto attn_out_start = private_attn_out_ptr + attn_out_head_stride +
+                                  query_ti * head_size;
+
+            auto vc_token_start = vi * kc_token_stride;
+            auto beam = need_update_beam_idx ? new_beam_idx[bi][vi] : 0;
+            if (vi == query_ti + offset) { // caculate the attention values
+                                           // for the current token
+              auto vc_t_beam_start = vc_token_start;
+              if (cur_len > 1) { // this may occur for processing the promt
+                auto beam_size = beam_batch / bs;
+                // removed the redundant computation, need to store key
+                // accross beam
+                vc_t_beam_start =
+                    vc_t_beam_start + bi * beam_size * kv_head * head_size;
               } else {
-                // caculate the innerproduct for the past token
-                if (need_update_beam_idx && vi >= prompt_len) {
-                  for (auto bbi = 0; bbi < beam_size; bbi++) {
-                    auto bi = bsi * beam_size + bbi;
-                    auto attn_w_query_start = attn_w_ptr + attn_w_stride +
-                                              query_ti * seq_len +
-                                              vi * beam_size + bbi;
-                    // calculate weighted value and store the result to
-                    // attn_outs[bs, head_num, cur_len, head_size]
-                    auto attn_out_start = private_attn_out_ptr +
-                                          thread_id * attn_outs_stride_privT +
-                                          bi * attn_outs_stride_privB +
-                                          hi * attn_outs_stride_privH;
-                    auto flag_access_start = flag_access_ptr +
-                                             head_num * bs * thread_id +
-                                             head_num * bi + hi;
-                    // auto v_ptr_start = v_ptr + bi * vStrideB + kv_hi *
-                    // vStrideH;
-                    auto beam = new_beam_idx[bi][vi];
-                    auto v_cache_head_start = v_cache_ptr + vi * vcStrideS +
-                                              beam * vcStrideB +
-                                              kv_hi * vcStrideH;
-                    mul_attenion_weights_and_value_of_head<VT, float>(
-                        attn_w_query_start, attn_w_strideH, v_cache_head_start,
-                        attn_out_start, head_size, group_size, head_size, false,
-                        nullptr, flag_access_start);
-                  }
-                } else {
-                  auto bi = bsi * beam_size;
-                  auto attn_w_query_start = attn_w_ptr + attn_w_stride +
-                                            query_ti * seq_len + vi * beam_size;
-                  // calculate weighted value and store the result to
-                  // attn_outs[bs, head_num, cur_len, head_size]
-                  auto attn_out_start = private_attn_out_ptr +
-                                        thread_id * attn_outs_stride_privT +
-                                        bi * attn_outs_stride_privB +
-                                        hi * attn_outs_stride_privH;
-                  auto flag_access_start = flag_access_ptr +
-                                           head_num * bs * thread_id +
-                                           head_num * bi + hi;
-                  auto v_cache_head_start = v_cache_ptr + vi * vcStrideS +
-                                            bi * vcStrideB + kv_hi * vcStrideH;
-                  mul_attenion_weights_and_value_of_head<VT, float>(
-                      attn_w_query_start, attn_w_strideH, v_cache_head_start,
-                      attn_out_start, attn_outs_stride_privB, head_size,
-                      group_size, head_size, false, nullptr, flag_access_start,
-                      head_num, beam_size);
+                vc_t_beam_start = vc_t_beam_start + bi * kv_head * head_size;
+              }
+              auto v_cache_head_start =
+                  v_cache_ptr + vc_t_beam_start + kv_hi * head_size;
+              auto v_ptr_start =
+                  v_ptr + (bi * cur_len + vi - offset) * kv_head * head_size +
+                  kv_hi * head_size;
+              mul_attenion_weights_and_value_of_head<VT, float>(
+                  attn_w_query_start[vi], v_ptr_start, attn_out_start,
+                  head_size, true, v_cache_head_start,
+                  flag_access[thread_id][bi][hi]);
+            } else if (vi < query_ti + offset) { // caculate attention
+                                                 // values for the past
+                                                 // token
+              if (vi >= offset) {
+                auto v_ptr_start =
+                    v_ptr + (bi * cur_len + vi - offset) * kv_head * head_size +
+                    kv_hi * head_size;
+                mul_attenion_weights_and_value_of_head<VT, float>(
+                    attn_w_query_start[vi], v_ptr_start, attn_out_start,
+                    head_size, false, nullptr, flag_access[thread_id][bi][hi]);
+              } else {
+                auto vc_t_beam_start =
+                    vc_token_start + beam * kv_head * head_size;
+                if (cur_len > 1) {
+                  auto beam_size = beam_batch / bs;
+                  vc_t_beam_start =
+                      vc_t_beam_start + bi * beam_size * kv_head * head_size;
                 }
+                auto v_cache_head_start =
+                    v_cache_ptr + vc_t_beam_start + kv_hi * head_size;
+                mul_attenion_weights_and_value_of_head<VT, float>(
+                    attn_w_query_start[vi], v_cache_head_start, attn_out_start,
+                    head_size, false, nullptr, flag_access[thread_id][bi][hi]);
               }
             }
-          } else {
-            for (auto bbi = 0; bbi < beam_size; bbi++) {
-              auto bi = bsi * beam_size + bbi;
-              for (auto vi = v_start; vi < v_start + block_size; vi++) {
-                auto attn_w_stride = (bi * head_num + hi) * attn_w_strideH;
-                auto attn_w_query_start =
-                    attn_w_ptr + attn_w_stride + query_ti * seq_len + vi;
-                // calculate weighted value and store the result to
-                // attn_outs[bs, head_num, cur_len, head_size]
-                auto attn_out_start =
-                    private_attn_out_ptr + thread_id * attn_outs_stride_privT +
-                    bi * attn_outs_stride_privB + hi * attn_outs_stride_privH;
-                auto flag_access_start = flag_access_ptr +
-                                         head_num * bs * thread_id +
-                                         head_num * bi + hi;
-                auto beam = need_update_beam_idx && vi >= prompt_len
-                                ? new_beam_idx[bi][vi]
-                                : bsi * beam_size;
-                // caculate the innerproduct for the current token and store the
-                // key
-                if (vi == offset) {
-                  auto v_cache_head_start = v_cache_ptr + vi * vcStrideS +
-                                            bi * vcStrideB + kv_hi * vcStrideH;
-                  auto v_ptr_start = v_ptr + bi * vStrideB + kv_hi * vStrideH;
-                  mul_attenion_weights_and_value_of_head<VT, float>(
-                      attn_w_query_start, attn_w_strideH, v_ptr_start,
-                      attn_out_start, head_size, group_size, head_size, true,
-                      v_cache_head_start, flag_access_start);
-                } else {
-                  // caculate the innerproduct for the past token
-                  auto v_cache_head_start = v_cache_ptr + vi * vcStrideS +
-                                            beam * vcStrideB +
-                                            kv_hi * vcStrideH;
-                  mul_attenion_weights_and_value_of_head<VT, float>(
-                      attn_w_query_start, attn_w_strideH, v_cache_head_start,
-                      attn_out_start, head_size, group_size, head_size, false,
-                      nullptr, flag_access_start);
-                }
-              }
-            }
+            if (flag_access[thread_id][bi][hi] == 0)
+              flag_access[thread_id][bi][hi] = 1;
           }
         }
       }
     }
   }
+
   {
     RECORD_FUNCTION("zentorch::iakv_sdp::reduction_private_result",
                     c10::ArrayRef<c10::IValue>({}));
@@ -994,8 +732,8 @@ scale_dot_product_for_indirect_access_kv_cache(
       for (auto hi = 0; hi < head_num; hi++) {
         for (auto qi = 0; qi < cur_len; qi++) {
           auto thr0_head_start = private_attn_out_ptr +
-                                 bi * attn_outs_stride_privB +
-                                 hi * attn_outs_stride_privH;
+                                 (bi * head_num + hi) * cur_len * head_size +
+                                 qi * head_size;
           if (flag_access[0][bi][hi] == 0) {
             zentorch::zero_ker(thr0_head_start, head_size);
           }
@@ -1004,9 +742,11 @@ scale_dot_product_for_indirect_access_kv_cache(
               if (flag_access[thread_id][bi][hi] == 0) {
                 continue;
               }
+              auto attn_out_head_stride =
+                  thread_id * attn_outs_stride_priv +
+                  (bi * head_num + hi) * cur_len * head_size;
               auto private_attn_out_start =
-                  private_attn_out_ptr + thread_id * attn_outs_stride_privT +
-                  bi * attn_outs_stride_privB + hi * attn_outs_stride_privH;
+                  private_attn_out_ptr + attn_out_head_stride + qi * head_size;
               zentorch::add_ker<float, float>(
                   thr0_head_start, private_attn_out_start, head_size);
             }
@@ -1039,35 +779,12 @@ scale_dot_product_for_indirect_access_kv_cache_bf16(
   auto bs = query.size(0);
   auto cur_len = query.size(1); // only process cur_len==1
   auto head_num = query.size(2);
-  auto head_size = query.size(3);
-  auto b_ptr = beam_idx.data_ptr<long>();
-  auto max_cache_size = beam_idx.size(0);
-  long new_beam_idx[beam_batch][offset + query.size(1) + 1] = {};
-  auto prompt_len = b_ptr[(max_cache_size - 2) * beam_batch];
-  auto prompt_bs = b_ptr[(max_cache_size - 1) * beam_batch];
-  auto beam_size = 1;
-  if (prompt_bs != 0) {
-    beam_size = beam_batch / prompt_bs;
-  }
-  auto need_update_beam_idx = offset > 0 and beam_size > 1;
   auto kv_head = key.size(2);
   auto group_size = head_num / kv_head;
+  auto head_size = query.size(3);
   auto seq_len = offset + cur_len;
-  at::Tensor attn_weights, attn_weights2;
-  bool change_attn_w_layout = false;
-  auto target_bs = bs;
-  if (beam_size > 1 && prompt_len <= 2048 && prompt_bs > 20 &&
-      group_size == 1) {
-    change_attn_w_layout = true;
-    attn_weights = at::empty({prompt_bs, head_num, cur_len, seq_len, beam_size},
-                             at::kFloat);
-    attn_weights2 = at::empty(
-        {prompt_bs, head_num, cur_len, beam_size, seq_len}, at::kFloat);
-    target_bs = prompt_bs;
-  } else {
-    attn_weights = at::empty({bs, head_num, cur_len, seq_len}, at::kFloat);
-    attn_weights2 = attn_weights;
-  }
+  auto kc_token_stride = beam_batch * kv_head * head_size;
+  auto attn_weights = at::empty({bs, head_num, cur_len, seq_len}, at::kFloat);
   query = query.contiguous();
   key = key.contiguous();
   auto q_ptr = query.data_ptr<at::BFloat16>();
@@ -1086,31 +803,6 @@ scale_dot_product_for_indirect_access_kv_cache_bf16(
   auto attn_out_ptr = attn_outs.data_ptr<at::BFloat16>();
   // zentorch::zero_ker(attn_out_ptr, attn_outs.numel());
   auto attn_w_ptr = attn_weights.data_ptr<float>();
-  auto attn_w_ptr2 = attn_weights2.data_ptr<float>();
-
-  // stride information
-  auto qStrideB = query.stride(0);
-  // auto qStrideS = query.stride(1);
-  auto qStrideH = query.stride(2);
-
-  auto kStrideB = key.stride(0);
-  // auto kStrideS = key.stride(1);
-  auto kStrideH = key.stride(2);
-
-  auto kcStrideB = key_cache.stride(1);
-  auto kcStrideS = key_cache.stride(0);
-  auto kcStrideH = key_cache.stride(2);
-
-  auto vStrideB = value.stride(0);
-  // auto vStrideS = value.stride(1);
-  auto vStrideH = value.stride(2);
-
-  auto vcStrideB = value_cache.stride(1);
-  auto vcStrideS = value_cache.stride(0);
-  auto vcStrideH = value_cache.stride(2);
-
-  auto attn_w_strideH = attn_weights.stride(1);
-
   auto thread_numbers = omp_get_max_threads();
   auto max_parallel_parts = thread_numbers * 4;
 
@@ -1119,22 +811,32 @@ scale_dot_product_for_indirect_access_kv_cache_bf16(
   // kv_block_size for lower bs. Current target_block_size
   // works optimally for bs >=4.
   auto target_block_size = 128L;
-  if (target_bs <= 8 and seq_len < 65536) {
+  if (bs <= 8 and seq_len < 65536) {
     target_block_size = 32L;
   }
-  auto kv_block_size = target_bs * head_num >= max_parallel_parts
+  auto kv_block_size = bs * head_num >= max_parallel_parts
                            ? seq_len
                            : std::max(seq_len / max_parallel_parts, 1L);
   kv_block_size = std::min(kv_block_size, target_block_size);
   auto kv_block_count = (seq_len + kv_block_size - 1) / kv_block_size;
+  auto need_update_beam_idx = offset > 0 && bs > 1;
+  auto b_ptr = beam_idx.data_ptr<long>();
+  auto max_cache_size = beam_idx.size(0);
+  long new_beam_idx[beam_batch][offset + query.size(1) + 1] = {};
+  auto prompt_len = b_ptr[(max_cache_size - 2) * beam_batch];
+  auto prompt_bs = b_ptr[(max_cache_size - 1) * beam_batch];
+  auto beam_size = beam_batch / prompt_bs;
+
   if (need_update_beam_idx) {
     // according to the last decoded token to get the target beam for the past
     // token
 #pragma omp parallel for
     for (int i = 0; i < bs; i++) {
       new_beam_idx[i][offset - 1] = b_ptr[(offset - 1) * bs + i];
-      // for the token of input, the target beam is alwarys bi - bi%beam_size
-      for (int j = offset - 2; j >= prompt_len; j--) {
+      for (int j = offset - 2; j >= 0;
+           j--) { // for the token of input, the target beam is alwarys 0
+        if (j < prompt_len - 1 && bs == beam_size)
+          break; // fast path for latency mode
         new_beam_idx[i][j] = b_ptr[j * bs + new_beam_idx[i][j + 1]];
       }
     }
@@ -1144,89 +846,64 @@ scale_dot_product_for_indirect_access_kv_cache_bf16(
                     c10::ArrayRef<c10::IValue>({}));
 #pragma omp parallel for collapse(3)
     for (auto block_id = 0; block_id < kv_block_count; block_id++) {
-      for (auto bsi = 0; bsi < prompt_bs; bsi++) {
-        for (auto head_group_start = 0; head_group_start < head_num;
-             head_group_start += group_size) {
+      for (auto bi = 0; bi < bs; bi++) {
+        for (auto hi = 0; hi < head_num; hi++) {
           auto k_start = block_id * kv_block_size;
           auto block_size = std::min(kv_block_size, seq_len - k_start);
           auto query_ti = 0;
-          // maping the query head to key/value head to support MGA/MQA
-          auto kv_hi = head_group_start / group_size;
-          if (change_attn_w_layout) {
-            auto attn_w_stride =
-                (bsi * head_num + head_group_start) * attn_w_strideH;
-            for (auto ti = k_start; ti < k_start + block_size; ti++) {
-              // caculate the innerproduct for the current token and store the
-              // key
-              if (ti == query_ti + offset) {
-                for (auto bbi = 0; bbi < beam_size; bbi++) {
-                  auto bi = bsi * beam_size + bbi;
-                  auto q_ptr_start =
-                      q_ptr + bi * qStrideB + head_group_start * qStrideH;
-                  auto attn_w_pos = attn_w_ptr + attn_w_stride +
-                                    query_ti * seq_len + ti * beam_size + bbi;
-                  auto kc_head_start = k_cache_ptr + ti * kcStrideS +
-                                       bi * kcStrideB + kv_hi * kcStrideH;
-                  auto k_ptr_start = k_ptr + bi * kStrideB + kv_hi * kStrideH;
-                  reduce_head<at::BFloat16>(
-                      q_ptr_start, group_size, k_ptr_start, attn_w_pos,
-                      attn_w_strideH, head_size, true, kc_head_start);
-                }
-              } else { // caculate the innerproduct for the past token
-                auto bi = bsi * beam_size;
-                auto q_ptr_start =
-                    q_ptr + bi * qStrideB + head_group_start * qStrideH;
-                auto attn_w_pos = attn_w_ptr + attn_w_stride +
-                                  query_ti * seq_len + ti * beam_size;
-                if (need_update_beam_idx && ti >= prompt_len) {
-                  for (auto bbi = 0; bbi < beam_size; bbi++) {
-                    auto beam = new_beam_idx[bi + bbi][ti];
-                    auto kc_head_start = k_cache_ptr + ti * kcStrideS +
-                                         beam * kcStrideB + kv_hi * kcStrideH;
-                    reduce_head<at::BFloat16>(q_ptr_start + bbi * qStrideB,
-                                              group_size, kc_head_start,
-                                              attn_w_pos + bbi, attn_w_strideH,
-                                              head_size, false, nullptr);
-                  }
-                } else {
-                  auto kc_head_start = k_cache_ptr + ti * kcStrideS +
-                                       bi * kcStrideB + kv_hi * kcStrideH;
-                  reduce_head<at::BFloat16>(
-                      q_ptr_start, qStrideB, group_size, kc_head_start,
-                      attn_w_pos, attn_w_strideH, head_size, beam_size);
-                }
+          for (auto ti = k_start; ti < k_start + block_size; ti++) {
+            auto kv_hi = hi / group_size; // maping the query head to
+                                          // key/value head to support MGA/MQA
+            auto q_ptr_start =
+                q_ptr + (bi * cur_len + query_ti) * head_num * head_size +
+                hi * head_size;
+            auto attn_w_stride = (bi * head_num + hi) * cur_len * seq_len;
+            auto attn_w_pos =
+                attn_w_ptr + attn_w_stride + query_ti * seq_len + ti;
+            attn_w_pos[0] = 0.0f;
+            auto kc_token_start = ti * kc_token_stride;
+            auto kc_t_beam_start = kc_token_start;
+            auto beam = need_update_beam_idx ? new_beam_idx[bi][ti] : 0;
+            if (ti > query_ti + offset) { // only caculate the innerproduct for
+                                          // the past token and current token
+              attn_w_pos[0] = -10000.0f;
+            } else if (ti == query_ti + offset) { // caculate the innerproduct
+                                                  // for the current token and
+                                                  // store the key
+              if (cur_len > 1) { // this may occur for processing the promt
+                auto beam_size = beam_batch / bs;
+                // need to store key accross beam
+                kc_t_beam_start =
+                    kc_t_beam_start + bi * beam_size * kv_head * head_size;
+              } else {
+                kc_t_beam_start = kc_t_beam_start + bi * kv_head * head_size;
               }
-            }
-          } else {
-            for (auto bbi = 0; bbi < beam_size; bbi++) {
-              auto bi = bsi * beam_size + bbi;
-              for (auto ti = k_start; ti < k_start + block_size; ti++) {
-                auto q_ptr_start =
-                    q_ptr + bi * qStrideB + head_group_start * qStrideH;
-                auto attn_w_stride =
-                    (bi * head_num + head_group_start) * attn_w_strideH;
-                auto attn_w_pos =
-                    attn_w_ptr + attn_w_stride + query_ti * seq_len + ti;
-                attn_w_pos[0] = 0.0f;
-                auto beam = need_update_beam_idx && ti >= prompt_len
-                                ? new_beam_idx[bi][ti]
-                                : bsi * beam_size;
-                // caculate the innerproduct for the current token and store the
-                // key
-                if (ti == query_ti + offset) {
-                  auto kc_head_start = k_cache_ptr + ti * kcStrideS +
-                                       bi * kcStrideB + kv_hi * kcStrideH;
-                  auto k_ptr_start = k_ptr + bi * kStrideB + kv_hi * kStrideH;
-                  reduce_head<at::BFloat16>(
-                      q_ptr_start, group_size, k_ptr_start, attn_w_pos,
-                      attn_w_strideH, head_size, true, kc_head_start);
-                } else { // caculate the innerproduct for the past token
-                  auto kc_head_start = k_cache_ptr + ti * kcStrideS +
-                                       beam * kcStrideB + kv_hi * kcStrideH;
-                  reduce_head<at::BFloat16>(
-                      q_ptr_start, group_size, kc_head_start, attn_w_pos,
-                      attn_w_strideH, head_size, false, nullptr);
+              auto kc_head_start =
+                  k_cache_ptr + kc_t_beam_start + kv_hi * head_size;
+              auto k_ptr_start =
+                  k_ptr + (bi * cur_len + ti - offset) * kv_head * head_size +
+                  kv_hi * head_size;
+              reduce_head<at::BFloat16>(q_ptr_start, k_ptr_start, attn_w_pos,
+                                        head_size, true, kc_head_start);
+            } else { // caculate the innerproduct for the past token
+              if (ti >= offset) {
+                auto k_ptr_start =
+                    k_ptr + (bi * cur_len + ti - offset) * kv_head * head_size +
+                    kv_hi * head_size;
+                reduce_head<at::BFloat16>(q_ptr_start, k_ptr_start, attn_w_pos,
+                                          head_size, false, nullptr);
+              } else {
+                kc_t_beam_start = kc_t_beam_start + beam * kv_head * head_size;
+                if (cur_len > 1) {
+                  auto beam_size = beam_batch / bs;
+                  kc_t_beam_start =
+                      kc_t_beam_start + bi * beam_size * kv_head * head_size;
                 }
+                auto kc_head_start =
+                    k_cache_ptr + kc_t_beam_start + kv_hi * head_size;
+                reduce_head<at::BFloat16>(q_ptr_start, kc_head_start,
+                                          attn_w_pos, head_size, false,
+                                          nullptr);
               }
             }
           }
@@ -1238,137 +915,54 @@ scale_dot_product_for_indirect_access_kv_cache_bf16(
     RECORD_FUNCTION("zentorch::iakv_sdp::div_add_softmax",
                     c10::ArrayRef<c10::IValue>({}));
 #pragma omp parallel for collapse(2)
-    for (auto bsi = 0; bsi < prompt_bs; bsi++) {
+    for (auto bi = 0; bi < bs; bi++) {
       for (auto hi = 0; hi < head_num; hi++) {
         for (auto query_ti = 0; query_ti < cur_len; query_ti++) {
-          for (auto bbi = 0; bbi < beam_size; bbi++) {
-            auto bi = bsi * beam_size + bbi;
-            auto mask_ptr_start = mask_ptr + bi * mask_bs_stride +
-                                  (hi % mask_head_num) * mask_dim2 * seq_len;
+          auto mask_ptr_start = mask_ptr + bi * mask_bs_stride +
+                                (hi % mask_head_num) * mask_dim2 * seq_len;
+          auto attn_w_stride = (bi * head_num + hi) * cur_len * seq_len;
+          auto attn_w_query_start =
+              attn_w_ptr + attn_w_stride + query_ti * seq_len;
 // div+add+softmax
 #if defined(CPU_CAPABILITY_AVX512)
+          for (auto qi = 0; qi < 1; qi++) {
             auto max_val = -100000.0f;
-            if (change_attn_w_layout) {
-              auto attn_w_stride =
-                  (bsi * head_num + hi) * cur_len * seq_len * beam_size;
-              auto attn_w_query_start = attn_w_ptr + attn_w_stride +
-                                        query_ti * seq_len * beam_size + bbi;
-              auto attn_w_query_start2 = attn_w_ptr2 + attn_w_stride +
-                                         query_ti * beam_size * seq_len +
-                                         bbi * seq_len;
-              __m512i decrement_sequence = _mm512_set_epi32(
-                  15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0);
-              __m512i beam_size_vector = _mm512_set1_epi32(beam_size);
-              int ti = 0;
-              for (ti = 0; ti <= seq_len - 16; ti += 16) {
-                __m512i ti_vector = _mm512_set1_epi32(ti);
-                __m512i index_sequence =
-                    _mm512_add_epi32(decrement_sequence, ti_vector);
-                __m512i index =
-                    _mm512_mullo_epi32(index_sequence, beam_size_vector);
+            zentorch::_dil_div_add_reduce_max_fusion_kernel<float,
+                                                            at::BFloat16>(
+                attn_w_query_start,
+                mask_ptr_start + (query_ti % mask_dim2) * seq_len, scale_factor,
+                seq_len, attn_w_query_start, max_val);
 
-                __m512 data = _mm512_i32gather_ps(index, attn_w_query_start,
-                                                  sizeof(float));
-                _mm512_storeu_ps(attn_w_query_start2 + ti, data);
-              }
-
-              for (; ti < seq_len; ti++) {
-                attn_w_query_start2[ti] = attn_w_query_start[ti * beam_size];
-              }
-              zentorch::_dil_div_add_reduce_max_fusion_kernel<float,
-                                                              at::BFloat16>(
-                  attn_w_query_start2,
-                  mask_ptr_start + (query_ti % mask_dim2) * seq_len,
-                  scale_factor, seq_len, attn_w_query_start2, max_val);
-              zentorch::_dil_exp_reduce_sum_fusion_kernel(
-                  attn_w_query_start2, seq_len, attn_w_query_start2, max_val);
-              zentorch::_dil_normalization_kernel<float>(
-                  attn_w_query_start2, max_val, seq_len, attn_w_query_start2);
-              for (ti = 0; ti <= seq_len - 16; ti += 16) {
-                __m512i ti_vector = _mm512_set1_epi32(ti);
-                __m512i index_sequence =
-                    _mm512_add_epi32(decrement_sequence, ti_vector);
-                __m512i index =
-                    _mm512_mullo_epi32(index_sequence, beam_size_vector);
-                __m512 data = _mm512_loadu_ps(attn_w_query_start2 + ti);
-                _mm512_i32scatter_ps(attn_w_query_start, index, data,
-                                     sizeof(float));
-              }
-              for (; ti < seq_len; ti++) {
-                attn_w_query_start[ti * beam_size] = attn_w_query_start2[ti];
-              }
-            } else {
-              auto attn_w_stride = (bi * head_num + hi) * cur_len * seq_len;
-              auto attn_w_query_start =
-                  attn_w_ptr + attn_w_stride + query_ti * seq_len;
-              zentorch::_dil_div_add_reduce_max_fusion_kernel<float,
-                                                              at::BFloat16>(
-                  attn_w_query_start,
-                  mask_ptr_start + (query_ti % mask_dim2) * seq_len,
-                  scale_factor, seq_len, attn_w_query_start, max_val);
-              zentorch::_dil_exp_reduce_sum_fusion_kernel(
-                  attn_w_query_start, seq_len, attn_w_query_start, max_val);
-              zentorch::_dil_normalization_kernel<float>(
-                  attn_w_query_start, max_val, seq_len, attn_w_query_start);
-            }
-#else
-              auto max_val = -100000.0f;
-              if (change_attn_w_layout) {
-                auto attn_w_stride =
-                    (bsi * head_num + hi) * cur_len * seq_len * beam_size;
-                auto attn_w_query_start = attn_w_ptr + attn_w_stride +
-                                          query_ti * seq_len * beam_size + bbi;
-                auto total_len = seq_len * beam_size;
-                // div+add and find max
-                for (auto si = 0; si < total_len; si += beam_size) {
-                  attn_w_query_start[si] =
-                      attn_w_query_start[si] / scale_factor +
-                      mask_ptr_start[(query_ti % mask_dim2) * seq_len +
-                                     si / beam_size];
-                  if (attn_w_query_start[si] > max_val) {
-                    max_val = attn_w_query_start[si];
-                  }
-                }
-                // softmax
-                float sum = 0.0f;
-                // exp and sum
-                for (auto si = 0; si < total_len; si += beam_size) {
-                  attn_w_query_start[si] =
-                      exp(attn_w_query_start[si] - max_val);
-                  sum += attn_w_query_start[si];
-                }
-                // normalization
-                for (auto si = 0; si < total_len; si += beam_size) {
-                  attn_w_query_start[si] = attn_w_query_start[si] / sum;
-                }
-              } else {
-                auto attn_w_stride = (bi * head_num + hi) * cur_len * seq_len;
-                auto attn_w_query_start =
-                    attn_w_ptr + attn_w_stride + query_ti * seq_len;
-                // div+add and find max
-                for (auto si = 0; si < seq_len; si++) {
-                  attn_w_query_start[si] =
-                      attn_w_query_start[si] / scale_factor +
-                      mask_ptr_start[(query_ti % mask_dim2) * seq_len + si];
-                  if (attn_w_query_start[si] > max_val) {
-                    max_val = attn_w_query_start[si];
-                  }
-                }
-                // softmax
-                float sum = 0.0f;
-                // exp and sum
-                for (auto si = 0; si < seq_len; si++) {
-                  attn_w_query_start[si] =
-                      exp(attn_w_query_start[si] - max_val);
-                  sum += attn_w_query_start[si];
-                }
-                // normalization
-                for (auto si = 0; si < seq_len; si++) {
-                  attn_w_query_start[si] = attn_w_query_start[si] / sum;
-                }
-              }
-#endif
+            zentorch::_dil_exp_reduce_sum_fusion_kernel(
+                attn_w_query_start, seq_len, attn_w_query_start, max_val);
+            zentorch::_dil_normalization_kernel<float>(
+                attn_w_query_start, max_val, seq_len, attn_w_query_start);
           }
+#else
+          for (auto qi = 0; qi < 1; qi++) {
+            auto max_val = -100000.0f;
+            // div+add and find max
+            for (auto si = 0; si < seq_len; si++) {
+              attn_w_query_start[si] =
+                  attn_w_query_start[si] / scale_factor +
+                  mask_ptr_start[(query_ti % mask_dim2) * seq_len + si];
+              if (attn_w_query_start[si] > max_val) {
+                max_val = attn_w_query_start[si];
+              }
+            }
+            // softmax
+            float sum = 0.0f;
+            // exp and sum
+            for (auto si = 0; si < seq_len; si++) {
+              attn_w_query_start[si] = exp(attn_w_query_start[si] - max_val);
+              sum += attn_w_query_start[si];
+            }
+            // normalization
+            for (auto si = 0; si < seq_len; si++) {
+              attn_w_query_start[si] = attn_w_query_start[si] / sum;
+            }
+          }
+#endif
         }
       }
     }
@@ -1377,200 +971,120 @@ scale_dot_product_for_indirect_access_kv_cache_bf16(
   auto private_attn_outs =
       at::empty({thread_numbers, bs, head_num, cur_len, head_size}, at::kHalf);
 #else
-    auto private_attn_outs = at::empty(
-        {thread_numbers, bs, head_num, cur_len, head_size}, at::kFloat);
+  auto private_attn_outs =
+      at::empty({thread_numbers, bs, head_num, cur_len, head_size}, at::kFloat);
 #endif
   auto private_attn_out_flag =
       at::zeros({thread_numbers, bs, head_num}, at::kByte);
   auto flag_access = private_attn_out_flag.accessor<uint8_t, 3>();
-  uint8_t *flag_access_ptr = flag_access.data();
 #if AVX512_BF16_STORE_ENABLE
   auto private_attn_out_ptr =
       (at::BFloat16 *)private_attn_outs.data_ptr<at::Half>();
 #else
-    auto private_attn_out_ptr = private_attn_outs.data_ptr<float>();
+  auto private_attn_out_ptr = private_attn_outs.data_ptr<float>();
 #endif
   // private_attn_outs.numel());
-  auto attn_outs_stride_privT = private_attn_outs.stride(0);
-  auto attn_outs_stride_privB = private_attn_outs.stride(1);
-  auto attn_outs_stride_privH = private_attn_outs.stride(2);
+  auto attn_outs_stride_priv = bs * head_num * cur_len * head_size;
   {
     RECORD_FUNCTION("zentorch::iakv_sdp::matmul(attn_w, value)",
                     c10::ArrayRef<c10::IValue>({}));
 // TODO Enable BF16 compute for mul_attenion_weights_and_value_of_head
 #pragma omp parallel for collapse(3)
     for (auto block_id = 0; block_id < kv_block_count; block_id++) {
-      for (auto bsi = 0; bsi < prompt_bs; bsi++) {
-        for (auto hi = 0; hi < head_num; hi += group_size) {
+      for (auto bi = 0; bi < bs; bi++) {
+        for (auto hi = 0; hi < head_num; hi++) {
           auto thread_id = 0;
           if (kv_block_size < seq_len)
             thread_id = omp_get_thread_num();
           auto v_start = block_id * kv_block_size;
           auto block_size = std::min(kv_block_size, seq_len - v_start);
           auto query_ti = 0;
-          // maping the query head to key/value head to support MGA/MQA
-          auto kv_hi = hi / group_size;
-          if (change_attn_w_layout) {
-            auto attn_w_stride = (bsi * head_num + hi) * attn_w_strideH;
-            for (auto vi = v_start; vi < v_start + block_size; vi++) {
-              if (vi == offset) {
-                for (auto bbi = 0; bbi < beam_size; bbi++) {
-                  auto bi = bsi * beam_size + bbi;
-                  auto attn_w_query_start = attn_w_ptr + attn_w_stride +
-                                            query_ti * seq_len +
-                                            vi * beam_size + bbi;
-                  // calculate weighted value and store the result to
-                  // attn_outs[bs, head_num, cur_len, head_size]
-                  auto attn_out_start = private_attn_out_ptr +
-                                        thread_id * attn_outs_stride_privT +
-                                        bi * attn_outs_stride_privB +
-                                        hi * attn_outs_stride_privH;
-                  auto flag_access_start = flag_access_ptr +
-                                           head_num * bs * thread_id +
-                                           head_num * bi + hi;
-                  auto v_cache_head_start = v_cache_ptr + vi * vcStrideS +
-                                            bi * vcStrideB + kv_hi * vcStrideH;
-                  auto v_ptr_start = v_ptr + bi * vStrideB + kv_hi * vStrideH;
-#if AVX512_BF16_STORE_ENABLE
-                  mul_attenion_weights_and_value_of_head<at::BFloat16,
-                                                         at::BFloat16>(
-                      attn_w_query_start, attn_w_strideH, v_ptr_start,
-                      attn_out_start, head_size, group_size, head_size, true,
-                      v_cache_head_start, flag_access_start);
-#else
-                    mul_attenion_weights_and_value_of_head<at::BFloat16, float>(
-                        attn_w_query_start, attn_w_strideH, v_ptr_start,
-                        attn_out_start, head_size, group_size, head_size, true,
-                        v_cache_head_start, flag_access_start);
-#endif
-                }
-              } else {
-                // caculate the innerproduct for the past token
-                if (need_update_beam_idx && vi >= prompt_len) {
-                  for (auto bbi = 0; bbi < beam_size; bbi++) {
-                    auto bi = bsi * beam_size + bbi;
-                    auto attn_w_query_start = attn_w_ptr + attn_w_stride +
-                                              query_ti * seq_len +
-                                              vi * beam_size + bbi;
-                    // calculate weighted value and store the result to
-                    // attn_outs[bs, head_num, cur_len, head_size]
-                    auto attn_out_start = private_attn_out_ptr +
-                                          thread_id * attn_outs_stride_privT +
-                                          bi * attn_outs_stride_privB +
-                                          hi * attn_outs_stride_privH;
-                    auto flag_access_start = flag_access_ptr +
-                                             head_num * bs * thread_id +
-                                             head_num * bi + hi;
-                    // auto v_ptr_start = v_ptr + bi * vStrideB + kv_hi *
-                    // vStrideH;
-                    auto beam = new_beam_idx[bi][vi];
-                    auto v_cache_head_start = v_cache_ptr + vi * vcStrideS +
-                                              beam * vcStrideB +
-                                              kv_hi * vcStrideH;
-#if AVX512_BF16_STORE_ENABLE
-                    mul_attenion_weights_and_value_of_head<at::BFloat16,
-                                                           at::BFloat16>(
-                        attn_w_query_start, attn_w_strideH, v_cache_head_start,
-                        attn_out_start, head_size, group_size, head_size, false,
-                        nullptr, flag_access_start);
-#else
-                      mul_attenion_weights_and_value_of_head<at::BFloat16,
-                                                             float>(
-                          attn_w_query_start, attn_w_strideH,
-                          v_cache_head_start, attn_out_start, head_size,
-                          group_size, head_size, false, nullptr,
-                          flag_access_start);
-#endif
-                  }
-                } else {
-                  auto bi = bsi * beam_size;
-                  auto attn_w_query_start = attn_w_ptr + attn_w_stride +
-                                            query_ti * seq_len + vi * beam_size;
-                  // calculate weighted value and store the result to
-                  // attn_outs[bs, head_num, cur_len, head_size]
-                  auto attn_out_start = private_attn_out_ptr +
-                                        thread_id * attn_outs_stride_privT +
-                                        bi * attn_outs_stride_privB +
-                                        hi * attn_outs_stride_privH;
-                  auto flag_access_start = flag_access_ptr +
-                                           head_num * bs * thread_id +
-                                           head_num * bi + hi;
-                  auto v_cache_head_start = v_cache_ptr + vi * vcStrideS +
-                                            bi * vcStrideB + kv_hi * vcStrideH;
-#if AVX512_BF16_STORE_ENABLE
-                  mul_attenion_weights_and_value_of_head<at::BFloat16,
-                                                         at::BFloat16>(
-                      attn_w_query_start, attn_w_strideH, v_cache_head_start,
-                      attn_out_start, attn_outs_stride_privB, head_size,
-                      group_size, head_size, false, nullptr, flag_access_start,
-                      head_num, beam_size);
-#else
-                    mul_attenion_weights_and_value_of_head<at::BFloat16, float>(
-                        attn_w_query_start, attn_w_strideH, v_cache_head_start,
-                        attn_out_start, attn_outs_stride_privB, head_size,
-                        group_size, head_size, false, nullptr,
-                        flag_access_start, head_num, beam_size);
-#endif
-                }
-              }
-            }
-          } else {
-            for (auto bbi = 0; bbi < beam_size; bbi++) {
-              auto bi = bsi * beam_size + bbi;
-              for (auto vi = v_start; vi < v_start + block_size; vi++) {
-                auto attn_w_stride = (bi * head_num + hi) * attn_w_strideH;
-                auto attn_w_query_start =
-                    attn_w_ptr + attn_w_stride + query_ti * seq_len + vi;
-                // calculate weighted value and store the result to
-                // attn_outs[bs, head_num, cur_len, head_size]
-                auto attn_out_start =
-                    private_attn_out_ptr + thread_id * attn_outs_stride_privT +
-                    bi * attn_outs_stride_privB + hi * attn_outs_stride_privH;
-                auto flag_access_start = flag_access_ptr +
-                                         head_num * bs * thread_id +
-                                         head_num * bi + hi;
+          for (auto vi = v_start; vi < v_start + block_size; vi++) {
+            auto kv_hi = hi / group_size; // maping the query head to
+                                          // key/value head to support MGA/MQA
+            auto attn_w_stride = (bi * head_num + hi) * cur_len * seq_len;
+            auto attn_w_query_start =
+                attn_w_ptr + attn_w_stride + query_ti * seq_len;
+            // calculate weighted value and store the result to attn_outs[bs,
+            // head_num, cur_len, head_size]
+            auto attn_out_head_stride =
+                thread_id * attn_outs_stride_priv +
+                (bi * head_num + hi) * cur_len * head_size;
+            auto attn_out_start = private_attn_out_ptr + attn_out_head_stride +
+                                  query_ti * head_size;
 
-                auto beam = need_update_beam_idx && vi >= prompt_len
-                                ? new_beam_idx[bi][vi]
-                                : bsi * beam_size;
-                // caculate the innerproduct for the current token and store the
-                // key
-                if (vi == offset) {
-                  auto v_cache_head_start = v_cache_ptr + vi * vcStrideS +
-                                            bi * vcStrideB + kv_hi * vcStrideH;
-                  auto v_ptr_start = v_ptr + bi * vStrideB + kv_hi * vStrideH;
+            auto vc_token_start = vi * kc_token_stride;
+            auto beam = need_update_beam_idx ? new_beam_idx[bi][vi] : 0;
+            if (vi == query_ti + offset) { // caculate the attention values
+                                           // for the current token
+              auto vc_t_beam_start = vc_token_start;
+              if (cur_len > 1) { // this may occur for processing the promt
+                auto beam_size = beam_batch / bs;
+                // removed the redundant computation, need to store key
+                // accross beam
+                vc_t_beam_start =
+                    vc_t_beam_start + bi * beam_size * kv_head * head_size;
+              } else {
+                vc_t_beam_start = vc_t_beam_start + bi * kv_head * head_size;
+              }
+              auto v_cache_head_start =
+                  v_cache_ptr + vc_t_beam_start + kv_hi * head_size;
+              auto v_ptr_start =
+                  v_ptr + (bi * cur_len + vi - offset) * kv_head * head_size +
+                  kv_hi * head_size;
 #if AVX512_BF16_STORE_ENABLE
-                  mul_attenion_weights_and_value_of_head<at::BFloat16,
-                                                         at::BFloat16>(
-                      attn_w_query_start, attn_w_strideH, v_ptr_start,
-                      attn_out_start, head_size, group_size, head_size, true,
-                      v_cache_head_start, flag_access_start);
+              mul_attenion_weights_and_value_of_head<at::BFloat16,
+                                                     at::BFloat16>(
+                  attn_w_query_start[vi], v_ptr_start, attn_out_start,
+                  head_size, true, v_cache_head_start,
+                  flag_access[thread_id][bi][hi]);
 #else
-                    mul_attenion_weights_and_value_of_head<at::BFloat16, float>(
-                        attn_w_query_start, attn_w_strideH, v_ptr_start,
-                        attn_out_start, head_size, group_size, head_size, true,
-                        v_cache_head_start, flag_access_start);
+              mul_attenion_weights_and_value_of_head<at::BFloat16, float>(
+                  attn_w_query_start[vi], v_ptr_start, attn_out_start,
+                  head_size, true, v_cache_head_start,
+                  flag_access[thread_id][bi][hi]);
 #endif
-                } else {
-                  // caculate the innerproduct for the past token
-                  auto v_cache_head_start = v_cache_ptr + vi * vcStrideS +
-                                            beam * vcStrideB +
-                                            kv_hi * vcStrideH;
+            } else if (vi < query_ti + offset) { // caculate attention
+                                                 // values for the past
+                                                 // token
+              if (vi >= offset) {
+                auto v_ptr_start =
+                    v_ptr + (bi * cur_len + vi - offset) * kv_head * head_size +
+                    kv_hi * head_size;
 #if AVX512_BF16_STORE_ENABLE
-                  mul_attenion_weights_and_value_of_head<at::BFloat16,
-                                                         at::BFloat16>(
-                      attn_w_query_start, attn_w_strideH, v_cache_head_start,
-                      attn_out_start, head_size, group_size, head_size, false,
-                      nullptr, flag_access_start);
+                mul_attenion_weights_and_value_of_head<at::BFloat16,
+                                                       at::BFloat16>(
+                    attn_w_query_start[vi], v_ptr_start, attn_out_start,
+                    head_size, false, nullptr, flag_access[thread_id][bi][hi]);
 #else
-                    mul_attenion_weights_and_value_of_head<at::BFloat16, float>(
-                        attn_w_query_start, attn_w_strideH, v_cache_head_start,
-                        attn_out_start, head_size, group_size, head_size, false,
-                        nullptr, flag_access_start);
+                mul_attenion_weights_and_value_of_head<at::BFloat16, float>(
+                    attn_w_query_start[vi], v_ptr_start, attn_out_start,
+                    head_size, false, nullptr, flag_access[thread_id][bi][hi]);
 #endif
+              } else {
+                auto vc_t_beam_start =
+                    vc_token_start + beam * kv_head * head_size;
+                if (cur_len > 1) {
+                  auto beam_size = beam_batch / bs;
+                  vc_t_beam_start =
+                      vc_t_beam_start + bi * beam_size * kv_head * head_size;
                 }
+                auto v_cache_head_start =
+                    v_cache_ptr + vc_t_beam_start + kv_hi * head_size;
+#if AVX512_BF16_STORE_ENABLE
+                mul_attenion_weights_and_value_of_head<at::BFloat16,
+                                                       at::BFloat16>(
+                    attn_w_query_start[vi], v_cache_head_start, attn_out_start,
+                    head_size, false, nullptr, flag_access[thread_id][bi][hi]);
+#else
+                mul_attenion_weights_and_value_of_head<at::BFloat16, float>(
+                    attn_w_query_start[vi], v_cache_head_start, attn_out_start,
+                    head_size, false, nullptr, flag_access[thread_id][bi][hi]);
+#endif
               }
             }
+            if (flag_access[thread_id][bi][hi] == 0)
+              flag_access[thread_id][bi][hi] = 1;
           }
         }
       }
@@ -1586,8 +1100,8 @@ scale_dot_product_for_indirect_access_kv_cache_bf16(
       for (auto hi = 0; hi < head_num; hi++) {
         for (auto qi = 0; qi < cur_len; qi++) {
           auto thr0_head_start = private_attn_out_ptr +
-                                 bi * attn_outs_stride_privB +
-                                 hi * attn_outs_stride_privH;
+                                 (bi * head_num + hi) * cur_len * head_size +
+                                 qi * head_size;
           if (flag_access[0][bi][hi] == 0) {
             zentorch::zero_ker(thr0_head_start, head_size);
           }
@@ -1596,15 +1110,17 @@ scale_dot_product_for_indirect_access_kv_cache_bf16(
               if (flag_access[thread_id][bi][hi] == 0) {
                 continue;
               }
+              auto attn_out_head_stride =
+                  thread_id * attn_outs_stride_priv +
+                  (bi * head_num + hi) * cur_len * head_size;
               auto private_attn_out_start =
-                  private_attn_out_ptr + thread_id * attn_outs_stride_privT +
-                  bi * attn_outs_stride_privB + hi * attn_outs_stride_privH;
+                  private_attn_out_ptr + attn_out_head_stride + qi * head_size;
 #if AVX512_BF16_STORE_ENABLE
               zentorch::add_ker<at::BFloat16, at::BFloat16>(
                   thr0_head_start, private_attn_out_start, head_size);
 #else
-                zentorch::add_ker<float, float>(
-                    thr0_head_start, private_attn_out_start, head_size);
+              zentorch::add_ker<float, float>(
+                  thr0_head_start, private_attn_out_start, head_size);
 #endif
             }
           }
@@ -1615,8 +1131,8 @@ scale_dot_product_for_indirect_access_kv_cache_bf16(
           zentorch::move_ker<at::BFloat16, at::BFloat16>(
               attn_outs_start, thr0_head_start, head_size);
 #else
-            zentorch::move_ker<at::BFloat16, float>(attn_outs_start,
-                                                    thr0_head_start, head_size);
+          zentorch::move_ker<at::BFloat16, float>(attn_outs_start,
+                                                  thr0_head_start, head_size);
 #endif
         }
       }
@@ -1634,6 +1150,7 @@ zero_copy_kv_cache_masked_multihead_self_attention_kernel_impl(
     const double scale_attn, at::Tensor &attention_mask) {
   assert(key.scalar_type() == at::kBFloat16 || key.scalar_type() == at::kFloat);
   if (query.scalar_type() == at::kFloat && value.scalar_type() == at::kFloat) {
+
     return scale_dot_product_for_indirect_access_kv_cache<float, float>(
         query, key, value, key_cache, value_cache, beam_idx, offset, scale_attn,
         attention_mask);
@@ -1808,11 +1325,10 @@ masked_multihead_self_attention_kernel_impl_512(
   }
   if (offset != 0) {
     auto cur_len = query.size(1);
-    if (cur_len == 1) {
+    if (cur_len == 1)
       return zero_copy_kv_cache_masked_multihead_self_attention_kernel_impl(
           query, key, value, key_cache, value_cache, beam_idx, offset,
           scale_attn, attention_mask_v);
-    }
     // just a  funcationality path,need to optimize
     auto tokens_outs = std::vector<at::Tensor>(cur_len);
     for (auto i = 0; i < cur_len; i++) {
