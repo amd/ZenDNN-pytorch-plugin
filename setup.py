@@ -14,10 +14,10 @@ import subprocess
 import torch
 import warnings
 
-if parse(__version__) < parse("2.1"):
+if parse(__version__) < parse("2.2"):
     raise ImportError(
         "zentorch Plugin requires torch version \
-     2.1 or higher. Please upgrade your torch version \
+     2.2 or higher. Please upgrade your torch version \
         and retry the build."
     )
 
