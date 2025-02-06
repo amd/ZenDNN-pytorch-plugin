@@ -15,19 +15,24 @@ Table of Contents
 - [Installation](#2-installation)
   - [From Binaries](#21-from-binaries)
   - [From Source](#22-from-source)
-- [Usage](#3-usage)
-  - [General Usage](#31-general-usage)
-  - [CNN Models](#32-cnn-models)
-  - [HuggingFace NLP models](#33-huggingface-nlp-models)
-  - [HuggingFace Generative LLM models](#34-huggingface-generative-llm-models)
-  - [Weight only Quantized models](#35-weight-only-quantized-models)
-- [Logging and Debugging](#4-logging-and-debugging)
-  - [ZenDNN logs](#41-zendnn-logs)
-  - [_zentorch_ logs](#42-zentorch-logs)
-  - [Support for `TORCH_COMPILE_DEBUG`](#43-support-for-torch_compile_debug)
-- [Performance tuning and Benchmarking](#5-performance-tuning-and-benchmarking)
-- [Additional Utilities](#6-additional-utilities)
-  - [_zentorch_ attributes](#61-zentorch-attributes)
+- [Unit Tests](#3-unit-tests)
+  - [Install Unit tests Dependencies](#31-install-unit-tests-dependencies)  
+  - [Run All Unit Tests](#32-run-all-unit-tests)  
+  - [Run All Tests](#33-run-all-tests)  
+  - [Run Individual Tests](#34-run-individual-tests)  
+- [Usage](#4-usage)
+  - [General Usage](#41-general-usage)
+  - [CNN Models](#42-cnn-models)
+  - [HuggingFace NLP models](#43-huggingface-nlp-models)
+  - [HuggingFace Generative LLM models](#44-huggingface-generative-llm-models)
+  - [Weight only Quantized models](#45-weight-only-quantized-models)
+- [Logging and Debugging](#5-logging-and-debugging)
+  - [ZenDNN logs](#51-zendnn-logs)
+  - [_zentorch_ logs](#52-zentorch-logs)
+  - [Support for `TORCH_COMPILE_DEBUG`](#53-support-for-torch_compile_debug)
+- [Performance tuning and Benchmarking](#6-performance-tuning-and-benchmarking)
+- [Additional Utilities](#7-additional-utilities)
+  - [_zentorch_ attributes](#71-zentorch-attributes)
 <!-- tocstop -->
 
 # 1. About _zentorch_
@@ -182,24 +187,33 @@ python setup.py bdist_wheel
 cd dist
 pip install zentorch-5.0.1-cp38-cp38-linux_x86_64.whl
 ```
-#### 2.2.2.6. Run All Unit Tests
-```python
-python -m unittest discover -s ./test/unittests
-```
-#### 2.2.2.7. Run All Tests
-```python
-python -m unittest discover -s ./test
-```
-#### 2.2.2.8 Run Individual Tests
-```python
-python -m unittest test/unittests/op_tests/test_bmm.py
-```
-#### 2.2.2.9. Build Cleanup
+#### 2.2.2.6. Build Cleanup
 ```bash
 python setup.py clean --all
 ```
-# 3. Usage
-## 3.1 General Usage
+# 3. Unit Tests
+
+## 3.1 Install Unit tests Dependencies
+```python
+python test/install_requirements.py
+```
+
+## 3.2 Run All Unit Tests
+```python
+python -m unittest discover -s ./test/unittests
+```
+
+## 3.3 Run All Tests
+```python
+python -m unittest discover -s ./test
+```
+
+## 3.4 Run Individual Tests
+```python
+python -m unittest test/unittests/op_tests/test_bmm.py
+```
+# 4. Usage
+## 4.1 General Usage
 ```python
 # Using torch.compile with 'zentorch' as backend
 import torch
@@ -212,7 +226,7 @@ with torch.no_grad():
 
 >Note: If same model is optimized with `torch.compile` for multiple backends within single script, it is recommended to use `torch._dynamo.reset()` before calling the `torch.compile` on that model. This is applicable if torch version is less than 2.3.
 
-### 3.1.1 Using freeze path with zentorch
+### 4.1.1 Using freeze path with zentorch
 
 Additionally, zentorch supports freezing the model, the example below shows the same:
 ```python
@@ -226,7 +240,7 @@ with torch.no_grad(), zentorch.freezing_enabled():
 
 >Note: _zentorch_ is able to do the zentorch op replacements in both non-inference and inference modes. But some of the _zentorch_ optimizations are only supported for the inference mode, so it is recommended to use `torch.no_grad()` if you are running the model for inference only.
 
-## 3.2 CNN Models
+## 4.2 CNN Models
 For CNN models, set `dynamic=False` when calling for `torch.compile` as below:
 ```python
 model = torch.compile(model, backend='zentorch', dynamic=False)
@@ -234,7 +248,7 @@ with torch.no_grad():
     output = model(input)
 ```
 
-## 3.3 HuggingFace NLP models
+## 4.3 HuggingFace NLP models
 For HuggingFace NLP models, optimize them as below:
 ```python
 model = torch.compile(model, backend='zentorch')
@@ -242,7 +256,7 @@ with torch.no_grad():
     output = model(input)
 ```
 
-## 3.4 HuggingFace Generative LLM models
+## 4.4 HuggingFace Generative LLM models
 For HuggingFace Generative LLM models, usage of zentorch.llm.optimize is recommended. All the optimizations included in this API are specifically targeted for Generative Large Language Models from HuggingFace. If a model is not a valid Generative Large Language Model from HuggingFace, the following warning will be displayed and zentorch.llm.optimize will act as a dummy function with no optimizations being applied to the model that is passed: “Cannot detect the model transformers family by model.config.architectures. Please pass a valid HuggingFace LLM model to the zentorch.llm.optimize API.” This check confirms the presence of the "config" and "architectures" attributes of the model to get the model id. Considering the check, two scenarios the zentorch.llm.optimize can still act as a dummy function:
 1.  HuggingFace has a plethora of models, of which Generative LLMs are a subset of. So, even if the model has the attributes of "config" and "architectures", the model id might not be yet present in the supported models list from zentorch. In this case zentorch.llm.optimize will act as a dummy function.
 2. A model can be a valid generative LLM from HuggingFace or not, might miss the "config" and "architectures" attributes. In this case also, the zentorch.llm.optimize API will act as a dummy function.
@@ -284,7 +298,7 @@ with torch.no_grad():
     output = model.generate(input)
 ```
 
-## 3.5 Weight only Quantized models
+## 4.5 Weight only Quantized models
 
 Huggingface models are quantized using [AMD's Quark tool](https://quark.docs.amd.com/latest/install.html).
 After downloading the zip file, install Quark and follow the below steps:
@@ -304,8 +318,8 @@ model = zentorch.load_woq_model(model, safetensor_path)
 Here, safetensor_path refers to the "<output_dir>" path of the quantized model.
 After the loading steps, the model can be executed in a similar fashion as the cases# 1-3 listed in [section 3.4](#34-huggingface-generative-llm-models).
 
-# 4. Logging and Debugging
-## 4.1 ZenDNN logs
+# 5. Logging and Debugging
+## 5.1 ZenDNN logs
 Logging for ZenDNN is disabled by default but can be enabled by using the environment variable **ZENDNN_LOG_OPTS** before running any tests. Its behavior can be specified by setting **ZENDNN_LOG_OPTS** to a comma-delimited list of **ACTOR:DBGLVL** pairs. An example to turn on info logging is given below.
 ```bash
 export ZENDNN_LOG_OPTS=ALL:2
@@ -317,7 +331,7 @@ export ZENDNN_PRIMITIVE_LOG_ENABLE=1
 
 For further details on ZenDNN logging mechanism, refer to ZenDNN user-guide from [this page](https://www.amd.com/en/developer/zendnn.html#:~:text=Documentation-,ZenDNN%20User%20Guide,-TensorFlow%20%2B%20ZenDNN%20User).
 
-## 4.2 _zentorch_ logs
+## 5.2 _zentorch_ logs
 For _zentorch_, CPP specific logging can be enabled by setting the environment variable `TORCH_CPP_LOG_LEVEL`. This has four levels: **INFO**, **WARNING**, **ERROR** and **FATAL** in decreasing order of verbosity. Similarly, python logging can be enabled by setting the environment variable `ZENTORCH_PY_LOG_LEVEL`, this has five levels: **DEBUG**, **INFO**, **WARNING**, **ERROR** and **CRITICAL**, again in decreasing order of verbosity. An example to enable INFO level logs for cpp and DEBUG level for python (most verbose) is given below:
 ```bash
 export TORCH_CPP_LOG_LEVEL=INFO
@@ -328,7 +342,7 @@ The default level of logs is **WARNING** for both cpp and python sources but can
 
 >INFO: Since all OPs implemented in _zentorch_ are registered with torch using the TORCH_LIBRARY(), TORCH_LIBRARY_FRAGMENT() and TORCH_LIBRARY_IMPL() macros in bindings, the PyTorch profiler can be used without any modifications to measure the op level performance.
 
-## 4.3 Support for `TORCH_COMPILE_DEBUG`
+## 5.3 Support for `TORCH_COMPILE_DEBUG`
 PyTorch offers a debugging toolbox that comprises a built-in stats and trace function. This functionality facilitates the display of the time spent by each compilation phase, output code, output graph visualization, and IR dump. `TORCH_COMPILE_DEBUG` invokes this debugging tool that allows for better problem-solving while troubleshooting the internal issues of TorchDynamo and TorchInductor. This functionality works for the models optimized using _zentorch_, so it can be leveraged to debug these models as well. To enable this functionality, users can either set the environment variable `TORCH_COMPILE_DEBUG=1` or specify the environment variable with the runnable file (e.g., test.py) as input.
 ```bash
 # test.py contains model optimized by torch.compile with 'zentorch' as backend
@@ -336,12 +350,12 @@ TORCH_COMPILE_DEBUG=1 python test.py
 ```
 For more information about TORCH_COMPILE_DEBUG refer to the official PyTorch documentaion available.
 
-# 5. Performance tuning and Benchmarking
+# 6. Performance tuning and Benchmarking
 zentorch v5.0.1 is supported with ZenDNN v5.0. Please see the **Tuning Guidelines** section of ZenDNN User Guide for performance tuning. ZenDNN User Guide can be downloaded from [here](https://developer.amd.com/zendnn)
 
-# 6. Additional Utilities:
+# 7. Additional Utilities:
 
-## 6.1 _zentorch_ attributes:
+## 7.1 _zentorch_ attributes:
 To check the version of _zentorch_ use the following command:
 
 ```bash

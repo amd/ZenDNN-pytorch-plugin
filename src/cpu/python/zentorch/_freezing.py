@@ -1,5 +1,5 @@
 # ***************************************************************************
-# Modifications Copyright (c) 2024 Advanced Micro Devices, Inc.
+# Modifications Copyright (c) 2025 Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Was sourced from:
@@ -20,11 +20,12 @@ from typing import List, Tuple
 from ._logging import get_logger
 from ._optimize import optimize
 from ._utils import is_version_compatible_import
-if is_version_compatible_import(['_inductor', 'constant_folding'], ['constant_fold']):
+
+if is_version_compatible_import(["_inductor", "constant_folding"], ["constant_fold"]):
     from torch._inductor.constant_folding import constant_fold
 else:
     from torch._inductor.freezing import constant_fold  # for PT 2.1.x
-if is_version_compatible_import(['fx', '_utils'], ['lazy_format_graph_code']):
+if is_version_compatible_import(["fx", "_utils"], ["lazy_format_graph_code"]):
     from torch.fx._utils import lazy_format_graph_code
 else:
     from torch._dynamo.utils import lazy_format_graph_code  # for PT 2.1.x, 2.2.x, 2.3.x
@@ -47,6 +48,7 @@ def freeze(
     zen_gm = optimize(aot_autograd_gm)
     # we do view to reshape to avoid lowering exception
     view_to_reshape(zen_gm)
+
     if tracing_context := torch._guards.TracingContext.try_get():
         fw_metadata = tracing_context.fw_metadata
         params_flat = tracing_context.params_flat

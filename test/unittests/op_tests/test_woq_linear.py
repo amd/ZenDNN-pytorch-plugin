@@ -32,7 +32,7 @@ def get_weight_tensor(qweight: torch.Tensor, scales: torch.Tensor, group_size: i
         group_size = group_size
 
     # unpacking
-    from ._pack import create_pack_method
+    from op_tests._pack import create_pack_method
 
     packmethod = create_pack_method("awq", "int4")
     weight_tensor = packmethod.unpack(qweight, False)
