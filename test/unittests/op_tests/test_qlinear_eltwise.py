@@ -15,7 +15,7 @@ from unittest_utils import (  # noqa: 402
     Zentorch_TestCase,
     has_zentorch,
     run_tests,
-    supported_dtypes,
+    qlinear_dtypes,
     input_dim_opt,
     q_weight_list_opt,
     bias_opt,
@@ -31,7 +31,7 @@ from quant_utils import qdq_linear  # noqa: 402
 class Test_Qlinear_Eltwise(Zentorch_TestCase):
     @parameterized.expand(
         product(
-            supported_dtypes,
+            qlinear_dtypes,
             input_dim_opt,
             q_weight_list_opt,
             bias_opt,
@@ -40,7 +40,8 @@ class Test_Qlinear_Eltwise(Zentorch_TestCase):
             q_linear_dtype_opt,
             q_linear_dtype_opt,
             qlinear_eltwise_map.keys(),
-        )
+        ),
+        skip_on_empty=True,
     )
     @torch.inference_mode()
     def test_qlinear_eltwise_fused_op_accuracy(

@@ -19,7 +19,7 @@ from unittest_utils import (  # noqa: 402
     has_zentorch,
     run_tests,
     reset_dynamo,
-    supported_dtypes,
+    qlinear_dtypes,
     input_dim_opt,
     q_weight_list_opt,
     bias_opt,
@@ -64,13 +64,14 @@ class Custom_Model_Qlinear_Mul_Add(nn.Module):
 class Test_Qlinear_Mul_Add_Model(Zentorch_TestCase):
     @parameterized.expand(
         product(
-            supported_dtypes,
+            qlinear_dtypes,
             input_dim_opt,
             q_weight_list_opt,
             bias_opt,
             q_granularity_opt,
             q_zero_points_dtype_opt,
-        )
+        ),
+        skip_on_empty=True,
     )
     @torch.inference_mode()
     def test_qlinear_eltwise_model(

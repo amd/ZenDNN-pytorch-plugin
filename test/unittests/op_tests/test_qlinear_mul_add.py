@@ -14,8 +14,9 @@ sys.path.append(str(Path(__file__).parent.parent))
 from unittest_utils import (  # noqa: 402
     Zentorch_TestCase,
     has_zentorch,
+    zentorch,
     run_tests,
-    supported_dtypes,
+    qlinear_dtypes,
     input_dim_opt,
     q_weight_list_opt,
     bias_opt,
@@ -28,16 +29,43 @@ from quant_utils import qdq_linear  # noqa: 402
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class Test_Qlinear_Binary(Zentorch_TestCase):
+    @torch.inference_mode()
+    def test_qlinear_unsupported_hardware(self):
+        if zentorch._C.is_avx512_supported():
+            self.skipTest(
+                "Skipping hardware test, as AVX512 instructions are supported."
+            )
+        self.data.create_data("float32")
+
+        with self.assertRaises(RuntimeError) as context:
+            torch.ops.zentorch.zentorch_qlinear_mul_add(
+                self.data.x_for_qlinear["float32"][2],
+                self.data.y_int8[0],
+                self.data.bias_for_qlinear[0],
+                self.data.x_scales["per_tensor"],
+                self.data.x_zero_points["per_tensor"]["float32"]["uint8"],
+                self.data.y_scales["per_channel"],
+                self.data.y_zero_points["per_channel"],
+                self.data.binary_input[2],
+                self.data.binary_input[2],
+                self.data.x_for_qlinear["float32"][2].dtype,
+            )
+        self.assertTrue(
+            "Zentorch's INT8 kernels require the CPU to support AVX512 instructions."
+            in str(context.exception)
+        )
+
     @parameterized.expand(
         product(
-            supported_dtypes,
+            qlinear_dtypes,
             input_dim_opt,
             q_weight_list_opt,
             bias_opt,
             q_granularity_opt,
             q_zero_points_dtype_opt,
             q_linear_dtype_opt,
-        )
+        ),
+        skip_on_empty=True,
     )
     @torch.inference_mode()
     def test_qlinear_mul_add_op(
