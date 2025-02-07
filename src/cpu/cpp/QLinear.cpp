@@ -6,6 +6,7 @@
 #include "MatmulUtils.hpp"
 #include "Memory.hpp"
 #include "QLinearUtils.hpp"
+#include "Utils.hpp"
 
 namespace zentorch {
 
@@ -204,6 +205,10 @@ inline at::Tensor zentorch_qlinear_unary(
                  "output_dtype received is not yet supported, only "
                  "float32/uint8/int8 is supported");
 
+  ZENTORCH_CHECK(is_avx512_supported(),
+                 "Zentorch's INT8 kernels require the CPU to support "
+                 "AVX512 instructions.");
+
   at::Tensor q_input =
       at::empty(input.sizes(),
                 input.options().dtype(
@@ -254,6 +259,11 @@ inline at::Tensor zentorch_qlinear_binary_binary(
                      output_dtype == c10::kChar,
                  "output_dtype received is not yet supported, only "
                  "float32/uint8/int8 is supported");
+
+  ZENTORCH_CHECK(is_avx512_supported(),
+                 "Zentorch's INT8 kernels require the CPU to support "
+                 "AVX512 instructions.");
+
   at::Tensor q_input =
       at::empty(input.sizes(),
                 input.options().dtype(

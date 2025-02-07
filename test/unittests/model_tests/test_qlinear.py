@@ -16,7 +16,7 @@ from unittest_utils import (  # noqa: 402
     Zentorch_TestCase,
     has_zentorch,
     run_tests,
-    supported_dtypes,
+    qlinear_dtypes,
     input_dim_opt,
     q_weight_list_opt,
     bias_opt,
@@ -81,7 +81,7 @@ class Custom_Model_Qlinear(nn.Module):
 class Test_Qlinear_Model(Zentorch_TestCase):
     @parameterized.expand(
         product(
-            supported_dtypes,
+            qlinear_dtypes,
             input_dim_opt,
             q_weight_list_opt,
             bias_opt,
@@ -89,7 +89,8 @@ class Test_Qlinear_Model(Zentorch_TestCase):
             q_zero_points_dtype_opt,
             q_linear_dtype_opt,
             q_linear_dtype_opt,
-        )
+        ),
+        skip_on_empty=True,
     )
     @torch.inference_mode()
     def test_qlinear_model(

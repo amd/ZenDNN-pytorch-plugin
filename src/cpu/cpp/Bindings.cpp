@@ -26,6 +26,11 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def("show_config", &zentorch::show_config,
         "Show the current configuration of ZenTorch.");
 
+  m.def("is_avx512_supported", zentorch::is_avx512_supported,
+        "Check if AVX512 instructions are supported on the current hardware."
+        "\n\nReturns:\n"
+        "\tBool: True if AVX512 instructions are supported, False otherwise.");
+
   m.def("is_bf16_supported", zendnn::utils::zendnn_bf16_device_check,
         "Check if BF16 is supported on the current device.\n\n"
         "Returns:\n"

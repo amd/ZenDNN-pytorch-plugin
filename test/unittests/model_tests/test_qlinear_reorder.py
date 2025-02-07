@@ -20,7 +20,7 @@ from unittest_utils import (  # noqa: 402
     reset_dynamo,
     run_tests,
     input_dim_opt,
-    supported_dtypes,
+    qlinear_dtypes,
     bias_opt,
     q_granularity_opt,
     q_zero_points_dtype_opt,
@@ -127,12 +127,13 @@ class Custom_Model_Zentorch_Qlinear_Mix_X3(nn.Module):
 class Test_Qlinear_Model(Zentorch_TestCase):
     @parameterized.expand(
         product(
-            supported_dtypes,
+            qlinear_dtypes,
             input_dim_opt,
             bias_opt,
             q_granularity_opt,
             q_zero_points_dtype_opt,
-        )
+        ),
+        skip_on_empty=True,
     )
     @torch.inference_mode()
     def test_qlinear_x3(
@@ -179,12 +180,13 @@ class Test_Qlinear_Model(Zentorch_TestCase):
 
     @parameterized.expand(
         product(
-            supported_dtypes,
+            qlinear_dtypes,
             input_dim_opt,
             bias_opt,
             q_granularity_opt,
             q_zero_points_dtype_opt,
-        )
+        ),
+        skip_on_empty=True,
     )
     @torch.inference_mode()
     def test_qlinear_mix_x3(

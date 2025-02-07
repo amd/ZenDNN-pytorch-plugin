@@ -10,6 +10,7 @@ from packaging.version import parse
 from torch.testing._internal.common_utils import TestCase, run_tests, SEED  # noqa: F401
 
 supported_dtypes = [("float32")]
+qlinear_dtypes = []
 freeze_opt = [True, False]
 
 try:
@@ -29,6 +30,16 @@ def set_seed(seed=SEED):
     random.seed(seed)
     torch.manual_seed(seed)
     np.random.seed(seed)
+
+
+# Zentorch qlinear_* ops currently only support Float32 data type.
+if has_zentorch and zentorch._C.is_avx512_supported():
+    qlinear_dtypes.append(("float32"))
+else:
+    print(
+        "Warning: Skipping zentorch qlinear Testcases since they are not \
+supported on this hardware"
+    )
 
 
 if has_zentorch and zentorch._C.is_bf16_supported():
