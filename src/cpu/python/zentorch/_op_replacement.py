@@ -23,6 +23,9 @@ def get_tensor(fx_graph, node, arg_index=None):
         # keys in node.args[arg_index].meta. Till PT <= 2.4.x, presence of
         # metadata implied fake tensors. But from PT 2.5.x,
         # the 'mutation_region_id' default argument is introduced in meta.
+        if node.args[arg_index].target == at_ops.clone.default:
+            # workaround for CNNs in freezing path
+            return node.args[arg_index].args[0].meta['val']
         if "val" in node.args[arg_index].meta.keys():
             # arg node in fx_graph generated through torch.compile
             # will be fake tensor
