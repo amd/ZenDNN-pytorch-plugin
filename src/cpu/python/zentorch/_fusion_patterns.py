@@ -312,7 +312,7 @@ def _qlinear_mul_add_pattern_1(
     # to work. We need to find a better way of decoupling them from each
     # other.
     qlinear_out = zt_ops.zentorch_qlinear(
-        arg_0, arg_1, bias_0, arg_2, arg_3, arg_4, arg_5, arg_0.dtype
+        arg_0, arg_1, bias_0, arg_2, arg_3, arg_4, arg_5
     )
     mul_res = at_ops.mul(qlinear_out, mul_1)
     add_res = at_ops.add(mul_res, add_1)
@@ -323,7 +323,7 @@ def _qlinear_mul_add_pattern_2(
     arg_0, arg_1, bias_0, arg_2, arg_3, arg_4, arg_5, mul_1, add_1
 ):
     qlinear_out = zt_ops.zentorch_qlinear(
-        arg_0, arg_1, bias_0, arg_2, arg_3, arg_4, arg_5, arg_0.dtype
+        arg_0, arg_1, bias_0, arg_2, arg_3, arg_4, arg_5
     )
     mul_res = at_ops.mul(mul_1, qlinear_out)
     add_res = at_ops.add(mul_res, add_1)
@@ -334,7 +334,7 @@ def _qlinear_mul_add_pattern_3(
     arg_0, arg_1, bias_0, arg_2, arg_3, arg_4, arg_5, mul_1, add_1
 ):
     qlinear_out = zt_ops.zentorch_qlinear(
-        arg_0, arg_1, bias_0, arg_2, arg_3, arg_4, arg_5, arg_0.dtype
+        arg_0, arg_1, bias_0, arg_2, arg_3, arg_4, arg_5
     )
     mul_res = at_ops.mul(qlinear_out, mul_1)
     add_res = at_ops.add(add_1, mul_res)
@@ -345,7 +345,7 @@ def _qlinear_mul_add_pattern_4(
     arg_0, arg_1, bias_0, arg_2, arg_3, arg_4, arg_5, mul_1, add_1
 ):
     qlinear_out = zt_ops.zentorch_qlinear(
-        arg_0, arg_1, bias_0, arg_2, arg_3, arg_4, arg_5, arg_0.dtype
+        arg_0, arg_1, bias_0, arg_2, arg_3, arg_4, arg_5
     )
     mul_res = at_ops.mul(mul_1, qlinear_out)
     add_res = at_ops.add(add_1, mul_res)
@@ -366,7 +366,7 @@ def _qlinear_mul_add_replacement(
         arg_5,
         mul_1,
         add_1,
-        add_1.dtype,
+        output_dtype=add_1.dtype,
     )
     return out_0
 
@@ -528,8 +528,25 @@ def _dim_check(match):
 
 def _mm_add_check(match):
     dtype_check = _matmul_dtypes_check(match)
-    add_check = match.kwargs['add_1'].meta['val'].dim() != 1
+    add_check = match.kwargs["add_1"].meta["val"].dim() != 1
     return add_check and dtype_check
+
+
+def _qlinear_mul_add_check(match):
+    # don't fuse when post-ops are of different dtypes
+    if (
+        match.kwargs["mul_1"].meta["val"].dtype
+        != match.kwargs["add_1"].meta["val"].dtype
+    ):
+        return False
+    if (
+        "bias_0" in match.kwargs
+        and match.kwargs["bias_0"] is not None
+        and match.kwargs["bias_0"].meta["val"].dtype
+        != match.kwargs["mul_1"].meta["val"].dtype
+    ):
+        return False
+    return True
 
 
 def _dummy_check_(match):
@@ -721,7 +738,7 @@ def _get_pattern_with_replacement():
                 q_binary(),
             ],
             {},
-            _dummy_check_,
+            _qlinear_mul_add_check,
         ),
         (
             _qlinear_mul_add_pattern_2,
@@ -738,7 +755,7 @@ def _get_pattern_with_replacement():
                 q_binary(),
             ],
             {},
-            _dummy_check_,
+            _qlinear_mul_add_check,
         ),
         (
             _qlinear_mul_add_pattern_3,
@@ -755,7 +772,7 @@ def _get_pattern_with_replacement():
                 q_binary(),
             ],
             {},
-            _dummy_check_,
+            _qlinear_mul_add_check,
         ),
         (
             _qlinear_mul_add_pattern_4,
@@ -772,7 +789,7 @@ def _get_pattern_with_replacement():
                 q_binary(),
             ],
             {},
-            _dummy_check_,
+            _qlinear_mul_add_check,
         ),
         (
             _woq_linear_add_add_pattern_1,

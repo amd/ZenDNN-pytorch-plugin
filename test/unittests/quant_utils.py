@@ -18,7 +18,8 @@ def qdq_linear(
     inp_zero_points,
     weight_scales,
     weight_zero_points,
-    eltwise_op=None,
+    eltwise_op,
+    output_dtype,
     output_scales=None,
     output_zero_points=None,
 ):
@@ -28,9 +29,10 @@ def qdq_linear(
     weight_max_val = 127 if weight_zero_points.dtype == torch.int8 else 255
     out_features_axis = 0
 
-    if inp.dtype == torch.float32:
+    if inp.dtype == torch.float32 or inp.dtype == torch.bfloat16:
+        # fake_quantize_per_tensor_affine only supports fp32 inputs
         qdq_inp = torch.fake_quantize_per_tensor_affine(
-            inp, inp_scales, inp_zero_points, inp_min_val, inp_max_val
+            inp.to(torch.float32), inp_scales, inp_zero_points, inp_min_val, inp_max_val
         )
     else:
         qdq_inp = torch.ops.quantized_decomposed.dequantize_per_tensor.default(
@@ -66,16 +68,16 @@ def qdq_linear(
     if eltwise_op is not None:
         qdq_linear_output = eltwise_op(qdq_linear_output)
 
-    rq_linear_output = qdq_linear_output
     if output_scales is not None and output_zero_points is not None:
         output_min_val = -128 if output_zero_points.dtype == torch.int8 else 0
         output_max_val = 127 if output_zero_points.dtype == torch.int8 else 255
-        rq_linear_output = torch.ops.quantized_decomposed.quantize_per_tensor.default(
+        return torch.ops.quantized_decomposed.quantize_per_tensor.default(
             qdq_linear_output,
             output_scales,
             output_zero_points,
             output_min_val,
             output_max_val,
             output_zero_points.dtype,
-        )
-    return rq_linear_output
+        ).to(output_dtype)
+    else:
+        return qdq_linear_output.to(output_dtype)

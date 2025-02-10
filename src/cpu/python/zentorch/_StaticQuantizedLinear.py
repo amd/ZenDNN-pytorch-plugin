@@ -163,6 +163,6 @@ class ZenTorchStaticQuantizedLinear(nn.Linear):
             self._op_context.input_zero_points,
             self._op_context.weight_scales,
             self._op_context.weight_zero_points,
-            x.dtype,
+            output_dtype=x.dtype,
         )
         return linear_out

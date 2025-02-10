@@ -48,13 +48,14 @@ class Test_Qlinear_Binary(Zentorch_TestCase):
                 self.data.y_zero_points["per_channel"],
                 self.data.binary_input[2],
                 self.data.binary_input[2],
-                self.data.x_for_qlinear["float32"][2].dtype,
+                output_dtype=self.data.x_for_qlinear["float32"][2].dtype,
             )
         self.assertTrue(
             "Zentorch's INT8 kernels require the CPU to support AVX512 instructions."
             in str(context.exception)
         )
 
+    # TODO: parameterize in a more self-explanatory way for test-names
     @parameterized.expand(
         product(
             qlinear_dtypes,
@@ -64,6 +65,7 @@ class Test_Qlinear_Binary(Zentorch_TestCase):
             q_granularity_opt,
             q_zero_points_dtype_opt,
             q_linear_dtype_opt,
+            ["float32", "bfloat16"],
         ),
         skip_on_empty=True,
     )
@@ -77,9 +79,56 @@ class Test_Qlinear_Binary(Zentorch_TestCase):
         q_granularity_val,
         q_zero_points_dtype,
         input_dtype,
+        output_dtype,
     ):
-        self.skip_if_bfloat16_not_yet_supported(dtype)
         self.data.create_unittest_data(dtype)
+        if (
+            self.data.bias_for_qlinear[bias_opt_idx] is None
+            and input_dtype in ("float32", "bfloat16")
+            and output_dtype not in (input_dtype, "int8", "uint8")
+        ):
+            self.skipTest(
+                "Skipping test, if bias is None and input is floating-point, then "
+                "output dtype has to either match input dtype or be any of int8 "
+                "or uint8"
+            )
+
+        if (
+            self.data.bias_for_qlinear[bias_opt_idx] is not None
+            and self.data.bias_for_qlinear[bias_opt_idx].dtype == torch.float32
+            and output_dtype == "bfloat16"
+        ):
+            self.skipTest(
+                "Skipping test, if bias is fp32, then output dtype cannot be bf16."
+            )
+
+        if (
+            self.data.bias_for_qlinear[bias_opt_idx] is not None
+            and self.data.bias_for_qlinear[bias_opt_idx].dtype == torch.bfloat16
+            and output_dtype == "float32"
+        ):
+            self.skipTest(
+                "Skipping test, if bias is bf16, then output dtype cannot be fp32."
+            )
+
+        if (
+            self.data.bias_for_qlinear[bias_opt_idx] is not None
+            and input_dtype in ("float32", "bfloat16")
+            and self.data.bias_for_qlinear[bias_opt_idx].dtype
+            != self.data.get_torch_type(input_dtype)
+        ):
+            self.skipTest(
+                "Skipping test, if bias is not None and input is floating-point, then "
+                "bias dtype has to match input dtype"
+            )
+
+        if (
+            self.data.bias_for_qlinear[bias_opt_idx] is not None
+            and self.data.bias_for_qlinear[bias_opt_idx].dtype
+            != self.data.binary_input[input_dim].dtype
+        ):
+            self.skipTest("Skipping test, bias dtype has to match post-ops dtype.")
+
         qdq_linear_mul_add_output = torch.add(
             qdq_linear(
                 self.data.x_for_qlinear[input_dtype][input_dim],
@@ -89,10 +138,12 @@ class Test_Qlinear_Binary(Zentorch_TestCase):
                 self.data.x_zero_points["per_tensor"][input_dtype][q_zero_points_dtype],
                 self.data.y_scales[q_granularity_val],
                 self.data.y_zero_points[q_granularity_val],
+                None,
+                self.data.get_torch_type(output_dtype),
             )
             * self.data.binary_input[input_dim],
             self.data.binary_input[input_dim],
-        )
+        ).to(self.data.get_torch_type(output_dtype))
         # zentorch qlinear + eltwise fused op
         zentorch_qlinear_mul_add_output = torch.ops.zentorch.zentorch_qlinear_mul_add(
             self.data.x_for_qlinear[input_dtype][input_dim],
@@ -104,13 +155,13 @@ class Test_Qlinear_Binary(Zentorch_TestCase):
             self.data.y_zero_points[q_granularity_val],
             self.data.binary_input[input_dim],
             self.data.binary_input[input_dim],
-            torch.float32,
+            output_dtype=self.data.get_torch_type(output_dtype),
         )
         self.assertEqual(
             qdq_linear_mul_add_output,
             zentorch_qlinear_mul_add_output,
-            atol=1e-3,
-            rtol=1e-3,
+            atol=1e-2,
+            rtol=1e-2,
         )
 
 

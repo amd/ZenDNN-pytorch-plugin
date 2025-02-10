@@ -795,19 +795,12 @@ def meta_zentorch_qlinear(
     input_zero_points,
     weight_scales,
     weight_zero_points,
-    output_dtype,
+    output_dtype=None,
     output_scales=None,
     output_zero_points=None,
 ):
-    torch._check(
-        output_dtype in (torch.float32, torch.bfloat16, torch.uint8, torch.int8),
-        lambda: (
-            f"zentorch_qlinear: "
-            f"output_dtype = {output_dtype} "
-            f"is not yet supported, expected output_dtype is "
-            f"torch.float32/torch.bfloat16/torch.uint8/torch.int8"
-        ),
-    )
+    if output_dtype is None:
+        output_dtype = torch.float32
     out_dim = list(input.size())
     out_dim[-1] = weight.size(0)
     return input.new_empty(out_dim, dtype=output_dtype)
@@ -822,7 +815,7 @@ def meta_zentorch_qlinear_relu(
     input_zero_points,
     weight_scales,
     weight_zero_points,
-    output_dtype,
+    output_dtype=None,
     output_scales=None,
     output_zero_points=None,
 ):
@@ -849,7 +842,7 @@ def meta_zentorch_qlinear_sigmoid(
     input_zero_points,
     weight_scales,
     weight_zero_points,
-    output_dtype,
+    output_dtype=None,
     output_scales=None,
     output_zero_points=None,
 ):
@@ -878,19 +871,12 @@ def meta_zentorch_qlinear_mul_add(
     weight_zero_points,
     mul_input,
     add_input,
-    output_dtype,
+    output_dtype=None,
     output_scales=None,
     output_zero_points=None,
 ):
-    torch._check(
-        output_dtype in (torch.float32, torch.bfloat16, torch.uint8, torch.int8),
-        lambda: (
-            f"zentorch_qlinear: "
-            f"output_dtype = {output_dtype} "
-            f"is not yet supported, expected output_dtype is "
-            f"torch.float32/torch.bfloat16/torch.uint8/torch.int8"
-        ),
-    )
+    if output_dtype is None:
+        output_dtype = torch.float32
     return add_input.new_empty((add_input.size()), dtype=output_dtype)
 
 

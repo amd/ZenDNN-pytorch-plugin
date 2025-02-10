@@ -69,6 +69,7 @@ q_zero_points_dtype_opt = [
 ]
 q_linear_dtype_opt = [
     "float32",
+    "bfloat16",
     "int8",
     "uint8",
 ]
@@ -189,6 +190,8 @@ class Test_Data(metaclass=Singleton):
             "float32": torch.float32,
             "bfloat16": torch.bfloat16,
             "int": torch.int,
+            "int8": torch.int8,
+            "uint8": torch.uint8,
         }
 
     def create_llm_data(self, dtype="float32"):
@@ -196,9 +199,7 @@ class Test_Data(metaclass=Singleton):
         pass
 
     def create_pretrained_model_data(
-        self,
-        dtype="float32",
-        model_name="bert-large-uncased"
+        self, dtype="float32", model_name="bert-large-uncased"
     ):
         batch_size = random.randint(1, 100)
         # torch.rand() is not supported for integer
@@ -302,9 +303,14 @@ class Test_Data(metaclass=Singleton):
 
         self.x_for_qlinear = {
             "float32": {
-                2: torch.randn(self.m, self.k).type(torch_type),
-                3: torch.randn(self.m, self.p, self.k).type(torch_type),
-                4: torch.randn(self.m, self.p, self.q, self.k).type(torch_type),
+                2: torch.randn(self.m, self.k).type(torch.float32),
+                3: torch.randn(self.m, self.p, self.k).type(torch.float32),
+                4: torch.randn(self.m, self.p, self.q, self.k).type(torch.float32),
+            },
+            "bfloat16": {
+                2: torch.randn(self.m, self.k).type(torch.bfloat16),
+                3: torch.randn(self.m, self.p, self.k).type(torch.bfloat16),
+                4: torch.randn(self.m, self.p, self.q, self.k).type(torch.bfloat16),
             },
             "int8": {
                 2: torch.randint(-128, 127, (self.m, self.k)).type(torch.int8),
@@ -345,6 +351,12 @@ class Test_Data(metaclass=Singleton):
                     # 1D Tensor
                     "uint8": torch.randint(0, 255, (1,)).type(torch.uint8),
                 },
+                "bfloat16": {
+                    # Scalar Tensor
+                    "int8": torch.tensor(0).type(torch.int8),
+                    # 1D Tensor
+                    "uint8": torch.randint(0, 255, (1,)).type(torch.uint8),
+                },
                 "int8": {
                     # 1D Tensor
                     "int8": torch.zeros(1).type(torch.int8),
@@ -375,6 +387,10 @@ class Test_Data(metaclass=Singleton):
                     "positive_scales": None,
                     # "negative_scales" : None,
                 },
+                "bfloat16": {
+                    "positive_scales": None,
+                    # "negative_scales" : None,
+                },
                 "uint8": {
                     "positive_scales": torch.rand((1,)).type(torch.float32),
                     # "negative_scales" : torch.rand((1,)).type(torch.float32) * -1,
@@ -388,6 +404,7 @@ class Test_Data(metaclass=Singleton):
         self.output_zero_points = {
             "per_tensor": {
                 "float32": None,
+                "bfloat16": None,
                 "uint8": torch.randint(0, 255, (1,)).type(torch.uint8),
                 "int8": torch.zeros(1).type(torch.int8),
             },

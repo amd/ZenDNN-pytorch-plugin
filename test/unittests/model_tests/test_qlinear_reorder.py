@@ -41,6 +41,7 @@ class Custom_Model_Zentorch_Qlinear_X3(nn.Module):
         input_zero_points,
         weight_scales,
         weight_zero_points,
+        output_dtype,
     ):
         qlinear_0 = torch.ops.zentorch.zentorch_qlinear(
             input,
@@ -50,7 +51,7 @@ class Custom_Model_Zentorch_Qlinear_X3(nn.Module):
             input_zero_points,
             weight_scales,
             weight_zero_points,
-            torch.float32,
+            output_dtype=output_dtype,
         )
         qlinear_1 = torch.ops.zentorch.zentorch_qlinear(
             qlinear_0,
@@ -60,7 +61,7 @@ class Custom_Model_Zentorch_Qlinear_X3(nn.Module):
             input_zero_points,
             weight_scales,
             weight_zero_points,
-            torch.float32,
+            output_dtype=output_dtype,
         )
         qlinear_2 = torch.ops.zentorch.zentorch_qlinear(
             qlinear_1,
@@ -70,7 +71,7 @@ class Custom_Model_Zentorch_Qlinear_X3(nn.Module):
             input_zero_points,
             weight_scales,
             weight_zero_points,
-            torch.float32,
+            output_dtype=output_dtype,
         )
         return qlinear_2
 
@@ -89,6 +90,7 @@ class Custom_Model_Zentorch_Qlinear_Mix_X3(nn.Module):
         input_zero_points,
         weight_scales,
         weight_zero_points,
+        output_dtype,
     ):
         qlinear_0 = torch.ops.zentorch.zentorch_qlinear(
             input,
@@ -98,7 +100,7 @@ class Custom_Model_Zentorch_Qlinear_Mix_X3(nn.Module):
             input_zero_points,
             weight_scales,
             weight_zero_points,
-            torch.float32,
+            output_dtype=output_dtype,
         )
         qlinear_1 = torch.ops.zentorch.zentorch_qlinear_relu(
             qlinear_0,
@@ -108,7 +110,7 @@ class Custom_Model_Zentorch_Qlinear_Mix_X3(nn.Module):
             input_zero_points,
             weight_scales,
             weight_zero_points,
-            torch.float32,
+            output_dtype=output_dtype,
         )
         qlinear_2 = torch.ops.zentorch.zentorch_qlinear_sigmoid(
             qlinear_1,
@@ -118,7 +120,7 @@ class Custom_Model_Zentorch_Qlinear_Mix_X3(nn.Module):
             input_zero_points,
             weight_scales,
             weight_zero_points,
-            torch.float32,
+            output_dtype=output_dtype,
         )
         return qlinear_2
 
@@ -144,7 +146,6 @@ class Test_Qlinear_Model(Zentorch_TestCase):
         q_granularity_val,
         q_zero_points_dtype,
     ):
-        self.skip_if_bfloat16_not_yet_supported(dtype)
         self.data.create_unittest_data(dtype)
 
         model = Custom_Model_Zentorch_Qlinear_Mix_X3()
@@ -158,6 +159,7 @@ class Test_Qlinear_Model(Zentorch_TestCase):
             self.data.x_zero_points["per_tensor"][dtype][q_zero_points_dtype],
             self.data.y_scales_square[q_granularity_val],
             self.data.y_zero_points_square[q_granularity_val],
+            self.data.get_torch_type(dtype),
         )
 
         counters.clear()
@@ -174,6 +176,7 @@ class Test_Qlinear_Model(Zentorch_TestCase):
             self.data.x_zero_points["per_tensor"][dtype][q_zero_points_dtype],
             self.data.y_scales_square[q_granularity_val],
             self.data.y_zero_points_square[q_granularity_val],
+            self.data.get_torch_type(dtype),
         )
         self.assertEqual(counters["zentorch"]["optimized_reorder"], 2)
         self.assertEqual(model_output, zentorch_output)
@@ -197,7 +200,6 @@ class Test_Qlinear_Model(Zentorch_TestCase):
         q_granularity_val,
         q_zero_points_dtype,
     ):
-        self.skip_if_bfloat16_not_yet_supported(dtype)
         self.data.create_unittest_data(dtype)
 
         model = Custom_Model_Zentorch_Qlinear_X3()
@@ -211,6 +213,7 @@ class Test_Qlinear_Model(Zentorch_TestCase):
             self.data.x_zero_points["per_tensor"][dtype][q_zero_points_dtype],
             self.data.y_scales_square[q_granularity_val],
             self.data.y_zero_points_square[q_granularity_val],
+            self.data.get_torch_type(dtype),
         )
 
         counters.clear()
@@ -227,6 +230,7 @@ class Test_Qlinear_Model(Zentorch_TestCase):
             self.data.x_zero_points["per_tensor"][dtype][q_zero_points_dtype],
             self.data.y_scales_square[q_granularity_val],
             self.data.y_zero_points_square[q_granularity_val],
+            self.data.get_torch_type(dtype),
         )
         self.assertEqual(counters["zentorch"]["optimized_reorder"], 2)
         self.assertEqual(model_output, zentorch_output)

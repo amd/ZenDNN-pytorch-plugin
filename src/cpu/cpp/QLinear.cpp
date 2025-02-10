@@ -194,18 +194,24 @@ inline at::Tensor zentorch_qlinear_unary(
     const at::Tensor &input, const at::Tensor &weight,
     c10::optional<at::Tensor> bias, const at::Tensor &input_scales,
     const at::Tensor &input_zero_points, const at::Tensor &weight_scales,
-    const at::Tensor &weight_zero_points, c10::ScalarType output_dtype,
+    const at::Tensor &weight_zero_points,
+    c10::optional<c10::ScalarType> output_dtype,
     c10::optional<at::Tensor> output_scales,
     c10::optional<at::Tensor> output_zero_points,
     std::string zentorch_op_name) {
 
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
-  ZENTORCH_CHECK(output_dtype == c10::kFloat ||
-                     output_dtype == c10::kBFloat16 ||
-                     output_dtype == c10::kByte || output_dtype == c10::kChar,
-                 "output_dtype received is not yet supported, only "
-                 "float32/bfloat16/uint8/int8 is supported");
+  if (output_dtype.has_value()) {
+    ZENTORCH_CHECK(output_dtype == c10::kFloat ||
+                       output_dtype == c10::kBFloat16 ||
+                       output_dtype == c10::kByte || output_dtype == c10::kChar,
+                   "output_dtype received is not yet supported, only "
+                   "float32/bfloat16/uint8/int8 is supported");
+  } else {
+    // if None is provided, then we run in fp32 by default
+    output_dtype = c10::kFloat;
+  }
 
   ZENTORCH_CHECK(is_avx512_supported(),
                  "Zentorch's INT8 kernels require the CPU to support "
@@ -251,17 +257,22 @@ inline at::Tensor zentorch_qlinear_binary_binary(
     c10::optional<at::Tensor> bias, const at::Tensor &input_scales,
     const at::Tensor &input_zero_points, const at::Tensor &weight_scales,
     const at::Tensor &weight_zero_points, const at::Tensor &binary1_input,
-    const at::Tensor &binary2_input, c10::ScalarType output_dtype,
+    const at::Tensor &binary2_input,
+    c10::optional<c10::ScalarType> output_dtype,
     c10::optional<at::Tensor> output_scales,
     c10::optional<at::Tensor> output_zero_points,
     std::string zentorch_op_name) {
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
-  ZENTORCH_CHECK(output_dtype == c10::kFloat ||
-                     output_dtype == c10::kBFloat16 ||
-                     output_dtype == c10::kByte || output_dtype == c10::kChar,
-                 "output_dtype received is not yet supported, only "
-                 "float32/bfloat16/uint8/int8 is supported");
+  if (output_dtype.has_value()) {
+    ZENTORCH_CHECK(output_dtype == c10::kFloat ||
+                       output_dtype == c10::kBFloat16 ||
+                       output_dtype == c10::kByte || output_dtype == c10::kChar,
+                   "output_dtype received is not yet supported, only "
+                   "float32/bfloat16/uint8/int8 is supported");
+  } else {
+    output_dtype = c10::kFloat;
+  }
 
   ZENTORCH_CHECK(is_avx512_supported(),
                  "Zentorch's INT8 kernels require the CPU to support "
@@ -317,21 +328,21 @@ inline at::Tensor zentorch_qlinear_binary_binary(
 TORCH_LIBRARY_FRAGMENT(zentorch, m) {
   m.def("zentorch_qlinear(Tensor input, Tensor weight, "
         "Tensor? bias, Tensor input_scales, Tensor input_zero_points, "
-        "Tensor weight_scales, Tensor weight_zero_points, "
-        "ScalarType output_dtype, Tensor? output_scales=None, "
+        "Tensor weight_scales, Tensor weight_zero_points, *, "
+        "ScalarType? output_dtype=None, Tensor? output_scales=None, "
         "Tensor? output_zero_points=None, str zentorch_op_name="
         "'zentorch::zentorch_qlinear') -> Tensor");
   m.def("zentorch_qlinear_relu(Tensor input, Tensor weight, "
         "Tensor? bias, Tensor input_scales, Tensor input_zero_points, "
-        "Tensor weight_scales, Tensor weight_zero_points, "
-        "ScalarType output_dtype, Tensor? "
+        "Tensor weight_scales, Tensor weight_zero_points, *, "
+        "ScalarType? output_dtype=None, Tensor? "
         "output_scales=None, "
         "Tensor? output_zero_points=None, str zentorch_op_name="
         "'zentorch::zentorch_qlinear_relu') -> Tensor");
   m.def("zentorch_qlinear_sigmoid(Tensor input, Tensor weight, "
         "Tensor? bias, Tensor input_scales, Tensor input_zero_points, "
-        "Tensor weight_scales, Tensor weight_zero_points, "
-        "ScalarType output_dtype, Tensor? "
+        "Tensor weight_scales, Tensor weight_zero_points, *, "
+        "ScalarType? output_dtype=None, Tensor? "
         "output_scales=None, "
         "Tensor? output_zero_points=None, str zentorch_op_name="
         "'zentorch::zentorch_qlinear_sigmoid') -> Tensor");
@@ -339,8 +350,8 @@ TORCH_LIBRARY_FRAGMENT(zentorch, m) {
   m.def("zentorch_qlinear_mul_add(Tensor input, Tensor weight, "
         "Tensor? bias, Tensor input_scales, Tensor input_zero_points, "
         "Tensor weight_scales, Tensor weight_zero_points, Tensor "
-        " mul_input, Tensor add_input,"
-        "ScalarType output_dtype, Tensor? "
+        " mul_input, Tensor add_input, *, "
+        "ScalarType? output_dtype=None, Tensor? "
         "output_scales=None, "
         "Tensor? output_zero_points=None, str zentorch_op_name="
         "'zentorch::zentorch_qlinear_mul_add') -> Tensor");

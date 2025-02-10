@@ -41,6 +41,7 @@ class Custom_Model_Qlinear(nn.Module):
         inp_zero_points,
         weight_scales,
         weight_zero_points,
+        output_dtype,
         output_scales=None,
         output_zero_points=None,
         use_zentorch=False,
@@ -55,9 +56,9 @@ class Custom_Model_Qlinear(nn.Module):
                 inp_zero_points,
                 weight_scales,
                 weight_zero_points,
-                torch.float32 if output_scales is None else output_zero_points.dtype,
-                output_scales,
-                output_zero_points,
+                output_dtype=output_dtype,
+                output_scales=output_scales,
+                output_zero_points=output_zero_points,
             )
         else:
             # simulated qlinear
@@ -70,6 +71,7 @@ class Custom_Model_Qlinear(nn.Module):
                 weight_scales,
                 weight_zero_points,
                 None,
+                output_dtype,
                 output_scales,
                 output_zero_points,
             )
@@ -102,10 +104,49 @@ class Test_Qlinear_Model(Zentorch_TestCase):
         q_granularity_val,
         q_zero_points_dtype,
         input_dtype,
-        q_linear_dtype,
+        output_dtype,
     ):
-        self.skip_if_bfloat16_not_yet_supported(dtype)
         self.data.create_unittest_data(dtype)
+        # adding all the skip conditions (there are 4)
+        if (
+            self.data.bias_for_qlinear[bias_opt_idx] is None
+            and input_dtype in ("float32", "bfloat16")
+            and output_dtype not in (input_dtype, "int8", "uint8")
+        ):
+            self.skipTest(
+                "Skipping test, if bias is None and input is floating-point, then "
+                "output dtype has to either match input dtype or be any of int8 "
+                "or uint8"
+            )
+
+        if (
+            self.data.bias_for_qlinear[bias_opt_idx] is not None
+            and self.data.bias_for_qlinear[bias_opt_idx].dtype == torch.float32
+            and output_dtype == "bfloat16"
+        ):
+            self.skipTest(
+                "Skipping test, if bias is fp32, then output dtype cannot be bf16."
+            )
+
+        if (
+            self.data.bias_for_qlinear[bias_opt_idx] is not None
+            and self.data.bias_for_qlinear[bias_opt_idx].dtype == torch.bfloat16
+            and output_dtype == "float32"
+        ):
+            self.skipTest(
+                "Skipping test, if bias is bf16, then output dtype cannot be fp32."
+            )
+
+        if (
+            self.data.bias_for_qlinear[bias_opt_idx] is not None
+            and input_dtype in ("float32", "bfloat16")
+            and self.data.bias_for_qlinear[bias_opt_idx].dtype
+            != self.data.get_torch_type(input_dtype)
+        ):
+            self.skipTest(
+                "Skipping test, if bias is not None and input is floating-point, then "
+                "bias dtype has to match input dtype"
+            )
 
         model = Custom_Model_Qlinear()
 
@@ -117,8 +158,9 @@ class Test_Qlinear_Model(Zentorch_TestCase):
             self.data.x_zero_points["per_tensor"][input_dtype][q_zero_points_dtype],
             self.data.y_scales[q_granularity_val],
             self.data.y_zero_points[q_granularity_val],
-            self.data.output_scales["per_tensor"][q_linear_dtype]["positive_scales"],
-            self.data.output_zero_points["per_tensor"][q_linear_dtype],
+            self.data.get_torch_type(output_dtype),
+            self.data.output_scales["per_tensor"][output_dtype]["positive_scales"],
+            self.data.output_zero_points["per_tensor"][output_dtype],
         )
         zentorch_output = model(
             self.data.x_for_qlinear[input_dtype][input_dim],
@@ -128,11 +170,12 @@ class Test_Qlinear_Model(Zentorch_TestCase):
             self.data.x_zero_points["per_tensor"][input_dtype][q_zero_points_dtype],
             self.data.y_scales[q_granularity_val],
             self.data.y_zero_points[q_granularity_val],
-            self.data.output_scales["per_tensor"][q_linear_dtype]["positive_scales"],
-            self.data.output_zero_points["per_tensor"][q_linear_dtype],
+            self.data.get_torch_type(output_dtype),
+            self.data.output_scales["per_tensor"][output_dtype]["positive_scales"],
+            self.data.output_zero_points["per_tensor"][output_dtype],
             use_zentorch=True,
         )
-        self.assertEqual(simulated_output, zentorch_output, atol=1e-3, rtol=1e-4)
+        self.assertEqual(simulated_output, zentorch_output, atol=1e-2, rtol=1e-2)
 
 
 if __name__ == "__main__":

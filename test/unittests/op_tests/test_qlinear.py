@@ -46,7 +46,7 @@ class Test_Qlinear(Zentorch_TestCase):
                 self.data.x_zero_points["per_tensor"]["float32"]["uint8"],
                 self.data.y_scales["per_channel"],
                 self.data.y_zero_points["per_channel"],
-                self.data.x_for_qlinear["float32"][2].dtype,
+                output_dtype=self.data.x_for_qlinear["float32"][2].dtype,
             )
         self.assertTrue(
             "Zentorch's INT8 kernels require the CPU to support AVX512 instructions."
@@ -74,7 +74,6 @@ class Test_Qlinear(Zentorch_TestCase):
         q_granularity_val,
         q_zero_points_dtype,
     ):
-        self.skip_if_bfloat16_not_yet_supported(dtype)
         self.data.create_unittest_data(dtype)
 
         with self.assertRaises(RuntimeError) as context:
@@ -88,7 +87,7 @@ class Test_Qlinear(Zentorch_TestCase):
                 self.data.x_zero_points["per_tensor"]["float32"][q_zero_points_dtype],
                 self.data.y_scales[q_granularity_val],
                 self.data.y_zero_points[q_granularity_val],
-                self.data.x_for_qlinear["float32"][input_dim].dtype,
+                output_dtype=self.data.x_for_qlinear["float32"][input_dim].dtype,
             )
         self.assertTrue(
             "unsupported dtype for input tensor, only "
@@ -104,7 +103,7 @@ class Test_Qlinear(Zentorch_TestCase):
                 self.data.x_zero_points["per_tensor"]["float32"][q_zero_points_dtype],
                 self.data.y_scales[q_granularity_val],
                 self.data.y_zero_points[q_granularity_val],
-                self.data.x_for_qlinear["float32"][input_dim].dtype,
+                output_dtype=self.data.x_for_qlinear["float32"][input_dim].dtype,
             )
         self.assertTrue(
             "unsupported dtype for weight tensor, only int8 is supported"
@@ -120,7 +119,7 @@ class Test_Qlinear(Zentorch_TestCase):
                 self.data.x_zero_points["per_tensor"]["float32"][q_zero_points_dtype],
                 self.data.y_scales[q_granularity_val],
                 self.data.y_zero_points[q_granularity_val],
-                self.data.x_for_qlinear["float32"][input_dim].dtype,
+                output_dtype=self.data.x_for_qlinear["float32"][input_dim].dtype,
             )
         self.assertTrue(
             "unsupported dtype for bias tensor, only float32 or bfloat16 "
@@ -136,7 +135,7 @@ class Test_Qlinear(Zentorch_TestCase):
                 self.data.x_zero_points["per_tensor"]["float32"][q_zero_points_dtype],
                 self.data.y_scales[q_granularity_val],
                 self.data.y_zero_points[q_granularity_val],
-                self.data.x_for_qlinear["float32"][input_dim].dtype,
+                output_dtype=self.data.x_for_qlinear["float32"][input_dim].dtype,
             )
         self.assertTrue("unsupported dtype for input_scales" in str(context.exception))
 
@@ -151,7 +150,7 @@ class Test_Qlinear(Zentorch_TestCase):
                 ].to(torch.int32),
                 self.data.y_scales[q_granularity_val],
                 self.data.y_zero_points[q_granularity_val],
-                self.data.x_for_qlinear["float32"][input_dim].dtype,
+                output_dtype=self.data.x_for_qlinear["float32"][input_dim].dtype,
             )
         self.assertTrue(
             "unsupported dtype for input_zero_points" in str(context.exception)
@@ -166,7 +165,7 @@ class Test_Qlinear(Zentorch_TestCase):
                 self.data.x_zero_points["per_tensor"]["float32"][q_zero_points_dtype],
                 self.data.y_scales[q_granularity_val].to(torch.float16),
                 self.data.y_zero_points[q_granularity_val],
-                self.data.x_for_qlinear["float32"][input_dim].dtype,
+                output_dtype=self.data.x_for_qlinear["float32"][input_dim].dtype,
             )
         self.assertTrue("unsupported dtype for weight_scales" in str(context.exception))
 
@@ -179,7 +178,7 @@ class Test_Qlinear(Zentorch_TestCase):
                 self.data.x_zero_points["per_tensor"]["float32"][q_zero_points_dtype],
                 self.data.y_scales[q_granularity_val],
                 self.data.y_zero_points[q_granularity_val].to(torch.int32),
-                self.data.x_for_qlinear["float32"][input_dim].dtype,
+                output_dtype=self.data.x_for_qlinear["float32"][input_dim].dtype,
             )
         self.assertTrue(
             "unsupported dtype for weight_zero_points" in str(context.exception)
@@ -206,7 +205,6 @@ class Test_Qlinear(Zentorch_TestCase):
         q_granularity_val,
         q_zero_points_dtype,
     ):
-        self.skip_if_bfloat16_not_yet_supported(dtype)
         self.data.create_unittest_data(dtype)
 
         with self.assertRaises(RuntimeError) as context:
@@ -218,7 +216,7 @@ class Test_Qlinear(Zentorch_TestCase):
                 self.data.x_zero_points["per_tensor"]["float32"][q_zero_points_dtype],
                 self.data.y_scales[q_granularity_val],
                 self.data.y_zero_points[q_granularity_val],
-                self.data.x_for_qlinear["float32"][input_dim].dtype,
+                output_dtype=self.data.x_for_qlinear["float32"][input_dim].dtype,
             )
         self.assertTrue(
             "shapes incompatible for matrix multiplication" in str(context.exception)
@@ -233,7 +231,7 @@ class Test_Qlinear(Zentorch_TestCase):
                 self.data.x_zero_points["per_tensor"]["float32"][q_zero_points_dtype],
                 self.data.y_scales[q_granularity_val],
                 self.data.y_zero_points[q_granularity_val],
-                self.data.x_for_qlinear["float32"][input_dim].dtype,
+                output_dtype=self.data.x_for_qlinear["float32"][input_dim].dtype,
             )
         self.assertTrue(
             "shapes incompatible for matrix multiplication" in str(context.exception)
@@ -248,7 +246,7 @@ class Test_Qlinear(Zentorch_TestCase):
                 self.data.x_zero_points["per_tensor"]["float32"][q_zero_points_dtype],
                 self.data.y_scales[q_granularity_val],
                 self.data.y_zero_points[q_granularity_val],
-                self.data.x_for_qlinear["float32"][input_dim].dtype,
+                output_dtype=self.data.x_for_qlinear["float32"][input_dim].dtype,
             )
         self.assertTrue(
             "unsupported dims for input_scales "
@@ -264,7 +262,7 @@ class Test_Qlinear(Zentorch_TestCase):
                 self.data.y3d.to(torch.int8),  # unsupported dims
                 self.data.y_scales[q_granularity_val],
                 self.data.y_zero_points[q_granularity_val],
-                self.data.x_for_qlinear["float32"][input_dim].dtype,
+                output_dtype=self.data.x_for_qlinear["float32"][input_dim].dtype,
             )
         self.assertTrue(
             "unsupported dims for input_zero_points "
@@ -280,7 +278,7 @@ class Test_Qlinear(Zentorch_TestCase):
                 self.data.x_zero_points["per_tensor"]["float32"][q_zero_points_dtype],
                 self.data.y3d,  # unsupported dims
                 self.data.y_zero_points[q_granularity_val],
-                self.data.x_for_qlinear["float32"][input_dim].dtype,
+                output_dtype=self.data.x_for_qlinear["float32"][input_dim].dtype,
             )
         self.assertTrue(
             "unsupported dims for weight_scales "
@@ -296,7 +294,7 @@ class Test_Qlinear(Zentorch_TestCase):
                 self.data.x_zero_points["per_tensor"]["float32"][q_zero_points_dtype],
                 self.data.y_scales[q_granularity_val],
                 self.data.y3d.to(torch.int8),  # unsupported dims
-                self.data.x_for_qlinear["float32"][input_dim].dtype,
+                output_dtype=self.data.x_for_qlinear["float32"][input_dim].dtype,
             )
         self.assertTrue(
             "unsupported dims for weight_zero_points "
@@ -312,7 +310,7 @@ class Test_Qlinear(Zentorch_TestCase):
                 self.data.x_zero_points["per_tensor"]["float32"][q_zero_points_dtype],
                 self.data.y_scales[q_granularity_val],
                 self.data.y_zero_points[q_granularity_val],
-                self.data.x_for_qlinear["float32"][input_dim].dtype,
+                output_dtype=self.data.x_for_qlinear["float32"][input_dim].dtype,
             )
         self.assertTrue(
             "unsupported number of elements for input_scales "
@@ -328,7 +326,7 @@ class Test_Qlinear(Zentorch_TestCase):
                 self.data.y_zero_points["per_channel"],  # wrong num of zero points
                 self.data.y_scales[q_granularity_val],
                 self.data.y_zero_points[q_granularity_val],
-                self.data.x_for_qlinear["float32"][input_dim].dtype,
+                output_dtype=self.data.x_for_qlinear["float32"][input_dim].dtype,
             )
         self.assertTrue(
             "unsupported number of elements for input_zero_points "
@@ -344,7 +342,7 @@ class Test_Qlinear(Zentorch_TestCase):
                 self.data.x_zero_points["per_tensor"]["float32"][q_zero_points_dtype],
                 self.data.wrong_scales_per_channel,  # incorrect number of elements
                 self.data.y_zero_points[q_granularity_val],
-                self.data.x_for_qlinear["float32"][input_dim].dtype,
+                output_dtype=self.data.x_for_qlinear["float32"][input_dim].dtype,
             )
         self.assertTrue(
             "unsupported number of elements for weight_scales "
@@ -360,7 +358,7 @@ class Test_Qlinear(Zentorch_TestCase):
                 self.data.x_zero_points["per_tensor"]["float32"][q_zero_points_dtype],
                 self.data.y_scales[q_granularity_val],
                 self.data.wrong_zero_points_per_channel,  # incorrect number of elements
-                self.data.x_for_qlinear["float32"][input_dim].dtype,
+                output_dtype=self.data.x_for_qlinear["float32"][input_dim].dtype,
             )
         self.assertTrue(
             "unsupported number of elements for weight_zero_points "
@@ -376,7 +374,7 @@ class Test_Qlinear(Zentorch_TestCase):
                 self.data.x_zero_points["per_tensor"]["float32"][q_zero_points_dtype],
                 self.data.y_scales[q_granularity_val],
                 self.data.y_zero_points[q_granularity_val],
-                self.data.x_for_qlinear["float32"][input_dim].dtype,
+                output_dtype=self.data.x_for_qlinear["float32"][input_dim].dtype,
             )
         self.assertTrue(
             "unsupported dimensions for input/bias/self" in str(context.exception)
@@ -405,7 +403,6 @@ class Test_Qlinear(Zentorch_TestCase):
         q_zero_points_dtype,
         input_dtype,
     ):
-        self.skip_if_bfloat16_not_yet_supported(dtype)
         self.data.create_unittest_data(dtype)
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_qlinear(
@@ -416,7 +413,7 @@ class Test_Qlinear(Zentorch_TestCase):
                 self.data.x_zero_points["per_tensor"][input_dtype][q_zero_points_dtype],
                 self.data.y_scales[q_granularity_val],
                 self.data.y_zero_points[q_granularity_val],
-                torch.float16,  # unsupported output dtype
+                output_dtype=torch.float16,  # unsupported output dtype
             )
         self.assertTrue(
             "output_dtype received is not yet supported, only "
@@ -446,10 +443,48 @@ class Test_Qlinear(Zentorch_TestCase):
         q_granularity_val,
         q_zero_points_dtype,
         input_dtype,
-        q_linear_dtype,
+        output_dtype,
     ):
-        self.skip_if_bfloat16_not_yet_supported(dtype)
         self.data.create_unittest_data(dtype)
+        if (
+            self.data.bias_for_qlinear[bias_opt_idx] is None
+            and input_dtype in ("float32", "bfloat16")
+            and output_dtype not in (input_dtype, "int8", "uint8")
+        ):
+            self.skipTest(
+                "Skipping test, if bias is None and input is floating-point, then "
+                "output dtype has to match either input dtype or be any of int8 "
+                "or uint8"
+            )
+
+        if (
+            self.data.bias_for_qlinear[bias_opt_idx] is not None
+            and self.data.bias_for_qlinear[bias_opt_idx].dtype == torch.float32
+            and output_dtype == "bfloat16"
+        ):
+            self.skipTest(
+                "Skipping test, if bias is fp32, then output dtype cannot be bf16."
+            )
+
+        if (
+            self.data.bias_for_qlinear[bias_opt_idx] is not None
+            and self.data.bias_for_qlinear[bias_opt_idx].dtype == torch.bfloat16
+            and output_dtype == "float32"
+        ):
+            self.skipTest(
+                "Skipping test, if bias is bf16, then output dtype cannot be fp32."
+            )
+
+        if (
+            self.data.bias_for_qlinear[bias_opt_idx] is not None
+            and input_dtype in ("float32", "bfloat16")
+            and self.data.bias_for_qlinear[bias_opt_idx].dtype
+            != self.data.get_torch_type(input_dtype)
+        ):
+            self.skipTest(
+                "Skipping test, if bias is not None and input is floating-point, then "
+                "bias dtype has to match input dtype"
+            )
 
         # simulated qlinear
         qdq_linear_output = qdq_linear(
@@ -461,8 +496,9 @@ class Test_Qlinear(Zentorch_TestCase):
             self.data.y_scales[q_granularity_val],
             self.data.y_zero_points[q_granularity_val],
             None,
-            self.data.output_scales["per_tensor"][q_linear_dtype]["positive_scales"],
-            self.data.output_zero_points["per_tensor"][q_linear_dtype],
+            self.data.get_torch_type(output_dtype),
+            self.data.output_scales["per_tensor"][output_dtype]["positive_scales"],
+            self.data.output_zero_points["per_tensor"][output_dtype],
         )
         # zentorch qlinear
         zentorch_qlinear_output = torch.ops.zentorch.zentorch_qlinear(
@@ -473,17 +509,15 @@ class Test_Qlinear(Zentorch_TestCase):
             self.data.x_zero_points["per_tensor"][input_dtype][q_zero_points_dtype],
             self.data.y_scales[q_granularity_val],
             self.data.y_zero_points[q_granularity_val],
-            (
-                self.data.x_for_qlinear[q_linear_dtype][input_dim].dtype
-                if q_linear_dtype == "float32"
-                else self.data.output_zero_points["per_tensor"][q_linear_dtype].dtype
-            ),
-            self.data.output_scales["per_tensor"][q_linear_dtype]["positive_scales"],
-            self.data.output_zero_points["per_tensor"][q_linear_dtype],
+            output_dtype=self.data.get_torch_type(output_dtype),
+            output_scales=self.data.output_scales["per_tensor"][output_dtype][
+                "positive_scales"
+            ],
+            output_zero_points=self.data.output_zero_points["per_tensor"][output_dtype],
         )
-
+        # bf16 qlinear comparsion requires slightly higher tolerance as compared to fp32
         self.assertEqual(
-            qdq_linear_output, zentorch_qlinear_output, atol=1e-3, rtol=1e-4
+            qdq_linear_output, zentorch_qlinear_output, atol=1e-2, rtol=1e-2
         )
 
     @parameterized.expand(
@@ -507,21 +541,60 @@ class Test_Qlinear(Zentorch_TestCase):
         bias_opt_idx,
         q_zero_points_dtype,
         input_dtype,
-        q_linear_dtype,
+        output_dtype,
     ):
-        self.skip_if_bfloat16_not_yet_supported(dtype)
         self.data.create_unittest_data(dtype)
+
+        if (
+            self.data.bias_for_qlinear[bias_opt_idx] is None
+            and input_dtype in ("float32", "bfloat16")
+            and output_dtype not in (input_dtype, "int8", "uint8")
+        ):
+            self.skipTest(
+                "Skipping test, if bias is None and input is floating-point, then "
+                "output dtype has to match either input dtype or be any of int8 "
+                "or uint8"
+            )
+
+        if (
+            self.data.bias_for_qlinear[bias_opt_idx] is not None
+            and self.data.bias_for_qlinear[bias_opt_idx].dtype == torch.float32
+            and output_dtype == "bfloat16"
+        ):
+            self.skipTest(
+                "Skipping test, if bias is fp32, then output dtype cannot be bf16."
+            )
+
+        if (
+            self.data.bias_for_qlinear[bias_opt_idx] is not None
+            and self.data.bias_for_qlinear[bias_opt_idx].dtype == torch.bfloat16
+            and output_dtype == "float32"
+        ):
+            self.skipTest(
+                "Skipping test, if bias is bf16, then output dtype cannot be fp32."
+            )
+
+        if (
+            self.data.bias_for_qlinear[bias_opt_idx] is not None
+            and input_dtype in ("float32", "bfloat16")
+            and self.data.bias_for_qlinear[bias_opt_idx].dtype
+            != self.data.get_torch_type(input_dtype)
+        ):
+            self.skipTest(
+                "Skipping test, if bias is not None and input is floating-point, then "
+                "bias dtype has to match input dtype"
+            )
 
         zero_dim_x_scales = torch.tensor(self.data.x_scales["per_tensor"].item())
         zero_dim_y_scales = torch.tensor(self.data.y_scales["per_tensor"].item())
         zero_dim_output_scales = (
             None
-            if self.data.output_scales["per_tensor"][q_linear_dtype][
+            if self.data.output_scales["per_tensor"][output_dtype][
                 "positive_scales"
             ]
             is None
             else torch.tensor(
-                self.data.output_scales["per_tensor"][q_linear_dtype][
+                self.data.output_scales["per_tensor"][output_dtype][
                     "positive_scales"
                 ].item()
             )
@@ -537,8 +610,9 @@ class Test_Qlinear(Zentorch_TestCase):
             zero_dim_y_scales,
             self.data.y_zero_points["per_tensor"],
             None,
+            self.data.get_torch_type(output_dtype),
             zero_dim_output_scales,
-            self.data.output_zero_points["per_tensor"][q_linear_dtype],
+            self.data.output_zero_points["per_tensor"][output_dtype],
         )
 
         # zentorch qlinear
@@ -550,17 +624,13 @@ class Test_Qlinear(Zentorch_TestCase):
             self.data.x_zero_points["per_tensor"][input_dtype][q_zero_points_dtype],
             zero_dim_y_scales,
             self.data.y_zero_points["per_tensor"],
-            (
-                self.data.x_for_qlinear[q_linear_dtype][input_dim].dtype
-                if q_linear_dtype == "float32"
-                else self.data.output_zero_points["per_tensor"][q_linear_dtype].dtype
-            ),
-            zero_dim_output_scales,
-            self.data.output_zero_points["per_tensor"][q_linear_dtype],
+            output_dtype=self.data.get_torch_type(output_dtype),
+            output_scales=zero_dim_output_scales,
+            output_zero_points=self.data.output_zero_points["per_tensor"][output_dtype],
         )
 
         self.assertEqual(
-            qdq_linear_output, zentorch_qlinear_output, atol=1e-3, rtol=1e-4
+            qdq_linear_output, zentorch_qlinear_output, atol=1e-2, rtol=1e-2
         )
 
 
