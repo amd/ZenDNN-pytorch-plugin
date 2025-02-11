@@ -1,4 +1,4 @@
-Copyright &copy; 2023-2024 Advanced Micro Devices, Inc. All rights reserved.
+Copyright &copy; 2023-2025 Advanced Micro Devices, Inc. All rights reserved.
 
 _zentorch_: A PyTorch extension for AMD EPYC&trade; CPUs.
 =============
@@ -41,13 +41,16 @@ Table of Contents
 
 The latest ZenDNN Plugin for PyTorch* (zentorch) 5.0.1 is here!
 
-This powerful upgrade continues to redefine deep learning performance on AMD EPYC™ CPUs, combining relentless optimization, innovative features, and industry-leading support for modern workloads.
+zentorch 5.0.1 is the PyTorch plugin which comes with ZenDNN 5.0.1. ZenDNN 5.0.1 is a minor release building upon the major ZenDNN 5.0 release. 
+This upgrade continues the focus on optimizing inference with Recommender Systems and Large Language Models on AMD EPYC™ CPUs. includes AMD EPYC™ enhancements for bfloat16 performance, expanded support for cutting-edge models like Llama 3.1 and 3.2, Microsoft Phi, and more as well as support for INT4 quantized datatype.
+This includes the advanced Activation-Aware Weight Quantization (AWQ) algorithm for LLMs and quantized support for the DLRM-v2 model with int8 weights.
 
-zentorch 5.0.1 takes deep learning to new heights with significant enhancements for bfloat16 performance, expanded support for cutting-edge models like Llama 3.1 and 3.2, Microsoft Phi, and more as well as support for INT4 quantized datatype. This includes the advanced Activation-Aware Weight Quantization (AWQ) algorithm, driving remarkable accuracy in low-precision computations.
+Under the hood, ZenDNN’s enhanced AMD-specific optimizations operate at every level. In addition to highly optimized operator microkernels, these include comprehensive graph optimizations including pattern identification, graph reordering, and fusions. 
+They also incorporate optimized embedding bag kernels and enhanced zenMatMul matrix splitting strategies which leverage the AMD EPYC™ microarchitecture to deliver enhanced throughput and latency.
 
-Combined with PyTorch's torch.compile, zentorch transforms deep learning pipelines into finely-tuned, AMD-specific engines, delivering unparalleled efficiency and speed for large-scale inference workloads.
+Combined with PyTorch's torch.compile, zentorch transforms deep learning pipelines into finely-tuned, AMD-specific engines, delivering unparalleled efficiency and speed for large-scale inference workloads
 
-The zentorch 5.0.1 plugs seamlessly with PyTorch version 2.4.0, offering a high-performance experience for deep learning on AMD EPYC™ platforms.
+The zentorch 5.0.1 release plugs seamlessly with PyTorch version 2.5.0, offering a high-performance experience for deep learning on AMD EPYC™ platforms.
 
 ## Support
 
@@ -107,9 +110,9 @@ _zentorch_ can be installed using binary wheel file or can be built from source 
 ```bash
 pip uninstall zentorch
 ```
-* Install Pytorch v2.4.0
+* Install Pytorch v2.5.0
 ```bash
-conda install pytorch==2.4.0 cpuonly -c pytorch
+pip install torch==2.5.0 --index-url https://download.pytorch.org/whl/cpu
 ```
 * Use one of two methods to install zentorch:
 
@@ -142,9 +145,9 @@ Run the following commands:
 git clone https://github.com/amd/ZenDNN-pytorch-plugin.git
 cd ZenDNN_PyTorch_Plugin/
 ```
->Note: Repository defaults to master branch, to build the version 5.0 checkout the branch r5.0.
+>Note: Repository defaults to master branch, to build the version 5.0.1 checkout the branch r5.0.1.
 ```bash
-git checkout r5.0
+git checkout r5.0.1
 ```
 
 ### 2.2.1. Preparing third party repositories
@@ -157,15 +160,10 @@ Build setup downloads the ZenDNN, AOCL BLIS and FBGEMM repos into `third_party` 
 conda create -n pt-zentorch python=3.8 -y
 conda activate pt-zentorch
 ```
-#### 2.2.2.2. You can install torch using 'conda' or 'pip'
+#### 2.2.2.2. Install Pytorch v2.5.0
 ```bash
 # Pip command
-pip install torch==2.4.0 --index-url https://download.pytorch.org/whl/cpu
-```
-or
-```bash
-# Conda command
-conda install pytorch==2.4.0 cpuonly -c pytorch -y
+pip install torch==2.5.0 --index-url https://download.pytorch.org/whl/cpu
 ```
 
 >Note: The CPU version of torch/pytorch only supports CPU version of torchvision.
