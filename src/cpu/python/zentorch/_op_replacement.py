@@ -25,7 +25,7 @@ def get_tensor(fx_graph, node, arg_index=None):
         # the 'mutation_region_id' default argument is introduced in meta.
         if node.args[arg_index].target == at_ops.clone.default:
             # workaround for CNNs in freezing path
-            return node.args[arg_index].args[0].meta['val']
+            return node.args[arg_index].args[0].meta["val"]
         if "val" in node.args[arg_index].meta.keys():
             # arg node in fx_graph generated through torch.compile
             # will be fake tensor
@@ -127,17 +127,6 @@ def is_convolution_op_replaceable(fx_graph, node):
     return False
 
 
-def is_sdpa_replacable(fx_graph, node):
-    op_name = "zentorch::zentorch_sdpa"
-    dispatch_key = "CPU"
-    # Check kernel availability
-    has_impl = torch._C._dispatch_has_kernel_for_dispatch_key(op_name, dispatch_key)
-    if has_impl:
-        return True
-    else:
-        return False
-
-
 def is_bias_1d_tensor(fx_graph, node):
     # checks if self/bias tensor is 1-d or not
     # returns true if 1d bias tensor
@@ -161,11 +150,15 @@ at_to_zen_op_dict = {
         zt_ops.zentorch_convolution.default,
         is_convolution_op_replaceable,
     ),
-    at_ops._scaled_dot_product_flash_attention_for_cpu.default: (
-        zt_ops.zentorch_sdpa.default,
-        is_sdpa_replacable,
-    ),
 }
+
+if hasattr(at_ops, "_scaled_dot_product_flash_attention_for_cpu") and hasattr(
+    zt_ops, "zentorch_sdpa"
+):
+    at_to_zen_op_dict[at_ops._scaled_dot_product_flash_attention_for_cpu.default] = (
+        zt_ops.zentorch_sdpa.default,
+        None,
+    )
 
 # currently only zentorch_addmm is the conditional zentorch op
 zen_to_zen_op_dict = {

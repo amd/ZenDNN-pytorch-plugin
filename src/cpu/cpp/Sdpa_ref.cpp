@@ -81,11 +81,14 @@ std::tuple<at::Tensor, at::Tensor> zentorch_scaled_dot_product_attention_impl(
 #endif // TORCH_VERSION_MAJOR >= 2 && TORCH_VERSION_MINOR > 3
 
 TORCH_LIBRARY_FRAGMENT(zentorch, m) {
+// zentorch_sdpa is supported from torch version >= 2.4.0
+#if TORCH_VERSION_MAJOR >= 2 && TORCH_VERSION_MINOR > 3
   m.def("zentorch_sdpa(Tensor query, Tensor key, "
         "Tensor value , float dropout_p=0.0, "
         "bool is_causal=False, *, Tensor? attn_mask=None, float? scale=None, "
         "str zentorch_op_name = "
         "'zentorch::zentorch_sdpa')-> (Tensor, Tensor)");
+#endif // TORCH_VERSION_MAJOR >= 2 && TORCH_VERSION_MINOR > 3
 }
 TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
 // zentorch_sdpa is supported from torch version >= 2.4.0

@@ -224,30 +224,38 @@ def meta_zentorch_baddbmm(
     return bias.new_empty(input.shape[0], input.shape[1], weight.shape[-1])
 
 
-@register_meta("zentorch_sdpa")
-def meta_zentorch_sdpa(
-    query, key, value, dropout_p=0.0, is_causal=False, attn_mask=None, scale=None,
-):
-    batch_size = query.size(0)
-    num_heads = query.size(1)
-    max_seqlen_batch_q = query.size(2)
-    head_dim = query.size(3)
+if hasattr(torch.ops.zentorch, "zentorch_sdpa"):
 
-    attention = query.new_empty(
-        (batch_size, max_seqlen_batch_q, num_heads, head_dim)
-    ).transpose(1, 2)
-    logsumexp = query.new_empty(
-        (
-            batch_size,
-            max_seqlen_batch_q,
-            num_heads,
-        ),
-        dtype=torch.float,
-    ).transpose(1, 2)
-    return (
-        attention,
-        logsumexp,
-    )
+    @register_meta("zentorch_sdpa")
+    def meta_zentorch_sdpa(
+        query,
+        key,
+        value,
+        dropout_p=0.0,
+        is_causal=False,
+        attn_mask=None,
+        scale=None,
+    ):
+        batch_size = query.size(0)
+        num_heads = query.size(1)
+        max_seqlen_batch_q = query.size(2)
+        head_dim = query.size(3)
+
+        attention = query.new_empty(
+            (batch_size, max_seqlen_batch_q, num_heads, head_dim)
+        ).transpose(1, 2)
+        logsumexp = query.new_empty(
+            (
+                batch_size,
+                max_seqlen_batch_q,
+                num_heads,
+            ),
+            dtype=torch.float,
+        ).transpose(1, 2)
+        return (
+            attention,
+            logsumexp,
+        )
 
 
 @register_meta("zentorch_mm_silu_mul")
@@ -939,4 +947,5 @@ make_fallback(torch.ops.zentorch.zentorch_qlinear_sigmoid)
 make_fallback(torch.ops.zentorch.zentorch_qlinear_mul_add)
 make_fallback(torch.ops.zentorch.zentorch_quant_embedding_bag)
 make_fallback(torch.ops.zentorch.zentorch_horizontal_quant_embedding_bag_group)
-make_fallback(torch.ops.zentorch.zentorch_sdpa)
+if hasattr(torch.ops.zentorch, "zentorch_sdpa"):
+    make_fallback(torch.ops.zentorch.zentorch_sdpa)
