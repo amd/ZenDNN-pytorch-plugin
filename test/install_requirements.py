@@ -52,11 +52,11 @@ if __name__ == "__main__":
     torch_version = torch.__version__
     torch_version = torch_version.split("+")[0]
     torchvision_compatibilty = {
-        "2.0.0": "torchvision==0.15.0",
-        "2.0.1": "torchvision==0.15.2",
-        "2.1.0": "torchvision==0.16.0",
-        "2.1.1": "torchvision==0.16.1",
-        "2.1.2": "torchvision==0.16.2",
+        # "2.0.0": "torchvision==0.15.0",
+        # "2.0.1": "torchvision==0.15.2",
+        # "2.1.0": "torchvision==0.16.0",
+        # "2.1.1": "torchvision==0.16.1",
+        # "2.1.2": "torchvision==0.16.2",
         "2.2.0": "torchvision==0.17.0",
         "2.2.1": "torchvision==0.17.1",
         "2.2.2": "torchvision==0.17.2",
@@ -66,6 +66,7 @@ if __name__ == "__main__":
         "2.4.1": "torchvision==0.19.1",
         "2.5.0": "torchvision==0.20.0",
         "2.5.1": "torchvision==0.20.1",
+        "2.6.0": "torchvision==0.21.0",
     }
     if importutil.find_spec("torchvision") is not None:
         print("Warning: Torchvision already installed, skipping installing it")
@@ -77,6 +78,6 @@ if __name__ == "__main__":
         print(
             "Couldnot find the valid torchvision version which is \
 compatibility with installed torch version. Supported Torch versions \
-are 2.0.*/2.1.*/2.2.*/2.3.*/2.4.*/2.5.*"
+are 2.2.*/2.3.*/2.4.*/2.5.*/2.6.*"
         )
         exit(1)
