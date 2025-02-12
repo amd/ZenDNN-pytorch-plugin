@@ -16,10 +16,10 @@ Table of Contents
   - [From Binaries](#21-from-binaries)
   - [From Source](#22-from-source)
 - [Unit Tests](#3-unit-tests)
-  - [Install Unit tests Dependencies](#31-install-unit-tests-dependencies)  
-  - [Run All Unit Tests](#32-run-all-unit-tests)  
-  - [Run All Tests](#33-run-all-tests)  
-  - [Run Individual Tests](#34-run-individual-tests)  
+  - [Install Unit tests Dependencies](#31-install-unit-tests-dependencies)
+  - [Run All Unit Tests](#32-run-all-unit-tests)
+  - [Run All Tests](#33-run-all-tests)
+  - [Run Individual Tests](#34-run-individual-tests)
 - [Usage](#4-usage)
   - [General Usage](#41-general-usage)
   - [CNN Models](#42-cnn-models)
@@ -300,21 +300,40 @@ with torch.no_grad():
 
 Huggingface models are quantized using [AMD's Quark tool](https://quark.docs.amd.com/latest/install.html).
 After downloading the zip file, install Quark and follow the below steps:
-1. Enter the examples/torch/language_modeling directory
-2. Run the following command
+
+> zentorch v5.0.1 is compatible with Quark v0.8. Please make sure you download the right version.
+
+### 4.5.1 Go to the examples/torch/language_modeling/llm_ptq/ directory
+### 4.5.2 Install the necessary dependencies
 ```bash
-OMP_NUM_THREADS=<physical-cores-num> numactl --physcpubind=<physical-cores-list> python quantize_quark.py --model_dir <hugging_face_model_id> --device cpu --data_type bfloat16 --model_export quark_safetensors --quant_algo awq --quant_scheme w_int4_per_group_sym --group_size -1 --num_calib_data 128 --dataset pileval_for_awq_benchmark --seq_len 128 --output_dir <output_dir> --pack_method order
+pip install -r requirements.txt
+pip install -r ../llm_eval/requirements.txt
 ```
+### 4.5.3 Run the following command to quantize the model
+#### 4.5.3.1 For per-channel quantization
+```bash
+OMP_NUM_THREADS=<physical-cores-num> numactl --physcpubind=<physical-cores-list> python quantize_quark.py --model_dir <hugging_face_model_id> --device cpu --data_type bfloat16 --model_export hf_format --custom_mode awq --quant_algo awq --quant_scheme w_int4_per_group_sym --group_size -1 --num_calib_data 128 --dataset pileval_for_awq_benchmark --seq_len 128 --output_dir <output_dir> --pack_method order
+```
+#### 4.5.3.2 For per-group quantization
+```bash
+OMP_NUM_THREADS=<physical-cores-num> numactl --physcpubind=<physical-cores-list> python quantize_quark.py --model_dir <hugging_face_model_id> --device cpu --data_type bfloat16 --model_export hf_format --custom_mode awq --quant_algo awq --quant_scheme w_int4_per_group_sym --group_size <group_size> --num_calib_data 128 --dataset pileval_for_awq_benchmark --seq_len 128 --output_dir <output_dir> --pack_method order
+```
+> Note: The channel/out_features dimension should be divisible by the 'group_size' value.
 
 As currently HF does not support AWQ format for CPU, an additional codeblock needs to be added to your inference script for loading the WOQ models.
 ```python
 config = AutoConfig.from_pretrained(model_id, trust_remote_code=True, torch_dtype=torch.bfloat16)
 model = AutoModelForCausalLM.from_config(config, trust_remote_code=True, torch_dtype=torch.bfloat16)
-model = zentorch.load_woq_model(model, safetensor_path)
+model = zentorch.load_quantized_model(model, safetensor_path)
 ```
 
+
+> Note:
+> * From zentorch 5.0.1 load_woq_model() API is deprecated and will be removed in future releases. Please use load_quantized_model() API instead.
+
 Here, safetensor_path refers to the "<output_dir>" path of the quantized model.
-After the loading steps, the model can be executed in a similar fashion as the cases# 1-3 listed in [section 3.4](#34-huggingface-generative-llm-models).
+
+After the loading steps, the model can be executed in a similar fashion as the cases# 1-3 listed in [section 4.4](#44-huggingface-generative-llm-models).
 
 # 5. Logging and Debugging
 ## 5.1 ZenDNN logs
