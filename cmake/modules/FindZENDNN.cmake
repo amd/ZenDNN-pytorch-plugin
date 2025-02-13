@@ -1,5 +1,5 @@
 #******************************************************************************
-# Copyright (c) 2023-2024 Advanced Micro Devices, Inc.
+# Copyright (c) 2023-2025 Advanced Micro Devices, Inc.
 # All rights reserved.
 #******************************************************************************
 
@@ -26,7 +26,7 @@ get_filename_component(PLUGIN_PARENT_DIR ${CMAKE_CURRENT_SOURCE_DIR} DIRECTORY)
 IF("$ENV{ZENTORCH_USE_LOCAL_BLIS}" EQUAL 0)
     FetchContent_Declare(blis
     GIT_REPOSITORY https://github.com/amd/blis.git
-    GIT_TAG 5.0
+    GIT_TAG AOCL-LPGEMM-012925
     SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/blis"
     )
     FetchContent_GetProperties(blis)
@@ -167,7 +167,7 @@ endif()
 IF("$ENV{ZENTORCH_USE_LOCAL_ZENDNN}" EQUAL 0)
     FetchContent_Declare(ZenDNN
     GIT_REPOSITORY https://github.com/amd/ZenDNN.git
-    GIT_TAG v5.0
+    GIT_TAG v5.0.1
     SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/ZenDNN"
     )
     FetchContent_GetProperties(ZenDNN)
