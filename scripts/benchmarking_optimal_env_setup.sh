@@ -187,13 +187,13 @@ if [ "$framework" = "zentorch" ]; then
 
     if [ "$model" = "cnn" ]; then
         if [ "$precision" = "fp32" ]; then
-            export ZENDNN_MATMUL_ALGO=FP32:2
+            export ZENDNN_MATMUL_ALGO=FP32:4
         elif [ "$precision" = "int8" ]; then
-            export ZENDNN_MATMUL_ALGO=INT8:2
+            export ZENDNN_MATMUL_ALGO=INT8:4
         elif [ "$precision" = "bf16_amp" ]; then
-            export ZENDNN_MATMUL_ALGO=BF16:2
+            export ZENDNN_MATMUL_ALGO=BF16:4
         elif [ "$precision" = "bf16" ]; then
-            export ZENDNN_MATMUL_ALGO=BF16:0
+            export ZENDNN_MATMUL_ALGO=BF16:4
         fi
     elif [ "$model" = "nlp" ]; then
         if [ "$precision" = "fp32" ]; then
@@ -209,11 +209,11 @@ if [ "$framework" = "zentorch" ]; then
         if [ "$precision" = "fp32" ]; then
             export ZENDNN_MATMUL_ALGO=FP32:2
         elif [ "$precision" = "bf16" ]; then
-            export ZENDNN_MATMUL_ALGO=BF16:2
+            export ZENDNN_MATMUL_ALGO=BF16:0
         elif [ "$precision" = "bf16_amp" ]; then
             export ZENDNN_MATMUL_ALGO=BF16:4
         elif [ "$precision" = "int8" ]; then
-            export ZENDNN_MATMUL_ALGO=INT8:1
+            export ZENDNN_MATMUL_ALGO=INT8:2
         fi
     elif [ "$model" = "llm" ]; then
         if { [ "$precision" = "bf16" ] || [ "$precision" = "woq" ]; };  then
