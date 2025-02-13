@@ -1,0 +1,5 @@
+datasets
+transformers==4.45.0
+scikit-learn
+Pillow
+urllib3
