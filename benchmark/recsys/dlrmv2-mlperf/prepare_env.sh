@@ -14,7 +14,7 @@ conda install -c conda-forge gperftools llvm-openmp -y
 
 # Install torch and required libraries
 pip3 install torch==2.5.0 --index-url https://download.pytorch.org/whl/cpu
-pip install fbgemm-gpu==2024.12.6 --index-url https://download.pytorch.org/whl/nightly/cpu
+pip install fbgemm-gpu==1.0.0 --index-url https://download.pytorch.org/whl/cpu
 pip install torchrec==0.7.0
 pip install torchsnapshot==0.1.0
 
