@@ -1,102 +1,96 @@
-## 1. Setup ENV:
+# Running the Quantized DLRMv2 Model with Zentorch
 
-1. Create a new conda env
-    ```shell
-    conda create -n zentorch-env-py3.10 python=3.10 -y
-    conda activate zentorch-env-py3.10
-    ```
+## 1. Environment Setup
 
-2. Install/Check GCC 12 or higher version
-    Verify if you have GCC>=12 if not please use below command to install GCC 12
-    ```shell
-    sudo apt install gcc-12 g++-12
-    ```
-3. Install zentorch
+### 1.1. Create a New Conda Environment
 
-    * Uninstall any existing _zentorch_ installations.
-    ```bash
-    pip uninstall zentorch
-    ```
-    * Install Pytorch v2.5.0
-    ```bash
-    pip install torch==2.5.0 --index-url https://download.pytorch.org/whl/cpu
-    ```
-    * Use one of two methods to install zentorch:
+```bash
+conda create -n zentorch-env-py3.10 python=3.10 -y
+conda activate zentorch-env-py3.10
+```
 
-    Using pip utility
-    ```bash
-    pip install zentorch==5.0.1
-    ```
-    or
+### 1.2. Install Zentorch
 
-    Using the release package.
+Ensure GCC version is 12 or higher.
 
-    > Download the package from AMD developer portal from [here](https://www.amd.com/en/developer/zendnn.html).
+Follow the zentorch installation steps in the [README](https://github.com/amd/ZenDNN-pytorch-plugin?tab=readme-ov-file#2-installation) file.
 
-    > Run the following commands to unzip the package and install the binary.
+## 2. Data Preparation
 
-    ```bash
-    unzip ZENTORCH_v5.0.1_Python_v3.10.zip
-    cd ZENTORCH_v5.0.1_Python_v3.10/
-    pip install zentorch-5.0.1-cp310-cp310-manylinux_2_28_x86_64.whl
-    ```
-    >Notes:
-    * In above steps, we have taken an example for release package with Python version 3.10.
-    * Dependent packages 'numpy' and 'torch' will be installed by '_zentorch_' if not already present.
-    * If you get the error: ImportError: /lib64/libstdc++.so.6: version `GLIBCXX_.a.b.cc' not found (required by <path_to_conda>/envs/<env_name>/lib/python<py_version>/site-packages/zentorch-5.0.1-pyx.y-linux-x86_64.egg/zentorch/_C.cpython-xy-x86_64-linux-gnu.so), export LD_PRELOAD as:
-    * export LD_PRELOAD=<path_to_conda>/envs/<env_name>/lib/libstdc++.so.6:$LD_PRELOAD
+### 2.1 To prepare the data, refer to [MLPerf DLRMv2](https://github.com/mlcommons/training/tree/master/recommendation_v2/torchrec_dlrm#create-the-synthetic-multi-hot-dataset). The data structure should be as follows
 
-4. Prepare the environment:
-    ```shell
-    bash prepare_env.sh
-    ```
+```shell
+.
+├── terabyte_input
+│   ├── day_23_dense.npy
+│   ├── day_23_labels.npy
+│   └── day_23_sparse_multi_hot.npz
+```
 
-## 2. Prepare Data and Model
+Set the directory path to `$DATA_DIR`
 
-1. To prepare the data, check [MLPerf DLRMv2](https://github.com/mlcommons/training/tree/master/recommendation_v2/torchrec_dlrm#create-the-synthetic-multi-hot-dataset). The data should look like this:
-    ```shell
-    .
-    ├── terabyte_input
-    │   ├── day_23_dense.npy
-    │   ├── day_23_labels.npy
-    │   └── day_23_sparse_multi_hot.npz
-    ```
-    Set the directory to `$DATA_DIR`
-    ```
-    export DATA_DIR=/path/to/terabyte_input/
-    ```
+```bash
+export DATA_DIR=/path/to/terabyte_input/
+```
 
-2. Download Quantized model weights.
-    Download the Quantized model weights from Hugging Face Repo [here]()
+## 3. Model Preparation
 
-3. Unzip the file using below command.
-    ```bash
-    unzip quantized_weights_dlrmv2.zip
-    export MODEL_DIR=/path/to/quantized_weights_dlrmv2
-    ```
+Download and install Quark v0.8. Installation instructions can be found [here](https://quark.docs.amd.com/latest/install.html).
+We suggest downloading the "zip release".
 
-## 3. Run DLRMv2
+> zentorch v5.0.1 is compatible with Quark v0.8. Please make sure you download the right version.
 
-1. Setup
+Follow the steps in the README file at "examples/torch/rm" directory to download, prepare and quantize the model.
 
-    Make sure to set `$DATA_DIR` and `$MODEL_DIR`, and edit the config files, `setup_env_offline.sh` to suit the machine.
-    ```shell
-    export NUM_SOCKETS=2        # i.e. 2
-    export CPUS_PER_SOCKET=128   # i.e. 128
-    export CPUS_PER_CONSUMER=128  # which determine how much processes will be used
-                                # consumer-per-socket = CPUS_PER_SOCKET/CPUS_PER_CONSUMER
-    export CPUS_PER_INSTANCE=2  # instance-per-consumer number=CPUS_PER_CONSUMER/CPUS_PER_INSTANCE
-                                # total-instance = instance-per-consumer * consumer-per-socket
-    export CPUS_FOR_LOADGEN=1   # number of cpus for loadgen
-                                # finally used in our code is max(CPUS_FOR_LOADGEN, left cores for instances)
-    export BATCH_SIZE=100
-    ```
+Set the path for the quantized DLRM model directory.
 
-2. Offline Performance
-    ```shell
-    source setup_env_offline.sh && ./run_main.sh offline int8
-    ```
-3. Offline Accuracy
-    ```shell
-    source setup_env_offline.sh && ./run_main.sh offline accuracy int8
-    ```
+```bash
+export MODEL_DIR=/path/to/dlrm_quark
+```
+
+An additional JSON file is required in the quantized model directory for zentorch execution.
+Copy the file using the following command :
+
+```bash
+cp /path/to/benchmark/recsys/dlrmv2-mlperf/config.json $MODEL_DIR/
+```
+
+## 4. Execute DLRMv2
+
+### 4.1 Dependency Installation
+
+```shell
+bash prepare_env.sh
+```
+
+### 4.2. Setup
+
+Ensure `$DATA_DIR` and `$MODEL_DIR` are set, and modify the configuration files, `setup_env_offline.sh`, to match your machine's specifications.
+
+```shell
+export NUM_SOCKETS=2         # e.g., 2
+export CPUS_PER_SOCKET=128   # e.g., 128
+export CPUS_PER_PROCESS=128  # determines the number of processes used
+                                # process-per-socket = CPUS_PER_SOCKET/CPUS_PER_PROCESS
+export CPUS_PER_INSTANCE=2   # instance-per-process number=CPUS_PER_PROCESS/CPUS_PER_INSTANCE
+                                # total-instance = instance-per-process * process-per-socket
+export CPUS_FOR_LOADGEN=1    # number of CPUs for loadgen
+                                # finally used in our code is max(CPUS_FOR_LOADGEN, remaining cores for instances)
+export BATCH_SIZE=100
+```
+
+### 4.3. Offline Performance
+
+To generate the performance numbers in offline mode, please execute the following command.
+
+```shell
+source setup_env_offline.sh && ./run_main.sh offline int8
+```
+
+### 4.4. Offline Accuracy
+
+To generate the accuracy numbers in offline mode, please execute the following command.
+
+```shell
+source setup_env_offline.sh && ./run_main.sh offline accuracy int8
+```

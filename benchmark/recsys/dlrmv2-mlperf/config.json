@@ -1,0 +1,64 @@
+{
+  "_name_or_path": "dlrmv2_mlperf",
+  "architectures": [
+    "DLRMV2"
+  ],
+  "quantization_config": {
+    "algo_config": null,
+    "exclude": [],
+    "export": {
+      "kv_cache_group": [],
+      "pack_method": "order",
+      "weight_format": "real_quantized",
+      "weight_merge_groups": null
+    },
+    "global_quant_config": {
+      "bias": null,
+      "input_tensors": {
+        "dtype": "uint8",
+        "is_dynamic": false,
+        "qscheme": "per_tensor",
+        "ch_axis": null,
+        "group_size": null,
+        "symmetric": false,
+        "round_method": "half_even",
+        "scale_type": "float",
+        "observer_cls": "PerTensorHistogramObserverPro"
+      },
+      "output_tensors": null,
+      "target_device": null,
+      "weight": {
+        "dtype": "int8",
+        "is_dynamic": false,
+        "qscheme": "per_channel",
+        "ch_axis": 0,
+        "group_size": null,
+        "symmetric": true,
+        "round_method": "half_even",
+        "scale_type": "float",
+        "observer_cls": "PerChannelMinMaxObserver"
+      }
+    },
+    "layer_quant_config": {
+      "bias": null,
+      "output_tensors": null,
+      "target_device": null,
+      "weight": {
+        "dtype": "uint4",
+        "is_dynamic": false,
+        "qscheme": "per_channel",
+        "ch_axis": 0,
+        "zero_point": 0,
+        "group_size": null,
+        "symmetric": false,
+        "round_method": "half_even",
+        "scale_type": "float",
+        "observer_cls": "PerChannelMinMaxObserver"
+      }
+    },
+    "layer_type_quant_config": {},
+    "quant_method": "quark",
+    "quant_mode": "eager_mode"
+  },
+  "torch_dtype": "float32"
+}
