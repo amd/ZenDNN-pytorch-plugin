@@ -92,8 +92,7 @@ class Test_Qlinear(Zentorch_TestCase):
             )
         self.assertTrue(
             "unsupported dtype for input tensor, only "
-            "float32/bfloat16/uint8/int8 is supported"
-            in str(context.exception)
+            "float32/bfloat16/uint8/int8 is supported" in str(context.exception)
         )
 
         with self.assertRaises(RuntimeError) as context:
@@ -125,8 +124,7 @@ class Test_Qlinear(Zentorch_TestCase):
             )
         self.assertTrue(
             "unsupported dtype for bias tensor, only float32 or bfloat16 "
-            "is supported"
-            in str(context.exception)
+            "is supported" in str(context.exception)
         )
 
         with self.assertRaises(RuntimeError) as context:
@@ -481,6 +479,83 @@ class Test_Qlinear(Zentorch_TestCase):
                 else self.data.output_zero_points["per_tensor"][q_linear_dtype].dtype
             ),
             self.data.output_scales["per_tensor"][q_linear_dtype]["positive_scales"],
+            self.data.output_zero_points["per_tensor"][q_linear_dtype],
+        )
+
+        self.assertEqual(
+            qdq_linear_output, zentorch_qlinear_output, atol=1e-3, rtol=1e-4
+        )
+
+    @parameterized.expand(
+        product(
+            qlinear_dtypes,
+            input_dim_opt,
+            q_weight_list_opt,
+            bias_opt,
+            q_zero_points_dtype_opt,
+            q_linear_dtype_opt,
+            q_linear_dtype_opt,
+        ),
+        skip_on_empty=True,
+    )
+    @torch.inference_mode()
+    def test_qlinear_accuracy_0dim_scales(
+        self,
+        dtype,
+        input_dim,
+        q_weight_idx,
+        bias_opt_idx,
+        q_zero_points_dtype,
+        input_dtype,
+        q_linear_dtype,
+    ):
+        self.skip_if_bfloat16_not_yet_supported(dtype)
+        self.data.create_unittest_data(dtype)
+
+        zero_dim_x_scales = torch.tensor(self.data.x_scales["per_tensor"].item())
+        zero_dim_y_scales = torch.tensor(self.data.y_scales["per_tensor"].item())
+        zero_dim_output_scales = (
+            None
+            if self.data.output_scales["per_tensor"][q_linear_dtype][
+                "positive_scales"
+            ]
+            is None
+            else torch.tensor(
+                self.data.output_scales["per_tensor"][q_linear_dtype][
+                    "positive_scales"
+                ].item()
+            )
+        )
+
+        # simulated qlinear
+        qdq_linear_output = qdq_linear(
+            self.data.x_for_qlinear[input_dtype][input_dim],
+            self.data.y_int8[q_weight_idx],
+            self.data.bias_for_qlinear[bias_opt_idx],
+            zero_dim_x_scales,
+            self.data.x_zero_points["per_tensor"][input_dtype][q_zero_points_dtype],
+            zero_dim_y_scales,
+            self.data.y_zero_points["per_tensor"],
+            None,
+            zero_dim_output_scales,
+            self.data.output_zero_points["per_tensor"][q_linear_dtype],
+        )
+
+        # zentorch qlinear
+        zentorch_qlinear_output = torch.ops.zentorch.zentorch_qlinear(
+            self.data.x_for_qlinear[input_dtype][input_dim],
+            self.data.y_int8[q_weight_idx],
+            self.data.bias_for_qlinear[bias_opt_idx],
+            zero_dim_x_scales,
+            self.data.x_zero_points["per_tensor"][input_dtype][q_zero_points_dtype],
+            zero_dim_y_scales,
+            self.data.y_zero_points["per_tensor"],
+            (
+                self.data.x_for_qlinear[q_linear_dtype][input_dim].dtype
+                if q_linear_dtype == "float32"
+                else self.data.output_zero_points["per_tensor"][q_linear_dtype].dtype
+            ),
+            zero_dim_output_scales,
             self.data.output_zero_points["per_tensor"][q_linear_dtype],
         )
 
