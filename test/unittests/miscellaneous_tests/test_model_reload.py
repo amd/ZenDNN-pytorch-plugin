@@ -7,6 +7,7 @@ import unittest
 import torch
 import sys
 import json
+import os
 from pathlib import Path
 from torch import nn
 from safetensors.torch import save_file
@@ -31,6 +32,12 @@ class Custom_Model(nn.Module):
         return final_result
 
 
+DATA_PATH = os.path.join("test", "data")
+CONFIG_FILE_PATH = os.path.join(DATA_PATH, "config.json")
+TOKENIZER_FILE_PATH = os.path.join(DATA_PATH, "tokenizer.json")
+SAFETENSORS_FILE_PATH = os.path.join(DATA_PATH, "model_weights.safetensors")
+
+
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 @unittest.skipIf(skip_test_pt_2_1, "Pattern matcher disabled for Torch < 2.2")
 class Test_Model_Reload(Zentorch_TestCase):
@@ -40,10 +47,10 @@ class Test_Model_Reload(Zentorch_TestCase):
             "layer1.weight": torch.randn(10, 10),
             "layer1.bias": torch.randn(10),
         }
-        save_file(weights, "./test/data/model_weights.safetensors")
+        save_file(weights, SAFETENSORS_FILE_PATH)
         model = Custom_Model(40, 30).eval()
         with self.assertRaises(FileNotFoundError) as context:
-            model = zentorch.load_quantized_model(model, "./test/data/")
+            model = zentorch.load_quantized_model(model, DATA_PATH)
         self.assertTrue(
             "No JSON file found at this location:" in str(context.exception)
         )
@@ -56,11 +63,11 @@ class Test_Model_Reload(Zentorch_TestCase):
                 "weight": 0,
             },
         }
-        with open("./test/data/config.json", "w") as json_file:
+        with open(CONFIG_FILE_PATH, "w") as json_file:
             json.dump(config, json_file, indent=4)
         model = Custom_Model(40, 30).eval()
         with self.assertRaises(FileNotFoundError) as context:
-            model = zentorch.load_quantized_model(model, "./test/data/")
+            model = zentorch.load_quantized_model(model, DATA_PATH)
         self.assertTrue(
             "No file ending with .safetensors found at this location:"
             in str(context.exception)
@@ -73,19 +80,19 @@ class Test_Model_Reload(Zentorch_TestCase):
             "layer1.weight": torch.randn(10, 10),
             "layer1.bias": torch.randn(10),
         }
-        save_file(weights, "./test/data/model_weights.safetensors")
+        save_file(weights, SAFETENSORS_FILE_PATH)
         config = {
             "architectures": ["ChatGLMModel"],
         }
 
-        with open("./test/data/config.json", "w") as json_file:
+        with open(CONFIG_FILE_PATH, "w") as json_file:
             json.dump(config, json_file, indent=4)
         # HF format requires multiple config files to be present
         tokenizer = {}
-        with open("./test/data/tokenizer.json", "w") as json_file:
+        with open(TOKENIZER_FILE_PATH, "w") as json_file:
             json.dump(tokenizer, json_file, indent=4)
         with self.assertRaises(KeyError) as context:
-            model = zentorch.load_quantized_model(model, "./test/data/")
+            model = zentorch.load_quantized_model(model, DATA_PATH)
         self.assertTrue(
             "quantization_config is not available" in str(context.exception)
         )
@@ -97,20 +104,17 @@ class Test_Model_Reload(Zentorch_TestCase):
             "layer1.weight": torch.randn(10, 10),
             "layer1.bias": torch.randn(10),
         }
-        save_file(weights, "./test/data/model_weights.safetensors")
-        config = {
-            "architectures": ["ChatGLMModel"],
-            "quantization_config": {}
-        }
+        save_file(weights, SAFETENSORS_FILE_PATH)
+        config = {"architectures": ["ChatGLMModel"], "quantization_config": {}}
 
-        with open("./test/data/config.json", "w") as json_file:
+        with open(CONFIG_FILE_PATH, "w") as json_file:
             json.dump(config, json_file, indent=4)
         # HF format requires multiple config files to be present
         tokenizer = {}
-        with open("./test/data/tokenizer.json", "w") as json_file:
+        with open(TOKENIZER_FILE_PATH, "w") as json_file:
             json.dump(tokenizer, json_file, indent=4)
         with self.assertRaises(KeyError) as context:
-            model = zentorch.load_quantized_model(model, "./test/data/")
+            model = zentorch.load_quantized_model(model, DATA_PATH)
         self.assertTrue(
             "global_quant_config is not available." in str(context.exception)
         )
@@ -122,7 +126,7 @@ class Test_Model_Reload(Zentorch_TestCase):
             "layer1.weight": torch.randn(10, 10),
             "layer1.bias": torch.randn(10),
         }
-        save_file(weights, "./test/data/model_weights.safetensors")
+        save_file(weights, SAFETENSORS_FILE_PATH)
         config = {
             "architectures": ["ChatGLMModel"],
             "quantization_config": {
@@ -145,16 +149,16 @@ class Test_Model_Reload(Zentorch_TestCase):
             },
             "torch_dtype": "float32",
         }
-        with open("./test/data/config.json", "w") as json_file:
+        with open(CONFIG_FILE_PATH, "w") as json_file:
             json.dump(config, json_file, indent=4)
         # HF format requires multiple config files to be present
         tokenizer = {}
-        with open("./test/data/tokenizer.json", "w") as json_file:
+        with open(TOKENIZER_FILE_PATH, "w") as json_file:
             json.dump(tokenizer, json_file, indent=4)
         with self.assertRaises(NotImplementedError) as context:
-            model = zentorch.load_quantized_model(model, "./test/data/")
+            model = zentorch.load_quantized_model(model, DATA_PATH)
         self.assertTrue(
-            "zentorch does not support group_size " in str(context.exception)
+            "Zentorch does not support group_size " in str(context.exception)
         )
 
     @torch.inference_mode()
@@ -164,7 +168,7 @@ class Test_Model_Reload(Zentorch_TestCase):
             "layer1.weight": torch.randn(10, 10),
             "layer1.bias": torch.randn(10),
         }
-        save_file(weights, "./test/data/model_weights.safetensors")
+        save_file(weights, SAFETENSORS_FILE_PATH)
         config = {
             "architectures": ["ChatGLMModel"],
             "quantization_config": {
@@ -173,7 +177,7 @@ class Test_Model_Reload(Zentorch_TestCase):
                     "input_tensors": {},
                     "weight": {
                         "ch_axis": 0,
-                        "dtype": "int32",
+                        "dtype": "float",
                         "group_size": None,
                         "is_dynamic": False,
                         "observer_cls": "PerChannelMinMaxObserver",
@@ -187,31 +191,33 @@ class Test_Model_Reload(Zentorch_TestCase):
             },
             "torch_dtype": "float32",
         }
-        with open("./test/data/config.json", "w") as json_file:
+        with open(CONFIG_FILE_PATH, "w") as json_file:
             json.dump(config, json_file, indent=4)
         # HF format requires multiple config files to be present
         tokenizer = {}
-        with open("./test/data/tokenizer.json", "w") as json_file:
+        with open(TOKENIZER_FILE_PATH, "w") as json_file:
             json.dump(tokenizer, json_file, indent=4)
         with self.assertRaises(NotImplementedError) as context:
-            model = zentorch.load_quantized_model(model, "./test/data/")
+            model = zentorch.load_quantized_model(model, DATA_PATH)
         self.assertTrue(
-            "zentorch has not yet implemented support for" in str(context.exception)
+            "Zentorch has not yet implemented support for" in str(context.exception)
         )
 
     @torch.inference_mode()
     def test_with_wrong_weight_dtype_woq(self):
         model = Custom_Model(40, 30).eval()
         weights = {
-            "layer1.qweight": torch.randn(10, 10),
+            "layer1.weight": torch.randn(10, 10),
             "layer1.weight_scale": torch.randn(1, 10),
+            "layer1.weight_zero_point": torch.randint(0, 15, (1, 10)),
             "layer1.bias": torch.randn(10),
         }
-        save_file(weights, "./test/data/model_weights.safetensors")
+        save_file(weights, SAFETENSORS_FILE_PATH)
         config = {
             "architectures": ["ChatGLMModel"],
             "quantization_config": {
                 "export": {"pack_method": "order"},
+                "exclude": [],
                 "global_quant_config": {
                     "input_tensors": {},
                     "weight": {
@@ -230,17 +236,16 @@ class Test_Model_Reload(Zentorch_TestCase):
             },
             "torch_dtype": "bfloat16",
         }
-
-        with open("./test/data/config.json", "w") as json_file:
+        with open(CONFIG_FILE_PATH, "w") as json_file:
             json.dump(config, json_file, indent=4)
         # HF format requires multiple config files to be present
         tokenizer = {}
-        with open("./test/data/tokenizer.json", "w") as json_file:
+        with open(TOKENIZER_FILE_PATH, "w") as json_file:
             json.dump(tokenizer, json_file, indent=4)
         with self.assertRaises(NotImplementedError) as context:
-            model = zentorch.load_quantized_model(model, "./test/data/")
+            model = zentorch.load_quantized_model(model, DATA_PATH)
         self.assertTrue(
-            "zentorch has not yet implemented support for weights packed into "
+            "Zentorch has not yet implemented support for weights packed into "
             in str(context.exception)
         )
 
@@ -269,12 +274,12 @@ class Test_Model_Reload(Zentorch_TestCase):
             },
             "torch_dtype": "float32",
         }
-        with open("./test/data/config.json", "w") as json_file:
+        with open(CONFIG_FILE_PATH, "w") as json_file:
             json.dump(config, json_file, indent=4)
         with self.assertRaises(NotImplementedError) as context:
-            model = zentorch.load_quantized_model(model, "./test/data/", "quark_safe")
+            model = zentorch.load_quantized_model(model, DATA_PATH, "quark_safe")
         self.assertTrue(
-            "zentorch has not yet implemented support for the models exported with "
+            "Zentorch has not yet implemented support for the models exported with "
             in str(context.exception)
         )
 
@@ -286,7 +291,7 @@ class Test_Model_Reload(Zentorch_TestCase):
             "layer1.weight_scale": torch.randn(1, 10),
             "layer1.bias": torch.randn(10),
         }
-        save_file(weights, "./test/data/model_weights.safetensors")
+        save_file(weights, SAFETENSORS_FILE_PATH)
         config = {
             "structure": {
                 "sparse_arch": {
@@ -329,12 +334,10 @@ class Test_Model_Reload(Zentorch_TestCase):
                 },
             }
         }
-        with open("./test/data/config.json", "w") as json_file:
+        with open(CONFIG_FILE_PATH, "w") as json_file:
             json.dump(config, json_file, indent=4)
         with self.assertRaises(ValueError) as context:
-            model = zentorch.load_quantized_model(
-                model, "./test/data/", "quark_safetensors"
-            )
+            model = zentorch.load_quantized_model(model, DATA_PATH, "hf_format")
         self.assertTrue(
             "embed_config_dict is NOT same as the previous " in str(context.exception)
         )
@@ -347,7 +350,7 @@ class Test_Model_Reload(Zentorch_TestCase):
             "layer1.weight_scale": torch.randn(1, 10),
             "layer1.bias": torch.randn(10),
         }
-        save_file(weights, "./test/data/model_weights.safetensors")
+        save_file(weights, SAFETENSORS_FILE_PATH)
         config = {
             "structure": {
                 "sparse_arch": {
@@ -373,12 +376,10 @@ class Test_Model_Reload(Zentorch_TestCase):
                 },
             }
         }
-        with open("./test/data/config.json", "w") as json_file:
+        with open(CONFIG_FILE_PATH, "w") as json_file:
             json.dump(config, json_file, indent=4)
         with self.assertRaises(ValueError) as context:
-            model = zentorch.load_quantized_model(
-                model, "./test/data/", "quark_safetensors"
-            )
+            model = zentorch.load_quantized_model(model, DATA_PATH, "hf_format")
         self.assertTrue("Key is missing in module_info" in str(context.exception))
 
     @torch.inference_mode()
@@ -389,7 +390,7 @@ class Test_Model_Reload(Zentorch_TestCase):
             "layer1.weight_scale": torch.randn(1, 10),
             "layer1.bias": torch.randn(10),
         }
-        save_file(weights, "./test/data/model_weights.safetensors")
+        save_file(weights, SAFETENSORS_FILE_PATH)
         config = {
             "structure": {
                 "sparse_arch": {
@@ -415,12 +416,10 @@ class Test_Model_Reload(Zentorch_TestCase):
                 },
             }
         }
-        with open("./test/data/config.json", "w") as json_file:
+        with open(CONFIG_FILE_PATH, "w") as json_file:
             json.dump(config, json_file, indent=4)
         with self.assertRaises(NotImplementedError) as context:
-            model = zentorch.load_quantized_model(
-                model, "./test/data/", "quark_safetensors"
-            )
+            model = zentorch.load_quantized_model(model, DATA_PATH, "hf_format")
         self.assertTrue(
             "zentorch does not support this module type" in str(context.exception)
         )

@@ -37,23 +37,6 @@ def set_op_by_name(
         setattr(layer, name, new_module)
 
 
-def get_op_by_name(
-    layer: Union[nn.Module, nn.ModuleList], name: str
-) -> Union[nn.Module, nn.ModuleList]:
-    levels = name.split(".")
-    mod_ = layer
-    for l_idx in range(len(levels)):
-        if levels[l_idx].isdigit() and isinstance(mod_, nn.ModuleList):
-            mod_ = mod_[int(levels[l_idx])]
-        else:
-            mod_ = getattr(mod_, levels[l_idx])
-    return mod_
-
-
-def get_module_name_str(parameter_key: str) -> str:
-    return parameter_key.rsplit(".", 1)[0]
-
-
 def get_name_and_info(
     model_info: Dict[str, Any], parent_key: str = ""
 ) -> Iterable[Tuple[str, Dict[str, Any]]]:

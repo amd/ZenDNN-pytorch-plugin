@@ -313,11 +313,11 @@ pip install -r ../llm_eval/requirements.txt
 ### 4.5.3 Run the following command to quantize the model
 #### 4.5.3.1 For per-channel quantization
 ```bash
-OMP_NUM_THREADS=<physical-cores-num> numactl --physcpubind=<physical-cores-list> python quantize_quark.py --model_dir <hugging_face_model_id> --device cpu --data_type bfloat16 --model_export hf_format --custom_mode awq --quant_algo awq --quant_scheme w_int4_per_group_sym --group_size -1 --num_calib_data 128 --dataset pileval_for_awq_benchmark --seq_len 128 --output_dir <output_dir> --pack_method order
+OMP_NUM_THREADS=<physical-cores-num> numactl --physcpubind=<physical-cores-list> python quantize_quark.py --model_dir <hugging_face_model_id> --device cpu --data_type bfloat16 --model_export hf_format --quant_algo awq --quant_scheme w_int4_per_group_sym --group_size -1 --num_calib_data 128 --dataset pileval_for_awq_benchmark --seq_len 128 --output_dir <output_dir> --pack_method order
 ```
 #### 4.5.3.2 For per-group quantization
 ```bash
-OMP_NUM_THREADS=<physical-cores-num> numactl --physcpubind=<physical-cores-list> python quantize_quark.py --model_dir <hugging_face_model_id> --device cpu --data_type bfloat16 --model_export hf_format --custom_mode awq --quant_algo awq --quant_scheme w_int4_per_group_sym --group_size <group_size> --num_calib_data 128 --dataset pileval_for_awq_benchmark --seq_len 128 --output_dir <output_dir> --pack_method order
+OMP_NUM_THREADS=<physical-cores-num> numactl --physcpubind=<physical-cores-list> python quantize_quark.py --model_dir <hugging_face_model_id> --device cpu --data_type bfloat16 --model_export hf_format --quant_algo awq --quant_scheme w_int4_per_group_sym --group_size <group_size> --num_calib_data 128 --dataset pileval_for_awq_benchmark --seq_len 128 --output_dir <output_dir> --pack_method order
 ```
 > Note: The channel/out_features dimension should be divisible by the 'group_size' value.
 
