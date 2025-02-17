@@ -378,13 +378,6 @@ def load_quantized_model(
     # extract config information from config.json file
     model_config = get_model_config(os.path.join(saved_model_path, "config.json"))
 
-    if model_architecture == "ChatGLMModel" and [
-        key for key in params_keys if key.endswith("input_scale")
-    ]:
-        raise ValueError(
-            "zentorch has not yet implemented"
-            " static quantization support for chatglm model"
-        )
     if len(weight_keys) == 0:
         raise ValueError("Encountered a non-standard weight_key")
     for weight_key in weight_keys:
