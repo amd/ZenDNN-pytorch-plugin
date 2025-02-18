@@ -477,12 +477,11 @@ def load_quantized_model(
             )
             set_op_by_name(model, module_name, quant_module)
         # to restrict other weight_keys like "amdweight"
-        if weight_key.endswith(".weight"):
+        elif weight_key.endswith(".weight"):
             module_name = get_module_name_str(weight_key)
             float_module = get_op_by_name(model, module_name)
             weight_device = float_module.weight.device
             float_module.weight.data = weight_tensor.to(weight_device)
-
             bias_tensor_key = module_name + ".bias"
             if bias_tensor_key in params_dict.keys():
                 bias_tensor = params_dict[bias_tensor_key]

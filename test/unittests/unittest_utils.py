@@ -389,7 +389,7 @@ class Zentorch_TestCase(TestCase):
     def setUp(self):
         set_seed()
         self.data = Test_Data()
-        os.makedirs(os.path.join(path, "data"))
+        os.makedirs(os.path.join(path, "data"), exist_ok=True)
 
     def tearDown(self):
         del self.data
