@@ -369,7 +369,7 @@ def qlinear_reorder_optimizations(fx_graph):
     # TODO : Move this to a common location before zentorch graph optimizations.
     # Detach node can impact the number of users, hence removing it.
     for node in fx_graph.graph.nodes:
-        if node.target == at_ops.detach.default:
+        if node.target == at_ops.detach.default and len(node.users) == 0:
             fx_graph.graph.erase_node(node)
 
     # Group a serialized pattern of qlinear_* ops and optimize the
@@ -493,7 +493,7 @@ def vertical_mlp_fusion(fx_graph):
 
     logger.info("Fusing vertical contiguous addmm ops.")
     for node in fx_graph.graph.nodes:
-        if node.target == at_ops.detach.default:
+        if node.target == at_ops.detach.default and len(node.users) == 0:
             fx_graph.graph.erase_node(node)
     addmm_groups = [[]]
     nodes_traversed = set()
