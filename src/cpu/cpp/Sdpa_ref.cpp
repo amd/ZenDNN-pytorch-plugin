@@ -18,9 +18,8 @@ namespace zentorch {
 #if TORCH_VERSION_MAJOR >= 2 && TORCH_VERSION_MINOR > 3
 std::tuple<at::Tensor, at::Tensor> zentorch_scaled_dot_product_attention_impl(
     const at::Tensor &query, const at::Tensor &key, const at::Tensor &value,
-    double dropout_p, bool is_causal,
-    const std::optional<at::Tensor> &attn_mask, std::optional<double> scale,
-    std::string zentorch_op_name) {
+    double dropout_p, bool is_causal, std::optional<at::Tensor> attn_mask,
+    std::optional<double> scale, std::string zentorch_op_name) {
   const auto dtype = query.scalar_type();
   int64_t batchSize = query.size(0);
   int64_t qSize = query.size(2);
