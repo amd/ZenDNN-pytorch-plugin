@@ -35,29 +35,17 @@ class Custom_Model(nn.Module):
 @unittest.skipIf(skip_test_pt_2_1, "Pattern matcher disabled for Torch < 2.2")
 class Test_Model_Reload(Zentorch_TestCase):
     @torch.inference_mode()
-    def test_wrong_model_name(self):
-        model = Custom_Model(40, 30).eval()
-        config = {
-            "architectures": ["dummy_config"],
-        }
-        with open("./test/data/config.json", "w") as json_file:
-            json.dump(config, json_file, indent=4)
-        with self.assertRaises(ValueError) as context:
-            model = zentorch.load_quantized_model(model, "./test/data/")
-        self.assertTrue(
-            "This quantized model with model_architecture = dummy_config "
-            + "is not yet supported with zentorch's reload feature."
-            in str(context.exception)
-        )
-
-    @torch.inference_mode()
     def test_without_config_file(self):
+        weights = {
+            "layer1.weight": torch.randn(10, 10),
+            "layer1.bias": torch.randn(10),
+        }
+        save_file(weights, "./test/data/model_weights.safetensors")
         model = Custom_Model(40, 30).eval()
         with self.assertRaises(FileNotFoundError) as context:
             model = zentorch.load_quantized_model(model, "./test/data/")
         self.assertTrue(
-            "No JSON file titled 'config.json' found at this location :"
-            in str(context.exception)
+            "No JSON file found at this location:" in str(context.exception)
         )
 
     @torch.inference_mode()
@@ -89,12 +77,42 @@ class Test_Model_Reload(Zentorch_TestCase):
         config = {
             "architectures": ["ChatGLMModel"],
         }
+
         with open("./test/data/config.json", "w") as json_file:
             json.dump(config, json_file, indent=4)
+        # HF format requires multiple config files to be present
+        tokenizer = {}
+        with open("./test/data/tokenizer.json", "w") as json_file:
+            json.dump(tokenizer, json_file, indent=4)
         with self.assertRaises(KeyError) as context:
             model = zentorch.load_quantized_model(model, "./test/data/")
         self.assertTrue(
             "quantization_config is not available" in str(context.exception)
+        )
+
+    @torch.inference_mode()
+    def test_without_global_quant_config(self):
+        model = Custom_Model(40, 30).eval()
+        weights = {
+            "layer1.weight": torch.randn(10, 10),
+            "layer1.bias": torch.randn(10),
+        }
+        save_file(weights, "./test/data/model_weights.safetensors")
+        config = {
+            "architectures": ["ChatGLMModel"],
+            "quantization_config": {}
+        }
+
+        with open("./test/data/config.json", "w") as json_file:
+            json.dump(config, json_file, indent=4)
+        # HF format requires multiple config files to be present
+        tokenizer = {}
+        with open("./test/data/tokenizer.json", "w") as json_file:
+            json.dump(tokenizer, json_file, indent=4)
+        with self.assertRaises(KeyError) as context:
+            model = zentorch.load_quantized_model(model, "./test/data/")
+        self.assertTrue(
+            "global_quant_config is not available." in str(context.exception)
         )
 
     @torch.inference_mode()
@@ -108,16 +126,31 @@ class Test_Model_Reload(Zentorch_TestCase):
         config = {
             "architectures": ["ChatGLMModel"],
             "quantization_config": {
-                "bits": 4,
-                "group_size": -3,
-                "quant_method": "awq",
-                "pack_method": "order",
-                "zero_point": False,
+                "export": {"pack_method": "order"},
+                "global_quant_config": {
+                    "input_tensors": {},
+                    "weight": {
+                        "ch_axis": 0,
+                        "dtype": "int8",
+                        "group_size": -3,
+                        "is_dynamic": False,
+                        "observer_cls": "PerChannelMinMaxObserver",
+                        "qscheme": "per_channel",
+                        "round_method": "half_even",
+                        "scale_type": "Bfloat",
+                        "symmetric": True,
+                    },
+                },
+                "layer_quant_config": {},
             },
-            "torch_dtype": "bfloat16",
+            "torch_dtype": "float32",
         }
         with open("./test/data/config.json", "w") as json_file:
             json.dump(config, json_file, indent=4)
+        # HF format requires multiple config files to be present
+        tokenizer = {}
+        with open("./test/data/tokenizer.json", "w") as json_file:
+            json.dump(tokenizer, json_file, indent=4)
         with self.assertRaises(NotImplementedError) as context:
             model = zentorch.load_quantized_model(model, "./test/data/")
         self.assertTrue(
@@ -135,16 +168,31 @@ class Test_Model_Reload(Zentorch_TestCase):
         config = {
             "architectures": ["ChatGLMModel"],
             "quantization_config": {
-                "bits": 5,
-                "group_size": -1,
-                "quant_method": "awq",
-                "pack_method": "order",
-                "zero_point": False,
+                "export": {"pack_method": "order"},
+                "global_quant_config": {
+                    "input_tensors": {},
+                    "weight": {
+                        "ch_axis": 0,
+                        "dtype": "int32",
+                        "group_size": None,
+                        "is_dynamic": False,
+                        "observer_cls": "PerChannelMinMaxObserver",
+                        "qscheme": "per_channel",
+                        "round_method": "half_even",
+                        "scale_type": "Bfloat",
+                        "symmetric": True,
+                    },
+                },
+                "layer_quant_config": {},
             },
-            "torch_dtype": "bfloat16",
+            "torch_dtype": "float32",
         }
         with open("./test/data/config.json", "w") as json_file:
             json.dump(config, json_file, indent=4)
+        # HF format requires multiple config files to be present
+        tokenizer = {}
+        with open("./test/data/tokenizer.json", "w") as json_file:
+            json.dump(tokenizer, json_file, indent=4)
         with self.assertRaises(NotImplementedError) as context:
             model = zentorch.load_quantized_model(model, "./test/data/")
         self.assertTrue(
@@ -156,55 +204,44 @@ class Test_Model_Reload(Zentorch_TestCase):
         model = Custom_Model(40, 30).eval()
         weights = {
             "layer1.qweight": torch.randn(10, 10),
+            "layer1.weight_scale": torch.randn(1, 10),
             "layer1.bias": torch.randn(10),
         }
         save_file(weights, "./test/data/model_weights.safetensors")
         config = {
             "architectures": ["ChatGLMModel"],
             "quantization_config": {
-                "bits": 4,
-                "group_size": -1,
-                "quant_method": "awq",
-                "pack_method": "order",
-                "zero_point": False,
+                "export": {"pack_method": "order"},
+                "global_quant_config": {
+                    "input_tensors": {},
+                    "weight": {
+                        "ch_axis": 0,
+                        "dtype": "int4",
+                        "group_size": None,
+                        "is_dynamic": False,
+                        "observer_cls": "PerChannelMinMaxObserver",
+                        "qscheme": "per_channel",
+                        "round_method": "half_even",
+                        "scale_type": "Bfloat",
+                        "symmetric": True,
+                    },
+                },
+                "layer_quant_config": {},
             },
             "torch_dtype": "bfloat16",
         }
 
         with open("./test/data/config.json", "w") as json_file:
             json.dump(config, json_file, indent=4)
+        # HF format requires multiple config files to be present
+        tokenizer = {}
+        with open("./test/data/tokenizer.json", "w") as json_file:
+            json.dump(tokenizer, json_file, indent=4)
         with self.assertRaises(NotImplementedError) as context:
             model = zentorch.load_quantized_model(model, "./test/data/")
         self.assertTrue(
-            "zentorch has not yet implemented support for qweights packed into "
+            "zentorch has not yet implemented support for weights packed into "
             in str(context.exception)
-        )
-
-    @torch.inference_mode()
-    def test_without_weight(self):
-        model = Custom_Model(40, 30).eval()
-        weights = {
-            "layer1.bias": torch.randn(10, 10),
-        }
-        save_file(weights, "./test/data/model_weights.safetensors")
-        config = {
-            "architectures": ["ChatGLMModel"],
-            "quantization_config": {
-                "bits": 4,
-                "group_size": -1,
-                "quant_method": "awq",
-                "pack_method": "order",
-                "zero_point": False,
-            },
-            "torch_dtype": "bfloat16",
-        }
-
-        with open("./test/data/config.json", "w") as json_file:
-            json.dump(config, json_file, indent=4)
-        with self.assertRaises(ValueError) as context:
-            model = zentorch.load_quantized_model(model, "./test/data/")
-        self.assertTrue(
-            "Encountered a non-standard weight_key" in str(context.exception)
         )
 
     @torch.inference_mode()
@@ -213,13 +250,24 @@ class Test_Model_Reload(Zentorch_TestCase):
         config = {
             "architectures": ["ChatGLMModel"],
             "quantization_config": {
-                "bits": 4,
-                "group_size": -1,
-                "quant_method": "awq",
-                "pack_method": "order",
-                "zero_point": False,
+                "export": {"pack_method": "order"},
+                "global_quant_config": {
+                    "input_tensors": {},
+                    "weight": {
+                        "ch_axis": 0,
+                        "dtype": "int8",
+                        "group_size": None,
+                        "is_dynamic": False,
+                        "observer_cls": "PerChannelMinMaxObserver",
+                        "qscheme": "per_channel",
+                        "round_method": "half_even",
+                        "scale_type": "float",
+                        "symmetric": True,
+                    },
+                },
+                "layer_quant_config": {},
             },
-            "torch_dtype": "bfloat16",
+            "torch_dtype": "float32",
         }
         with open("./test/data/config.json", "w") as json_file:
             json.dump(config, json_file, indent=4)
@@ -228,6 +276,153 @@ class Test_Model_Reload(Zentorch_TestCase):
         self.assertTrue(
             "zentorch has not yet implemented support for the models exported with "
             in str(context.exception)
+        )
+
+    @torch.inference_mode()
+    def test_mismatch_key_recsys(self):
+        model = Custom_Model(40, 30).eval()
+        weights = {
+            "layer1.qweight": torch.randn(10, 10),
+            "layer1.weight_scale": torch.randn(1, 10),
+            "layer1.bias": torch.randn(10),
+        }
+        save_file(weights, "./test/data/model_weights.safetensors")
+        config = {
+            "structure": {
+                "sparse_arch": {
+                    "embed_col": {
+                        "embedding_bags": {
+                            "0": {
+                                "name": "sparse_arch.embed.embedding_bags.0",
+                                "type": "QuantEmbeddingBag",
+                                "weight": "sparse_arch.em.embedding_bags.0.weight",
+                                "weight_quant": {
+                                    "dtype": "uint4",
+                                    "is_dynamic": False,
+                                    "qscheme": "per_channel",
+                                    "ch_axis": 0,
+                                    "group_size": None,
+                                    "symmetric": False,
+                                    "round_method": "half_even",
+                                    "scale_type": "float",
+                                    "observer_cls": "PerChannelMinMaxObserver",
+                                },
+                            },
+                            "1": {
+                                "name": "sparse_arch.embed_col.embedding_bags.0",
+                                "type": "QuantEmbeddingBag",
+                                "weight": "sparse_arch.em.embedding_bags.0.weight",
+                                "weight_quant": {
+                                    "dtype": "uint4",
+                                    "is_dynamic": False,
+                                    "qscheme": "per_token",
+                                    "ch_axis": 0,
+                                    "group_size": None,
+                                    "symmetric": False,
+                                    "round_method": "half_even",
+                                    "scale_type": "float",
+                                    "observer_cls": "PerChannelMinMaxObserver",
+                                },
+                            },
+                        },
+                    },
+                },
+            }
+        }
+        with open("./test/data/config.json", "w") as json_file:
+            json.dump(config, json_file, indent=4)
+        with self.assertRaises(ValueError) as context:
+            model = zentorch.load_quantized_model(
+                model, "./test/data/", "quark_safetensors"
+            )
+        self.assertTrue(
+            "embed_config_dict is NOT same as the previous " in str(context.exception)
+        )
+
+    @torch.inference_mode()
+    def test_missing_key_recsys(self):
+        model = Custom_Model(40, 30).eval()
+        weights = {
+            "layer1.qweight": torch.randn(10, 10),
+            "layer1.weight_scale": torch.randn(1, 10),
+            "layer1.bias": torch.randn(10),
+        }
+        save_file(weights, "./test/data/model_weights.safetensors")
+        config = {
+            "structure": {
+                "sparse_arch": {
+                    "embed_col": {
+                        "embedding_bags": {
+                            "0": {
+                                "name": "sparse_arch.embed_col.embedding_bags.0",
+                                "type": "QuantEmbeddingBag",
+                                "weight": "sparse_arch.em.embedding_bags.0.weight",
+                                "weight_quant": {
+                                    "dtype": "uint4",
+                                    "is_dynamic": False,
+                                    "qscheme": "per_channel",
+                                    "ch_axis": 0,
+                                    "group_size": None,
+                                    "round_method": "half_even",
+                                    "scale_type": "float",
+                                    "observer_cls": "PerChannelMinMaxObserver",
+                                },
+                            },
+                        },
+                    },
+                },
+            }
+        }
+        with open("./test/data/config.json", "w") as json_file:
+            json.dump(config, json_file, indent=4)
+        with self.assertRaises(ValueError) as context:
+            model = zentorch.load_quantized_model(
+                model, "./test/data/", "quark_safetensors"
+            )
+        self.assertTrue("Key is missing in module_info" in str(context.exception))
+
+    @torch.inference_mode()
+    def test_wrong_module_dtype_recsys(self):
+        model = Custom_Model(40, 30).eval()
+        weights = {
+            "layer1.qweight": torch.randn(10, 10).to(torch.int32),
+            "layer1.weight_scale": torch.randn(1, 10),
+            "layer1.bias": torch.randn(10),
+        }
+        save_file(weights, "./test/data/model_weights.safetensors")
+        config = {
+            "structure": {
+                "sparse_arch": {
+                    "embed_col": {
+                        "embedding_bags": {
+                            "0": {
+                                "name": "sparse_arch.embed_col.embedding_bags.0",
+                                "type": "QuantConvolution",
+                                "weight": "sparse_arch.em.embedding_bags.0.weight",
+                                "weight_quant": {
+                                    "dtype": "uint4",
+                                    "is_dynamic": False,
+                                    "qscheme": "per_channel",
+                                    "ch_axis": 0,
+                                    "group_size": None,
+                                    "round_method": "half_even",
+                                    "scale_type": "float",
+                                    "observer_cls": "PerChannelMinMaxObserver",
+                                },
+                            },
+                        },
+                    },
+                },
+            }
+        }
+        with open("./test/data/config.json", "w") as json_file:
+            json.dump(config, json_file, indent=4)
+        with self.assertRaises(NotImplementedError) as context:
+            model = zentorch.load_quantized_model(
+                model, "./test/data/", "quark_safetensors"
+            )
+        self.assertTrue(
+            "zentorch does not support this module type" in str(context.exception)
         )
 
 

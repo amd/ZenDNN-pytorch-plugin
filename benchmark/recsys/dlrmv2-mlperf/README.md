@@ -48,13 +48,6 @@ Set the path for the quantized DLRM model directory.
 export MODEL_DIR=/path/to/dlrm_quark
 ```
 
-An additional JSON file is required in the quantized model directory for zentorch execution.
-Copy the file using the following command :
-
-```bash
-cp /path/to/benchmark/recsys/dlrmv2-mlperf/config.json $MODEL_DIR/
-```
-
 ## 4. Execute DLRMv2
 
 ### 4.1 Dependency Installation

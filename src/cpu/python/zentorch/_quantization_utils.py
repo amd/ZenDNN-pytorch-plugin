@@ -1,15 +1,14 @@
 # ******************************************************************************
-# Copyright (c) 2024 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
-from typing import Union
+from typing import Union, Dict, Any, Tuple, Iterable
 import torch.nn as nn
 
 
 def set_op_by_name(
-    layer: Union[nn.Module, nn.ModuleList],
-    name: str, new_module: nn.Module
+    layer: Union[nn.Module, nn.ModuleList], name: str, new_module: nn.Module
 ) -> None:
     """
     Replaces a submodule in a given neural network layer with a new module
@@ -25,7 +24,7 @@ def set_op_by_name(
     - new_module: The new module to replace the existing one,
                   for example the quantized module.
     """
-    levels = name.split('.')
+    levels = name.split(".")
     if len(levels) > 1:
         mod_ = layer
         for l_idx in range(len(levels) - 1):
@@ -41,7 +40,7 @@ def set_op_by_name(
 def get_op_by_name(
     layer: Union[nn.Module, nn.ModuleList], name: str
 ) -> Union[nn.Module, nn.ModuleList]:
-    levels = name.split('.')
+    levels = name.split(".")
     mod_ = layer
     for l_idx in range(len(levels)):
         if levels[l_idx].isdigit() and isinstance(mod_, nn.ModuleList):
@@ -51,7 +50,22 @@ def get_op_by_name(
     return mod_
 
 
-def get_module_name_str(
-    parameter_key: str
-) -> str:
-    return parameter_key.rsplit('.', 1)[0]
+def get_module_name_str(parameter_key: str) -> str:
+    return parameter_key.rsplit(".", 1)[0]
+
+
+def get_name_and_info(
+    model_info: Dict[str, Any], parent_key: str = ""
+) -> Iterable[Tuple[str, Dict[str, Any]]]:
+    for key, value in model_info.items():
+        new_key = f"{parent_key}.{key}" if parent_key else key
+        if isinstance(value, dict):
+            if (
+                value.get("type", None) is not None
+                and value.get("weight", None) is not None
+            ):
+                yield new_key, value
+            else:
+                yield from get_name_and_info(value, new_key)
+        else:
+            continue
