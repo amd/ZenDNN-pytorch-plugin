@@ -15,7 +15,6 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).parent))
 from pre_trained_model_utils import (  # noqa: 402
     Zentorch_TestCase,
-    TestCase,
     has_zentorch,
     run_tests,
     supported_dtypes,

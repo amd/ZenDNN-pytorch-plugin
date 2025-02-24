@@ -15,7 +15,7 @@ import sys
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
-from utils import(  # noqa: 402
+from llm_utils import(  # noqa: 402
     Zentorch_TestCase,
     run_tests,
     skip_test_pt_2_3,
