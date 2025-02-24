@@ -3,8 +3,8 @@
 # All rights reserved.
 #
 # Was sourced from
-# https://github.com/intel/intel-extension-for-pytorch/blob/v2.3.0%2Bcpu/tests/cpu/test_rope.py
-# IPEX commit ID: 339bd25
+# https://github.com/intel/intel-extension-for-pytorch/blob/v2.6.0%2Bcpu/tests/cpu/test_rope.py
+# IPEX commit ID: 18eeefa
 # ******************************************************************************
 
 import unittest
@@ -223,7 +223,7 @@ class Test_Fused_Rope(Zentorch_TestCase):
                     offset,
                     rotary_dim,
                 ),
-                freeze_opt
+                freeze_opt,
             )
             query_compile, key_compile, value_compile = test_with_freeze_opt(
                 func_compile,
@@ -236,7 +236,7 @@ class Test_Fused_Rope(Zentorch_TestCase):
                     offset,
                     rotary_dim,
                 ),
-                freeze_opt
+                freeze_opt,
             )
 
             atol = 1e-5 if dtype == torch.float32 else 5e-3
@@ -265,6 +265,122 @@ class Test_Fused_Rope(Zentorch_TestCase):
                     batch_sz, seq_ln, kv_head, self.head_size
                 ),
             )
+
+    def test_deepseek_rope(self):
+        def rotate_half(x):
+            """Rotates half the hidden dims of the input."""
+            x1 = x[..., : x.shape[-1] // 2]
+            x2 = x[..., x.shape[-1] // 2 :]
+            return torch.cat((-x2, x1), dim=-1)
+
+        def apply_rotary_pos_emb(q, k, cos, sin, position_ids, unsqueeze_dim=1):
+            cos = cos[position_ids].unsqueeze(unsqueeze_dim)
+            sin = sin[position_ids].unsqueeze(unsqueeze_dim)
+            b, h, s, d = q.shape
+            q = q.view(b, h, s, d // 2, 2).transpose(4, 3).reshape(b, h, s, d)
+            b, h, s, d = k.shape
+            k = k.view(b, h, s, d // 2, 2).transpose(4, 3).reshape(b, h, s, d)
+            q_embed = (q * cos) + (rotate_half(q) * sin)
+            k_embed = (k * cos) + (rotate_half(k) * sin)
+            return q_embed, k_embed
+
+        def upcast_tensors(a: torch.Tensor, b: torch.Tensor):
+            if a.dtype == torch.float and b.dtype != torch.float:
+                return a, b.to(torch.float)
+            elif a.dtype != torch.float and b.dtype == torch.float:
+                return a.to(torch.float), b
+            else:
+                return a, b
+
+        def upcast_and_assert(a: torch.Tensor, b: torch.Tensor, atol=1e-5):
+            x, y = upcast_tensors(a, b)
+            self.assertEqual(x, y, atol=atol, rtol=0)
+
+        def deepseek_rope(
+            q,
+            kv,
+            k_pe,
+            sin,
+            cos,
+            position_ids,
+            num_heads,
+            q_head_dim,
+            qk_nope_head_dim,
+            qk_rope_head_dim,
+            v_head_dim,
+        ):
+            bsz, q_len, _ = q.size()
+            q = q.view(bsz, q_len, num_heads, q_head_dim).transpose(1, 2)
+            q_nope, q_pe = torch.split(q, [qk_nope_head_dim, qk_rope_head_dim], dim=-1)
+            k_pe = k_pe.view(bsz, q_len, 1, qk_rope_head_dim).transpose(1, 2)
+            kv = kv.view(
+                bsz, q_len, num_heads, qk_nope_head_dim + v_head_dim
+            ).transpose(1, 2)
+            k_nope, value_states = torch.split(
+                kv, [qk_nope_head_dim, v_head_dim], dim=-1
+            )
+            q_pe, k_pe = apply_rotary_pos_emb(q_pe, k_pe, cos, sin, position_ids)
+            query_states = k_pe.new_empty(bsz, num_heads, q_len, q_head_dim)
+            query_states[:, :, :, :qk_nope_head_dim] = q_nope
+            query_states[:, :, :, qk_nope_head_dim:] = q_pe
+            key_states = k_pe.new_empty(bsz, num_heads, q_len, q_head_dim)
+            key_states[:, :, :, :qk_nope_head_dim] = k_nope
+            key_states[:, :, :, qk_nope_head_dim:] = k_pe
+            if q_head_dim != v_head_dim:
+                value_states = torch.nn.functional.pad(
+                    value_states, [0, q_head_dim - v_head_dim]
+                )
+            return query_states, key_states, value_states
+
+        num_head = 128
+        bs = 1
+        seq_len = 10
+        sincos = torch.rand(seq_len, num_head)
+        sin, cos = torch.split(sincos, sincos.shape[-1] // 2, dim=-1)
+        position_ids = torch.arange(seq_len).unsqueeze(0)
+        q_head_dim = 192
+        qk_nope_head_dim = 128
+        qk_rope_head_dim = 64
+        v_head_dim = 128
+        for dtype in [torch.float, torch.bfloat16]:
+            prec = 1e-5 if dtype == torch.float32 else 5e-3
+            enable_autocast = dtype == torch.bfloat16
+            with torch.no_grad(), torch.amp.autocast("cpu", enabled=enable_autocast):
+                q = torch.rand(bs, seq_len, num_head * q_head_dim, dtype=dtype)
+                kv = torch.rand(
+                    bs, seq_len, num_head, qk_nope_head_dim + v_head_dim, dtype=dtype
+                )
+                k_pe = torch.rand(bs, seq_len, 1, qk_rope_head_dim, dtype=dtype)
+                q_clone = q.clone()
+                kv_clone = kv.clone()
+                k_pe_clone = k_pe.clone()
+                q_ref, k_ref, v_ref = deepseek_rope(
+                    q,
+                    kv,
+                    k_pe,
+                    sin,
+                    cos,
+                    position_ids,
+                    num_head,
+                    q_head_dim,
+                    qk_nope_head_dim,
+                    qk_rope_head_dim,
+                    v_head_dim,
+                )
+                q_z, k_z, v_z = torch.ops.zentorch.zentorch_rope_deepseek(
+                    q_clone,
+                    kv_clone,
+                    k_pe_clone,
+                    sincos,
+                    position_ids,
+                    num_head,
+                    q_head_dim,
+                    qk_nope_head_dim,
+                    qk_rope_head_dim,
+                )
+                upcast_and_assert(q_ref.transpose(1, 2), q_z, atol=prec)
+                upcast_and_assert(k_ref.transpose(1, 2), k_z, atol=prec)
+                upcast_and_assert(v_ref.transpose(1, 2), v_z, atol=prec)
 
 
 if __name__ == "__main__":

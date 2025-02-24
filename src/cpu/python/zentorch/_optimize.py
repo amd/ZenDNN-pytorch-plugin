@@ -62,6 +62,10 @@ def optimize(fx_graph):
                 zt_ops.zentorch_rope.default,
                 None,
             ),
+            ipex_ops.rotary_position_embedding_deepseek.default: (
+                zt_ops.zentorch_rope_deepseek.default,
+                None,
+            ),
             ipex_ops.masked_multihead_self_attention.default: (
                 zt_ops.zentorch_masked_multihead_self_attention.default,
                 None,
