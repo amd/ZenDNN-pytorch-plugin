@@ -22,7 +22,7 @@ configure_file ("${CMAKE_CURRENT_SOURCE_DIR}/src/cpu/cpp/Config.hpp.in"
 
 #TODO: Restructure this block to remove warnings
 file(GLOB ZENTORCH_CPP_SOURCES "${CMAKE_SOURCE_DIR}/src/cpu/cpp/*.cpp")
-file(GLOB_RECURSE ZENTORCH_HEADER_FILES "${CMAKE_SOURCE_DIR}/src/cpu/cpp/*.h*")
+set(ZENTORCH_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/src/cpu/cpp/")
 list(REMOVE_ITEM ZENTORCH_CPP_SOURCES "${CMAKE_SOURCE_DIR}/src/cpu/cpp/Bindings.cpp")
 
 
@@ -38,7 +38,8 @@ set_target_properties(zentorch PROPERTIES
                       LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/lib/)
 
 target_include_directories(zentorch PUBLIC
-                            ${ZENTORCH_HEADER_FILES}
+                            ${ZENTORCH_INCLUDE_DIR}
+                            ${MHA_INCLUDE_DIR}
                             ${ZENDNN_INCLUDE_DIR}
                             ${FBGEMM_INCLUDE_DIR}
                             ${TORCH_INCLUDE_DIRS}

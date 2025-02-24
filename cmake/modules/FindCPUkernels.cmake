@@ -30,6 +30,7 @@ target_include_directories(CPUkernels PUBLIC
                            ${BLIS_INCLUDE_DIR})
 
 LIST(APPEND MHA_LIBRARIES ${CMAKE_CURRENT_BINARY_DIR}/lib/libCPUkernels.a)
+set(MHA_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src/cpu/cpp/kernels/")
 
 SET(MHA_FOUND ON)
 

@@ -71,9 +71,8 @@ class CustomBuildExtension(BuildExtension):
             f"-DINSTALL_LIB_DIR={self.build_lib}",
         ]
 
-        # Add extra compile flags to cmake
-        for flag in extra_compile_args:
-            cmake_cmd.append(f"-DCMAKE_CXX_FLAGS={flag}")
+        # Add compile flags to cmake
+        cmake_cmd.append(f"-DCMAKE_CXX_FLAGS={extra_compile_args_str}")
 
         self.spawn(cmake_cmd)
         self.spawn(["make", "-j", "-C", self.build_temp])
@@ -178,6 +177,7 @@ extra_compile_args = [
     "-DZENTORCH_VERSION=" + PACKAGE_VERSION,
     "-DPT_VERSION=" + PT_VERSION,
 ]
+extra_compile_args_str = ' '.join(extra_compile_args)
 # add the "-O2" optimization only when we are doing release build
 # check for release build
 if not os.getenv("DEBUG", 0):
