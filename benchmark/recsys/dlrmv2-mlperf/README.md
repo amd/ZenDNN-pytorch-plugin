@@ -35,7 +35,7 @@ export DATA_DIR=/path/to/terabyte_input/
 
 ## 3. Model Preparation
 
-Download and install Quark v0.8. Installation instructions can be found [here](https://quark.docs.amd.com/latest/install.html).
+Download and install Quark v0.8. Installation instructions can be found [here](https://quark.docs.amd.com/release-0.8/install.html).
 We suggest downloading the "zip release".
 
 > zentorch v5.0.1 is compatible with Quark v0.8. Please make sure you download the right version.
