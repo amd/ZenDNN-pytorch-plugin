@@ -72,4 +72,15 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         "Bind threads to specified CPU cores.\n\n"
         "Args:\n"
         "    core_ids (List[int]): A list of core IDs to bind threads to.");
+
+  m.def("zentorch_weight_reorder_for_matmul",
+        &zentorch::zentorch_weight_reorder_for_matmul, py::arg("weight"),
+        py::arg("is_weight_oc_x_ic") = true,
+        "Reorder the weight tensor to desired format.\n\n"
+        "Args:\n"
+        "    weight (torch.Tensor): The weight tensor.\n"
+        "    is_weight_oc_x_ic (bool, optional): True if weight is stored as "
+        "OCxIC.\n"
+        "Returns:\n"
+        "    Tensor: Reordered weight tensor.");
 }

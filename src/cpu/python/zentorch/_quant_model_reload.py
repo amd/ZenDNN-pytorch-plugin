@@ -52,6 +52,7 @@ def build_and_replace_with_woq_op(
     model_config,
     model_architecture=None,
     module_name=None,
+    enable_weight_prepack=False,
 ):
     from ._WOQ_embedding_bag import ZenTorchWOQEmbeddingBag
     from ._WOQLinear import ZenTorchWOQLinear
@@ -75,6 +76,12 @@ def build_and_replace_with_woq_op(
             model_config["eb_dtype"],
         )
     elif isinstance(float_module, nn.Linear):
+        if enable_weight_prepack:
+            logger.warning(
+                "Arg - 'enable_weight_prepack' is not being utilized for "
+                + "WOQ Linear as reorder of weight is not yet required "
+                + "for WOQ Linear."
+            )
         quant_module = ZenTorchWOQLinear(
             float_module,
             weight_tensor,
@@ -357,7 +364,10 @@ def get_model_config(model, saved_model_path):
 
 
 def load_quantized_model(
-    model: nn.Module, saved_model_path: str, saved_model_type: str = "hf_format"
+    model: nn.Module,
+    saved_model_path: str,
+    saved_model_type: str = "hf_format",
+    enable_weight_prepack: bool = False,
 ) -> nn.Module:
     r"""Loads the quantized model with the help of the original model, saved
     safetensors, and config.json available from saved_model_path.
@@ -366,6 +376,7 @@ def load_quantized_model(
         model (Module): original model which is used to load the quantized model.
         saved_model_path (str): path where safetensors and config files are available.
         saved_model_type (str): model export method of the quantized model.
+        enable_weight_prepack (bool): control to enable weight prepacking.
 
     Returns the reloaded quantized model with quantized modules.
     """
@@ -434,6 +445,7 @@ def load_quantized_model(
                 False,  # group_size
                 model_config["torch_dtype"],
                 model_config["activation_symmetric"],
+                enable_weight_prepack,
             )
             set_op_by_name(model, module_name, quant_module)
         elif weight_scale_key in params_keys:
@@ -457,6 +469,7 @@ def load_quantized_model(
                 model_config,
                 model_architecture,
                 module_name,
+                enable_weight_prepack,
             )
             set_op_by_name(model, module_name, quant_module)
         elif weight_tensor_key in params_keys:

@@ -446,45 +446,9 @@ class Test_Qlinear(Zentorch_TestCase):
         output_dtype,
     ):
         self.data.create_unittest_data(dtype)
-        if (
-            self.data.bias_for_qlinear[bias_opt_idx] is None
-            and input_dtype in ("float32", "bfloat16")
-            and output_dtype not in (input_dtype, "int8", "uint8")
-        ):
-            self.skipTest(
-                "Skipping test, if bias is None and input is floating-point, then "
-                "output dtype has to match either input dtype or be any of int8 "
-                "or uint8"
-            )
-
-        if (
-            self.data.bias_for_qlinear[bias_opt_idx] is not None
-            and self.data.bias_for_qlinear[bias_opt_idx].dtype == torch.float32
-            and output_dtype == "bfloat16"
-        ):
-            self.skipTest(
-                "Skipping test, if bias is fp32, then output dtype cannot be bf16."
-            )
-
-        if (
-            self.data.bias_for_qlinear[bias_opt_idx] is not None
-            and self.data.bias_for_qlinear[bias_opt_idx].dtype == torch.bfloat16
-            and output_dtype == "float32"
-        ):
-            self.skipTest(
-                "Skipping test, if bias is bf16, then output dtype cannot be fp32."
-            )
-
-        if (
-            self.data.bias_for_qlinear[bias_opt_idx] is not None
-            and input_dtype in ("float32", "bfloat16")
-            and self.data.bias_for_qlinear[bias_opt_idx].dtype
-            != self.data.get_torch_type(input_dtype)
-        ):
-            self.skipTest(
-                "Skipping test, if bias is not None and input is floating-point, then "
-                "bias dtype has to match input dtype"
-            )
+        self.skip_if_does_not_support_arg_combination_for_qlinear(
+            bias_opt_idx, input_dtype, output_dtype
+        )
 
         # simulated qlinear
         qdq_linear_output = qdq_linear(
@@ -544,54 +508,15 @@ class Test_Qlinear(Zentorch_TestCase):
         output_dtype,
     ):
         self.data.create_unittest_data(dtype)
-
-        if (
-            self.data.bias_for_qlinear[bias_opt_idx] is None
-            and input_dtype in ("float32", "bfloat16")
-            and output_dtype not in (input_dtype, "int8", "uint8")
-        ):
-            self.skipTest(
-                "Skipping test, if bias is None and input is floating-point, then "
-                "output dtype has to match either input dtype or be any of int8 "
-                "or uint8"
-            )
-
-        if (
-            self.data.bias_for_qlinear[bias_opt_idx] is not None
-            and self.data.bias_for_qlinear[bias_opt_idx].dtype == torch.float32
-            and output_dtype == "bfloat16"
-        ):
-            self.skipTest(
-                "Skipping test, if bias is fp32, then output dtype cannot be bf16."
-            )
-
-        if (
-            self.data.bias_for_qlinear[bias_opt_idx] is not None
-            and self.data.bias_for_qlinear[bias_opt_idx].dtype == torch.bfloat16
-            and output_dtype == "float32"
-        ):
-            self.skipTest(
-                "Skipping test, if bias is bf16, then output dtype cannot be fp32."
-            )
-
-        if (
-            self.data.bias_for_qlinear[bias_opt_idx] is not None
-            and input_dtype in ("float32", "bfloat16")
-            and self.data.bias_for_qlinear[bias_opt_idx].dtype
-            != self.data.get_torch_type(input_dtype)
-        ):
-            self.skipTest(
-                "Skipping test, if bias is not None and input is floating-point, then "
-                "bias dtype has to match input dtype"
-            )
+        self.skip_if_does_not_support_arg_combination_for_qlinear(
+            bias_opt_idx, input_dtype, output_dtype
+        )
 
         zero_dim_x_scales = torch.tensor(self.data.x_scales["per_tensor"].item())
         zero_dim_y_scales = torch.tensor(self.data.y_scales["per_tensor"].item())
         zero_dim_output_scales = (
             None
-            if self.data.output_scales["per_tensor"][output_dtype][
-                "positive_scales"
-            ]
+            if self.data.output_scales["per_tensor"][output_dtype]["positive_scales"]
             is None
             else torch.tensor(
                 self.data.output_scales["per_tensor"][output_dtype][

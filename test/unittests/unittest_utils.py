@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 import os
 import shutil
+
 sys.path.append(str(Path(__file__).parent.parent))
 
 from utils import (  # noqa: 402 # noqa: F401
@@ -45,6 +46,7 @@ from utils import (  # noqa: 402 # noqa: F401
     qlinear_eltwise_map,
     seq_length_opt,
     batch_size_opt,
+    torch,
 )
 
 
@@ -60,3 +62,46 @@ class Zentorch_TestCase(BaseZentorchTestCase):
     def tearDown(self):
         del self.data
         shutil.rmtree(os.path.join(path, "data"))
+
+    def skip_if_does_not_support_arg_combination_for_qlinear(
+        self, bias_opt_idx, input_dtype, output_dtype
+    ):
+        if (
+            self.data.bias_for_qlinear[bias_opt_idx] is None
+            and input_dtype in ("float32", "bfloat16")
+            and output_dtype not in (input_dtype, "int8", "uint8")
+        ):
+            self.skipTest(
+                "Skipping test, if bias is None and input is floating-point, then "
+                "output dtype has to match either input dtype or be any of int8 "
+                "or uint8"
+            )
+
+        if (
+            self.data.bias_for_qlinear[bias_opt_idx] is not None
+            and self.data.bias_for_qlinear[bias_opt_idx].dtype == torch.float32
+            and output_dtype == "bfloat16"
+        ):
+            self.skipTest(
+                "Skipping test, if bias is fp32, then output dtype cannot be bf16."
+            )
+
+        if (
+            self.data.bias_for_qlinear[bias_opt_idx] is not None
+            and self.data.bias_for_qlinear[bias_opt_idx].dtype == torch.bfloat16
+            and output_dtype == "float32"
+        ):
+            self.skipTest(
+                "Skipping test, if bias is bf16, then output dtype cannot be fp32."
+            )
+
+        if (
+            self.data.bias_for_qlinear[bias_opt_idx] is not None
+            and input_dtype in ("float32", "bfloat16")
+            and self.data.bias_for_qlinear[bias_opt_idx].dtype
+            != self.data.get_torch_type(input_dtype)
+        ):
+            self.skipTest(
+                "Skipping test, if bias is not None and input is floating-point, then "
+                "bias dtype has to match input dtype"
+            )
