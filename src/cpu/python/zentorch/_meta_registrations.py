@@ -291,10 +291,8 @@ def meta_zentorch_embedding_bag(
     if include_last_offset:
         num_bags = num_bags - 1
     output = weight.new_empty(num_bags, weight.size(1))
-    bag_size = indices.new_empty(offsets.size())
-    offset2bag = offsets.new_empty(0)
-    max_indices = offsets.new_empty(bag_size.size())
-    return output, offset2bag, bag_size, max_indices
+
+    return output
 
 
 @register_meta("zentorch_embedding")
@@ -331,11 +329,8 @@ def meta_zentorch_horizontal_embedding_bag_group(
         if include_last_offset[i]:
             num_bags = num_bags - 1
         output = weight[i].new_empty(num_bags, weight[i].size(1))
-        bag_size = indices[i].new_empty(offsets[i].size())
-        offset2bag = offsets[i].new_empty(0)
-        max_indices = offsets[i].new_empty(bag_size.size())
 
-        output_list.extend([output, offset2bag, bag_size, max_indices])
+        output_list.append(output)
 
     return output_list
 
@@ -392,10 +387,8 @@ def meta_zentorch_quant_embedding_bag(
     output = torch.empty(
         num_bags, output_embedding_dim, dtype=output_dtype, device="meta"
     )
-    bag_size = indices.new_empty(offsets.size())
-    offset2bag = offsets.new_empty(0)
-    max_indices = offsets.new_empty(bag_size.size())
-    return output, offset2bag, bag_size, max_indices
+
+    return output
 
 
 @register_meta("zentorch_horizontal_quant_embedding_bag_group")
@@ -424,7 +417,7 @@ def meta_zentorch_horizontal_quant_embedding_bag_group(
             include_last_offset=include_last_offset[i],
         )
 
-        output_list.extend([output[0], output[1], output[2], output[3]])
+        output_list.append(output)
 
     return output_list
 

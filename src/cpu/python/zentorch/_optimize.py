@@ -10,8 +10,13 @@ import zentorch._C  # noqa
 # import the custom logging module
 from ._logging import get_logger
 from ._utils import save_graph
+
+# import the graph cleanup module
+from ._graph_cleanup import unused_node_elimination
+
 from ._op_replacement import (
     replace_with_zentorch_ops,
+    replace_with_composite_zentorch_ops,
     at_to_zen_op_dict,
     zen_to_zen_op_dict,
 )
@@ -45,10 +50,13 @@ def optimize(fx_graph):
 
     logger.info("Optimizing the fx_graph with zentorch ops.")
 
+    # Preprocess the graph to remove the unused nodes
+    cleaned_graph = unused_node_elimination(fx_graph)
+
     # pattern-matcher pass for aten to aten replacement
     # for now we have just composite ops replacement (in older models)
     # for example, some models use decomposed gelu instead of the op directly.
-    pattern_matched_model = preprocess_graph_pass(fx_graph)
+    pattern_matched_model = preprocess_graph_pass(cleaned_graph)
 
     # Replacing ops with zentorch ops
     # first we check if ipex has been imported anywhere in the code,
@@ -76,6 +84,8 @@ def optimize(fx_graph):
         op_dict_lst.append(ipex_to_zen_op_dict)
     op_dict_lst.append(zen_to_zen_op_dict)
     optimized_graph = replace_with_zentorch_ops(pattern_matched_model, op_dict_lst)
+
+    optimized_graph = replace_with_composite_zentorch_ops(optimized_graph)
 
     # eltwise op fusions supported by zentorch
     optimized_graph = zentorch_eltwise_fusions(optimized_graph)

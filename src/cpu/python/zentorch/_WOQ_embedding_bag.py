@@ -104,7 +104,7 @@ class ZenTorchWOQEmbeddingBag(nn.Module):
         return extra_repr_str
 
     def forward(self, input, offset, per_sample_weights=None):
-        woq_embedding_bag, _, _, _ = torch.ops.zentorch.zentorch_quant_embedding_bag(
+        return torch.ops.zentorch.zentorch_quant_embedding_bag(
             # Tensor weight
             self.packed_weight,
             # Tensor indices
@@ -127,4 +127,3 @@ class ZenTorchWOQEmbeddingBag(nn.Module):
             # SymInt padding_idx
             self.padding_idx,
         )
-        return woq_embedding_bag

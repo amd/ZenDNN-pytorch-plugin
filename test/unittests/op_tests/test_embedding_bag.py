@@ -39,7 +39,7 @@ class Test_Embedding_Bag(Zentorch_TestCase):
             None,
             False,
         )
-        y_ebz, _, _, _ = torch.ops.zentorch.zentorch_embedding_bag(
+        y_ebz = torch.ops.zentorch.zentorch_embedding_bag(
             self.data.embedding_matrix,
             self.data.emb_input,
             self.data.offsets,
@@ -80,7 +80,7 @@ class Test_Embedding_Bag(Zentorch_TestCase):
             include_last_offset,
         )
 
-        y_ebz, _, _, _ = torch.ops.zentorch.zentorch_embedding_bag(
+        y_ebz = torch.ops.zentorch.zentorch_embedding_bag(
             self.data.embedding_matrix,
             self.data.emb_input,
             self.data.offsets,

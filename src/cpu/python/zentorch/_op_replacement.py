@@ -4,7 +4,7 @@
 # ******************************************************************************
 
 import torch
-
+import operator
 
 # import the custom logging module
 from ._logging import get_logger
@@ -134,7 +134,6 @@ def is_bias_1d_tensor(fx_graph, node):
 
 
 at_to_zen_op_dict = {
-    at_ops._embedding_bag.default: (zt_ops.zentorch_embedding_bag.default, None),
     at_ops.embedding.default: (
         zt_ops.zentorch_embedding.default,
         is_embedding_op_replacable,
@@ -207,5 +206,51 @@ def replace_with_zentorch_ops(fx_graph: torch.fx.GraphModule, op_dict_lst: list)
                         + "!"
                     )
                     node.target = op_dict[target_op][0]
+
+    return fx_graph
+
+
+def replace_with_composite_zentorch_ops(fx_graph: torch.fx.GraphModule):
+    # TODO
+    # As every custom/composite operator would have its own characteristics.
+    # As there is no one frame that fits all, we need to have a seperate
+    # function or replacement strategy for each composite operator.
+    # This graph pass takes care of only straight chains of operators, so
+    # pattern matcher based approach is the best for this.
+    # As and when we have more composite operators, we can add them in the
+    # pattern matcher and replace them with the respective zentorch ops.
+
+    # As of now we'll proceed with a graph pass for embedding bag operator.
+    # Remove this comment when the above TODO is resolved and the code is
+    # pushed to pattern matcher based approach.
+
+    for node in fx_graph.graph.nodes:
+        if node.target != at_ops._embedding_bag.default:
+            continue
+
+        users = list(node.users.keys())
+        if len(users) != 1:
+            logger.warn(
+                "There are more than one users of aten embedding bag."
+                "Removal of get-item node and replacement with zentorch op"
+                "not possible."
+            )
+            continue
+
+        user_node = users[0]
+        if user_node.target != operator.getitem:
+            logger.info(
+                "The user of aten embedding bag is not a get-item node."
+                "Cannot remove a non-get-item node from the graph and thus"
+                "cannot replace aten embedding bag with zentorch op."
+            )
+            continue
+
+        user_node.replace_all_uses_with(node)
+        node.target = zt_ops.zentorch_embedding_bag.default
+        fx_graph.graph.erase_node(user_node)
+
+    fx_graph.graph.lint()
+    fx_graph.recompile()
 
     return fx_graph

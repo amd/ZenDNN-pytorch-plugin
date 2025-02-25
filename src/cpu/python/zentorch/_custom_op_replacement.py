@@ -33,19 +33,12 @@ def emb_ops_horizontal_fusion(fx_g):
         if node.target in zentorch_embed_ops_dict.keys():
             users = list(node.users.keys())
             user_node = None
-            if node.target == zt_ops.zentorch_embedding.default:
-                if len(users) == 1:
-                    user_node = users[0]
-            elif node.target in {
-                zt_ops.zentorch_embedding_bag.default,
-                zt_ops.zentorch_quant_embedding_bag.default,
-            }:
-                for user in users:
-                    if user_node is None and len(user.users.keys()) == 1:
-                        user_node = user
-                    elif user_node is not None and len(user.users.keys()) == 1:
-                        user_node = None
-                        break
+            if len(users) == 1:
+                user_node = users[0]
+            # TODO
+            # we can check here itself if the user node is concat else return
+            # the fx graph as is or continue looking for more eb nodes in the
+            # group
             if user_node is not None:
                 if node.target == zt_ops.zentorch_embedding.default:
                     common_output_node = user_node
@@ -74,8 +67,13 @@ def emb_ops_horizontal_fusion(fx_g):
                             "type": "embedding",
                             "nodes": [node],
                         }
+                # TODO
+                # embedding bag and quant embedding bag conditions will mostly
+                # have similar code except the group op that we replace with.
+                # We can make templatize based on common node.This way pass
+                # will be smaller and easier to maintain
                 elif node.target == zt_ops.zentorch_embedding_bag.default:
-                    common_output_node = list(user_node.users.keys())[0]
+                    common_output_node = user_node
                     node_name = common_output_node.name
                     if node_name in groups:
                         if groups[node_name]["type"] in {
@@ -102,17 +100,18 @@ def emb_ops_horizontal_fusion(fx_g):
                             "nodes": [node],
                         }
                 elif node.target == zt_ops.zentorch_quant_embedding_bag.default:
-                    common_output_node = list(user_node.users.keys())[0]
+                    common_output_node = user_node
                     node_name = common_output_node.name
                     if node_name in groups:
                         if groups[node_name]["type"] in {"embedding", "embedding_bag"}:
                             other_op = groups[node_name]["type"]
                             logger.info(
-                                f"Cannot fuse {other_op} and quant_embedding_bag with "
-                                + "common node. This is because of the function "
-                                + "prototype difference between the "
-                                + f"quantized embedding bag and {other_op} ops and "
-                                + "their corresponding zentorch group ops."
+                                f"Cannot fuse {other_op} and "
+                                + "quant_embedding_bag with common node. This "
+                                + "is because of the function prototype "
+                                + "difference between the quantized embedding "
+                                + f"bag and {other_op} ops and their "
+                                + "corresponding zentorch group ops."
                             )
                             return fx_g
                         groups[node_name]["nodes"].append(node)
@@ -210,35 +209,21 @@ def emb_ops_horizontal_fusion(fx_g):
         if groups[group]["type"] == "quant_embedding_bag":
             condition_for_length = True
 
-        # In the case of embeddingbag and quant embeddingbag the group counterparts'
-        # outputs are taken care by getitem nodes. So, irrespective of the output nodes
-        # the outputs of the group counterparts would end up in proper places.
-        # So, for embeddingbag and quant embeddingbag, there can be no condition
-        # for fusing it.
-        # Why do we want to do this?
-        # The support for singular quant embeddingbag is not present currently.
-        # So, we want to use the group quant embeddingbag API with singular lists.
-        # But this replacement should happen irrespective of the common output nodes.
-        # So, even if the common output node is an output node, the replacement must
-        # happen. So the condition for the common output node will always be true in
-        # case of embeddingbag and quant embeddingbag.
-        condition_for_common_output_node = True
-
-        # In the embedding operator, there is only output from it. So, there
-        # are no getitem nodes to to direct the output to proper places. So when
-        # the group counterpart of the embedding operator is introduced in the
-        # graph, it returns a list of tensors. So, the presence of getitem nodes
-        # is necessary for output re-direction.
+        # From all the embedding operator variants supported by zentorch, there
+        # is only output from it. So, there are no getitem nodes to to direct
+        # the output to proper places. So when the group counterpart of the
+        # embedding operator is introduced in the graph, it returns a list of
+        # tensors. So, the presence of getitem nodes is necessary for output
+        # re-direction.
         # TODO
-        # Add get-item nodes for embedding operator and its group counterpart.
-        # This will ease our graph passes and make this graph pass more generic.
-        if groups[group]["type"] == "embedding":
-            condition_for_common_output_node = (
-                groups[group]["common_output_node"][1] == at_ops.cat.default
-            )
+        # Add get-item nodes for all the embedding operator variants and its
+        # group counterpart. This will ease our graph passes and make this
+        # graph pass more generic.
 
         #  strict checks for common output node to be concat node
-        if condition_for_length and condition_for_common_output_node:
+        if condition_for_length and (
+            groups[group]["common_output_node"][1] == at_ops.cat.default
+        ):
             op_count = 0
             # quant_embedding_bag has more parameters than embedding and
             # embedding_bag. So creating new args list with max of the number
@@ -246,7 +231,6 @@ def emb_ops_horizontal_fusion(fx_g):
             # removed.
             list_new_args = [[] for _ in range(11)]
             last_node = groups[group]["nodes"][-1]
-            traversed_nodes = set()
             for node in groups[group]["nodes"]:
                 node_args_len = len(node.args)
                 for i in range(node_args_len):
@@ -265,35 +249,15 @@ def emb_ops_horizontal_fusion(fx_g):
                     list_new_args, type_of_node="embedding_bag"
                 )
             elif node.target == zt_ops.zentorch_quant_embedding_bag.default:
+                list_new_args = populate_default_args(
+                    list_new_args, type_of_node="quant_embedding_bag"
+                )
                 # The group quant embedding bag expects the output dtype as a
                 # single element rather the list of elements unlike other
                 # arguments. So, the output dtype is at the 4th index in the
                 # argument list. So, the hard-coding of 4 in the subsequent lines.
-                output_dtype = torch.float32
-                if len(list_new_args[4]) != 0:
-                    output_dtype = list_new_args[4][0]
-                list_new_args = populate_default_args(
-                    list_new_args, type_of_node="quant_embedding_bag"
-                )
-                list_new_args[4] = output_dtype
+                list_new_args[4] = list_new_args[4][0]
             for node in groups[group]["nodes"]:
-                if node.target in {
-                    zt_ops.zentorch_embedding_bag.default,
-                    zt_ops.zentorch_quant_embedding_bag.default,
-                }:
-                    total_prev_outputs_emb_bag = op_count * 4
-                    for temp_node in list(node.users.keys()):
-                        if (
-                            temp_node.target == operator.getitem
-                            and temp_node not in traversed_nodes
-                        ):
-                            temp_node_args = (
-                                temp_node.args[0],
-                                temp_node.args[1] + total_prev_outputs_emb_bag,
-                            )
-                            temp_node.args = temp_node_args
-                        last_node.append(temp_node)
-                        traversed_nodes.add(temp_node)
                 if node != last_node:
                     node.replace_all_uses_with(last_node)
                     fx_g.graph.erase_node(node)
@@ -307,41 +271,38 @@ def emb_ops_horizontal_fusion(fx_g):
                     last_node.target = zentorch_embed_ops_dict[last_node.target]
             elif op_count == 1:
                 last_node.target = node.target
-            if node.target == zt_ops.zentorch_horizontal_embedding_group.default:
-                common_output_node = list(last_node.users.keys())[0]
-                nodes_list = []
-                idx = 0
-                # Since the common output node will always be a cat node, the
-                # first argument in the cat node is always a list of tensors
-                # that are supposed to be concatenated and the second argument
-                # is an integer denoting the dimension across which the
-                # concatenation must happen. So, the following for loop which
-                # is iterating over the common_output_node.args[0] is valid.
-                for arg_node in common_output_node.args[0]:
-                    # Since replacement of all occurences of all embedding ops
-                    # with the last embedding op takes place and the target is
-                    # updated, the condition looks for the target equal to the
-                    # zentorch_horizontal_embedding_group, rather than
-                    # zentorch_embedding.
-                    if (
-                        arg_node.target
-                        == zt_ops.zentorch_horizontal_embedding_group.default
-                    ):
-                        new_node = fx_g.graph.create_node(
-                            op="call_function",
-                            target=operator.getitem,
-                            args=(last_node, idx),
-                        )
-                        last_node.append(new_node)
-                        nodes_list.append(new_node)
-                        idx += 1
-                    else:
-                        nodes_list.append(arg_node)
-                # Here, the creation of the new args happens and only the first
-                # argument is changed (which is the list of input nodes).
-                new_args = list(common_output_node.args)
-                new_args[0] = nodes_list
-                common_output_node.args = tuple(new_args)
+
+            common_output_node = list(last_node.users.keys())[0]
+            nodes_list = []
+            idx = 0
+            # Since the common output node will always be a cat node, the
+            # first argument in the cat node is always a list of tensors
+            # that are supposed to be concatenated and the second argument
+            # is an integer denoting the dimension across which the
+            # concatenation must happen. So, the following for loop which
+            # is iterating over the common_output_node.args[0] is valid.
+            for arg_node in common_output_node.args[0]:
+                # Since replacement of all occurences of all embedding operator
+                # variants with the last embedding operator variant takes place
+                # and the target is updated, the condition looks if the target
+                # is present in the set of group operator targets, rather than
+                # singular operator targets.
+                if arg_node.target in zentorch_embed_ops_dict.values():
+                    new_node = fx_g.graph.create_node(
+                        op="call_function",
+                        target=operator.getitem,
+                        args=(last_node, idx),
+                    )
+                    last_node.append(new_node)
+                    nodes_list.append(new_node)
+                    idx += 1
+                else:
+                    nodes_list.append(arg_node)
+            # Here, the creation of the new args happens and only the first
+            # argument is changed (which is the list of input nodes).
+            new_args = list(common_output_node.args)
+            new_args[0] = nodes_list
+            common_output_node.args = tuple(new_args)
 
     fx_g.graph.lint()
     fx_g.recompile()
@@ -366,11 +327,6 @@ def qlinear_reorder_optimizations(fx_graph):
         return None
 
     logger.info("Reorder optimization for serialized qlinear_* ops.")
-    # TODO : Move this to a common location before zentorch graph optimizations.
-    # Detach node can impact the number of users, hence removing it.
-    for node in fx_graph.graph.nodes:
-        if node.target == at_ops.detach.default and len(node.users) == 0:
-            fx_graph.graph.erase_node(node)
 
     # Group a serialized pattern of qlinear_* ops and optimize the
     # dequant-quant operation to a requant operation.
@@ -407,7 +363,7 @@ def qlinear_reorder_optimizations(fx_graph):
                         *pred_args[:-1],
                         get_tensor(fx_graph, curr_args[4]).dtype,
                         curr_args[3],
-                        curr_args[4]
+                        curr_args[4],
                     )
                     counters["zentorch"]["optimized_reorder"] += 1
                 pred_node = curr_node

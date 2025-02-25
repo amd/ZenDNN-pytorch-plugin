@@ -13,8 +13,7 @@
 using namespace zendnn;
 
 namespace zentorch {
-std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor>
-zentorch_embedding_bag_impl(
+at::Tensor zentorch_embedding_bag_impl(
     const at::Tensor &weight, const at::Tensor &indices,
     const at::Tensor &offsets, const bool &scale_grad_by_freq,
     const int64_t &mode, const bool &sparse,
@@ -80,18 +79,10 @@ zentorch_embedding_bag_impl(
                                {ZENDNN_ARG_DST, z_dst}});
   }
 
-  at::Tensor offset2bag = at::empty({});
-  at::Tensor bag_size = at::empty({});
-  at::Tensor max_indices = at::empty({});
-
-  std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor> out;
-  out = std::make_tuple(std::move(output), std::move(offset2bag),
-                        std::move(bag_size), std::move(max_indices));
-
-  return out;
+  return output;
 }
 
-std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor>
+at::Tensor
 zentorch_embedding_bag(const at::Tensor &weight, const at::Tensor &indices,
                        const at::Tensor &offsets, bool scale_grad_by_freq,
                        int64_t mode, bool sparse,
@@ -102,38 +93,35 @@ zentorch_embedding_bag(const at::Tensor &weight, const at::Tensor &indices,
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
 
-  auto out = zentorch_embedding_bag_impl(
+  auto output = zentorch_embedding_bag_impl(
       weight, indices, offsets, scale_grad_by_freq, mode, sparse,
       per_sample_weights_opt, include_last_offset, padding_idx,
       zentorch_op_name);
 
   LOG(INFO) << "Finished executing: " << __FUNCTION__ << "!\n";
 
-  return out;
+  return output;
 }
 
-std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor>
-zentorch_quant_embedding_bag(const at::Tensor &weight,
-                             const at::Tensor &indices,
-                             const at::Tensor &offsets,
-                             int64_t num_bits_per_weight,
-                             c10::ScalarType output_dtype,
-                             bool scale_grad_by_freq, int64_t mode, bool sparse,
-                             c10::optional<at::Tensor> per_sample_weights_opt,
-                             bool include_last_offset, int64_t padding_idx,
-                             std::string zentorch_op_name) {
+at::Tensor zentorch_quant_embedding_bag(
+    const at::Tensor &weight, const at::Tensor &indices,
+    const at::Tensor &offsets, int64_t num_bits_per_weight,
+    c10::ScalarType output_dtype, bool scale_grad_by_freq, int64_t mode,
+    bool sparse, c10::optional<at::Tensor> per_sample_weights_opt,
+    bool include_last_offset, int64_t padding_idx,
+    std::string zentorch_op_name) {
 
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
 
-  auto out = zentorch_embedding_bag_impl(
+  auto output = zentorch_embedding_bag_impl(
       weight, indices, offsets, scale_grad_by_freq, mode, sparse,
       per_sample_weights_opt, include_last_offset, padding_idx,
       zentorch_op_name, num_bits_per_weight, output_dtype);
 
   LOG(INFO) << "Finished executing: " << __FUNCTION__ << "!\n";
 
-  return out;
+  return output;
 }
 
 std::vector<at::Tensor> zentorch_horizontal_embedding_bag_group_impl(
@@ -162,8 +150,6 @@ std::vector<at::Tensor> zentorch_horizontal_embedding_bag_group_impl(
   std::vector<at::Tensor> temp_offsets(num_eb_ops);
   std::vector<at::Tensor> output(num_eb_ops);
   std::vector<memory> z_destination(num_eb_ops);
-
-  std::vector<at::Tensor> out_vec(num_eb_ops * 4);
 
   // If TORCH_CHECK() fails, then the pragma omp parallel for cannot be used
   // we will use at::parallel_for from pytorch instead
@@ -214,22 +200,7 @@ std::vector<at::Tensor> zentorch_horizontal_embedding_bag_group_impl(
       z_include_last_offset, z_padding_idx, z_destination,
       zentorch_op_name.c_str()); // Library call
 
-  at::parallel_for(0, num_eb_ops, 0, [&](int64_t start, int64_t end) {
-    for (auto i = start; i < end; i++) {
-      int temp = i * 4;
-      out_vec[temp + 0] = output[i];
-
-      at::Tensor offset2bag = at::empty({});
-      at::Tensor bag_size = at::empty({});
-      at::Tensor max_indices = at::empty({});
-
-      out_vec[temp + 1] = offset2bag;
-      out_vec[temp + 2] = bag_size;
-      out_vec[temp + 3] = max_indices;
-    }
-  });
-
-  return out_vec;
+  return output;
 }
 
 std::vector<at::Tensor> zentorch_horizontal_quant_embedding_bag_group(
@@ -352,8 +323,7 @@ TORCH_LIBRARY_FRAGMENT(zentorch, m) {
         "bool scale_grad_by_freq=False, int mode=0, bool sparse=False, Tensor? "
         "per_sample_weights=None, bool include_last_offset=False, int "
         "padding_idx=-1, str "
-        "zentorch_op_name='zentorch::zentorch_embedding_bag') -> "
-        "(Tensor, Tensor, Tensor, Tensor)");
+        "zentorch_op_name='zentorch::zentorch_embedding_bag') -> Tensor");
   m.def("zentorch_horizontal_embedding_bag_group(Tensor[] weight, "
         "Tensor[] indices, Tensor[] offsets, int[] scale_grad_by_freq, "
         "int[] mode, int[] sparse, Tensor?[] per_sample_weights, "
@@ -367,8 +337,7 @@ TORCH_LIBRARY_FRAGMENT(zentorch, m) {
         " per_sample_weights=None, bool include_last_offset=False, int"
         " padding_idx=-1,"
         " str zentorch_op_name="
-        "'zentorch::zentorch_quant_embedding_bag') ->"
-        "(Tensor, Tensor, Tensor, Tensor)");
+        "'zentorch::zentorch_quant_embedding_bag') -> Tensor");
   m.def("zentorch_horizontal_quant_embedding_bag_group(Tensor[] weight, "
         "Tensor[] indices, Tensor[] offsets, "
         " int[] num_bits_per_weight, ScalarType output_dtype,"
