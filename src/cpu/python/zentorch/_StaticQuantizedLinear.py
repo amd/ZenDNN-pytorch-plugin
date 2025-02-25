@@ -5,6 +5,13 @@
 
 import torch
 import torch.nn as nn
+import os
+
+# import the custom logging module
+from ._logging import get_logger
+
+# make a logger for this file
+logger = get_logger(__name__)
 
 
 # this custom OpContext is created to store weight, weight_scales, weight_zero_points,
@@ -26,15 +33,20 @@ class ZenTorchStaticQuantizedLinearOpContext:
         group_size=None,
         compute_dtype="bfloat16",
         input_symmetric=False,
+        enable_weight_prepack=False,
+        is_weight_oc_x_ic=True,
     ):
-        self.weight = weight
-        self.weight_scales = weight_scales
-        self.weight_bits = weight_bits
-        self.input_scales = input_scales
-        self.bias = bias
-        self.group_size = None
-        self.input_bits = input_bits
-        self.compute_dtype = compute_dtype
+        zendnn_inplace_caching = os.environ.get("ZENDNN_INPLACE_CACHING", "0")
+        if enable_weight_prepack and zendnn_inplace_caching != "1":
+            raise NotImplementedError(
+                "Weight prepacking is not supported when inplace caching is disabled."
+            )
+
+        if not enable_weight_prepack and zendnn_inplace_caching == "1":
+            raise NotImplementedError(
+                "When inplace caching is enabled weight prepacking is required."
+            )
+
         self.weight_zero_points = (
             weight_zero_points.to(torch.int8)
             if weight_bits == "8"
@@ -45,6 +57,29 @@ class ZenTorchStaticQuantizedLinearOpContext:
             if input_bits == "8"
             else input_zero_points
         )
+        if enable_weight_prepack:
+            if self.input_zero_points.dtype == torch.uint8:
+                logger.info("Reordering the weight tensor.")
+                self.weight = (
+                    torch.ops.zentorch.zentorch_weight_reorder_for_matmul.default(
+                        weight,
+                        is_weight_oc_x_ic,
+                    )
+                )
+            else:
+                raise NotImplementedError(
+                    "Weight prepacking is not yet supported if "
+                    + "input is symmetrically quantized."
+                )
+        else:
+            self.weight = weight
+        self.weight_scales = weight_scales
+        self.weight_bits = weight_bits
+        self.input_scales = input_scales
+        self.bias = bias
+        self.group_size = None
+        self.input_bits = input_bits
+        self.compute_dtype = compute_dtype
 
 
 # this is a custom ZenTorchStaticQuantizedLinear module to support static Linear
@@ -65,6 +100,7 @@ class ZenTorchStaticQuantizedLinear(nn.Linear):
         group_size=None,
         compute_dtype="bfloat16",
         input_symmetric=False,
+        enable_weight_prepack=False,
     ):
         r"""Create a ZenTorchStaticQuantizedLinear module
         from a float module and int8 weight.
@@ -118,6 +154,13 @@ class ZenTorchStaticQuantizedLinear(nn.Linear):
             bias = mod.bias
         self.bias = False if bias is None else True
 
+        is_weight_oc_x_ic = (
+            True
+            if self.in_features == weight.size(1)
+            and self.out_features == weight.size(0)
+            else False
+        )
+
         self._op_context = ZenTorchStaticQuantizedLinearOpContext(
             weight,
             weight_scales,
@@ -130,6 +173,8 @@ class ZenTorchStaticQuantizedLinear(nn.Linear):
             group_size,
             compute_dtype,
             input_symmetric,
+            enable_weight_prepack,
+            is_weight_oc_x_ic,
         )
         del (
             weight,

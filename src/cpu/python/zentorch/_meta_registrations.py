@@ -919,6 +919,14 @@ def meta_zentorch_qlinear_mul_add(
     return add_input.new_empty((add_input.size()), dtype=output_dtype)
 
 
+@register_meta("zentorch_weight_reorder_for_matmul")
+def meta_zentorch_weight_reorder_for_matmul(
+    weight,
+    is_weight_oc_x_ic=True,
+):
+    return weight.new_empty(weight.size())
+
+
 make_fallback(torch.ops.zentorch.zentorch_addmm)
 make_fallback(torch.ops.zentorch.zentorch_addmm_relu)
 make_fallback(torch.ops.zentorch.zentorch_addmm_silu)
@@ -968,3 +976,4 @@ make_fallback(torch.ops.zentorch.zentorch_horizontal_quant_embedding_bag_group)
 if hasattr(torch.ops.zentorch, "zentorch_sdpa"):
     make_fallback(torch.ops.zentorch.zentorch_sdpa)
 make_fallback(torch.ops.zentorch.zentorch_quant_group_eb_mlp_concat)
+make_fallback(torch.ops.zentorch.zentorch_weight_reorder_for_matmul)
