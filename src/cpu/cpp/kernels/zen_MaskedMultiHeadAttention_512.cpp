@@ -3,8 +3,8 @@
  * All rights reserved.
  *
  * Was sourced from
- * https://github.com/intel/intel-extension-for-pytorch/blob/v2.4.0%2Bcpu/csrc/cpu/aten/kernels/MaskedMultiHeadAttentionKrnl.cpp
- * IPEX commit ID: 070f1d7
+ * https://github.com/intel/intel-extension-for-pytorch/blob/v2.6.0%2Bcpu/csrc/cpu/aten/kernels/MaskedMultiHeadAttentionKrnl.cpp
+ * IPEX commit ID: 20c3347
  ******************************************************************************/
 
 #include <ATen/Tensor.h>
@@ -18,10 +18,15 @@
 #include "vec/add_softmax.h"
 #include "zen_cpukernels.hpp"
 
-#define AVX512_BF16_COMPUTE_ENABLE 1
+#define AVX512_BF16_COMPUTE_ENABLE 0
 #define AVX512_BF16_STORE_ENABLE 1
 
 namespace zentorch {
+
+inline bool is_first_token_optimizable(at::Tensor key) {
+  return (key.scalar_type() == at::kFloat ||
+          key.scalar_type() == at::kBFloat16);
+}
 
 template <typename T>
 inline void reduce_head(const T *q_ptr_start, const T *k_ptr_start,
@@ -31,7 +36,8 @@ inline void reduce_head(const T *q_ptr_start, const T *k_ptr_start,
     if (store_key) {
       k_cache_start[hsi] = k_ptr_start[hsi]; // cat the key into the key_cache.
     }
-    attn_w_pos[0] += q_ptr_start[hsi] * k_ptr_start[hsi];
+    attn_w_pos[0] += static_cast<float>(q_ptr_start[hsi]) *
+                     static_cast<float>(k_ptr_start[hsi]);
   }
 }
 
@@ -156,9 +162,9 @@ inline void mul_attenion_weights_and_value_of_head(
     bool store_value, T *v_cache_start, bool accumulate) {
   for (auto hsi = 0; hsi < head_size; hsi++) {
     if (accumulate) {
-      attn_out_start[hsi] += attn_w * v_ptr_start[hsi];
+      attn_out_start[hsi] += attn_w * static_cast<float>(v_ptr_start[hsi]);
     } else {
-      attn_out_start[hsi] = attn_w * v_ptr_start[hsi];
+      attn_out_start[hsi] = attn_w * static_cast<float>(v_ptr_start[hsi]);
     }
     if (store_value) {
       v_cache_start[hsi] = v_ptr_start[hsi];
@@ -450,6 +456,7 @@ inline void copy_key_value(at::Tensor key_cache, const at::Tensor key,
   auto value_ptr = value.data_ptr<T>();
   auto token_stride = beam_batch * hidden_size;
   auto beam_size = beam_batch / bs;
+
   // zentorch:: Conditionally picks AVX512/AVX256 kernels based on m/c support
 #pragma omp parallel for collapse(2)
   for (auto si = 0; si < seq_len; si++) {
@@ -541,7 +548,6 @@ scale_dot_product_for_indirect_access_kv_cache(
   auto mask_head_num = attention_mask.size(1);
   auto mask_dim2 = attention_mask.size(2);
   auto mask_bs_stride = mask_head_num * mask_dim2 * seq_len;
-
   // value realted
   value = value.contiguous();
   auto attn_outs =
@@ -552,7 +558,6 @@ scale_dot_product_for_indirect_access_kv_cache(
   // zentorch::zero_ker(attn_out_ptr, attn_outs.numel());
   auto attn_w_ptr = attn_weights.data_ptr<float>();
   auto attn_w_ptr2 = attn_weights2.data_ptr<float>();
-
   // stride information
   auto qStrideB = query.stride(0);
   // auto qStrideS = query.stride(1);
@@ -1662,11 +1667,11 @@ first_token_masked_mha(at::Tensor query, at::Tensor key, at::Tensor value,
                        const double scale_attn, at::Tensor attention_mask,
                        bool add_casual_mask = true) {
   auto query_length = query.size(1);
-  auto key_lenght = key.size(1);
+  auto key_length = key.size(1);
 
   if (add_casual_mask) {
     auto casual_mask =
-        at::full({query_length, key_lenght}, -1e6, query.options());
+        at::full({query_length, key_length}, -1e6, query.options());
     casual_mask = at::triu(casual_mask, 1);
     casual_mask = casual_mask.unsqueeze(0).unsqueeze(0);
     attention_mask = attention_mask + casual_mask;
@@ -1692,7 +1697,8 @@ first_token_masked_mha(at::Tensor query, at::Tensor key, at::Tensor value,
   }
   auto attn_outputs = at::Tensor();
   auto attn_weights = at::Tensor();
-  if ((key.scalar_type() == at::kFloat || key.scalar_type() == at::kBFloat16) &&
+  if (is_first_token_optimizable(key) &&
+      (key.scalar_type() == at::kFloat || key.scalar_type() == at::kBFloat16) &&
       attention_mask.stride(-1) == 1) {
     query = query.transpose(1, 2);
     key = key.transpose(1, 2);
@@ -1725,6 +1731,25 @@ first_token_masked_mha(at::Tensor query, at::Tensor key, at::Tensor value,
   return std::make_tuple(attn_outputs, attn_weights, key_cache, value_cache,
                          beam_idx);
 }
+
+inline std::optional<at::Tensor>
+convert_boolean_attn_mask(const std::optional<at::Tensor> &attn_mask,
+                          caffe2::TypeMeta dtype) {
+  // Pass through
+  if (!attn_mask.has_value()) {
+    return c10::nullopt;
+  }
+  // Convert boolean mask to additive mask
+  if (attn_mask->dtype() == at::kBool) {
+    auto new_attn_mask = at::zeros_like(attn_mask.value(), dtype);
+    new_attn_mask.masked_fill_(attn_mask->logical_not(),
+                               -std::numeric_limits<double>::infinity());
+    return new_attn_mask;
+  }
+  // Otherwise, attn_mask represents an additive attention tensor
+  return attn_mask;
+}
+
 std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor>
 masked_multihead_self_attention_kernel_impl_512(
     at::Tensor &query, at::Tensor &key, at::Tensor &value,
@@ -1749,8 +1774,13 @@ masked_multihead_self_attention_kernel_impl_512(
   query = query.contiguous();
   key = key.contiguous();
   value = value.contiguous();
-  auto attention_mask_v = attention_mask.value().contiguous();
+  std::optional<at::Tensor> attn_mask = attention_mask;
+  if (!is_first_token_optimizable(key)) {
+    attn_mask = convert_boolean_attn_mask(attention_mask, query.dtype());
+  }
+  auto attention_mask_v = attn_mask.value().contiguous();
   attention_mask_v = attention_mask_v.to(query.dtype());
+
   auto beam_batch = beam_idx.size(1); // need to prepare the fake beam_idx as
   // (max_position, bs) for the first token
   auto offset = seq_info.data_ptr<long>()[0];
@@ -1782,11 +1812,12 @@ masked_multihead_self_attention_kernel_impl_512(
         query.size(0); // record the promt bs info
   } else if (offset > 0 && offset + cur_len > cache_size) {
     auto new_cache_size = cache_size * 2;
-    auto new_key_cache = at::empty(
-        {new_cache_size, beam_batch, key.size(2), key.size(3)}, key.options());
+    auto new_key_cache =
+        at::empty({new_cache_size, beam_batch, key.size(2), key.size(3)},
+                  key_cache.options());
     auto new_value_cache =
         at::empty({new_cache_size, beam_batch, value.size(2), value.size(3)},
-                  value.options());
+                  value_cache.options());
     auto new_beam_idx =
         at::zeros({new_cache_size + 2, beam_batch}, beam_idx.options());
     new_key_cache.slice(0, 0, cache_size).copy_(key_cache);
