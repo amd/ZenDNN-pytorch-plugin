@@ -21,7 +21,7 @@ inline void zentorch_quantized_matmul_impl(
     const std::vector<at::Tensor> &post_op_buffers,
     const c10::optional<at::Tensor> &output_scales,
     const c10::optional<at::Tensor> &output_zero_points,
-    std::string zentorch_op_name) {
+    const int64_t output_stride, std::string zentorch_op_name) {
 
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
@@ -99,7 +99,8 @@ inline void zentorch_quantized_matmul_impl(
   memory z_q_input, z_q_weight, z_bias, z_result;
   aten_tensor_to_zen_memory_for_quantized_matmul(
       input, weight, bias_t, result, input_scales, input_zero_points_int32_t,
-      is_input_quantized, q_input, z_q_input, z_q_weight, z_bias, z_result);
+      is_input_quantized, output_stride, q_input, z_q_input, z_q_weight, z_bias,
+      z_result);
 
   std::unordered_map<int, memory> execute_args;
   zendnn::primitive_attr op_attr;
@@ -190,28 +191,26 @@ inline void zentorch_quantized_matmul_impl(
 }
 
 template <UNARY_POST_OP fuse>
-inline at::Tensor zentorch_qlinear_unary(
-    const at::Tensor &input, const at::Tensor &weight,
-    c10::optional<at::Tensor> bias, const at::Tensor &input_scales,
-    const at::Tensor &input_zero_points, const at::Tensor &weight_scales,
-    const at::Tensor &weight_zero_points,
+void zentorch_qlinear_out_unary(
+    at::Tensor &result, int64_t output_stride, const at::Tensor &input,
+    const at::Tensor &weight, c10::optional<at::Tensor> bias,
+    const at::Tensor &input_scales, const at::Tensor &input_zero_points,
+    const at::Tensor &weight_scales, const at::Tensor &weight_zero_points,
     c10::optional<c10::ScalarType> output_dtype,
     c10::optional<at::Tensor> output_scales,
     c10::optional<at::Tensor> output_zero_points,
     std::string zentorch_op_name) {
-
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
-  if (output_dtype.has_value()) {
-    ZENTORCH_CHECK(output_dtype == c10::kFloat ||
-                       output_dtype == c10::kBFloat16 ||
-                       output_dtype == c10::kByte || output_dtype == c10::kChar,
-                   "output_dtype received is not yet supported, only "
-                   "float32/bfloat16/uint8/int8 is supported");
-  } else {
-    // if None is provided, then we run in fp32 by default
-    output_dtype = c10::kFloat;
-  }
+
+  ZENTORCH_CHECK(output_dtype == result.scalar_type(),
+                 "output_dtype received does not match the dtype of the "
+                 "output tensor");
+  ZENTORCH_CHECK(output_dtype == c10::kFloat ||
+                     output_dtype == c10::kBFloat16 ||
+                     output_dtype == c10::kByte || output_dtype == c10::kChar,
+                 "output_dtype received is not yet supported, only "
+                 "float32/bfloat16/uint8/int8 is supported");
 
   ZENTORCH_CHECK(is_avx512_supported(),
                  "Zentorch's INT8 kernels require the CPU to support "
@@ -231,13 +230,6 @@ inline at::Tensor zentorch_qlinear_unary(
   // `weight` is transposed for matmul computation.
   auto weight_transposed = weight.t();
 
-  // `result` tensor's dtype will depend on output_dtype argument.
-  auto output_sz = get_matmul_and_linear_output_sizes(input, weight_transposed);
-  auto output_strides = get_matmul_and_linear_output_strides(output_sz);
-
-  at::Tensor result = at::detail::empty_strided_cpu(
-      output_sz, output_strides, input.options().dtype(output_dtype));
-
   // `result` is viewed as 2d for matmul computation.
   at::Tensor result_2d_view = result.view(get_2d_size_for_tensor(result));
 
@@ -249,7 +241,47 @@ inline at::Tensor zentorch_qlinear_unary(
   zentorch_quantized_matmul_impl(
       input_2d_view, weight_transposed, bias, result_2d_view, input_scales,
       input_zero_points, weight_scales, weight_zero_points, post_op_ids,
-      post_op_buffers, output_scales, output_zero_points, zentorch_op_name);
+      post_op_buffers, output_scales, output_zero_points, output_stride,
+      zentorch_op_name);
+}
+
+template <UNARY_POST_OP fuse>
+at::Tensor zentorch_qlinear_unary(const at::Tensor &input,
+                                  const at::Tensor &weight,
+                                  c10::optional<at::Tensor> bias,
+                                  const at::Tensor &input_scales,
+                                  const at::Tensor &input_zero_points,
+                                  const at::Tensor &weight_scales,
+                                  const at::Tensor &weight_zero_points,
+                                  c10::optional<c10::ScalarType> output_dtype,
+                                  c10::optional<at::Tensor> output_scales,
+                                  c10::optional<at::Tensor> output_zero_points,
+                                  std::string zentorch_op_name) {
+
+  LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
+            << "Executing function: " << __FUNCTION__;
+  if (!output_dtype.has_value()) {
+    output_dtype = c10::kFloat;
+  }
+
+  // `weight` is transposed for matmul computation.
+  auto weight_transposed = weight.t();
+
+  // `result` tensor's dtype will depend on output_dtype argument.
+  auto output_sz = get_matmul_and_linear_output_sizes(input, weight_transposed);
+  auto output_strides = get_matmul_and_linear_output_strides(output_sz);
+
+  at::Tensor result = at::detail::empty_strided_cpu(
+      output_sz, output_strides, input.options().dtype(output_dtype));
+
+  // `result` is viewed as 2d for matmul computation.
+  at::Tensor result_2d_view = result.view(get_2d_size_for_tensor(result));
+
+  zentorch_qlinear_out_unary<fuse>(
+      result, result_2d_view.stride(0), input, weight, bias, input_scales,
+      input_zero_points, weight_scales, weight_zero_points, output_dtype,
+      output_scales, output_zero_points, zentorch_op_name);
+
   return result;
 }
 
@@ -322,7 +354,8 @@ inline at::Tensor zentorch_qlinear_binary_binary(
   zentorch_quantized_matmul_impl(
       input_2d_view, weight_transposed, bias, result_2d_view, input_scales,
       input_zero_points, weight_scales, weight_zero_points, post_op_ids,
-      post_op_buffers, output_scales, output_zero_points, zentorch_op_name);
+      post_op_buffers, output_scales, output_zero_points,
+      result_2d_view.stride(0), zentorch_op_name);
   return result;
 }
 
@@ -358,6 +391,23 @@ TORCH_LIBRARY_FRAGMENT(zentorch, m) {
         "output_scales=None, "
         "Tensor? output_zero_points=None, str zentorch_op_name="
         "'zentorch::zentorch_qlinear_mul_add') -> Tensor");
+
+  m.def("zentorch_qlinear_out(Tensor(a!) out, int output_stride,"
+        "Tensor input, Tensor weight, "
+        "Tensor? bias, Tensor input_scales, Tensor input_zero_points, "
+        "Tensor weight_scales, Tensor weight_zero_points, "
+        "ScalarType? output_dtype=None, Tensor? output_scales=None, "
+        "Tensor? output_zero_points=None,"
+        "str zentorch_op_name='zentorch::zentorch_qlinear_out') -> ()");
+  m.def("zentorch_qlinear_relu_out(Tensor(a!) out, int output_stride,"
+        "Tensor input, Tensor weight, "
+        "Tensor? bias, Tensor input_scales, Tensor input_zero_points, "
+        "Tensor weight_scales, Tensor weight_zero_points, "
+        "ScalarType? output_dtype=None, Tensor? "
+        "output_scales=None, "
+        "Tensor? output_zero_points=None,"
+        "str zentorch_op_name="
+        "'zentorch::zentorch_qlinear_relu_out') -> ()");
 }
 
 TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
@@ -370,6 +420,10 @@ TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
   m.impl("zentorch_qlinear_mul_add",
          zentorch::zentorch_qlinear_binary_binary<BINARY_POST_OP::MUL,
                                                   BINARY_POST_OP::ADD>);
+  m.impl("zentorch_qlinear_out",
+         zentorch::zentorch_qlinear_out_unary<UNARY_POST_OP::POST_OP_NONE>);
+  m.impl("zentorch_qlinear_relu_out",
+         zentorch::zentorch_qlinear_out_unary<UNARY_POST_OP::RELU>);
 }
 
 } // namespace zentorch

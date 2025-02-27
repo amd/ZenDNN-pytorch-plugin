@@ -135,8 +135,8 @@ inline void aten_tensor_to_zen_memory_for_quantized_matmul(
     const at::Tensor &input, const at::Tensor &weight, const at::Tensor &bias,
     const at::Tensor &result, const at::Tensor &input_scales,
     const at::Tensor &input_zero_points, const bool &is_input_quantized,
-    at::Tensor &q_input, memory &z_q_input, memory &z_q_weight, memory &z_bias,
-    memory &z_result) {
+    const int64_t output_stride, at::Tensor &q_input, memory &z_q_input,
+    memory &z_q_weight, memory &z_bias, memory &z_result) {
   // Create input memory.
   memory z_input = zen_memory(input);
 
@@ -199,7 +199,9 @@ inline void aten_tensor_to_zen_memory_for_quantized_matmul(
   }
 
   // Create result memory.
-  z_result = zen_memory(result);
+  const memory::desc &out_desc = memory::desc(
+      result.sizes().vec(), get_ztype_from_aten(result), {output_stride, 1});
+  z_result = zen_memory(result, out_desc);
 }
 
 inline void check_valid_dtypes_for_quantized_matmul(

@@ -45,21 +45,39 @@ class Custom_Model_Qlinear(nn.Module):
         output_scales=None,
         output_zero_points=None,
         use_zentorch=False,
+        qlinear_output=None,
+        stride=-1,
     ):
         if use_zentorch:
             # zentorch qlinear
-            qlinear_output = torch.ops.zentorch.zentorch_qlinear(
-                inp,
-                weight,
-                bias,
-                inp_scales,
-                inp_zero_points,
-                weight_scales,
-                weight_zero_points,
-                output_dtype=output_dtype,
-                output_scales=output_scales,
-                output_zero_points=output_zero_points,
-            )
+            if qlinear_output is None:
+                qlinear_output = torch.ops.zentorch.zentorch_qlinear(
+                    inp,
+                    weight,
+                    bias,
+                    inp_scales,
+                    inp_zero_points,
+                    weight_scales,
+                    weight_zero_points,
+                    output_dtype=output_dtype,
+                    output_scales=output_scales,
+                    output_zero_points=output_zero_points,
+                )
+            else:
+                torch.ops.zentorch.zentorch_qlinear_out(
+                    qlinear_output,
+                    stride,
+                    inp,
+                    weight,
+                    bias,
+                    inp_scales,
+                    inp_zero_points,
+                    weight_scales,
+                    weight_zero_points,
+                    output_dtype=output_dtype,
+                    output_scales=output_scales,
+                    output_zero_points=output_zero_points,
+                )
         else:
             # simulated qlinear
             qlinear_output = qdq_linear(
@@ -140,6 +158,46 @@ class Test_Qlinear_Model(Zentorch_TestCase):
             use_zentorch=True,
         )
         self.assertEqual(simulated_output, zentorch_output, atol=1e-2, rtol=1e-2)
+
+        output_torch_dtype = self.data.get_torch_type(output_dtype)
+        input = self.data.binary_input[input_dim].to(output_torch_dtype)
+        simulated_cat_output = torch.cat([input, simulated_output], dim=(input_dim - 1))
+        zentorch_cat_output = torch.ones_like(simulated_cat_output)
+        cat_output_stride = zentorch_cat_output.stride()
+        input_view = torch.as_strided(
+            zentorch_cat_output, size=input.shape, stride=cat_output_stride
+        )
+        input_view.copy_(input)
+
+        qlinear_view = torch.as_strided(
+            zentorch_cat_output,
+            size=simulated_output.shape,
+            stride=cat_output_stride,
+            storage_offset=input.shape[-1],
+        )
+
+        reshaped_view = qlinear_view.view(-1, qlinear_view.size(-1))
+        reshaped_stride = reshaped_view.stride()
+
+        model(
+            self.data.x_for_qlinear[input_dtype][input_dim],
+            self.data.y_int8[q_weight_idx],
+            self.data.bias_for_qlinear[bias_opt_idx],
+            self.data.x_scales["per_tensor"],
+            self.data.x_zero_points["per_tensor"][input_dtype][q_zero_points_dtype],
+            self.data.y_scales[q_granularity_val],
+            self.data.y_zero_points[q_granularity_val],
+            output_torch_dtype,
+            self.data.output_scales["per_tensor"][output_dtype]["positive_scales"],
+            self.data.output_zero_points["per_tensor"][output_dtype],
+            use_zentorch=True,
+            qlinear_output=qlinear_view,
+            stride=reshaped_stride[0],
+        )
+
+        self.assertEqual(
+            simulated_cat_output, zentorch_cat_output, atol=1e-2, rtol=1e-2
+        )
 
 
 if __name__ == "__main__":

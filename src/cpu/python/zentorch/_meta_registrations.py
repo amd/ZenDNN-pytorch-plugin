@@ -873,6 +873,42 @@ def meta_zentorch_convolution(
     return output
 
 
+@register_meta("zentorch_qlinear_out")
+def meta_zentorch_qlinear_out(
+    out,
+    output_stride,
+    input,
+    weight,
+    bias,
+    input_scales,
+    input_zero_points,
+    weight_scales,
+    weight_zero_points,
+    output_dtype=None,
+    output_scales=None,
+    output_zero_points=None,
+):
+    return
+
+
+@register_meta("zentorch_qlinear_relu_out")
+def meta_zentorch_qlinear_relu_out(
+    out,
+    output_stride,
+    input,
+    weight,
+    bias,
+    input_scales,
+    input_zero_points,
+    weight_scales,
+    weight_zero_points,
+    output_dtype=None,
+    output_scales=None,
+    output_zero_points=None,
+):
+    return
+
+
 @register_meta("zentorch_qlinear")
 def meta_zentorch_qlinear(
     input,
