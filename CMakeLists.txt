@@ -17,6 +17,9 @@ find_package(Torch REQUIRED)
 # build mha kernel
 find_package(CPUkernels REQUIRED)
 
+set(COMPILER_NAME "${CMAKE_CXX_COMPILER_ID}")
+set(COMPILER_VERSION "${CMAKE_CXX_COMPILER_VERSION}")
+
 configure_file ("${CMAKE_CURRENT_SOURCE_DIR}/src/cpu/cpp/Config.hpp.in"
             "${CMAKE_CURRENT_SOURCE_DIR}/src/cpu/cpp/Config.hpp")
 
@@ -46,20 +49,19 @@ target_include_directories(zentorch PUBLIC
                             ${BLIS_INCLUDE_DIR}
 )
 
-target_link_libraries(zentorch PUBLIC 
-                        ${MHA_LIBRARIES} 
-                        ${ZENDNN_LIBRARIES} 
-                        ${BLIS_LIBRARIES} 
-                        ${FBGEMM_LIBRARIES} 
+target_link_libraries(zentorch PUBLIC
+                        ${MHA_LIBRARIES}
+                        ${ZENDNN_LIBRARIES}
+                        ${BLIS_LIBRARIES}
+                        ${FBGEMM_LIBRARIES}
                         ${LIBXSMM_LIBRARIES}
-                        ${TORCH_LIBRARIES}
-                        ${CMAKE_CURRENT_BINARY_DIR}/lib/libasmjit.a)
+                        ${TORCH_LIBRARIES})
 
 add_custom_command(
-        TARGET zentorch  POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy
-                ${CMAKE_CURRENT_BINARY_DIR}/lib/libzentorch.so
-                ${CMAKE_SOURCE_DIR}/${INSTALL_LIB_DIR}/${PROJECT_NAME}/)
+    TARGET zentorch  POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy
+            ${CMAKE_CURRENT_BINARY_DIR}/lib/libzentorch.so
+            ${CMAKE_SOURCE_DIR}/${INSTALL_LIB_DIR}/${PROJECT_NAME}/)
 
 # Set default build type
 if(NOT CMAKE_BUILD_TYPE)

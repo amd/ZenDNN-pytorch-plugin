@@ -1,5 +1,5 @@
 /******************************************************************************
-* Copyright (c) 2023 Advanced Micro Devices, Inc.
+* Copyright (c) 2023-2025 Advanced Micro Devices, Inc.
 * All rights reserved.
 ******************************************************************************/
 
@@ -11,3 +11,5 @@
 #define FBGEMM_VERSION_TAG "@FBGEMM_VERSION_TAG@"
 #define LIBXSMM_VERSION_HASH "@LIBXSMM_VERSION_HASH@"
 #define LIBXSMM_VERSION_TAG "@LIBXSMM_VERSION_TAG@"
+#define CMAKE_CXX_FLAGS "@CMAKE_CXX_FLAGS@"
+#define COMPILER_INFO "@COMPILER_NAME@ @COMPILER_VERSION@"

@@ -9,7 +9,6 @@ from packaging.version import parse
 from torch.torch_version import __version__, TorchVersion
 from os.path import join as Path
 import os
-import glob
 import subprocess
 import torch
 import warnings
@@ -72,7 +71,7 @@ class CustomBuildExtension(BuildExtension):
         ]
 
         # Add compile flags to cmake
-        cmake_cmd.append(f"-DCMAKE_CXX_FLAGS={extra_compile_args_str}")
+        cmake_cmd.append(f"-DCMAKE_CXX_FLAGS={' '.join(extra_compile_args)}")
 
         self.spawn(cmake_cmd)
         self.spawn(["make", "-j", "-C", self.build_temp])
@@ -154,7 +153,7 @@ PT_VERSION = __version__
 
 # Initializing all the parameters for the setup function
 project_root_dir = os.path.abspath(os.path.dirname(__file__))
-sources = glob.glob(Path(project_root_dir, "src", "cpu", "cpp", "Bindings.cpp"))
+sources = [Path(project_root_dir, "src", "cpu", "cpp", "Bindings.cpp")]
 
 include_dirs = [
     Path(project_root_dir, "third_party", "ZenDNN", "inc"),
@@ -177,7 +176,7 @@ extra_compile_args = [
     "-DZENTORCH_VERSION=" + PACKAGE_VERSION,
     "-DPT_VERSION=" + PT_VERSION,
 ]
-extra_compile_args_str = ' '.join(extra_compile_args)
+
 # add the "-O2" optimization only when we are doing release build
 # check for release build
 if not os.getenv("DEBUG", 0):

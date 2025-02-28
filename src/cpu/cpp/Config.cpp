@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright (c) 2023-2024 Advanced Micro Devices, Inc.
+ * Copyright (c) 2023-2025 Advanced Micro Devices, Inc.
  * All rights reserved.
  ******************************************************************************/
 
@@ -28,12 +28,11 @@ std::string show_config() {
   ss << "zentorch built with:\n";
   ss << "  - Commit-id: " << TO_STRING(ZENTORCH_VERSION_HASH) << "\n";
   ss << "  - PyTorch: " << TO_STRING(PT_VERSION) << "\n";
-#if defined(__GNUC__)
-  ss << "  - GCC Version: " << __GNUC__ << "." << __GNUC_MINOR__ << "\n";
-#endif
+  ss << "  - Compiler: " << COMPILER_INFO << "\n";
 #if defined(__cplusplus)
   ss << "  - C++ Version: " << __cplusplus << "\n";
 #endif
+  ss << "  - CXX Flags " << CMAKE_CXX_FLAGS << "\n";
   ss << "Third_party libraries:\n";
   ss << "  - "
      << "AMD " << bli_info_get_version_str() << " ( Git Hash "
