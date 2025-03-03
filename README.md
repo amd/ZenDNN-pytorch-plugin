@@ -39,18 +39,18 @@ Table of Contents
 
 ## 1.1. Overview
 
-The latest ZenDNN Plugin for PyTorch* (zentorch) 5.0.1 is here!
+__The latest ZenDNN Plugin for PyTorch* (zentorch) 5.0.1 is here!__
 
-zentorch 5.0.1 is the PyTorch plugin which comes with ZenDNN 5.0.1. ZenDNN 5.0.1 is a minor release building upon the major ZenDNN 5.0 release. 
+zentorch 5.0.1 is the PyTorch plugin which comes with ZenDNN 5.0.1. ZenDNN 5.0.1 is a minor release building upon the major ZenDNN 5.0 release.
 This upgrade continues the focus on optimizing inference with Recommender Systems and Large Language Models on AMD EPYC™ CPUs. includes AMD EPYC™ enhancements for bfloat16 performance, expanded support for cutting-edge models like Llama 3.1 and 3.2, Microsoft Phi, and more as well as support for INT4 quantized datatype.
 This includes the advanced Activation-Aware Weight Quantization (AWQ) algorithm for LLMs and quantized support for the DLRM-v2 model with int8 weights.
 
-Under the hood, ZenDNN’s enhanced AMD-specific optimizations operate at every level. In addition to highly optimized operator microkernels, these include comprehensive graph optimizations including pattern identification, graph reordering, and fusions. 
+Under the hood, ZenDNN’s enhanced AMD-specific optimizations operate at every level. In addition to highly optimized operator microkernels, these include comprehensive graph optimizations including pattern identification, graph reordering, and fusions.
 They also incorporate optimized embedding bag kernels and enhanced zenMatMul matrix splitting strategies which leverage the AMD EPYC™ microarchitecture to deliver enhanced throughput and latency.
 
 Combined with PyTorch's torch.compile, zentorch transforms deep learning pipelines into finely-tuned, AMD-specific engines, delivering unparalleled efficiency and speed for large-scale inference workloads
 
-The zentorch 5.0.1 release plugs seamlessly with PyTorch version 2.5.0, offering a high-performance experience for deep learning on AMD EPYC™ platforms.
+The zentorch 5.0.1 release plugs seamlessly with PyTorch versions from 2.5 to 2.2, offering a high-performance experience for deep learning on AMD EPYC™ platforms.
 
 ## Support
 
@@ -129,12 +129,12 @@ Using the release package.
 > Run the following commands to unzip the package and install the binary.
 
 ```bash
-unzip ZENTORCH_v5.0.1_Python_v3.8.zip
-cd ZENTORCH_v5.0.1_Python_v3.8/
-pip install zentorch-5.0.1-cp38-cp38-manylinux_2_28_x86_64.whl
+unzip ZENTORCH_v5.0.1_Python_v3.10.zip
+cd ZENTORCH_v5.0.1_Python_v3.10/
+pip install zentorch-5.0.1-cp310-cp310-manylinux_2_28_x86_64.whl
 ```
 >Notes:
-* In above steps, we have taken an example for release package with Python version 3.8.
+* Zentorch is compatible with Python versions 3.9 to 3.12. This README uses Python 3.10.
 * Dependent packages 'numpy' and 'torch' will be installed by '_zentorch_' if not already present.
 * If you get the error: ImportError: /lib64/libstdc++.so.6: version `GLIBCXX_.a.b.cc' not found (required by <path_to_conda>/envs/<env_name>/lib/python<py_version>/site-packages/zentorch-5.0.1-pyx.y-linux-x86_64.egg/zentorch/_C.cpython-xy-x86_64-linux-gnu.so), export LD_PRELOAD as:
   * export LD_PRELOAD=<path_to_conda>/envs/<env_name>/lib/libstdc++.so.6:$LD_PRELOAD
@@ -145,7 +145,7 @@ Run the following commands:
 git clone https://github.com/amd/ZenDNN-pytorch-plugin.git
 cd ZenDNN_PyTorch_Plugin/
 ```
->Note: Repository defaults to master branch, to build the version 5.0.1 checkout the branch r5.0.1.
+>Note: The repository defaults to the master branch. To build version 5.0.1, please check out the r5.0.1 branch; otherwise, it will build using the master branch.
 ```bash
 git checkout r5.0.1
 ```
@@ -156,8 +156,9 @@ Build setup downloads the ZenDNN, AOCL BLIS and FBGEMM repos into `third_party` 
 
 ### 2.2.2. Linux build
 #### 2.2.2.1. Create conda environment for the build
+
 ```bash
-conda create -n pt-zentorch python=3.8 -y
+conda create -n pt-zentorch python=3.10 -y
 conda activate pt-zentorch
 ```
 #### 2.2.2.2. Install Pytorch v2.5.0
@@ -183,7 +184,7 @@ python setup.py bdist_wheel
 #### 2.2.2.5. To install the wheel file of _zentorch_
 ```bash
 cd dist
-pip install zentorch-5.0.1-cp38-cp38-linux_x86_64.whl
+pip install zentorch-5.0.1-cp310-cp310-linux_x86_64.whl
 ```
 #### 2.2.2.6. Build Cleanup
 ```bash
