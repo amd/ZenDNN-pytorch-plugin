@@ -73,25 +73,36 @@ class BackendPytorchNative(backend.Backend):
             dcn_num_layers=self.dcn_num_layers,
             dcn_low_rank_dim=self.dcn_low_rank_dim,
         )
-
-        if args.use_int8:
-            print(f"Loading model int8 weights: {args.int8_model_path}")
+        # default model_inp_dtype will be fp32
+        if args.use_int8_fp32:
+            print(f"Loading fp32 model with int8 weights: {args.int8_model_path}")
             model = zentorch.load_quantized_model(
                 model, saved_model_path=args.int8_model_path
             )
             self.model = model
+            model_inp_dtype = torch.float32
+            print("int8 model ready...")
+        elif args.use_int8_bf16:
+            model = model.to(torch.bfloat16)
+            print(f"Loading bf16 model with int8 weights: {args.int8_model_path}")
+            model = zentorch.load_quantized_model(
+                model, saved_model_path=args.int8_model_path
+            )
+            self.model = model
+            model_inp_dtype = torch.bfloat16
             print("int8 model ready...")
         else:
-            print(f"Loading model fp32 weights: {args.model_path}")
+            print(f"Loading fp32 model: {args.model_path}")
             model.load_state_dict(
                 torch.load(
                     os.path.join(args.model_path, "dlrm-multihot-pytorch.pt")
                 )
             )
+            model_inp_dtype = torch.float32
             print("fp32 model ready...")
         self.model = self.model.cpu().share_memory()
         print("share_memory ready")
-        return self
+        return self.model, model_inp_dtype
 
     def batch_predict(self, densex, index, offset):
         with torch.no_grad():

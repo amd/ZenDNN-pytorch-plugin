@@ -84,7 +84,7 @@ export BATCH_SIZE=100
 To generate the performance numbers in offline mode, please execute the following command.
 
 ```shell
-source setup_env_offline.sh && ./run_main.sh offline int8
+source setup_env_offline.sh && ./run_main.sh offline int8-bf16
 ```
 
 ### 4.4. Offline Accuracy
@@ -92,5 +92,5 @@ source setup_env_offline.sh && ./run_main.sh offline int8
 To generate the accuracy numbers in offline mode, please execute the following command.
 
 ```shell
-source setup_env_offline.sh && ./run_main.sh offline accuracy int8
+source setup_env_offline.sh && ./run_main.sh offline accuracy int8-bf16
 ```

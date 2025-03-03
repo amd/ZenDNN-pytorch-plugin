@@ -144,7 +144,8 @@ def get_args():
     parser.add_argument("--outputs", help="model outputs (currently not used)")
     parser.add_argument("--backend", help="runtime to use")
     parser.add_argument("--use-gpu", action="store_true", default=False)
-    parser.add_argument("--use-int8", action="store_true", default=False)
+    parser.add_argument("--use-int8-fp32", action="store_true", default=False)
+    parser.add_argument("--use-int8-bf16", action="store_true", default=False)
     parser.add_argument("--use-bf16", action="store_true", default=False)
     parser.add_argument(
         "--int8-model-path",

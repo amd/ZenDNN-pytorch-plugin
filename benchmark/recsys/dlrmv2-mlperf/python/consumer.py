@@ -87,20 +87,16 @@ class Consumer(mp.Process):
         )
         print("Process {} instance cores: ", self.inst_start_idx)
 
-    def warmup(self):
+    def warmup(self, dtype):
         with torch.no_grad():
-            for s in range(
-                self.args.max_batchsize, self.args.max_batchsize + 800, 100
-            ):
+            for s in range(self.args.max_batchsize, self.args.max_batchsize + 800, 100):
 
-                batch_dense_X = torch.randn((s, 13), dtype=torch.float)
+                batch_dense_X = torch.randn((s, 13), dtype=dtype)
                 batch_lS_i = []
                 batch_lS_o = []
                 for _, h in enumerate(self.multi_hot):
                     batch_lS_i.append(torch.ones((s * h), dtype=torch.long))
-                    batch_lS_o.append(
-                        torch.arange(0, (s + 1) * h, h, dtype=torch.long)
-                    )
+                    batch_lS_o.append(torch.arange(0, (s + 1) * h, h, dtype=torch.long))
 
                 self.model(batch_dense_X, batch_lS_i, batch_lS_o)
 
@@ -124,13 +120,11 @@ class Consumer(mp.Process):
             lsi_all = torch.cat(lsi)
             hot = lsi_all.shape[0] // batch
             lS_i.append(lsi_all)
-            lS_o.append(
-                torch.arange(0, (batch + 1) * hot, hot, dtype=torch.int)
-            )
+            lS_o.append(torch.arange(0, (batch + 1) * hot, hot, dtype=torch.int))
         T = torch.cat(lbl_ls)
         return (X, lS_i, lS_o, T)
 
-    def handle_tasks(self, i, model, task_queue, result_queue, args, pid):
+    def handle_tasks(self, i, model, task_queue, result_queue, args, pid, model_dtype):
         torch.set_grad_enabled(False)
         socket_id = self.inst_start_idx[0] // self.cpus_per_sockets
         core_id = self.inst_start_idx[i] - socket_id * self.cpus_per_sockets
@@ -158,26 +152,28 @@ class Consumer(mp.Process):
                 if qitem is None:
                     break
                 get_sample_start = time.time()
-                batch_dense_X, batch_lS_i, batch_lS_o, batch_T = (
-                    self.get_samples(qitem.content_id)
+                batch_dense_X, batch_lS_i, batch_lS_o, batch_T = self.get_samples(
+                    qitem.content_id
                 )
                 idx_offsets = qitem.idx_offsets
                 get_sample_timing = time.time() - get_sample_start
                 total_time += get_sample_timing
                 results = []
-
+                batch_dense_X = batch_dense_X.to(model_dtype)
                 try:
                     with torch.no_grad():
-                        results = model(batch_dense_X, batch_lS_i, batch_lS_o)
+                        results = model(
+                            batch_dense_X, batch_lS_i, batch_lS_o
+                        )
+                    if batch_dense_X.dtype == torch.bfloat16:
+                        results = results.to(torch.float32)
                     presults = torch.cat(
                         (results.view(-1, 1), batch_T.view(-1, 1)), dim=1
                     )
                     if args.accuracy:
                         total = len(results)
                         good = (
-                            (results.round() == batch_T)
-                            .nonzero(as_tuple=False)
-                            .size(0)
+                            (results.round() == batch_T).nonzero(as_tuple=False).size(0)
                         )
                         result_timing = time.time() - qitem.start
 
@@ -192,9 +188,7 @@ class Consumer(mp.Process):
                         cur_off = prev_off + idx_offsets[idx]
                         response_array = array.array(
                             "B",
-                            np.array(
-                                presults[prev_off:cur_off], np.float32
-                            ).tobytes(),
+                            np.array(presults[prev_off:cur_off], np.float32).tobytes(),
                         )
                         response_array_refs.append(response_array)
                         prev_off = cur_off
@@ -210,14 +204,10 @@ class Consumer(mp.Process):
                             )
                         )
                     else:
-                        result_queue.put(
-                            OItem([], query_list, response_array_refs)
-                        )
+                        result_queue.put(OItem([], query_list, response_array_refs))
         if args.enable_profiling:
             with open(filename, "w") as prof_f:
-                prof_f.write(
-                    prof.key_averages().table(sort_by="self_cpu_time_total")
-                )
+                prof_f.write(prof.key_averages().table(sort_by="self_cpu_time_total"))
 
     def run(self):
         os.sched_setaffinity(
@@ -229,10 +219,10 @@ class Consumer(mp.Process):
         )
 
         backend = get_backend(self.args.backend, self.args.dataset)
-        self.model = backend.load(self.args).model
+        self.model, torch_dtype = backend.load(self.args)
         self.model = torch.compile(self.model, backend="zentorch")
         print("Start warmup.")
-        self.warmup()
+        self.warmup(torch_dtype)
         print("Warmup done.")
 
         self.lock.acquire()
@@ -261,6 +251,7 @@ class Consumer(mp.Process):
                             self.result_queue[0],
                             self.args,
                             self.pid,
+                            torch_dtype,
                         ),
                     )
                 else:
@@ -273,6 +264,7 @@ class Consumer(mp.Process):
                             self.result_queue[i],
                             self.args,
                             self.pid,
+                            torch_dtype,
                         ),
                     )
                 self.workers.append(worker)
@@ -288,6 +280,7 @@ class Consumer(mp.Process):
                 self.result_queue[0],
                 self.args,
                 self.pid,
+                torch_dtype,
             )
 
         ds.unload_query_samples()

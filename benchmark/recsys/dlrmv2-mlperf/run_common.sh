@@ -30,7 +30,7 @@ for i in $* ; do
        dlrm) model=$i; shift;;
        multihot-criteo) dataset=$i; shift;;
        cpu) device=$i; shift;;
-       fp32|int8) dtype=$i; shift;;
+       fp32|int8-fp32|int8-bf16) dtype=$i; shift;;
        performance|accuracy) test_type=$i; shift;;
        Server|Offline) mode=$i;
     esac
@@ -45,10 +45,10 @@ done
 # echo $DLRM_DIR
 # echo $EXTRA_OPS
 
-if [[ $dtype == "bf16" ]] ; then
-    echo "bf16 not supported" && exit 1
-elif [[ $dtype == "int8" ]] ; then
-    extra_args="$extra_args --use-int8"
+if [[ $dtype == "int8-fp32" ]] ; then
+    extra_args="$extra_args --use-int8-fp32"
+elif [[ $dtype == "int8-bf16" ]] ; then
+    extra_args="$extra_args --use-int8-bf16"
 fi
 
 if [[ $test_type == "accuracy" ]] ; then

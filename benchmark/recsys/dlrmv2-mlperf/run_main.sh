@@ -15,8 +15,10 @@ if [ $# -ge 2 ]; then
     if [[ $2 == "accuracy" ]]; then
         test_type="accuracy"
     fi
-    if [[ $2 == "int8" ]] || [[ $3 == "int8" ]]; then
-        dtype="int8"
+    if [[ $2 == "int8-fp32" ]] || [[ $3 == "int8-fp32" ]]; then
+        dtype="int8-fp32"
+    elif [[ $2 == "int8-bf16" ]] || [[ $3 == "int8-bf16" ]]; then
+        dtype="int8-bf16"
     fi
 else
     test_type="performance"
