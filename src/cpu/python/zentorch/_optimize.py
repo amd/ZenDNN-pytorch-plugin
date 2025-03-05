@@ -62,15 +62,17 @@ def optimize(fx_graph):
                 zt_ops.zentorch_rope.default,
                 None,
             ),
-            ipex_ops.rotary_position_embedding_deepseek.default: (
-                zt_ops.zentorch_rope_deepseek.default,
-                None,
-            ),
             ipex_ops.masked_multihead_self_attention.default: (
                 zt_ops.zentorch_masked_multihead_self_attention.default,
                 None,
             ),
         }
+        # RoPE deepseek is only present in IPEX 2.6 or above
+        if hasattr(ipex_ops, "rotary_position_embedding_deepseek"):
+            ipex_to_zen_op_dict[ipex_ops.rotary_position_embedding_deepseek.default] = (
+                zt_ops.zentorch_rope_deepseek.default,
+                None,
+            )
         op_dict_lst.append(ipex_to_zen_op_dict)
     op_dict_lst.append(zen_to_zen_op_dict)
     optimized_graph = replace_with_zentorch_ops(pattern_matched_model, op_dict_lst)
