@@ -39,9 +39,9 @@ Table of Contents
 
 ## 1.1. Overview
 
-__The latest ZenDNN Plugin for PyTorch* (zentorch) 5.0.1 is here!__
+__The latest ZenDNN Plugin for PyTorch* (zentorch) 5.0.2 is here!__
 
-zentorch 5.0.1 is the PyTorch plugin which comes with ZenDNN 5.0.1. ZenDNN 5.0.1 is a minor release building upon the major ZenDNN 5.0 release.
+zentorch 5.0.2 is the PyTorch plugin which comes with ZenDNN 5.0.2. ZenDNN 5.0.2 is a minor release building upon the major ZenDNN 5.0 release.
 This upgrade continues the focus on optimizing inference with Recommender Systems and Large Language Models on AMD EPYC™ CPUs. includes AMD EPYC™ enhancements for bfloat16 performance, expanded support for cutting-edge models like Llama 3.1 and 3.2, Microsoft Phi, and more as well as support for INT4 quantized datatype.
 This includes the advanced Activation-Aware Weight Quantization (AWQ) algorithm for LLMs and quantized support for the DLRM-v2 model with int8 weights.
 
@@ -50,7 +50,7 @@ They also incorporate optimized embedding bag kernels and enhanced zenMatMul mat
 
 Combined with PyTorch's torch.compile, zentorch transforms deep learning pipelines into finely-tuned, AMD-specific engines, delivering unparalleled efficiency and speed for large-scale inference workloads
 
-The zentorch 5.0.1 release plugs seamlessly with PyTorch versions from 2.5 to 2.2, offering a high-performance experience for deep learning on AMD EPYC™ platforms.
+The zentorch 5.0.2 release plugs seamlessly with PyTorch versions from 2.5 to 2.2, offering a high-performance experience for deep learning on AMD EPYC™ platforms.
 
 ## Support
 
@@ -118,7 +118,7 @@ pip install torch==2.5.0 --index-url https://download.pytorch.org/whl/cpu
 
 Using pip utility
 ```bash
-pip install zentorch==5.0.1
+pip install zentorch==5.0.2
 ```
 or
 
@@ -129,14 +129,14 @@ Using the release package.
 > Run the following commands to unzip the package and install the binary.
 
 ```bash
-unzip ZENTORCH_v5.0.1_Python_v3.10.zip
-cd ZENTORCH_v5.0.1_Python_v3.10/
-pip install zentorch-5.0.1-cp310-cp310-manylinux_2_28_x86_64.whl
+unzip ZENTORCH_v5.0.2_Python_v3.10.zip
+cd ZENTORCH_v5.0.2_Python_v3.10/
+pip install zentorch-5.0.2-cp310-cp310-manylinux_2_28_x86_64.whl
 ```
 >Notes:
 * Zentorch is compatible with Python versions 3.9 to 3.12. This README uses Python 3.10.
 * Dependent packages 'numpy' and 'torch' will be installed by '_zentorch_' if not already present.
-* If you get the error: ImportError: /lib64/libstdc++.so.6: version `GLIBCXX_.a.b.cc' not found (required by <path_to_conda>/envs/<env_name>/lib/python<py_version>/site-packages/zentorch-5.0.1-pyx.y-linux-x86_64.egg/zentorch/_C.cpython-xy-x86_64-linux-gnu.so), export LD_PRELOAD as:
+* If you get the error: ImportError: /lib64/libstdc++.so.6: version `GLIBCXX_.a.b.cc' not found (required by <path_to_conda>/envs/<env_name>/lib/python<py_version>/site-packages/zentorch-5.0.2-pyx.y-linux-x86_64.egg/zentorch/_C.cpython-xy-x86_64-linux-gnu.so), export LD_PRELOAD as:
   * export LD_PRELOAD=<path_to_conda>/envs/<env_name>/lib/libstdc++.so.6:$LD_PRELOAD
 
 ## 2.2. From Source
@@ -145,9 +145,9 @@ Run the following commands:
 git clone https://github.com/amd/ZenDNN-pytorch-plugin.git
 cd ZenDNN_PyTorch_Plugin/
 ```
->Note: The repository defaults to the master branch. To build version 5.0.1, please check out the r5.0.1 branch; otherwise, it will build using the master branch.
+>Note: The repository defaults to the master branch. To build version 5.0.2, please check out the r5.0.2 branch; otherwise, it will build using the master branch.
 ```bash
-git checkout r5.0.1
+git checkout r5.0.2
 ```
 
 ### 2.2.1. Preparing third party repositories
@@ -184,7 +184,7 @@ python setup.py bdist_wheel
 #### 2.2.2.5. To install the wheel file of _zentorch_
 ```bash
 cd dist
-pip install zentorch-5.0.1-cp310-cp310-linux_x86_64.whl
+pip install zentorch-5.0.2-cp310-cp310-linux_x86_64.whl
 ```
 #### 2.2.2.6. Build Cleanup
 ```bash
@@ -302,7 +302,7 @@ with torch.no_grad():
 Huggingface models are quantized using [AMD's Quark tool](https://quark.docs.amd.com/latest/install.html).
 After downloading the zip file, install Quark and follow the below steps:
 
-> zentorch v5.0.1 is compatible with Quark v0.8. Please make sure you download the right version.
+> zentorch v5.0.2 is compatible with Quark v0.8. Please make sure you download the right version.
 
 ### 4.5.1 Go to the examples/torch/language_modeling/llm_ptq/ directory
 ### 4.5.2 Install the necessary dependencies
@@ -369,7 +369,7 @@ TORCH_COMPILE_DEBUG=1 python test.py
 For more information about TORCH_COMPILE_DEBUG refer to the official PyTorch documentaion available.
 
 # 6. Performance tuning and Benchmarking
-zentorch v5.0.1 is supported with ZenDNN v5.0. Please see the **Tuning Guidelines** section of ZenDNN User Guide for performance tuning. ZenDNN User Guide can be downloaded from [here](https://developer.amd.com/zendnn)
+zentorch v5.0.2 is supported with ZenDNN v5.0. Please see the **Tuning Guidelines** section of ZenDNN User Guide for performance tuning. ZenDNN User Guide can be downloaded from [here](https://developer.amd.com/zendnn)
 
 # 7. Additional Utilities:
 
