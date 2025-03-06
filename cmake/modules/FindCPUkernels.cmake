@@ -13,8 +13,8 @@ file(GLOB cpu_kernels "${CMAKE_CURRENT_SOURCE_DIR}/src/cpu/cpp/kernels/*.cpp")
 # setting necessary flags for .cpp files
 set(FLAGS "-Wall -Werror -Wno-unknown-pragmas -Wno-error=uninitialized \
           -Wno-error=maybe-uninitialized -fPIC -fopenmp -fno-math-errno \
-          -fno-trapping-math -O2 -std=c++17 -D_GLIBCXX_USE_CXX11_ABI=0 \
-          -mavx512f -mavx512bf16 -mavx512vl -mavx512dq -DCPU_CAPABILITY_AVX512")
+          -fno-trapping-math -O2 -std=c++17 -mavx512f -mavx512bf16 \
+          -mavx512vl -mavx512dq -DCPU_CAPABILITY_AVX512")
 
 set_source_files_properties(${cpu_kernels} PROPERTIES COMPILE_FLAGS "${FLAGS}")
 

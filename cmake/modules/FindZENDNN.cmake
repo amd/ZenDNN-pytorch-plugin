@@ -5,6 +5,7 @@
 
 IF (NOT ZENDNN_FOUND)
 
+string(REGEX MATCH "GLIBCXX_USE_CXX11_ABI=([0-9]+)" ZENTORCH_ABI_FLAG "${CMAKE_CXX_FLAGS}")
 
 # For enabling debug build if needed
 ###############################################################################
@@ -216,7 +217,7 @@ add_custom_command(
    WORKING_DIRECTORY
        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/blis
    COMMAND
-       make clean && make distclean && CC=gcc ./configure -a aocl_gemm --prefix=${CMAKE_CURRENT_BINARY_DIR}/blis_gcc_build  --enable-threading=openmp --disable-blas --disable-cblas amdzen && make -j install CMAKE_BUILD_TYPE==${CMAKE_BUILD_TYPE}
+       make clean && make distclean && CC=gcc ./configure -a aocl_gemm --prefix=${CMAKE_CURRENT_BINARY_DIR}/blis_gcc_build  --enable-threading=openmp --disable-blas --disable-cblas amdzen && CXXFLAGS="${CXXFLAGS} -D_${ZENTORCH_ABI_FLAG}" make -j install CMAKE_BUILD_TYPE==${CMAKE_BUILD_TYPE}
    COMMAND
        cp ${CMAKE_CURRENT_BINARY_DIR}/blis_gcc_build/lib/libblis-mt.a ${CMAKE_CURRENT_BINARY_DIR}/lib/
    COMMAND
@@ -248,7 +249,7 @@ add_custom_command(
    WORKING_DIRECTORY
        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/FBGEMM
    COMMAND
-   mkdir build && cd build && cmake -DFBGEMM_LIBRARY_TYPE=static -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DCMAKE_C_FLAGS=\"-Wno-error=maybe-uninitialized -Wno-error=uninitialized\" -DCMAKE_CXX_FLAGS=\"-Wno-error=maybe-uninitialized -Wno-error=uninitialized\" -DPYTHON_EXECUTABLE=$ENV{PYTHON_PATH} .. && make -j VERBOSE=1
+   mkdir build && cd build && cmake -DFBGEMM_LIBRARY_TYPE=static -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DCMAKE_C_FLAGS=\"-Wno-error=maybe-uninitialized -Wno-error=uninitialized\" -DCMAKE_CXX_FLAGS=\"-Wno-error=maybe-uninitialized -Wno-error=uninitialized -D_${ZENTORCH_ABI_FLAG}\" -DPYTHON_EXECUTABLE=$ENV{PYTHON_PATH} .. && make -j VERBOSE=1
    COMMAND
        mkdir -p ${CMAKE_CURRENT_BINARY_DIR}/fbgemm_build && cp -r include/ build/* ${CMAKE_CURRENT_BINARY_DIR}/fbgemm_build
    COMMAND
@@ -282,8 +283,8 @@ add_custom_command(
        ${CMAKE_CURRENT_BINARY_DIR}/lib/libxsmm.a
    WORKING_DIRECTORY
        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/libxsmm
-   COMMAND
-   make STATIC=1
+    COMMAND
+       make CXXFLAGS+=-D_${ZENTORCH_ABI_FLAG} STATIC=1
    COMMAND
        mkdir -p ${CMAKE_CURRENT_BINARY_DIR}/libxsmm && cp -r lib/* ${CMAKE_CURRENT_BINARY_DIR}/libxsmm
    COMMAND
@@ -332,7 +333,7 @@ add_custom_command(
     WORKING_DIRECTORY
         ${CMAKE_CURRENT_SOURCE_DIR}/third_party/ZenDNN
     COMMAND
-        make -j ZENDNN_BLIS_PATH=${CMAKE_CURRENT_BINARY_DIR}/blis_gcc_build AOCC=0 LPGEMM=1 LPGEMM_V4_2=1 LPGEMM_V5_0=1 BLIS_API=1 FBGEMM_INSTALL_PATH=${CMAKE_CURRENT_SOURCE_DIR}/third_party/FBGEMM FBGEMM_ENABLE=1 ARCHIVE=1 RELEASE=${BUILD_FLAG} ZENDNN_LIBXSMM_PATH=${CMAKE_CURRENT_SOURCE_DIR}/third_party/libxsmm ZENDNN_ENABLE_TPP=1
+        make -j ZENDNN_BLIS_PATH=${CMAKE_CURRENT_BINARY_DIR}/blis_gcc_build AOCC=0 LPGEMM=1 LPGEMM_V4_2=1 LPGEMM_V5_0=1 BLIS_API=1 FBGEMM_INSTALL_PATH=${CMAKE_CURRENT_SOURCE_DIR}/third_party/FBGEMM FBGEMM_ENABLE=1 ARCHIVE=1 RELEASE=${BUILD_FLAG} ZENDNN_LIBXSMM_PATH=${CMAKE_CURRENT_SOURCE_DIR}/third_party/libxsmm ZENDNN_ENABLE_TPP=1 ABI_COMPILE=-D_${ZENTORCH_ABI_FLAG}
     COMMAND
         cp _out/lib/libamdZenDNN.a ${CMAKE_CURRENT_BINARY_DIR}/lib/
     DEPENDS

@@ -71,7 +71,7 @@ class CustomBuildExtension(BuildExtension):
         ]
 
         # Add compile flags to cmake
-        cmake_cmd.append(f"-DCMAKE_CXX_FLAGS={' '.join(extra_compile_args)}")
+        cmake_cmd.append(f"-DCMAKE_CXX_FLAGS={' '.join(zentorch_compile_args)}")
 
         self.spawn(cmake_cmd)
         self.spawn(["make", "-j", "-C", self.build_temp])
@@ -167,7 +167,7 @@ git_sha = get_commit_hash(project_root_dir)
 wheel_file_dependencies = ["numpy", "torch", "deprecated", "safetensors"]
 # -Wno-unknown-pragma is for [unroll pragma], to be removed
 # -fopenmp is needed for omp related pragmas (simd etc.)
-extra_compile_args = [
+zentorch_compile_args = [
     "-Wall",
     "-Werror",
     "-fopenmp",
@@ -177,10 +177,16 @@ extra_compile_args = [
     "-DPT_VERSION=" + PT_VERSION,
 ]
 
+# Enable C++11 ABI compilation for zentorch
+# if PyTorch was built with ABI support.
+zentorch_compile_args += [
+    f"-D_GLIBCXX_USE_CXX11_ABI={int(torch._C._GLIBCXX_USE_CXX11_ABI)}"
+]
+
 # add the "-O2" optimization only when we are doing release build
 # check for release build
 if not os.getenv("DEBUG", 0):
-    extra_compile_args += ["-O2"]
+    zentorch_compile_args += ["-O2"]
 
 
 long_description = ""
@@ -233,7 +239,7 @@ def main():
                 name=f"{PACKAGE_NAME}._C",
                 sources=sources,
                 include_dirs=include_dirs,
-                extra_compile_args=extra_compile_args,
+                extra_compile_args=zentorch_compile_args,
                 extra_link_args=['-Wl,-rpath,$ORIGIN'],
             )
         ],
