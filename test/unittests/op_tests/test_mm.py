@@ -5,13 +5,12 @@
 
 import unittest
 import torch
-from parameterized import parameterized
 import sys
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
 from unittest_utils import (  # noqa: 402
-    Zentorch_TestCase,
+    MMTestCase,
     has_zentorch,
     run_tests,
     skip_test_pt_2_0,
@@ -20,11 +19,12 @@ from unittest_utils import (  # noqa: 402
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
-class Test_MM_Op(Zentorch_TestCase):
-    @parameterized.expand(supported_dtypes)
+class Test_MM_Op(MMTestCase):
     @unittest.skipIf(skip_test_pt_2_0, "Skipping test due to PT2.0 instability")
+    @MMTestCase.hypothesis_params_mm_itr(
+        dtype_list=supported_dtypes
+    )
     def test_mm_variants(self, dtype):
-        self.data.create_unittest_data(dtype)
         # mm
         self.assertEqual(
             torch._C._VariableFunctions.mm(self.data.x, self.data.y),
@@ -49,9 +49,10 @@ class Test_MM_Op(Zentorch_TestCase):
             torch.ops.zentorch.zentorch_mm(self.data.A, self.data.B),
         )
 
-    @parameterized.expand(supported_dtypes)
+    @MMTestCase.hypothesis_params_mm_itr(
+        dtype_list=supported_dtypes
+    )
     def test_mm_mismatched_dimensions(self, dtype):
-        self.data.create_unittest_data(dtype)
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_mm(
                 self.data.x,
@@ -65,20 +66,20 @@ class Test_MM_Op(Zentorch_TestCase):
             torch.ops.zentorch.zentorch_mm(self.data.x3d, self.data.x3d)
         self.assertTrue("unsupported dims for self and mat2" in str(context.exception))
 
-    @parameterized.expand([("int",)])
+    @MMTestCase.hypothesis_params_mm_itr(dtype_list=["int"])
     def test_mm_unsupported_dtype(self, dtype):
 
-        self.data.create_unittest_data(dtype)
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_mm(self.data.x, self.data.y)
         self.assertTrue(
             "zentorch_matmul only supports Float and BFloat16" in str(context.exception)
         )
 
-    @parameterized.expand(supported_dtypes)
+    @MMTestCase.hypothesis_params_mm_itr(
+        dtype_list=supported_dtypes
+    )
     def test_mm_relu(self, dtype):
 
-        self.data.create_unittest_data(dtype)
         # mm->relu
         self.assertEqual(
             torch._C._VariableFunctions.relu(

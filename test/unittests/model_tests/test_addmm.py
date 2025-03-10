@@ -6,21 +6,18 @@
 import copy
 import unittest
 import torch
-from parameterized import parameterized
-from itertools import product
 from torch import nn
 import sys
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
 from unittest_utils import (  # noqa: 402
-    Zentorch_TestCase,
+    AddmmTestCase,
     counters,
     has_zentorch,
     reset_dynamo,
     run_tests,
     supported_dtypes,
-    zentorch,
     freeze_opt,
     test_with_freeze_opt,
 )
@@ -68,12 +65,14 @@ class Custom_Model_Addmm_3D(nn.Module):
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
-class Test_Addmm_Model(Zentorch_TestCase):
-    @parameterized.expand(product(supported_dtypes, freeze_opt))
+class Test_Addmm_Model(AddmmTestCase):
+
+    @AddmmTestCase.hypothesis_params_addmm_itr(
+        dtype_list=supported_dtypes,
+        freeze_list=freeze_opt
+    )
     @torch.inference_mode()
     def test_addmm_optimize_model(self, dtype, freeze_opt):
-
-        self.data.create_unittest_data(dtype)
         model = Custom_Model_Addmm().eval()
         self.skip_if_bfloat16_path_issue(dtype)
         for inp in self.data.M:
@@ -101,11 +100,12 @@ class Test_Addmm_Model(Zentorch_TestCase):
                         self.assertEqual(counters["zentorch"]["zentorch_addmm_1dbias"], 1)
                     self.assertEqual(inductor_graph_output, zentorch_graph_output)
 
-    @parameterized.expand(product(supported_dtypes, freeze_opt))
+    @AddmmTestCase.hypothesis_params_addmm_itr(
+        dtype_list=supported_dtypes,
+        freeze_list=freeze_opt
+    )
     @torch.inference_mode()
     def test_addmm_zero_input_model(self, dtype, freeze_opt):
-
-        self.data.create_unittest_data(dtype)
         model = Custom_Model_Addmm().eval()
         for inp in self.data.M:
             model_output = model(inp * 0, self.data.x1[0] * 0, self.data.y1[0] * 0)
@@ -125,11 +125,12 @@ class Test_Addmm_Model(Zentorch_TestCase):
                 self.assertEqual(counters["zentorch"]["zentorch_addmm_1dbias"], 1)
             self.assertEqual(model_output, compiled_graph_output)
 
-    @parameterized.expand(product(supported_dtypes, freeze_opt))
+    @AddmmTestCase.hypothesis_params_addmm_itr(
+        dtype_list=supported_dtypes,
+        freeze_list=freeze_opt
+    )
     @torch.inference_mode()
     def test_addmm_inf_input_model(self, dtype, freeze_opt):
-
-        self.data.create_unittest_data(dtype)
         model = Custom_Model_Addmm().eval()
         for inp in self.data.M:
             model_output = model(inp / 0, self.data.x1[0] / 0, self.data.y1[0] / 0)
@@ -149,11 +150,12 @@ class Test_Addmm_Model(Zentorch_TestCase):
                 self.assertEqual(counters["zentorch"]["zentorch_addmm_1dbias"], 1)
             self.assertEqual(model_output, compiled_graph_output)
 
-    @parameterized.expand(product(supported_dtypes, freeze_opt))
+    @AddmmTestCase.hypothesis_params_addmm_itr(
+        dtype_list=supported_dtypes,
+        freeze_list=freeze_opt
+    )
     @torch.inference_mode()
     def test_addmm_nan_input_model(self, dtype, freeze_opt):
-
-        self.data.create_unittest_data(dtype)
         model = Custom_Model_Addmm().eval()
         for inp in self.data.M:
             reset_dynamo()
@@ -184,11 +186,12 @@ class Test_Addmm_Model(Zentorch_TestCase):
                 self.assertEqual(counters["zentorch"]["zentorch_addmm_1dbias"], 1)
             self.assertEqual(inductor_graph_output, zentorch_graph_output)
 
-    @parameterized.expand(product(supported_dtypes, freeze_opt))
+    @AddmmTestCase.hypothesis_params_addmm_itr(
+        dtype_list=supported_dtypes,
+        freeze_list=freeze_opt
+    )
     @torch.inference_mode()
     def test_addmm_identity_input_nan_model(self, dtype, freeze_opt):
-
-        self.data.create_unittest_data(dtype)
         if dtype == "bfloat16":
             self.skipTest("Skipping it since this testcase is not applicable for BF16.")
         model = Custom_Model_Addmm().eval()
@@ -213,10 +216,11 @@ class Test_Addmm_Model(Zentorch_TestCase):
         self.assertEqual(counters["zentorch"]["zentorch_addmm"], 1)
         self.assertEqual(model_output, compiled_graph_output)
 
-    @parameterized.expand(supported_dtypes)
+    @AddmmTestCase.hypothesis_params_add_xD_itr(
+        dtype_list=supported_dtypes
+    )
     @torch.inference_mode()
     def test_addmm_variable_add_1D_model(self, dtype):
-        self.data.create_unittest_data(dtype)
         model = Custom_Model_Addmm_1D().eval()
         model_output = model(
             self.data.mm_add_1D[0], self.data.mm_add_1D[1], self.data.mm_add_1D[2]
@@ -231,10 +235,11 @@ class Test_Addmm_Model(Zentorch_TestCase):
         self.assertEqual(model_output, compiled_graph_output)
         self.assertEqual(counters["zentorch"]["pattern_matcher_mm_view_add"], 0)
 
-    @parameterized.expand(supported_dtypes)
+    @AddmmTestCase.hypothesis_params_add_xD_itr(
+        dtype_list=supported_dtypes
+    )
     @torch.inference_mode()
     def test_addmm_variable_add_2D_model(self, dtype):
-        self.data.create_unittest_data(dtype)
         model = Custom_Model_Addmm_2D().eval()
         model_output = model(
             self.data.mm_add_2D[0], self.data.mm_add_2D[1], self.data.mm_add_2D[2]
@@ -249,10 +254,11 @@ class Test_Addmm_Model(Zentorch_TestCase):
         self.assertEqual(model_output, compiled_graph_output)
         self.assertEqual(counters["zentorch"]["pattern_matcher_mm_add"], 0)
 
-    @parameterized.expand(supported_dtypes)
+    @AddmmTestCase.hypothesis_params_add_xD_itr(
+        dtype_list=supported_dtypes
+    )
     @torch.inference_mode()
     def test_addmm_variable_add_3D_model(self, dtype):
-        self.data.create_unittest_data(dtype)
         model = Custom_Model_Addmm_3D().eval()
         model_output = model(
             self.data.mm_add_3D[0], self.data.mm_add_3D[1], self.data.mm_add_3D[2]

@@ -5,16 +5,14 @@
 
 import copy
 import unittest
-from itertools import product
 import torch
-from parameterized import parameterized
 from torch import nn
 import sys
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
 from unittest_utils import (  # noqa: 402
-    Zentorch_TestCase,
+    WOQTestCase,
     counters,
     has_zentorch,
     reset_dynamo,
@@ -26,7 +24,6 @@ from unittest_utils import (  # noqa: 402
     woq_qzeros_opt,
     group_size_opt,
     skip_test_pt_2_1,
-    zentorch,
     freeze_opt,
     test_with_freeze_opt,
 )
@@ -114,18 +111,15 @@ class Custom_Model_WOQ_Linear_Silu_Mul(nn.Module):
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 @unittest.skipIf(skip_test_pt_2_1, "Pattern matcher disabled for Torch < 2.2")
-class Test_WOQ_Linear_Model(Zentorch_TestCase):
-    @parameterized.expand(
-        product(
-            woq_dtypes,
-            supported_dtypes,
-            input_dim_opt,
-            bias_opt,
-            woq_qzeros_opt,
-            group_size_opt,
-            freeze_opt
-        ),
-        skip_on_empty=True,
+class Test_WOQ_Linear_Model(WOQTestCase):
+    @WOQTestCase.hypothesis_params_woq_itr(
+        woq_dtypes_list=woq_dtypes,
+        input_dim_opt_list=input_dim_opt,
+        bias_opt_list=bias_opt,
+        woq_qzeros_opt_list=woq_qzeros_opt,
+        group_size_opt_list=group_size_opt,
+        scales_dtype_list=supported_dtypes,
+        freeze_list=freeze_opt,
     )
     @torch.inference_mode()
     def test_woq_linear_add_sequential_model(
@@ -138,7 +132,6 @@ class Test_WOQ_Linear_Model(Zentorch_TestCase):
         group_size_val,
         freeze_opt
     ):
-        self.data.create_unittest_data(dtype, group_size_val)
         model = Custom_Model_WOQ_Linear_Add_Sequential().eval()
         zentorch_model = model
         _ = model(
@@ -175,17 +168,14 @@ class Test_WOQ_Linear_Model(Zentorch_TestCase):
 
     # TODO:
     # Add op level test cases for woq_linear_add and woq_linear_mul
-    @parameterized.expand(
-        product(
-            woq_dtypes,
-            supported_dtypes,
-            input_dim_opt,
-            bias_opt,
-            woq_qzeros_opt,
-            group_size_opt,
-            freeze_opt
-        ),
-        skip_on_empty=True,
+    @WOQTestCase.hypothesis_params_woq_itr(
+        woq_dtypes_list=woq_dtypes,
+        input_dim_opt_list=input_dim_opt,
+        bias_opt_list=bias_opt,
+        woq_qzeros_opt_list=woq_qzeros_opt,
+        group_size_opt_list=group_size_opt,
+        scales_dtype_list=supported_dtypes,
+        freeze_list=freeze_opt,
     )
     @torch.inference_mode()
     def test_woq_linear_add_sequential_postop_float_model(
@@ -198,7 +188,6 @@ class Test_WOQ_Linear_Model(Zentorch_TestCase):
         group_size_val,
         freeze_opt
     ):
-        self.data.create_unittest_data(dtype, group_size_val)
         model = Custom_Model_WOQ_Linear_Add_Sequential().eval()
         zentorch_model = copy.deepcopy(model)
 
@@ -230,17 +219,14 @@ class Test_WOQ_Linear_Model(Zentorch_TestCase):
             "only bfloat16 datatype is currently supported" in str(context.exception)
         )
 
-    @parameterized.expand(
-        product(
-            woq_dtypes,
-            supported_dtypes,
-            input_dim_opt,
-            bias_opt,
-            woq_qzeros_opt,
-            group_size_opt,
-            freeze_opt
-        ),
-        skip_on_empty=True,
+    @WOQTestCase.hypothesis_params_woq_itr(
+        woq_dtypes_list=woq_dtypes,
+        input_dim_opt_list=input_dim_opt,
+        bias_opt_list=bias_opt,
+        woq_qzeros_opt_list=woq_qzeros_opt,
+        group_size_opt_list=group_size_opt,
+        scales_dtype_list=supported_dtypes,
+        freeze_list=freeze_opt,
     )
     @torch.inference_mode()
     def test_woq_linear_silu_mul_postop_float_model(
@@ -253,7 +239,6 @@ class Test_WOQ_Linear_Model(Zentorch_TestCase):
         group_size_val,
         freeze_opt
     ):
-        self.data.create_unittest_data(dtype, group_size_val)
         model = Custom_Model_WOQ_Linear_Silu_Mul().eval()
         zentorch_model = copy.deepcopy(model)
 
@@ -281,17 +266,14 @@ class Test_WOQ_Linear_Model(Zentorch_TestCase):
         self.assertEqual(counters["zentorch"]["pattern_matcher_woq_add"], 0)
         self.assertEqual(counters["zentorch"]["pattern_matcher_woq_silu_mul"], 0)
 
-    @parameterized.expand(
-        product(
-            woq_dtypes,
-            supported_dtypes,
-            input_dim_opt,
-            bias_opt,
-            woq_qzeros_opt,
-            group_size_opt,
-            freeze_opt
-        ),
-        skip_on_empty=True,
+    @WOQTestCase.hypothesis_params_woq_itr(
+        woq_dtypes_list=woq_dtypes,
+        input_dim_opt_list=input_dim_opt,
+        bias_opt_list=bias_opt,
+        woq_qzeros_opt_list=woq_qzeros_opt,
+        group_size_opt_list=group_size_opt,
+        scales_dtype_list=supported_dtypes,
+        freeze_list=freeze_opt,
     )
     @torch.inference_mode()
     def test_woq_linear_add_parallel_model(
@@ -304,7 +286,6 @@ class Test_WOQ_Linear_Model(Zentorch_TestCase):
         group_size_val,
         freeze_opt
     ):
-        self.data.create_unittest_data(dtype, group_size_val)
         model = Custom_Model_WOQ_Linear_Add_Parallel().eval()
         zentorch_model = copy.deepcopy(model)
         _ = model(
@@ -339,17 +320,14 @@ class Test_WOQ_Linear_Model(Zentorch_TestCase):
         self.assertEqual(counters["zentorch"]["pattern_matcher_woq_add_add"], 1)
         self.assertEqual(counters["zentorch"]["pattern_matcher_woq_add"], 1)
 
-    @parameterized.expand(
-        product(
-            woq_dtypes,
-            supported_dtypes,
-            input_dim_opt,
-            bias_opt,
-            woq_qzeros_opt,
-            group_size_opt,
-            freeze_opt
-        ),
-        skip_on_empty=True,
+    @WOQTestCase.hypothesis_params_woq_itr(
+        woq_dtypes_list=woq_dtypes,
+        input_dim_opt_list=input_dim_opt,
+        bias_opt_list=bias_opt,
+        woq_qzeros_opt_list=woq_qzeros_opt,
+        group_size_opt_list=group_size_opt,
+        scales_dtype_list=supported_dtypes,
+        freeze_list=freeze_opt,
     )
     @torch.inference_mode()
     def test_woq_linear_silu_mul_model(
@@ -362,7 +340,6 @@ class Test_WOQ_Linear_Model(Zentorch_TestCase):
         group_size_val,
         freeze_opt
     ):
-        self.data.create_unittest_data(dtype, group_size_val)
         model = Custom_Model_WOQ_Linear_Silu_Mul().eval()
         zentorch_model = copy.deepcopy(model)
         _ = model(

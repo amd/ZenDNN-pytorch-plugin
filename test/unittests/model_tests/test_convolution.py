@@ -5,20 +5,17 @@
 
 import unittest
 import torch
-from parameterized import parameterized
 from torch import nn
 import sys
 from pathlib import Path
-from itertools import product
 
 sys.path.append(str(Path(__file__).parent.parent))
-from unittest_utils import (  # noqa: E402, F401
-    Zentorch_TestCase,
+from unittest_utils import (  # noqa: 402
+    ConvTestCase,
     has_zentorch,
     reset_dynamo,
     run_tests,
     supported_dtypes,
-    zentorch,
     freeze_opt,
     test_with_freeze_opt,
     counters,
@@ -42,11 +39,13 @@ class Custom_Model_Convolution(nn.Module):
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
-class Test_Convolution_Model(Zentorch_TestCase):
-    @parameterized.expand(product(supported_dtypes, freeze_opt))
+class Test_Convolution_Model(ConvTestCase):
+    @ConvTestCase.hypothesis_params_conv_itr(
+        dtype_list=supported_dtypes,
+        freeze_list=freeze_opt
+    )
     @torch.inference_mode()
     def test_convolution_model(self, dtype, freeze_opt):
-        self.data.create_unittest_data(dtype)
         model = Custom_Model_Convolution()
         if dtype == "bfloat16":
             model = model.to(torch.bfloat16)

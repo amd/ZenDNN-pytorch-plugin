@@ -24,9 +24,92 @@ except ImportError:
     has_zentorch = False
 
 supported_dtypes = [("float32")]
+supported_dtypes_def = []
 qlinear_dtypes = []
 freeze_opt = [True, False]
+freeze_def_opt = [False]
 woq_dtypes = []
+
+
+class DataTypes:
+
+    mapDtypes = {
+        "float32": torch.float32,
+        "bfloat16": torch.bfloat16,
+        "int": torch.int,
+        "int8": torch.int8,
+        "uint8": torch.uint8,
+    }
+
+    @classmethod
+    def get_torch_type(cls, dtype: str):
+        key = dtype.lower().strip()
+        if key in cls.mapDtypes:
+            return cls.mapDtypes[key]
+        else:
+            raise Exception("Unsupported DataType {dtype}")
+
+
+class Range:
+    def __init__(self, min: int, max: int):
+        self.min = min
+        self.max = max
+
+    def get_min(self):
+        return self.min
+
+    def get_max(self):
+        return self.max
+
+
+b_range = Range(1, 10)
+m_range = Range(1, 10)
+k_range = Range(1, 10)
+
+# TODO ZENAI-1079
+# n=1 fails in op_tests/test_qlinear.py for test_qlinear_incorrect_sizes
+n_range = Range(2, 10)
+
+p_range = Range(1, 11)
+q_range = Range(1, 11)
+matrix_dim_1_range = Range(60, 60)
+matrix_dim_2_range = Range(40, 40)
+matrix_dim_3_range = Range(30, 30)
+matrix_dim_4_range = Range(50, 50)
+
+conv_bs_range = Range(1, 1)  # batch size
+conv_c_range = Range(3, 3)  # number of channels
+conv_h_range = Range(64, 64)  # height
+conv_wd_range = Range(64, 64)  # width
+conv_oc_range = Range(16, 16)  # output channels
+conv_kh_range = Range(3, 3)  # kernel height
+conv_kw_range = Range(3, 3)  # kernel width
+conv_dilation2 = [[2, 2]]
+
+emb_r_range = Range(11, 20)
+emb_w_range = Range(1, 15)
+emb_d_range = Range(3, 3)
+emb_mlp_opt = [2]
+
+mm_input_scaler_range = Range(100, 100)
+
+woq_m_range = Range(1, 10)
+woq_x_range = Range(1, 10)
+woq_y_range = Range(1, 10)
+woq_k_range = Range(3, 10)
+woq_qzeros_nonzero_dim_range = Range(15, 15)
+
+mm_add_1D_m_range = Range(148, 148)
+mm_add_1D_k_range = Range(384, 384)
+mm_add_1D_n_range = Range(54, 54)
+mm_add_2D_m_range = Range(256, 256)
+mm_add_2D_k_range = Range(32, 32)
+mm_add_2D_n_range = Range(512, 512)
+mm_add_3D_m_range = Range(256, 256)
+mm_add_3D_k_range = Range(32, 32)
+mm_add_3D_n_range = Range(512, 512)
+mm_add_3D_p_range = Range(4, 4)
+mm_add_3D_q_range = Range(64, 64)
 
 if has_zentorch and zentorch._C.is_bf16_supported():
     woq_dtypes.append("bfloat16")
@@ -59,6 +142,7 @@ q_weight_list_opt = [0, 1]
 bias_opt = [0, 1]
 woq_qzeros_opt = [0, 1]
 group_size_opt = [-1, 1, 2, 3, 4, 5, 7, 8, 10]
+group_size_def_opt = [-1]
 q_granularity_opt = [
     "per_tensor",
     "per_channel",
@@ -74,7 +158,9 @@ q_linear_dtype_opt = [
     "uint8",
 ]
 conv_stride = [[1, 1], [2, 2]]
+conv_stride_def = [[1, 1]]
 conv_padding = [[0, 0], [1, 1]]
+conv_padding_def = [[0, 0]]
 seq_length_opt = [384, 512]
 batch_size_opt = [1, 4, 8]
 
@@ -519,5 +605,269 @@ class Test_Data(metaclass=Singleton):
             torch.rand(4, 64, 512).type(torch_type),
         ]
 
+    # Create data for addmm tests
+    # Ensure data creation for this cateogry tests in this function
+    def create_data_addmm(
+        self,
+        dtype,
+        b,
+        m,
+        k,
+        n,
+        M,
+        T1,
+        x1,
+        y1,
+        M2,
+        M3,
+        x2,
+        y2,
+        x,
+        y,
+        x3d,
+        y3d,
+        input,
+        input3d,
+    ):
+        self.b, self.m, self.k, self.n = (b, m, k, n)
+        self.M = M
+        self.T1 = T1
+        self.x1 = x1
+        self.y1 = y1
+        self.M2 = M2
+        self.M3 = M3
+        self.x2 = x2
+        self.y2 = y2
+        self.x = x
+        self.y = y
+        self.x3d = x3d
+        self.y3d = y3d
+        self.input = input
+        self.input3d = input3d
+
+    # Create data for convolution tests
+    # Ensure data creation for this cateogry tests in this function
+    def create_data_conv(
+        self,
+        dtype,
+        conv_input,
+        conv_weight,
+        conv_bias,
+        stride,
+        padding,
+        dilation,
+        output_padding,
+        conv_input3d,
+        conv_weight3d,
+        dilation2,
+    ):
+        # Create data for convolution
+        self.conv_input = conv_input
+        self.conv_weight = conv_weight
+        self.conv_bias = conv_bias
+
+        # Set default values for stride, padding, dilation, and output_padding
+        self.stride = stride
+        self.padding = padding
+        self.dilation = dilation
+        self.output_padding = output_padding
+
+        # Create 3D convolution data
+        self.conv_input3d = conv_input3d
+        self.conv_weight3d = conv_weight3d
+        self.dilation2 = dilation2
+
+    # Create data for embedding tests
+    # Ensure data creation for this cateogry tests in this function
+    def create_data_emb(
+        self,
+        dtype,
+        R,
+        W,
+        k,
+        embedding_matrix,
+        emb_input,
+        offsets,
+        mlp_inputs,
+    ):
+        self.R = R
+        self.W = W
+        self.k = k
+        self.embedding_matrix = embedding_matrix
+        self.emb_input = emb_input
+        self.offsets = offsets
+        self.mlp_inputs = mlp_inputs
+
+    # Create data for mm tests
+    # Ensure data creation for this cateogry tests in this function
+    def create_data_mm(
+        self,
+        dtype,
+        b,
+        m,
+        k,
+        n,
+        x,
+        y,
+        result,
+        input,
+        input1d,
+        input_scalar,
+        empty_bias,
+        result_m,
+        result_1,
+        A,
+        B,
+        x3d,
+        y3d,
+        input3d,
+    ):
+        self.b, self.m, self.k, self.n = (b, m, k, n)
+        # m*k, k*n, m*n
+        self.x = x
+        self.y = y
+        self.result = result
+
+        self.input = input
+        self.input1d = input1d
+
+        self.input_scalar = input_scalar
+
+        self.empty_bias = empty_bias
+        self.result_m = result_m
+        self.result_1 = result_1
+
+        self.A = A
+        self.B = B
+
+        # b*m*k, b*k*n, b*m*n
+        self.x3d = x3d
+        self.y3d = y3d
+        self.input3d = input3d
+
+    # Create data for woq_linear tests
+    # Ensure data creation for this cateogry tests in this function
+    def create_data_woq(
+        self,
+        dtype,
+        woq_m,
+        woq_x,
+        woq_y,
+        woq_k,
+        b,
+        m,
+        n,
+        packing_ratio,
+        group_size_val,
+        woq_input,
+        woq_add,
+        woq_mul,
+        woq_qweight,
+        woq_scales,
+        woq_qzeros,
+        woq_qzeros_nonzero,
+        woq_bias,
+        input3d,
+        input1d
+    ):
+        self.woq_m, self.woq_x, self.woq_y, self.woq_k = (
+            woq_m, woq_x, woq_y, woq_k
+        )
+        self.b, self.m, self.n = (
+            b, m, n
+        )
+
+        self.woq_group_size = group_size_val
+        self.packing_ratio = packing_ratio
+
+        self.woq_input = woq_input
+        self.woq_add = woq_add
+        self.woq_mul = woq_mul
+        woq_qweight = woq_qweight
+
+        self.woq_qweight = woq_qweight
+        woq_scales = woq_scales
+        self.woq_scales = woq_scales
+        self.woq_qzeros = woq_qzeros
+        self.woq_qzeros_nonzero = woq_qzeros_nonzero
+        self.woq_bias = woq_bias
+        self.input3d = input3d
+        self.input1d = input1d
+
+    # Create data for qlinear tests
+    # Ensure data creation for this cateogry tests in this function
+    def create_data_qlinear(
+        self,
+        dtype,
+        b,
+        m,
+        p,
+        q,
+        k,
+        n,
+        y_int8_square,
+        bias_for_qlinear_square,
+        y_scales_square,
+        y_zero_points_square,
+        x_for_qlinear,
+        y_int8,
+        binary_input,
+        bias_for_qlinear,
+        x_scales,
+        x_zero_points,
+        y_scales,
+        y_zero_points,
+        output_scales,
+        output_zero_points,
+        wrong_scales_per_channel,
+        wrong_zero_points_per_channel,
+        y,
+        input1d,
+        x1,
+        y1,
+        x3d,
+        y3d,
+        input3d,
+    ):
+        self.b, self.m, self.p, self.q, self.k, self.n = (b, m, p, q, k, n)
+        self.y_int8_square = y_int8_square
+        self.bias_for_qlinear_square = bias_for_qlinear_square
+        self.y_scales_square = y_scales_square
+        self.y_zero_points_square = y_zero_points_square
+        self.x_for_qlinear = x_for_qlinear
+        self.y_int8 = y_int8
+        self.binary_input = binary_input
+        self.bias_for_qlinear = bias_for_qlinear
+        self.x_scales = x_scales
+        self.x_zero_points = x_zero_points
+        self.y_scales = y_scales
+        self.y_zero_points = y_zero_points
+        self.output_scales = output_scales
+        self.output_zero_points = output_zero_points
+        self.wrong_scales_per_channel = wrong_scales_per_channel
+        self.wrong_zero_points_per_channel = wrong_zero_points_per_channel
+        self.y = y
+        self.input1d = input1d
+        self.x1 = x1
+        self.y1 = y1
+        self.x3d = x3d
+        self.y3d = y3d
+        self.input3d = input3d
+
+    # Create data for tests using mm_add_1D, mm_add_2D and mm_add_3D
+    # Used in test_addmm.py
+    def create_data_mm_add_xD(
+        self,
+        dtype,
+        mm_add_1D,
+        mm_add_2D,
+        mm_add_3D,
+    ):
+        self.mm_add_1D = mm_add_1D
+        self.mm_add_2D = mm_add_2D
+        self.mm_add_3D = mm_add_3D
+
+    # TODO ZENAI-1522
+    # Change str_type -> str_type.lower()
     def get_torch_type(self, str_type):
         return self.dtypes[str_type]

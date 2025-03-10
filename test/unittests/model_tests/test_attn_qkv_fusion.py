@@ -5,21 +5,19 @@
 
 import unittest
 import torch
-from parameterized import parameterized
-from itertools import product
 from torch import nn
 import sys
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
 from unittest_utils import (  # noqa: 402
-    Zentorch_TestCase,
+    AddmmTestCase,
+    DataTypes,
     counters,
     has_zentorch,
     reset_dynamo,
     run_tests,
     supported_dtypes,
-    zentorch,
     freeze_opt,
     test_with_freeze_opt,
 )
@@ -198,12 +196,14 @@ class Custom_Model_Attn_QKV_Fusion(nn.Module):
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
-class Test_Attn_QKV_Fusion_Model(Zentorch_TestCase):
-    @parameterized.expand(product(supported_dtypes, freeze_opt))
+class Test_Attn_QKV_Fusion_Model(AddmmTestCase):
+    @AddmmTestCase.hypothesis_params_addmm_itr(
+        dtype_list=supported_dtypes,
+        freeze_list=freeze_opt
+    )
     @torch.inference_mode()
     def test_attn_qkv_fusion_model(self, dtype, freeze_opt):
-        self.data.create_unittest_data(dtype)
-        model = Custom_Model_Attn_QKV_Fusion(self.data.get_torch_type(dtype))
+        model = Custom_Model_Attn_QKV_Fusion(DataTypes.get_torch_type(dtype))
         native_output = model(self.data.x2[0], self.data.y2[0])
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
@@ -214,11 +214,13 @@ class Test_Attn_QKV_Fusion_Model(Zentorch_TestCase):
         )
         self.assertEqual(native_output, compiled_output)
 
-    @parameterized.expand(product(supported_dtypes, freeze_opt))
+    @AddmmTestCase.hypothesis_params_addmm_itr(
+        dtype_list=supported_dtypes,
+        freeze_list=freeze_opt
+    )
     @torch.inference_mode()
     def test_attn_qkv_fusion_multi_mm_model(self, dtype, freeze_opt):
-        self.data.create_unittest_data(dtype)
-        model = Custom_Model_Attn_QKV_Fusion_multi_mm(self.data.get_torch_type(dtype))
+        model = Custom_Model_Attn_QKV_Fusion_multi_mm(DataTypes.get_torch_type(dtype))
         reset_dynamo()
         counters.clear()
         self.assertEqual(counters["zentorch"]["qkv_fusion"], 0)
@@ -230,13 +232,14 @@ class Test_Attn_QKV_Fusion_Model(Zentorch_TestCase):
         )
         self.assertEqual(counters["zentorch"]["qkv_fusion"], 1)
 
-    @parameterized.expand(product(supported_dtypes, freeze_opt))
+    @AddmmTestCase.hypothesis_params_addmm_itr(
+        dtype_list=supported_dtypes,
+        freeze_list=freeze_opt
+    )
     @torch.inference_mode()
     def test_attn_qkv_fusion_multi_user_model(self, dtype, freeze_opt):
-
-        self.data.create_unittest_data(dtype)
         model = Custom_Model_Attn_QKV_Fusion_multi_user(
-            -1, self.data.get_torch_type(dtype)
+            -1, DataTypes.get_torch_type(dtype)
         )
         for i in range(len(self.data.x2)):
             for j in range(len(self.data.y2)):
@@ -253,13 +256,14 @@ class Test_Attn_QKV_Fusion_Model(Zentorch_TestCase):
                 )
                 self.assertEqual(native_output, compiled_output)
 
-    @parameterized.expand(product(supported_dtypes, freeze_opt))
+    @AddmmTestCase.hypothesis_params_addmm_itr(
+        dtype_list=supported_dtypes,
+        freeze_list=freeze_opt
+    )
     @torch.inference_mode()
     def test_attn_qkv_fusion_multi_level_model(self, dtype, freeze_opt):
-
-        self.data.create_unittest_data(dtype)
         model = Custom_Model_Attn_QKV_Fusion_multi_level(
-            self.data.get_torch_type(dtype)
+            DataTypes.get_torch_type(dtype)
         )
         reset_dynamo()
         counters.clear()
@@ -272,9 +276,11 @@ class Test_Attn_QKV_Fusion_Model(Zentorch_TestCase):
         )
         self.assertEqual(counters["zentorch"]["qkv_fusion"], 1)
 
-    @parameterized.expand(product(supported_dtypes, freeze_opt))
+    @AddmmTestCase.hypothesis_params_addmm_itr(
+        dtype_list=supported_dtypes,
+        freeze_list=freeze_opt
+    )
     def test_addmm_with_same_params_model(self, dtype, freeze_opt):
-        self.data.create_unittest_data(dtype)
         model = Custom_Model_Parallel_Addmm()
 
         self_tensor = self.data.input
@@ -292,10 +298,12 @@ class Test_Attn_QKV_Fusion_Model(Zentorch_TestCase):
         )
         self.assertEqual(native_output, compiled_output)
 
-    @parameterized.expand(product(supported_dtypes, freeze_opt))
+    @AddmmTestCase.hypothesis_params_addmm_itr(
+        dtype_list=supported_dtypes,
+        freeze_list=freeze_opt
+    )
     @torch.inference_mode()
     def test_baddbmm_with_same_params_model(self, dtype, freeze_opt):
-        self.data.create_unittest_data(dtype)
         model = Custom_Model_Parallel_Baddbmm()
 
         self_tensor = self.data.input3d

@@ -4,15 +4,14 @@
 # ******************************************************************************
 
 import unittest
-from itertools import product
 import torch
-from parameterized import parameterized
 import sys
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
 from unittest_utils import (  # noqa: 402
-    Zentorch_TestCase,
+    QLinearTestCase,
+    DataTypes,
     has_zentorch,
     zentorch,
     run_tests,
@@ -29,14 +28,22 @@ from quant_utils import qdq_linear  # noqa: 402
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
-class Test_Qlinear(Zentorch_TestCase):
+class Test_Qlinear(QLinearTestCase):
+    @QLinearTestCase.hypothesis_params_qlinear_itr(
+        input_dim_opt_list=input_dim_opt,
+        q_weight_list_opt_list=q_weight_list_opt,
+        bias_opt_list=bias_opt,
+        q_granularity_opt_list=q_granularity_opt,
+        q_zero_points_dtype_opt_list=q_zero_points_dtype_opt,
+        q_linear_dtype_opt_list=q_linear_dtype_opt,
+        dtype_list=qlinear_dtypes,
+    )
     @torch.inference_mode()
     def test_qlinear_unsupported_hardware(self):
         if zentorch._C.is_avx512_supported():
             self.skipTest(
                 "Skipping hardware test, as AVX512 instructions are supported."
             )
-        self.data.create_unittest_data("float32")
 
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_qlinear(
@@ -56,16 +63,14 @@ class Test_Qlinear(Zentorch_TestCase):
             in str(context.exception)
         )
 
-    @parameterized.expand(
-        product(
-            qlinear_dtypes,
-            input_dim_opt,
-            q_weight_list_opt,
-            bias_opt,
-            q_granularity_opt,
-            q_zero_points_dtype_opt,
-        ),
-        skip_on_empty=True,
+    @QLinearTestCase.hypothesis_params_qlinear_itr(
+        input_dim_opt_list=input_dim_opt,
+        q_weight_list_opt_list=q_weight_list_opt,
+        bias_opt_list=bias_opt,
+        q_granularity_opt_list=q_granularity_opt,
+        q_zero_points_dtype_opt_list=q_zero_points_dtype_opt,
+        q_linear_dtype_opt_list=q_linear_dtype_opt,
+        dtype_list=qlinear_dtypes,
     )
     @torch.inference_mode()
     def test_qlinear_incorrect_dtypes(
@@ -77,7 +82,6 @@ class Test_Qlinear(Zentorch_TestCase):
         q_granularity_val,
         q_zero_points_dtype,
     ):
-        self.data.create_unittest_data(dtype)
 
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_qlinear(
@@ -211,16 +215,14 @@ class Test_Qlinear(Zentorch_TestCase):
             "unsupported dtype for weight_zero_points" in str(context.exception)
         )
 
-    @parameterized.expand(
-        product(
-            qlinear_dtypes,
-            input_dim_opt,
-            q_weight_list_opt,
-            bias_opt,
-            q_granularity_opt,
-            q_zero_points_dtype_opt,
-        ),
-        skip_on_empty=True,
+    @QLinearTestCase.hypothesis_params_qlinear_itr(
+        input_dim_opt_list=input_dim_opt,
+        q_weight_list_opt_list=q_weight_list_opt,
+        bias_opt_list=bias_opt,
+        q_granularity_opt_list=q_granularity_opt,
+        q_zero_points_dtype_opt_list=q_zero_points_dtype_opt,
+        q_linear_dtype_opt_list=q_linear_dtype_opt,
+        dtype_list=qlinear_dtypes,
     )
     @torch.inference_mode()
     def test_qlinear_incorrect_sizes(
@@ -232,7 +234,6 @@ class Test_Qlinear(Zentorch_TestCase):
         q_granularity_val,
         q_zero_points_dtype,
     ):
-        self.data.create_unittest_data(dtype)
 
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_qlinear(
@@ -447,17 +448,14 @@ class Test_Qlinear(Zentorch_TestCase):
             "unsupported dimensions for input/bias/self" in str(context.exception)
         )
 
-    @parameterized.expand(
-        product(
-            qlinear_dtypes,
-            input_dim_opt,
-            q_weight_list_opt,
-            bias_opt,
-            q_granularity_opt,
-            q_zero_points_dtype_opt,
-            q_linear_dtype_opt,
-        ),
-        skip_on_empty=True,
+    @QLinearTestCase.hypothesis_params_qlinear_itr(
+        input_dim_opt_list=input_dim_opt,
+        q_weight_list_opt_list=q_weight_list_opt,
+        bias_opt_list=bias_opt,
+        q_granularity_opt_list=q_granularity_opt,
+        q_zero_points_dtype_opt_list=q_zero_points_dtype_opt,
+        q_linear_dtype_opt_list=q_linear_dtype_opt,
+        dtype_list=qlinear_dtypes,
     )
     @torch.inference_mode()
     def test_qlinear_output_dtype_support(
@@ -470,7 +468,6 @@ class Test_Qlinear(Zentorch_TestCase):
         q_zero_points_dtype,
         input_dtype,
     ):
-        self.data.create_unittest_data(dtype)
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_qlinear(
                 self.data.x_for_qlinear[input_dtype][input_dim],
@@ -491,18 +488,14 @@ class Test_Qlinear(Zentorch_TestCase):
             "float32/bfloat16/uint8/int8 is supported" in str(context.exception)
         )
 
-    @parameterized.expand(
-        product(
-            qlinear_dtypes,
-            input_dim_opt,
-            q_weight_list_opt,
-            bias_opt,
-            q_granularity_opt,
-            q_zero_points_dtype_opt,
-            q_linear_dtype_opt,
-            q_linear_dtype_opt,
-        ),
-        skip_on_empty=True,
+    @QLinearTestCase.hypothesis_params_qlinear_itr(
+        input_dim_opt_list=input_dim_opt,
+        q_weight_list_opt_list=q_weight_list_opt,
+        bias_opt_list=bias_opt,
+        q_granularity_opt_list=q_granularity_opt,
+        q_zero_points_dtype_opt_list=q_zero_points_dtype_opt,
+        q_linear_dtype_opt_list=q_linear_dtype_opt,
+        dtype_list=qlinear_dtypes,
     )
     @torch.inference_mode()
     def test_qlinear_accuracy(
@@ -516,7 +509,6 @@ class Test_Qlinear(Zentorch_TestCase):
         input_dtype,
         output_dtype,
     ):
-        self.data.create_unittest_data(dtype)
         self.skip_if_does_not_support_arg_combination_for_qlinear(
             bias_opt_idx, input_dtype, output_dtype
         )
@@ -530,7 +522,7 @@ class Test_Qlinear(Zentorch_TestCase):
             self.data.y_scales[q_granularity_val],
             self.data.y_zero_points[q_granularity_val],
             None,
-            self.data.get_torch_type(output_dtype),
+            DataTypes.get_torch_type(output_dtype),
             self.data.output_scales["per_tensor"][output_dtype]["positive_scales"],
             self.data.output_zero_points["per_tensor"][output_dtype],
         )
@@ -545,7 +537,8 @@ class Test_Qlinear(Zentorch_TestCase):
             ),
             self.data.y_scales[q_granularity_val],
             get_comp_zero_points(self.data.y_zero_points[q_granularity_val]),
-            output_dtype=self.data.get_torch_type(output_dtype),
+            output_dtype=DataTypes.get_torch_type(output_dtype),
+
             output_scales=self.data.output_scales["per_tensor"][output_dtype][
                 "positive_scales"
             ],
@@ -558,17 +551,14 @@ class Test_Qlinear(Zentorch_TestCase):
             qdq_linear_output, zentorch_qlinear_output, atol=1e-2, rtol=1e-2
         )
 
-    @parameterized.expand(
-        product(
-            qlinear_dtypes,
-            input_dim_opt,
-            q_weight_list_opt,
-            bias_opt,
-            q_zero_points_dtype_opt,
-            q_linear_dtype_opt,
-            q_linear_dtype_opt,
-        ),
-        skip_on_empty=True,
+    @QLinearTestCase.hypothesis_params_qlinear_itr(
+        input_dim_opt_list=input_dim_opt,
+        q_weight_list_opt_list=q_weight_list_opt,
+        bias_opt_list=bias_opt,
+        q_granularity_opt_list=q_granularity_opt,
+        q_zero_points_dtype_opt_list=q_zero_points_dtype_opt,
+        q_linear_dtype_opt_list=q_linear_dtype_opt,
+        dtype_list=qlinear_dtypes,
     )
     @torch.inference_mode()
     def test_qlinear_accuracy_0dim_scales(
@@ -581,7 +571,6 @@ class Test_Qlinear(Zentorch_TestCase):
         input_dtype,
         output_dtype,
     ):
-        self.data.create_unittest_data(dtype)
         self.skip_if_does_not_support_arg_combination_for_qlinear(
             bias_opt_idx, input_dtype, output_dtype
         )
@@ -609,7 +598,7 @@ class Test_Qlinear(Zentorch_TestCase):
             zero_dim_y_scales,
             self.data.y_zero_points["per_tensor"],
             None,
-            self.data.get_torch_type(output_dtype),
+            DataTypes.get_torch_type(output_dtype),
             zero_dim_output_scales,
             self.data.output_zero_points["per_tensor"][output_dtype],
         )
@@ -625,7 +614,7 @@ class Test_Qlinear(Zentorch_TestCase):
             ),
             zero_dim_y_scales,
             get_comp_zero_points(self.data.y_zero_points["per_tensor"]),
-            output_dtype=self.data.get_torch_type(output_dtype),
+            output_dtype=DataTypes.get_torch_type(output_dtype),
             output_scales=zero_dim_output_scales,
             output_zero_points=get_comp_zero_points(
                 self.data.output_zero_points["per_tensor"][output_dtype]

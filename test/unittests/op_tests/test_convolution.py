@@ -5,14 +5,12 @@
 
 import unittest
 import torch
-from itertools import product
-from parameterized import parameterized
 import sys
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
 from unittest_utils import (  # noqa: 402
-    Zentorch_TestCase,
+    ConvTestCase,
     has_zentorch,
     run_tests,
     supported_dtypes,
@@ -22,10 +20,11 @@ from unittest_utils import (  # noqa: 402
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
-class Test_Convolution(Zentorch_TestCase):
-    @parameterized.expand([("int",)])
+class Test_Convolution(ConvTestCase):
+    @ConvTestCase.hypothesis_params_conv_itr(
+        dtype_list=["int"],
+    )
     def test_convolution_unsupported_dtype(self, dtype):
-        self.data.create_unittest_data(dtype)
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_convolution(
                 self.data.conv_input,
@@ -43,9 +42,10 @@ class Test_Convolution(Zentorch_TestCase):
             in str(context.exception)
         )
 
-    @parameterized.expand(supported_dtypes)
+    @ConvTestCase.hypothesis_params_conv_itr(
+        dtype_list=supported_dtypes
+    )
     def test_convolution_invalid_dims(self, dtype):
-        self.data.create_unittest_data(dtype)
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_convolution(
                 self.data.conv_input3d,
@@ -62,9 +62,10 @@ class Test_Convolution(Zentorch_TestCase):
             "unsupported dims for conv input and weight" in str(context.exception)
         )
 
-    @parameterized.expand(supported_dtypes)
+    @ConvTestCase.hypothesis_params_conv_itr(
+        dtype_list=supported_dtypes
+    )
     def test_convolution_unsupported_dilation(self, dtype):
-        self.data.create_unittest_data(dtype)
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_convolution(
                 self.data.conv_input,
@@ -82,15 +83,12 @@ class Test_Convolution(Zentorch_TestCase):
             in str(context.exception)
         )
 
-    @parameterized.expand(
-        product(
-            supported_dtypes,
-            conv_stride,
-            conv_padding,
-        )
+    @ConvTestCase.hypothesis_params_conv_itr(
+        dtype_list=supported_dtypes,
+        stride_list=conv_stride,
+        padding_list=conv_padding,
     )
     def test_convolution(self, dtype, stride, padding):
-        self.data.create_unittest_data(dtype)
         conv_output = torch._C._VariableFunctions.convolution(
             self.data.conv_input,
             self.data.conv_weight,

@@ -5,20 +5,17 @@
 
 import unittest
 import torch
-from parameterized import parameterized
-from itertools import product
 from torch import nn
 import sys
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
 from unittest_utils import (  # noqa: 402
-    Zentorch_TestCase,
+    EmbTestCase,
     has_zentorch,
     reset_dynamo,
     run_tests,
     supported_dtypes,
-    zentorch,
     freeze_opt,
     test_with_freeze_opt,
 )
@@ -65,11 +62,13 @@ class Custom_Model_Embedding_Sum_nodes(nn.Module):
 # have heterogeneous nodes like embedding1, embedding2, sum1, sum2, embedding3.
 # To test the above scenario, the following testcases are added.
 # Both the group ops are being tested here, with the heterogeneous op being sum
-class Test_Group_Embeded_Ops_With_Sum_Ops_Model(Zentorch_TestCase):
-    @parameterized.expand(product(supported_dtypes, freeze_opt))
+class Test_Group_Embeded_Ops_With_Sum_Ops_Model(EmbTestCase):
+    @EmbTestCase.hypothesis_params_emb_itr(
+        dtype_list=supported_dtypes,
+        freeze_list=freeze_opt
+    )
     @torch.inference_mode()
     def test_group_eb_with_sum_model(self, dtype, freeze_opt):
-        self.data.create_unittest_data(dtype)
 
         indices = self.data.emb_input
         offsets = self.data.offsets
@@ -86,10 +85,12 @@ class Test_Group_Embeded_Ops_With_Sum_Ops_Model(Zentorch_TestCase):
         )
         self.assertEqual(native_output, compiled_output)
 
-    @parameterized.expand(product(supported_dtypes, freeze_opt))
+    @EmbTestCase.hypothesis_params_emb_itr(
+        dtype_list=supported_dtypes,
+        freeze_list=freeze_opt
+    )
     @torch.inference_mode()
     def test_group_embedding_with_sum_model(self, dtype, freeze_opt):
-        self.data.create_unittest_data(dtype)
         indices = self.data.emb_input
         model = Custom_Model_Embedding_Sum_nodes(self.data.R)
         native_output = model(indices)
