@@ -148,7 +148,6 @@ inline void aten_tensor_to_zen_memory_for_quantized_matmul(
     // If input is already quantized, then no need to quantize it again.
     z_q_input = z_input;
   } else {
-    z_q_input = zen_memory(q_input);
     // fp32 tensor quantization:
     // q_tensor_s8 =
     // max(quant_min, std::nearby_int(tensor_fp32/scale) + zero_point)
@@ -159,13 +158,29 @@ inline void aten_tensor_to_zen_memory_for_quantized_matmul(
     // `input` tensor quantization with q_input_scales & input_zero_points.
     // ZenDNN matmul's quantized kernel only supports u8 & s8 dtype for
     // quantized input & s8 dtype for quantized weight.
-    at::Tensor q_input_scales = 1 / input_scales;
-    std::vector<float> q_input_scales_vec =
-        get_vector_from_tensor<float>(q_input_scales);
-    std::vector<int32_t> input_zero_points_vec =
-        get_vector_from_tensor<int32_t>(input_zero_points);
-    reorder_tensors_with_scales_and_zero_points(
-        q_input, z_q_input, z_input, q_input_scales_vec, input_zero_points_vec);
+    if (input.scalar_type() == c10::kFloat) {
+      LOG(INFO) << "Using quantize_per_tensor API to quantize float input\n";
+      q_input = at::quantize_per_tensor(
+          input, input_scales, input_zero_points,
+          (q_input.scalar_type() == c10::kByte) ? c10::kQUInt8 : c10::kQInt8);
+      z_q_input = zen_memory(q_input);
+    } else if (input.scalar_type() == c10::kBFloat16) {
+      LOG(INFO) << "Using zendnn::reorder API to quanitize bfloat16 input\n";
+      z_q_input = zen_memory(q_input);
+      at::Tensor q_input_scales = 1 / input_scales;
+      std::vector<float> q_input_scales_vec =
+          get_vector_from_tensor<float>(q_input_scales);
+      std::vector<int32_t> input_zero_points_vec =
+          get_vector_from_tensor<int32_t>(input_zero_points);
+      reorder_tensors_with_scales_and_zero_points(q_input, z_q_input, z_input,
+                                                  q_input_scales_vec,
+                                                  input_zero_points_vec);
+    } else {
+      ZENTORCH_CHECK(false,
+                     "unsupported dtype for quantization of input tensor, "
+                     "currently only float32 or bfloat16 input tensor can "
+                     "be quantized");
+    }
   }
 
   // Create weight memory.
