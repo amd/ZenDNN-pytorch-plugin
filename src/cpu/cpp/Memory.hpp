@@ -27,6 +27,10 @@ inline auto get_ztype_from_aten(const at::Tensor &atensor) {
     return ZenDType::f32;
   case c10::kBFloat16:
     return ZenDType::bf16;
+  case c10::kQUInt8:
+    return ZenDType::u8;
+  case c10::kQInt8:
+    return ZenDType::s8;
   default:
     ZENTORCH_CHECK(false, "Unsupported data type.");
   }
@@ -105,6 +109,14 @@ inline memory zen_memory(const at::Tensor &atensor,
   }
   case c10::kBFloat16: {
     using cpptype = decltype(c10::impl::ScalarTypeToCPPType<c10::kBFloat16>::t);
+    return memory(a_mem_desc, aengine, atensor.data_ptr<cpptype>());
+  }
+  case c10::kQUInt8: {
+    using cpptype = decltype(c10::impl::ScalarTypeToCPPType<c10::kByte>::t);
+    return memory(a_mem_desc, aengine, atensor.data_ptr<cpptype>());
+  }
+  case c10::kQInt8: {
+    using cpptype = decltype(c10::impl::ScalarTypeToCPPType<c10::kChar>::t);
     return memory(a_mem_desc, aengine, atensor.data_ptr<cpptype>());
   }
   default:
