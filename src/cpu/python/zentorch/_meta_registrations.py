@@ -898,7 +898,7 @@ def meta_zentorch_convolution(
     return output
 
 
-@register_meta("zentorch_qlinear_out")
+@register_meta("zentorch_qlinear", "out")
 def meta_zentorch_qlinear_out(
     out,
     output_stride,
@@ -916,7 +916,7 @@ def meta_zentorch_qlinear_out(
     return
 
 
-@register_meta("zentorch_qlinear_relu_out")
+@register_meta("zentorch_qlinear_relu", "out")
 def meta_zentorch_qlinear_relu_out(
     out,
     output_stride,

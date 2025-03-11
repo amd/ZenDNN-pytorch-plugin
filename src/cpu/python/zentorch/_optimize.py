@@ -22,6 +22,7 @@ from ._op_replacement import (
 )
 
 from ._custom_op_replacement import (
+    inplace_cat_fusion,
     emb_ops_horizontal_fusion,
     group_eb_concat_fusion,
     qlinear_reorder_optimizations,
@@ -96,6 +97,8 @@ def optimize(fx_graph):
 
     # ZenTorch qlinear reorder optimizations.
     optimized_graph = qlinear_reorder_optimizations(optimized_graph)
+
+    optimized_graph = inplace_cat_fusion(optimized_graph)
 
     # Fusion of parallel embeddingbags
     optimized_graph = emb_ops_horizontal_fusion(optimized_graph)

@@ -48,7 +48,6 @@ class Custom_Model_Qlinear(nn.Module):
         output_zero_points=None,
         use_zentorch=False,
         qlinear_output=None,
-        stride=-1,
     ):
         if use_zentorch:
             # zentorch qlinear
@@ -66,9 +65,8 @@ class Custom_Model_Qlinear(nn.Module):
                     output_zero_points=output_zero_points,
                 )
             else:
-                torch.ops.zentorch.zentorch_qlinear_out(
+                torch.ops.zentorch.zentorch_qlinear.out(
                     qlinear_output,
-                    stride,
                     inp,
                     weight,
                     bias,
@@ -183,9 +181,6 @@ class Test_Qlinear_Model(Zentorch_TestCase):
             storage_offset=input.shape[-1],
         )
 
-        reshaped_view = qlinear_view.view(-1, qlinear_view.size(-1))
-        reshaped_stride = reshaped_view.stride()
-
         model(
             self.data.x_for_qlinear[input_dtype][input_dim],
             self.data.y_int8[q_weight_idx],
@@ -201,7 +196,6 @@ class Test_Qlinear_Model(Zentorch_TestCase):
             get_comp_zero_points(self.data.output_zero_points["per_tensor"][output_dtype]),
             use_zentorch=True,
             qlinear_output=qlinear_view,
-            stride=reshaped_stride[0],
         )
 
         self.assertEqual(

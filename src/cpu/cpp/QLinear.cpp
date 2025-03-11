@@ -173,15 +173,17 @@ inline void zentorch_quantized_matmul_impl(
 }
 
 template <UNARY_POST_OP fuse>
-void zentorch_qlinear_out_unary(
-    at::Tensor &result, int64_t output_stride, const at::Tensor &input,
-    const at::Tensor &weight, c10::optional<at::Tensor> bias,
-    const at::Tensor &input_scales, const at::Tensor &input_zero_points,
-    const at::Tensor &weight_scales, const at::Tensor &weight_zero_points,
-    c10::optional<c10::ScalarType> output_dtype,
-    c10::optional<at::Tensor> output_scales,
-    c10::optional<at::Tensor> output_zero_points,
-    std::string zentorch_op_name) {
+void zentorch_qlinear_out_unary(at::Tensor &result, const at::Tensor &input,
+                                const at::Tensor &weight,
+                                c10::optional<at::Tensor> bias,
+                                const at::Tensor &input_scales,
+                                const at::Tensor &input_zero_points,
+                                const at::Tensor &weight_scales,
+                                const at::Tensor &weight_zero_points,
+                                c10::optional<c10::ScalarType> output_dtype,
+                                c10::optional<at::Tensor> output_scales,
+                                c10::optional<at::Tensor> output_zero_points,
+                                std::string zentorch_op_name) {
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
 
@@ -213,6 +215,7 @@ void zentorch_qlinear_out_unary(
 
   // `result` is viewed as 2d for matmul computation.
   at::Tensor result_2d_view = result.view(get_2d_size_for_tensor(result));
+  auto output_stride = result_2d_view.stride(0);
 
   // Set unary post ops.
   std::vector<at::Tensor> post_op_buffers = {};
@@ -255,13 +258,10 @@ at::Tensor zentorch_qlinear_unary(const at::Tensor &input,
   at::Tensor result = at::detail::empty_strided_cpu(
       output_sz, output_strides, input.options().dtype(output_dtype));
 
-  // `result` is viewed as 2d for matmul computation.
-  at::Tensor result_2d_view = result.view(get_2d_size_for_tensor(result));
-
   zentorch_qlinear_out_unary<fuse>(
-      result, result_2d_view.stride(0), input, weight, bias, input_scales,
-      input_zero_points, weight_scales, weight_zero_points, output_dtype,
-      output_scales, output_zero_points, zentorch_op_name);
+      result, input, weight, bias, input_scales, input_zero_points,
+      weight_scales, weight_zero_points, output_dtype, output_scales,
+      output_zero_points, zentorch_op_name);
 
   return result;
 }
@@ -373,14 +373,14 @@ TORCH_LIBRARY_FRAGMENT(zentorch, m) {
         "Tensor? output_zero_points=None, str zentorch_op_name="
         "'zentorch::zentorch_qlinear_mul_add') -> Tensor");
 
-  m.def("zentorch_qlinear_out(Tensor(a!) out, int output_stride,"
+  m.def("zentorch_qlinear.out(Tensor(a!) out,"
         "Tensor input, Tensor weight, "
         "Tensor? bias, Tensor input_scales, Tensor input_zero_points, "
         "Tensor weight_scales, Tensor weight_zero_points, "
         "ScalarType? output_dtype=None, Tensor? output_scales=None, "
         "Tensor? output_zero_points=None,"
-        "str zentorch_op_name='zentorch::zentorch_qlinear_out') -> ()");
-  m.def("zentorch_qlinear_relu_out(Tensor(a!) out, int output_stride,"
+        "str zentorch_op_name='zentorch::zentorch_qlinear.out') -> ()");
+  m.def("zentorch_qlinear_relu.out(Tensor(a!) out,"
         "Tensor input, Tensor weight, "
         "Tensor? bias, Tensor input_scales, Tensor input_zero_points, "
         "Tensor weight_scales, Tensor weight_zero_points, "
@@ -388,7 +388,7 @@ TORCH_LIBRARY_FRAGMENT(zentorch, m) {
         "output_scales=None, "
         "Tensor? output_zero_points=None,"
         "str zentorch_op_name="
-        "'zentorch::zentorch_qlinear_relu_out') -> ()");
+        "'zentorch::zentorch_qlinear_relu.out') -> ()");
 }
 
 TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
@@ -401,9 +401,9 @@ TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
   m.impl("zentorch_qlinear_mul_add",
          zentorch::zentorch_qlinear_binary_binary<BINARY_POST_OP::MUL,
                                                   BINARY_POST_OP::ADD>);
-  m.impl("zentorch_qlinear_out",
+  m.impl("zentorch_qlinear.out",
          zentorch::zentorch_qlinear_out_unary<UNARY_POST_OP::POST_OP_NONE>);
-  m.impl("zentorch_qlinear_relu_out",
+  m.impl("zentorch_qlinear_relu.out",
          zentorch::zentorch_qlinear_out_unary<UNARY_POST_OP::RELU>);
 }
 

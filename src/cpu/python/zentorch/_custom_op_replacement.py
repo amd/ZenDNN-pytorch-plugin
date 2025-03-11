@@ -18,6 +18,109 @@ at_ops = torch.ops.aten
 zt_ops = torch.ops.zentorch
 
 
+def has_out_variant_for_all_args(node):
+    schema = node.target._schema
+    arg_indices = {arg.name: i for i, arg in enumerate(schema.arguments)}
+    tensors_idx = arg_indices["tensors"]
+    # Can not apply fusion for torch.cat([linear_0, linear_0])
+    nodes_visited = []
+    for arg in node.args[tensors_idx]:
+        if arg.op == "call_function" and hasattr(zt_ops, arg.target._opname):
+            if arg in nodes_visited:
+                return False
+            op = getattr(zt_ops, arg.target._opname)
+            if hasattr(op, "out"):
+                logger.info("Found out variant for %s", arg.target._opname)
+                nodes_visited.append(arg)
+                continue
+            else:
+                logger.info("No out variant found for %s", node.target.op)
+                return False
+        else:
+            return False
+
+    return True
+
+
+def is_cat_dim_valid_for_folding(node):
+    """
+    Check if the dimension for cat is valid for fusion.
+    For now, there is only support for concat along last dimension.
+    """
+    input_tensors = node.args[0]
+    tensor_dimensions = input_tensors[0].meta["val"].ndim
+    # If dim is specified as 0, it comes as a keyword argument
+    # else it is the second argument in the args tuple
+    dim = node.args[1] if len(node.args) > 1 else 0
+    return dim == (tensor_dimensions - 1)
+
+
+def inplace_cat_fusion(fx_g):
+    nodes_to_remove = []
+    for node in fx_g.graph.nodes:
+        if node.target == torch.ops.aten.cat.default and has_out_variant_for_all_args(
+            node
+        ):
+            if not is_cat_dim_valid_for_folding(node):
+                logger.info("Cat node %s dim is not valid for fusion", node)
+                continue
+
+            # create the output node
+            shape = node.meta["tensor_meta"].shape
+            with fx_g.graph.inserting_after(node):
+                get_out_node = fx_g.graph.create_node(
+                    op="call_function",
+                    target=torch.ops.aten.empty.memory_format,
+                    args=(shape,),
+                    kwargs={
+                        "dtype": node.meta["val"].dtype,
+                        "device": node.meta["val"].device,
+                    },
+                )
+
+            offset = 0
+            for arg in node.args[0]:
+                with fx_g.graph.inserting_after(get_out_node):
+                    as_strided_node = fx_g.graph.create_node(
+                        op="call_function",
+                        target=torch.ops.aten.as_strided,
+                        args=(
+                            get_out_node,
+                            arg.meta["val"].shape,
+                            node.meta["val"].stride(),
+                            offset,
+                        ),
+                        kwargs={},
+                    )
+                # Offset calculation as per concat along last dimension
+                # Hence we do the "is_cat_dim_valid_for_folding" check above
+                offset += arg.meta["val"].shape[-1]
+                op = getattr(zt_ops, arg.target._opname)
+                counters["zentorch"]["out_variant"] += 1
+                with fx_g.graph.inserting_after(as_strided_node):
+                    new_args = (
+                        as_strided_node,
+                    ) + arg.args  # Correctly construct the new_args tuple
+                    out_node = fx_g.graph.create_node(
+                        op="call_function",
+                        target=op.out,
+                        args=new_args,
+                        kwargs=arg.kwargs,
+                    )
+                arg.replace_all_uses_with(out_node)
+                nodes_to_remove.append(arg)
+
+            node.replace_all_uses_with(get_out_node)
+            nodes_to_remove.append(node)
+
+    for node in nodes_to_remove:
+        fx_g.graph.erase_node(node)
+
+    fx_g.graph.lint()
+    fx_g.recompile()
+    return fx_g
+
+
 def emb_ops_horizontal_fusion(fx_g):
     logger.info("Fusing horizontal parallel embedding ops.")
     zentorch_embed_ops_dict = {
