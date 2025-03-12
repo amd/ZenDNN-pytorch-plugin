@@ -65,8 +65,19 @@ std::tuple<at::Tensor, at::Tensor> zentorch_scaled_dot_product_attention_impl(
     at::Tensor logsumexp = at::empty({batchSize, qSize, num_head},
                                      query.options().dtype(accumulate_dtype));
 
-    flash_attention_kernel_impl_512(output, logsumexp, query, key, value,
-                                    dropout_p, is_causal, attn_mask, scale);
+    // passing type as float when attention mask is None or float
+    if (!attn_mask.has_value() || attn_mask.value().scalar_type() == at::kFloat)
+      flash_attention_kernel_impl_512<float>(output, logsumexp, query, key,
+                                             value, dropout_p, is_causal,
+                                             attn_mask, scale);
+    else if (attn_mask.value().scalar_type() == at::kBFloat16)
+      flash_attention_kernel_impl_512<at::BFloat16>(
+          output, logsumexp, query, key, value, dropout_p, is_causal, attn_mask,
+          scale);
+    else
+      ZENTORCH_CHECK(false, "zentorch_scaled_dot_product_attention_flash_"
+                            "attention: Attention mask "
+                            "is supported for FP32 and BF16 dtype only");
 
     output = output.transpose(1, 2);
     logsumexp = logsumexp.transpose(1, 2);
