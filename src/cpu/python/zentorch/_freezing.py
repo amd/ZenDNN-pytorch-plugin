@@ -51,7 +51,13 @@ def freeze(
 
     if tracing_context := torch._guards.TracingContext.try_get():
         fw_metadata = tracing_context.fw_metadata
-        params_flat = tracing_context.params_flat
+        if hasattr(tracing_context, "params_flat_unwrap_subclasses"):
+            # added in PT 2.6.0
+            assert tracing_context.params_flat_unwrap_subclasses is not None
+            params_flat = tracing_context.params_flat_unwrap_subclasses
+        else:
+            # for PT 2.5.x and below
+            params_flat = tracing_context.params_flat
         assert fw_metadata is not None and params_flat is not None
 
         preserved_arg_indices = replace_params_with_constants(
