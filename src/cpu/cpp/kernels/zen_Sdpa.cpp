@@ -570,6 +570,7 @@ void cpu_flash_attention(const at::Tensor &output, const at::Tensor &logsumexp,
       });
 }
 
+template <typename attention_mask>
 void flash_attention_kernel_impl_512(
     const at::Tensor &output, const at::Tensor &logsumexp,
     const at::Tensor &query, const at::Tensor &key, const at::Tensor &value,
@@ -581,18 +582,27 @@ void flash_attention_kernel_impl_512(
   // These values are based on limited heuristics based on zen architecture
   // TODO Try different splits based on zen caches
   if (q_seq_len >= 768) {
-    cpu_flash_attention<at::BFloat16, at::BFloat16, 256, 512>(
+    cpu_flash_attention<at::BFloat16, attention_mask, 256, 512>(
         output, logsumexp, query, key, value, dropout_p, is_causal, attn_mask,
         scale);
   } else if (q_seq_len >= 192) {
-    cpu_flash_attention<at::BFloat16, at::BFloat16, 64, 512>(
+    cpu_flash_attention<at::BFloat16, attention_mask, 64, 512>(
         output, logsumexp, query, key, value, dropout_p, is_causal, attn_mask,
         scale);
   } else {
-    cpu_flash_attention<at::BFloat16, at::BFloat16, 32, 512>(
+    cpu_flash_attention<at::BFloat16, attention_mask, 32, 512>(
         output, logsumexp, query, key, value, dropout_p, is_causal, attn_mask,
         scale);
   }
 }
+
+template void flash_attention_kernel_impl_512<float>(
+    const at::Tensor &, const at::Tensor &, const at::Tensor &,
+    const at::Tensor &, const at::Tensor &, double, bool,
+    std::optional<at::Tensor>, std::optional<double>);
+template void flash_attention_kernel_impl_512<at::BFloat16>(
+    const at::Tensor &, const at::Tensor &, const at::Tensor &,
+    const at::Tensor &, const at::Tensor &, double, bool,
+    std::optional<at::Tensor>, std::optional<double>);
 } // namespace zentorch
 #endif // TORCH_VERSION_MAJOR >= 2 && TORCH_VERSION_MINOR > 3
