@@ -14,7 +14,7 @@ from parameterized import parameterized
 import sys
 from pathlib import Path
 
-sys.path.append(str(Path(__file__).parent.parent))
+sys.path.append(str(Path(__file__).parent))
 from llm_utils import(  # noqa: 402
     Zentorch_TestCase,
     run_tests,
