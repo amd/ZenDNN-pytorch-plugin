@@ -341,9 +341,9 @@ at::Tensor zentorch_quant_group_eb_mlp_concat(
     // embedding bags. The zeroth dimension can be anything. So the
     // cat_tensor's zeroth  dimension is seperately added in the zeroth
     // dimension of the output_tensor.
-    output_tensor = at::empty(
+    output_tensor = at::detail::empty_strided_cpu(
         {(batch_size * num_eb_ops) + cat_tensor_sizes[0], embedding_dim},
-        other_arguments[0].options());
+        {embedding_dim, 1}, other_arguments[0].options());
   } else if (cat_dim == 1) {
     // Similarly here, the question that comes to mind here is, why is there a
     // common batch_size in the zeroth dimensionality of the output_tensor, but
@@ -357,9 +357,9 @@ at::Tensor zentorch_quant_group_eb_mlp_concat(
     // embedding bags. The first dimension can be anything. So the
     // cat_tensor's first  dimension is seperately added in the first
     // dimension of the output_tensor.
-    output_tensor = at::empty(
-        {batch_size, (num_eb_ops * embedding_dim) + cat_tensor_sizes[1]},
-        other_arguments[0].options());
+    const int64_t dim_1 = (num_eb_ops * embedding_dim) + cat_tensor_sizes[1];
+    output_tensor = at::detail::empty_strided_cpu(
+        {batch_size, dim_1}, {dim_1, 1}, other_arguments[0].options());
   }
 
   // If TORCH_CHECK() fails, then the pragma omp parallel for cannot be used
