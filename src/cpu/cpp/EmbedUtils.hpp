@@ -110,7 +110,8 @@ eb_tensors_to_memory(const at::Tensor &weight, const at::Tensor &indices,
             << dim_embedding;
   LOG(INFO) << "Number of embedding bags: " << num_bags;
 
-  output = at::empty({num_bags, dim_embedding}, weight.options());
+  output = at::detail::empty_strided_cpu({num_bags, dim_embedding},
+                                         {dim_embedding, 1}, weight.options());
 
   c10::MaybeOwned<at::Tensor> per_sample_weights_opt_maybe_owned =
       at::borrow_from_optional_tensor(per_sample_weights_opt);
@@ -151,8 +152,9 @@ embed_tensors_to_memory(const at::Tensor &weight, const at::Tensor &indices,
             << dim_embedding;
   LOG(INFO) << "Number of indices: " << num_indices;
 
-  // at::empty instead of at::zero is more efficient
-  at::Tensor output = at::empty({num_indices, dim_embedding}, weight.options());
+  // at::detail::empty_strided_cpu instead of at::zero is more efficient
+  at::Tensor output = at::detail::empty_strided_cpu(
+      {num_indices, dim_embedding}, {dim_embedding, 1}, weight.options());
 
   z_weight = zen_memory(weight);
   z_indices = zen_memory(cindices);

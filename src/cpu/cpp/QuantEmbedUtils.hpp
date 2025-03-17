@@ -94,8 +94,9 @@ quant_eb_tensors_to_memory(
             << weight.sizes()[0] << "x" << num_int4_elem;
 
   LOG(INFO) << "Output dimensions: " << num_bags << "x" << embedding_dim;
-  // at::empty instead of at::zero is more efficient
-  output = at::empty({num_bags, embedding_dim}, output_dtype);
+  // at::detail::empty_strided_cpu instead of at::zero is more efficient
+  output = at::detail::empty_strided_cpu({num_bags, embedding_dim},
+                                         {embedding_dim, 1}, output_dtype);
   c10::MaybeOwned<at::Tensor> per_sample_weights_opt_maybe_owned =
       at::borrow_from_optional_tensor(per_sample_weights_opt);
   const at::Tensor &per_sample_weights = *per_sample_weights_opt_maybe_owned;
@@ -168,7 +169,6 @@ quant_eb_tensors_to_memory(
   LOG(INFO) << "Int4 weights with scale and zp dimensions: "
             << weight.sizes()[0] << "x" << num_int4_elem;
 
-  // at::empty instead of at::zero is more efficient
   c10::MaybeOwned<at::Tensor> per_sample_weights_opt_maybe_owned =
       at::borrow_from_optional_tensor(per_sample_weights_opt);
   const at::Tensor &per_sample_weights = *per_sample_weights_opt_maybe_owned;

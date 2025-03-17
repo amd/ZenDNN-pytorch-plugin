@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include <algorithm>
+
 #include "Memory.hpp"
 namespace zentorch {
 using namespace zendnn;
@@ -458,5 +460,23 @@ inline void zentorch_post_ops_selection(
       break;
     }
   }
+}
+
+// this function returns the output stride for matrix multiplication of two
+// tensors - tensor1 @ tensor2 and also it returns the output stride for
+// linear operation of these two tensors
+inline std::vector<int64_t>
+get_matmul_and_linear_output_strides(const std::vector<int64_t> &output_size) {
+  int output_size_sz = output_size.size();
+  std::vector<int64_t> output_strides;
+  int64_t mul = 1;
+  for (int cnt = 0; cnt < output_size_sz; cnt++) {
+    if (cnt > 0) {
+      mul *= output_size[output_size_sz - cnt];
+    }
+    output_strides.emplace_back(mul);
+  }
+  std::reverse(output_strides.begin(), output_strides.end());
+  return output_strides;
 }
 } // namespace zentorch

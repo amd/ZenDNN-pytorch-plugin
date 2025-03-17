@@ -66,8 +66,8 @@ inline void zentorch_quantized_matmul_impl(
       input.scalar_type() == c10::kByte || input.scalar_type() == c10::kChar;
   at::Tensor q_input;
   if (!is_input_quantized) {
-    q_input = at::empty(
-        input.sizes(),
+    q_input = at::detail::empty_strided_cpu(
+        input.sizes(), input.strides(),
         input.options().dtype(input_zero_points.scalar_type())); // For u8 & s8
   }
 
@@ -217,10 +217,10 @@ inline at::Tensor zentorch_qlinear_unary(
                  "Zentorch's INT8 kernels require the CPU to support "
                  "AVX512 instructions.");
 
-  at::Tensor q_input =
-      at::empty(input.sizes(),
-                input.options().dtype(
-                    input_zero_points.scalar_type())); // For u8, s8 & f32
+  at::Tensor q_input = at::detail::empty_strided_cpu(
+      input.sizes(), input.strides(),
+      input.options().dtype(
+          input_zero_points.scalar_type())); // For u8, s8 & f32
 
   // `input` is viewed as 2d for matmul computation.
   auto input_2d_view =
@@ -232,9 +232,11 @@ inline at::Tensor zentorch_qlinear_unary(
   auto weight_transposed = weight.t();
 
   // `result` tensor's dtype will depend on output_dtype argument.
-  at::Tensor result =
-      at::empty(get_matmul_and_linear_output_sizes(input, weight_transposed),
-                input.options().dtype(output_dtype));
+  auto output_sz = get_matmul_and_linear_output_sizes(input, weight_transposed);
+  auto output_strides = get_matmul_and_linear_output_strides(output_sz);
+
+  at::Tensor result = at::detail::empty_strided_cpu(
+      output_sz, output_strides, input.options().dtype(output_dtype));
 
   // `result` is viewed as 2d for matmul computation.
   at::Tensor result_2d_view = result.view(get_2d_size_for_tensor(result));
@@ -278,10 +280,9 @@ inline at::Tensor zentorch_qlinear_binary_binary(
                  "Zentorch's INT8 kernels require the CPU to support "
                  "AVX512 instructions.");
 
-  at::Tensor q_input =
-      at::empty(input.sizes(),
-                input.options().dtype(
-                    input_zero_points.scalar_type())); // For u8, s8 & f32
+  at::Tensor q_input = at::detail::empty_strided_cpu(
+      input.sizes(), input.strides(),
+      input_zero_points.scalar_type()); // For u8, s8 & f32
 
   // `input` is viewed as 2d for matmul computation.
   auto input_2d_view =
@@ -303,9 +304,11 @@ inline at::Tensor zentorch_qlinear_binary_binary(
   auto weight_transposed = weight.t();
 
   // `result` tensor's dtype will depend on output_dtype argument.
-  at::Tensor result =
-      at::empty(get_matmul_and_linear_output_sizes(input, weight_transposed),
-                input.options().dtype(output_dtype));
+  auto output_sz = get_matmul_and_linear_output_sizes(input, weight_transposed);
+  auto output_strides = get_matmul_and_linear_output_strides(output_sz);
+
+  at::Tensor result = at::detail::empty_strided_cpu(
+      output_sz, output_strides, input.options().dtype(output_dtype));
 
   // `result` is viewed as 2d for matmul computation.
   at::Tensor result_2d_view = result.view(get_2d_size_for_tensor(result));
