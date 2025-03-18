@@ -5,6 +5,7 @@
 
 import torch
 from torch._inductor.pattern_matcher import stable_topological_sort
+import os
 import operator
 from ._utils import counters
 from ._op_replacement import get_tensor
@@ -488,7 +489,15 @@ def group_eb_concat_fusion(fx_graph):
                     other_arguments,
                 )
                 node.args = new_args
-                node.target = zt_ops.zentorch_quant_group_eb_mlp_concat.default
+                use_zendnn_eb = os.environ.get("USE_ZENDNN_EB", default="1").lower()
+                if use_zendnn_eb in {"0", "false", "f", "no", "n"}:
+                    node.target = (
+                        zt_ops.zentorch_quant_group_eb_mlp_concat_fbgemm.default
+                    )
+                else:
+                    node.target = (
+                        zt_ops.zentorch_quant_group_eb_mlp_concat_zendnn.default
+                    )
             else:
                 logger.info(
                     "Cannot fuse zentorch_horizontal_quant_embedding_bag_group"
