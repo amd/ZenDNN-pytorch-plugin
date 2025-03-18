@@ -7,6 +7,10 @@
 #include "Memory.hpp"
 #include "QuantEmbedUtils.hpp"
 
+#include <ATen/native/quantized/cpu/fbgemm_utils.h>
+#include <fbgemm/Fbgemm.h>
+#include <fbgemm/FbgemmEmbedding.h>
+
 #include <ATen/ParallelOpenMP.h>
 #define ZENDNN_EMBED_BAG_THRDS 16
 
@@ -234,7 +238,11 @@ void cat_tensor_population(const at::Tensor &cat_tensor,
   T *cat_tensor_dataptr = cat_tensor.data_ptr<T>();
   T *start_address = output_tensor.data_ptr<T>() + start_address_offset;
 
-#pragma omp parallel for
+  // Currently this parallelization is commented as the problem size is small
+  // and the number of threads available are also less. More experimentations
+  // and analysis is required to figure out the parallelization strategy and if
+  // it is effective or not.
+  // #pragma omp parallel for
   for (int b = 0; b < cat_tensor_sizes[0]; b++) {
     std::memcpy(start_address + (b * output_stride),
                 cat_tensor_dataptr + (b * cat_tensor_sizes[1]),
@@ -242,7 +250,7 @@ void cat_tensor_population(const at::Tensor &cat_tensor,
   }
 }
 
-at::Tensor zentorch_quant_group_eb_mlp_concat(
+at::Tensor zentorch_quant_group_eb_mlp_concat_zendnn(
     at::TensorList weight, at::TensorList indices, at::TensorList offsets,
     int64_t num_bits_per_weight, c10::ScalarType output_dtype,
     at::IntArrayRef scale_grad_by_freq, at::IntArrayRef mode,
@@ -428,6 +436,231 @@ at::Tensor zentorch_quant_group_eb_mlp_concat(
   return output_tensor;
 }
 
+template <typename IndexType, typename OffsetType, typename OutputType>
+void embedding_bag_nbit_impl_with_strides(
+    at::Tensor &output, const at::Tensor &weight, const at::Tensor &indices,
+    const at::Tensor &offsets, const int bit_width, const int output_stride,
+    const int num_embedding_bags, const int embedding_dim,
+    const at::IntArrayRef &cat_tensor_sizes, const int cat_dim,
+    const int cat_tensor_position, const int include_last_offset,
+    const int idx) {
+
+  ZENTORCH_CHECK(weight.scalar_type() == at::kInt, "Weight type is not int");
+  ZENTORCH_CHECK(weight.dim() == 2, "Weight Dimensions not equal to 2.");
+  ZENTORCH_CHECK(offsets.dim() == 1, "Offsets Dimensions not equal to 1.");
+
+  OffsetType *offsets_data = static_cast<OffsetType *>(offsets.data_ptr());
+  const auto weight_sizes = weight.sizes();
+  int64_t batch_size = offsets.sizes()[0];
+
+  if (include_last_offset == 0) {
+    // This is the case for include_last_offset=False
+    // 1. We have to increase the offset tensor/array by one
+    // 2. In the last position, we have to add indices size.
+    OffsetType *fbgemm_offsets = new OffsetType[batch_size + 1];
+    std::memcpy(fbgemm_offsets, offsets_data, batch_size * sizeof(OffsetType));
+    static_cast<OffsetType *>(fbgemm_offsets)[batch_size] = indices.sizes()[0];
+    offsets_data = fbgemm_offsets;
+  } else {
+    batch_size--;
+  }
+
+  const int64_t N = weight_sizes[0];
+  const auto weight_data = static_cast<uint8_t *>(weight.data_ptr());
+  const auto indices_data = static_cast<IndexType *>(indices.data_ptr());
+  const int64_t batch_size_multiplier = (cat_dim == 0) ? batch_size : 1;
+
+  // TODO
+  // This can be pre-computed in the previous function and can be passed
+  // Currently doing this is giving an error from FBGEMM. So, keeping the
+  // changes as they are as of now.
+  int start_addr_offset =
+      (cat_dim == 0)
+          ? cat_tensor_sizes[0] * embedding_dim * (cat_tensor_position + 1)
+          : cat_tensor_sizes[1] * (cat_tensor_position + 1);
+
+  auto output_data = static_cast<OutputType *>(output.data_ptr()) +
+                     start_addr_offset +
+                     (idx * batch_size_multiplier * embedding_dim);
+
+  const bool is_bf16_out =
+      (typeid(OutputType) == typeid(uint16_t)) ? true : false;
+
+  auto kernel = fbgemm::GenerateEmbeddingSpMDMNBitWithStrides<
+      IndexType, OffsetType, /*OutType=*/OutputType, /*THREAD_LOCAL=*/true>(
+      /*bit_rate*/ bit_width,
+      /*block_size=*/embedding_dim,
+      /*has_weight=*/false,
+      /*normalize_by_lengths=*/false,
+      /*prefetch=*/16, // NOLINT(cppcoreguidelines-avoid-magic-numbers)
+      /*is_weight_positional=*/false,
+      /*use_offsets=*/true,
+      /*output_stride*/ output_stride,
+      /*input_stride=*/-1,
+      /*scale_bias_last=*/true,
+      /*is_bf16_out=*/is_bf16_out);
+
+  at::parallel_for(0, batch_size, 1, [&](int64_t start_idx, int64_t end_idx) {
+    bool success = kernel(
+        /*output_size=*/end_idx - start_idx,
+        /*index_size=*/offsets_data[end_idx] - offsets_data[start_idx],
+        /*data_size=*/N,
+        /*input=*/weight_data,
+        /*indices=*/indices_data + offsets_data[start_idx],
+        /*offsets_or_lengths=*/offsets_data + start_idx,
+        /*weights=*/nullptr,
+        /*out=*/output_data + start_idx * output_stride);
+
+    ZENTORCH_CHECK(success, "FBGEMM kernel call unsucessful");
+  });
+
+  if (include_last_offset == 0) {
+    delete[] offsets_data;
+  }
+}
+
+at::Tensor zentorch_quant_group_eb_mlp_concat_fbgemm(
+    at::TensorList weight, at::TensorList indices, at::TensorList offsets,
+    int64_t num_bits_per_weight, c10::ScalarType output_dtype,
+    at::IntArrayRef scale_grad_by_freq, at::IntArrayRef mode,
+    at::IntArrayRef sparse,
+    const c10::List<c10::optional<at::Tensor>> per_sample_weights_opt,
+    at::IntArrayRef include_last_offset, at::IntArrayRef padding_idx,
+    int64_t cat_dim, at::IntArrayRef other_arguments_position,
+    at::TensorList other_arguments, std::string zentorch_op_name) {
+
+  int num_eb_ops = weight.size();
+
+  // We can consider the first element of the include_last_offset TensorList as
+  // from the fx pass we have already confirmed that all the values of the non
+  // tensor arguments are same all the embedding bags. So, considering just one
+  // element from the non tensor argument list suffices for all the embedding
+  // bags. include_last_offset actually affects the output size. That's why the
+  // following snippet.
+  int batch_size = offsets[0].sizes()[0];
+  if (include_last_offset[0] == 1) {
+    batch_size--;
+  }
+
+  const at::Tensor &first_weight = weight[0];
+  // In the graph pass we make sure that only one element is passed in the
+  // TensorList. Until, the support for multiple tensor concatenation is
+  // developed, this check will stay. So using the element at index zero
+  // only can be used for this operator's flow.
+  const at::Tensor &cat_tensor = other_arguments[0];
+  const int64_t &cat_tensor_position = other_arguments_position[0];
+  const at::IntArrayRef &cat_tensor_sizes = cat_tensor.sizes();
+
+  // TODO
+  // Load function should pass the packed scale dtype and packed zp dtype to
+  // the op
+  const int num_dim_scale_zp =
+      (sizeof(at::Half) + sizeof(at::Half)) / first_weight.element_size();
+
+  const int packed_weight_dim = first_weight.sizes()[1] - num_dim_scale_zp;
+  const int64_t bits_in_1_byte = 8;
+  const int num_bits_per_packed_weight =
+      first_weight.element_size() * bits_in_1_byte;
+
+  // Retrieve original embedding dim before int4 was packed into int32
+  // packed_weight_dim * (32 / 4) (int32/int4)
+  const int embedding_dim =
+      packed_weight_dim * (num_bits_per_packed_weight / num_bits_per_weight);
+
+  const int64_t output_stride =
+      (cat_dim == 0) ? embedding_dim
+                     : (num_eb_ops * embedding_dim) + cat_tensor_sizes[1];
+  const int64_t batch_size_multiplier = (cat_dim == 0) ? batch_size : 1;
+  const int64_t start_address_offset =
+      cat_tensor_position *
+      ((batch_size_multiplier * num_eb_ops * embedding_dim)) * (-1);
+
+  at::Tensor output_tensor;
+  if (cat_dim == 0) {
+    output_tensor = at::detail::empty_strided_cpu(
+        {(batch_size * num_eb_ops) + cat_tensor_sizes[0], embedding_dim},
+        {embedding_dim, 1}, other_arguments[0].options());
+  } else if (cat_dim == 1) {
+    output_tensor = at::detail::empty_strided_cpu(
+        {batch_size, (num_eb_ops * embedding_dim) + cat_tensor_sizes[1]},
+        {(num_eb_ops * embedding_dim) + cat_tensor_sizes[1], 1},
+        other_arguments[0].options());
+  }
+
+  if (output_dtype == c10::ScalarType::Float) {
+    cat_tensor_population<float>(cat_tensor, cat_tensor_sizes, output_tensor,
+                                 output_stride, start_address_offset);
+    for (int idx = 0; idx < num_eb_ops; idx++) {
+      if (indices[idx].scalar_type() == c10::ScalarType::Long) {
+        if (offsets[idx].scalar_type() == c10::ScalarType::Long) {
+          embedding_bag_nbit_impl_with_strides<int64_t, int64_t, float>(
+              output_tensor, weight[idx], indices[idx], offsets[idx],
+              num_bits_per_weight, output_stride, num_eb_ops, embedding_dim,
+              cat_tensor_sizes, cat_dim, cat_tensor_position,
+              include_last_offset[idx], idx);
+        } else if (offsets[idx].scalar_type() == c10::ScalarType::Int) {
+          embedding_bag_nbit_impl_with_strides<int64_t, int, float>(
+              output_tensor, weight[idx], indices[idx], offsets[idx],
+              num_bits_per_weight, output_stride, num_eb_ops, embedding_dim,
+              cat_tensor_sizes, cat_dim, cat_tensor_position,
+              include_last_offset[idx], idx);
+        }
+      } else if (indices[idx].scalar_type() == c10::ScalarType::Int) {
+        if (offsets[idx].scalar_type() == c10::ScalarType::Long) {
+          embedding_bag_nbit_impl_with_strides<int, int64_t, float>(
+              output_tensor, weight[idx], indices[idx], offsets[idx],
+              num_bits_per_weight, output_stride, num_eb_ops, embedding_dim,
+              cat_tensor_sizes, cat_dim, cat_tensor_position,
+              include_last_offset[idx], idx);
+        } else if (offsets[idx].scalar_type() == c10::ScalarType::Int) {
+          embedding_bag_nbit_impl_with_strides<int, int, float>(
+              output_tensor, weight[idx], indices[idx], offsets[idx],
+              num_bits_per_weight, output_stride, num_eb_ops, embedding_dim,
+              cat_tensor_sizes, cat_dim, cat_tensor_position,
+              include_last_offset[idx], idx);
+        }
+      }
+    }
+  } else if (output_dtype == c10::ScalarType::BFloat16) {
+    cat_tensor_population<at::BFloat16>(cat_tensor, cat_tensor_sizes,
+                                        output_tensor, output_stride,
+                                        start_address_offset);
+    for (int idx = 0; idx < num_eb_ops; idx++) {
+      if (indices[idx].scalar_type() == c10::ScalarType::Long) {
+        if (offsets[idx].scalar_type() == c10::ScalarType::Long) {
+          embedding_bag_nbit_impl_with_strides<int64_t, int64_t, uint16_t>(
+              output_tensor, weight[idx], indices[idx], offsets[idx],
+              num_bits_per_weight, output_stride, num_eb_ops, embedding_dim,
+              cat_tensor_sizes, cat_dim, cat_tensor_position,
+              include_last_offset[idx], idx);
+        } else if (offsets[idx].scalar_type() == c10::ScalarType::Int) {
+          embedding_bag_nbit_impl_with_strides<int64_t, int, uint16_t>(
+              output_tensor, weight[idx], indices[idx], offsets[idx],
+              num_bits_per_weight, output_stride, num_eb_ops, embedding_dim,
+              cat_tensor_sizes, cat_dim, cat_tensor_position,
+              include_last_offset[idx], idx);
+        }
+      } else if (indices[idx].scalar_type() == c10::ScalarType::Int) {
+        if (offsets[idx].scalar_type() == c10::ScalarType::Long) {
+          embedding_bag_nbit_impl_with_strides<int, int64_t, uint16_t>(
+              output_tensor, weight[idx], indices[idx], offsets[idx],
+              num_bits_per_weight, output_stride, num_eb_ops, embedding_dim,
+              cat_tensor_sizes, cat_dim, cat_tensor_position,
+              include_last_offset[idx], idx);
+        } else if (offsets[idx].scalar_type() == c10::ScalarType::Int) {
+          embedding_bag_nbit_impl_with_strides<int, int, uint16_t>(
+              output_tensor, weight[idx], indices[idx], offsets[idx],
+              num_bits_per_weight, output_stride, num_eb_ops, embedding_dim,
+              cat_tensor_sizes, cat_dim, cat_tensor_position,
+              include_last_offset[idx], idx);
+        }
+      }
+    }
+  }
+
+  return output_tensor;
+}
+
 at::Tensor
 zentorch_get_packed_embedding_weight(at::Tensor &weight,
                                      at::Tensor &weight_scales,
@@ -549,7 +782,7 @@ TORCH_LIBRARY_FRAGMENT(zentorch, m) {
         "zentorch_op_name = "
         "'zentorch::zentorch_horizontal_quant_embedding_bag_group') -> "
         "Tensor[]");
-  m.def("zentorch_quant_group_eb_mlp_concat(Tensor[] weight, "
+  m.def("zentorch_quant_group_eb_mlp_concat_zendnn(Tensor[] weight, "
         "Tensor[] indices, Tensor[] offsets, "
         " int num_bits_per_weight, ScalarType output_dtype,"
         " int[] scale_grad_by_freq, "
@@ -557,7 +790,17 @@ TORCH_LIBRARY_FRAGMENT(zentorch, m) {
         "int[] include_last_offset, int[] padding_idx, int cat_dim, "
         "int[] other_arguments_position, Tensor[] other_arguments, str "
         "zentorch_op_name = "
-        "'zentorch::zentorch_quant_group_eb_mlp_concat') -> "
+        "'zentorch::zentorch_quant_group_eb_mlp_concat_zendnn') -> "
+        "Tensor");
+  m.def("zentorch_quant_group_eb_mlp_concat_fbgemm(Tensor[] weight, "
+        "Tensor[] indices, Tensor[] offsets, "
+        " int num_bits_per_weight, ScalarType output_dtype,"
+        " int[] scale_grad_by_freq, "
+        "int[] mode, int[] sparse, Tensor?[] per_sample_weights, "
+        "int[] include_last_offset, int[] padding_idx, int cat_dim, "
+        "int[] other_arguments_position, Tensor[] other_arguments, str "
+        "zentorch_op_name = "
+        "'zentorch::zentorch_quant_group_eb_mlp_concat_fbgemm') -> "
         "Tensor");
 }
 
@@ -568,8 +811,10 @@ TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
          zentorch_horizontal_embedding_bag_group);
   m.impl("zentorch_horizontal_quant_embedding_bag_group",
          zentorch_horizontal_quant_embedding_bag_group);
-  m.impl("zentorch_quant_group_eb_mlp_concat",
-         zentorch_quant_group_eb_mlp_concat);
+  m.impl("zentorch_quant_group_eb_mlp_concat_zendnn",
+         zentorch_quant_group_eb_mlp_concat_zendnn);
+  m.impl("zentorch_quant_group_eb_mlp_concat_fbgemm",
+         zentorch_quant_group_eb_mlp_concat_fbgemm);
 }
 
 } // namespace zentorch

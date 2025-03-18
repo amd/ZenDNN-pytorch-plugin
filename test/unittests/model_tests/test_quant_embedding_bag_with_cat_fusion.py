@@ -7,6 +7,7 @@ from itertools import product
 import torch
 from parameterized import parameterized
 import sys
+import os
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
@@ -25,6 +26,7 @@ from unittest_utils import (  # noqa: 402
 concat_dims = [0, 1]
 other_tensor_positions = [0, -1]
 exact_sizes = [True, False]
+use_zendnn_eb = ["0", "1"]
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
@@ -99,12 +101,20 @@ class Test_WOQ_EmbeddingBag(Zentorch_TestCase):
             other_tensor_positions,
             include_last_offset_opt,
             exact_sizes,
+            use_zendnn_eb,
         )
     )
     @torch.inference_mode()
     def test_quant_embedding_bag_group(
-        self, dtype, cat_dim, other_tensor_pos, include_last_offset, exact_size
+        self,
+        dtype,
+        cat_dim,
+        other_tensor_pos,
+        include_last_offset,
+        exact_size,
+        zendnn_eb,
     ):
+        os.environ["USE_ZENDNN_EB"] = zendnn_eb
         torch_type = self.data.get_torch_type(dtype)
         weight = torch.randint(low=0, high=15, size=(4, 16), dtype=torch_type)
         indices = torch.tensor([1, 2, 3], dtype=torch.long)
@@ -199,3 +209,4 @@ class Test_WOQ_EmbeddingBag(Zentorch_TestCase):
 
 if __name__ == "__main__":
     run_tests()
+    os.environ.pop("USE_ZENDNN_EB")
