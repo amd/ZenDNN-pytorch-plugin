@@ -24,6 +24,19 @@ from multihot_criteo import get_dataset
 
 import zentorch
 
+disable_recompilation_env = os.getenv("DISABLE_RECOMPILATION_VAL", "True").lower()
+valid_values = ("true", "false", "0", "1")
+
+if disable_recompilation_env in valid_values:
+    disable_recompilation_env = not (disable_recompilation_env in ("false", "0"))
+else:
+    # Handle the case of an unexpected value
+    print(
+        f"Warning: Unexpected value '{disable_recompilation_env}' "
+        "for DISABLE_RECOMPILATION_VAL. Defaulting to True."
+    )
+    disable_recompilation_env = True
+
 
 class Consumer(mp.Process):
     def __init__(
@@ -96,7 +109,9 @@ class Consumer(mp.Process):
                 batch_lS_o = []
                 for _, h in enumerate(self.multi_hot):
                     batch_lS_i.append(torch.ones((s * h), dtype=torch.long))
-                    batch_lS_o.append(torch.arange(0, (s + 1) * h, h, dtype=torch.long))
+                    batch_lS_o.append(
+                        torch.arange(0, (s + 1) * h, h, dtype=torch.int32)
+                    )
 
                 self.model(batch_dense_X, batch_lS_i, batch_lS_o)
 
@@ -162,9 +177,7 @@ class Consumer(mp.Process):
                 batch_dense_X = batch_dense_X.to(model_dtype)
                 try:
                     with torch.no_grad():
-                        results = model(
-                            batch_dense_X, batch_lS_i, batch_lS_o
-                        )
+                        results = model(batch_dense_X, batch_lS_i, batch_lS_o)
                     if batch_dense_X.dtype == torch.bfloat16:
                         results = results.to(torch.float32)
                     presults = torch.cat(
@@ -220,7 +233,16 @@ class Consumer(mp.Process):
 
         backend = get_backend(self.args.backend, self.args.dataset)
         self.model, torch_dtype = backend.load(self.args)
-        self.model = torch.compile(self.model, backend="zentorch")
+        if disable_recompilation_env:
+            self.model = torch.compile(self.model, backend="zentorch", dynamic=True)
+            print(
+                "The DISABLE_RECOMPILATION_VAL flag is set to True."
+                "dynamic=True will be used in torch.compile to prevent recompilation"
+                " due to input size changes."
+            )
+        else:
+            self.model = torch.compile(self.model, backend="zentorch")
+
         print("Start warmup.")
         self.warmup(torch_dtype)
         print("Warmup done.")
