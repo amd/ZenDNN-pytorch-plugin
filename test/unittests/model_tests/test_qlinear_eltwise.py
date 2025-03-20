@@ -27,6 +27,7 @@ from unittest_utils import (  # noqa: 402
     q_zero_points_dtype_opt,
     qlinear_eltwise_map,
     q_linear_dtype_opt,
+    get_comp_zero_points,
 )
 
 
@@ -105,16 +106,17 @@ class Test_Qlinear_Eltwise_Model(Zentorch_TestCase):
 
         model = Custom_Model_Qlinear_Eltwise(qlinear_eltwise_map[eltwise_op][0])
         zentorch_model = copy.deepcopy(model)
-
         model_output = model(
             self.data.x_for_qlinear[input_dtype][input_dim],
             self.data.y_int8[q_weight_idx],
             self.data.bias_for_qlinear[bias_opt_idx],
             self.data.x_scales["per_tensor"],
-            self.data.x_zero_points["per_tensor"][input_dtype][q_zero_points_dtype],
+            get_comp_zero_points(
+                self.data.x_zero_points["per_tensor"][input_dtype][q_zero_points_dtype]
+            ),
             self.data.y_scales[q_granularity_val],
-            self.data.y_zero_points[q_granularity_val],
-            self.data.get_torch_type(output_dtype),
+            get_comp_zero_points(self.data.y_zero_points[q_granularity_val]),
+            output_torch_dtype=self.data.get_torch_type(output_dtype),
         )
 
         counters.clear()
@@ -128,10 +130,12 @@ class Test_Qlinear_Eltwise_Model(Zentorch_TestCase):
             self.data.y_int8[q_weight_idx],
             self.data.bias_for_qlinear[bias_opt_idx],
             self.data.x_scales["per_tensor"],
-            self.data.x_zero_points["per_tensor"][input_dtype][q_zero_points_dtype],
+            get_comp_zero_points(
+                self.data.x_zero_points["per_tensor"][input_dtype][q_zero_points_dtype]
+            ),
             self.data.y_scales[q_granularity_val],
-            self.data.y_zero_points[q_granularity_val],
-            self.data.get_torch_type(output_dtype),
+            get_comp_zero_points(self.data.y_zero_points[q_granularity_val]),
+            output_torch_dtype=self.data.get_torch_type(output_dtype),
         )
         self.assertEqual(counters["zentorch"][eltwise_op + "_fusion"], 1)
         self.assertEqual(model_output, zentorch_output)

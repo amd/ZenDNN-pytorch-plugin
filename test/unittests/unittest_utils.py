@@ -106,3 +106,14 @@ class Zentorch_TestCase(BaseZentorchTestCase):
                 "Skipping test, if bias is not None and input is floating-point, then "
                 "bias dtype has to match input dtype"
             )
+
+
+# In symmetric quantization, ZenTorch uses int8 data type for zero points,
+# while in asymmetric quantization, it employs uint8.
+# This approach aligns with standard quantization practices
+# where quantization tools follow the same data type conventions for zero point values.
+def get_comp_zero_points(zero_points):
+    if zero_points is None or zero_points.dtype == torch.int8:
+        return None
+    else:
+        return zero_points.to(torch.int32)

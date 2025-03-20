@@ -48,12 +48,6 @@ inline void zentorch_quantized_matmul_impl(
   const at::Tensor &output_zero_points_t = *output_zero_points_maybe_owned;
   const bool output_zero_points_defined = output_zero_points_t.defined();
 
-  TORCH_CHECK(!((result.scalar_type() == c10::kFloat ||
-                 result.scalar_type() == c10::kBFloat16) &&
-                (output_scales_defined || output_zero_points_defined)),
-              "output_scales and output_zero_points are not supported when "
-              "output is dequantized to either float32 or bfloat16");
-
   // Torch checks for quantized matmul.
   checks_for_quantized_matmul(bias_t, input, weight, result, input_scales,
                               input_zero_points, weight_scales,
@@ -68,7 +62,7 @@ inline void zentorch_quantized_matmul_impl(
   if (!is_input_quantized) {
     q_input = at::detail::empty_strided_cpu(
         input.sizes(), input.strides(),
-        input.options().dtype(input_zero_points.scalar_type())); // For u8 & s8
+        input_zero_points.defined() ? c10::kByte : c10::kChar); // For u8 & s8
   }
 
   if (bias_defined) {
@@ -81,24 +75,18 @@ inline void zentorch_quantized_matmul_impl(
     rq_output_scales = 1 / output_scales_t;
   }
 
-  at::Tensor input_zero_points_int32_t = input_zero_points.toType(c10::kInt);
-  at::Tensor output_zero_points_int32_t;
-  if (output_zero_points_defined) {
-    output_zero_points_int32_t = output_zero_points_t.toType(c10::kInt);
-  }
-
   // Get the required matmul op scales memory.
   ZenTorchMatmulOpScalesMemory matmul_op_scales_memory =
       get_zentorch_matmul_op_scales_memory(input_scales, weight_scales,
                                            rq_output_scales);
   // Get the required matmul op zero points memory.
   ZenTorchMatmulOpZeroPointsMemory matmul_op_zero_points_memory =
-      get_zentorch_matmul_op_zero_points_memory(input_zero_points_int32_t,
-                                                output_zero_points_int32_t);
+      get_zentorch_matmul_op_zero_points_memory(input_zero_points,
+                                                output_zero_points_t);
 
   memory z_q_input, z_q_weight, z_bias, z_result;
   aten_tensor_to_zen_memory_for_quantized_matmul(
-      input, weight, bias_t, result, input_scales, input_zero_points_int32_t,
+      input, weight, bias_t, result, input_scales, input_zero_points,
       is_input_quantized, output_stride, q_input, z_q_input, z_q_weight, z_bias,
       z_result);
 
@@ -141,52 +129,46 @@ inline void zentorch_quantized_matmul_impl(
   }
 
   // Set the zero_points for the matmul operation.
-  op_attr.set_zero_points(ZENDNN_ARG_SRC,
-                          /* mask */ QUANT_GRANULARITY::PER_TENSOR,
-                          {ZENDNN_RUNTIME_S32_VAL});
-  // Set dst_output_zero_points only for requantized uint8 output.
-  // requantization(rq) = dequantization(dq) + quantization(q)
-  // rq_scale = dq_scale / output_scales[0].item<float>();
-  // result_scale = (requantize) ? rq_scale : dq_scale;
-  if (output_zero_points_defined &&
-      output_zero_points_t.scalar_type() == c10::kByte) {
-    if (output_zero_points_t.numel() == 1) {
-      op_attr.set_zero_points(ZENDNN_ARG_DST,
-                              /* mask */ QUANT_GRANULARITY::PER_TENSOR,
-                              {ZENDNN_RUNTIME_S32_VAL});
-    } else {
-      ZENTORCH_CHECK(false, "only per-tensor requantization is supported");
-    }
+  if (input_zero_points.defined()) {
+    op_attr.set_zero_points(ZENDNN_ARG_SRC,
+                            /* mask */ QUANT_GRANULARITY::PER_TENSOR,
+                            {ZENDNN_RUNTIME_S32_VAL});
+    execute_args.insert({ZENDNN_ARG_ATTR_ZERO_POINTS | ZENDNN_ARG_SRC,
+                         matmul_op_zero_points_memory.input_zero_points});
   }
 
   // Set the scales and zero_points for input and weight to execute the matmul
   // operation.
   execute_args.insert({ZENDNN_ARG_ATTR_SCALES | ZENDNN_ARG_SRC,
                        matmul_op_scales_memory.input_scales});
-  execute_args.insert({ZENDNN_ARG_ATTR_ZERO_POINTS | ZENDNN_ARG_SRC,
-                       matmul_op_zero_points_memory.input_zero_points});
+
   execute_args.insert({ZENDNN_ARG_ATTR_SCALES | ZENDNN_ARG_WEIGHTS,
                        matmul_op_scales_memory.weight_scales});
+  // requantization(rq) = dequantization(dq) + quantization(q)
+  // rq_scale = 1 / output_scales;
+  // Set the dst_rq_output_scales and output_zero_points for the quantized
+  // matmul operation to requantize the result.
 
-  if (output_scales_defined && output_zero_points_defined) {
-    // Set the dst_rq_output_scales and output_zero_points for the quantized
-    // matmul operation to dequantize/requantize the result.
+  if (output_scales_defined) {
     execute_args.insert({ZENDNN_ARG_ATTR_SCALES | ZENDNN_ARG_DST,
                          matmul_op_scales_memory.dst_rq_output_scales});
-    if (output_zero_points_t.scalar_type() == c10::kByte) {
-      if (output_zero_points_t.numel() == 1) {
-        execute_args.insert(
-            {ZENDNN_ARG_ATTR_ZERO_POINTS | ZENDNN_ARG_DST,
-             matmul_op_zero_points_memory.dst_output_zero_points});
-      } else {
-        ZENTORCH_CHECK(false, "only per-tensor requantization is supported");
-      }
+  }
+  // Set dst_output_zero_points only for requantized uint8 output.
+  if (output_zero_points_defined) {
+    ZENTORCH_CHECK(output_zero_points_t.numel() == 1,
+                   "Only per-tensor re-quantization is supported");
+    if (result.scalar_type() == c10::kByte) {
+      op_attr.set_zero_points(ZENDNN_ARG_DST,
+                              /* mask */ QUANT_GRANULARITY::PER_TENSOR,
+                              {ZENDNN_RUNTIME_S32_VAL});
+      execute_args.insert(
+          {ZENDNN_ARG_ATTR_ZERO_POINTS | ZENDNN_ARG_DST,
+           matmul_op_zero_points_memory.dst_output_zero_points});
     }
   }
   // Execute the zendnn::matmul kernel.
   zentorch_matmul_execute(execute_args, z_q_input, z_q_weight, z_bias, z_result,
                           op_attr, bias_defined);
-
   LOG(INFO) << "Finished executing: " << __FUNCTION__ << "!\n";
 }
 
@@ -218,8 +200,7 @@ void zentorch_qlinear_out_unary(
 
   at::Tensor q_input = at::detail::empty_strided_cpu(
       input.sizes(), input.strides(),
-      input.options().dtype(
-          input_zero_points.scalar_type())); // For u8, s8 & f32
+      input_zero_points.defined() ? c10::kByte : c10::kChar); // For u8 & s8
 
   // `input` is viewed as 2d for matmul computation.
   auto input_2d_view =
@@ -314,7 +295,7 @@ inline at::Tensor zentorch_qlinear_binary_binary(
 
   at::Tensor q_input = at::detail::empty_strided_cpu(
       input.sizes(), input.strides(),
-      input_zero_points.scalar_type()); // For u8, s8 & f32
+      input_zero_points.defined() ? c10::kByte : c10::kChar); // For u8 & s8
 
   // `input` is viewed as 2d for matmul computation.
   auto input_2d_view =

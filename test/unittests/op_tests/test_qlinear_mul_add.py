@@ -23,6 +23,7 @@ from unittest_utils import (  # noqa: 402
     q_granularity_opt,
     q_zero_points_dtype_opt,
     q_linear_dtype_opt,
+    get_comp_zero_points,
 )
 from quant_utils import qdq_linear  # noqa: 402
 
@@ -43,9 +44,9 @@ class Test_Qlinear_Binary(Zentorch_TestCase):
                 self.data.y_int8[0],
                 self.data.bias_for_qlinear[0],
                 self.data.x_scales["per_tensor"],
-                self.data.x_zero_points["per_tensor"]["float32"]["uint8"],
+                get_comp_zero_points(self.data.x_zero_points["per_tensor"]["float32"]["uint8"]),
                 self.data.y_scales["per_channel"],
-                self.data.y_zero_points["per_channel"],
+                get_comp_zero_points(self.data.y_zero_points["per_channel"]),
                 self.data.binary_input[2],
                 self.data.binary_input[2],
                 output_dtype=self.data.x_for_qlinear["float32"][2].dtype,
@@ -114,9 +115,11 @@ class Test_Qlinear_Binary(Zentorch_TestCase):
             self.data.y_int8[q_weight_idx],
             self.data.bias_for_qlinear[bias_opt_idx],
             self.data.x_scales["per_tensor"],
-            self.data.x_zero_points["per_tensor"][input_dtype][q_zero_points_dtype],
+            get_comp_zero_points(
+                self.data.x_zero_points["per_tensor"][input_dtype][q_zero_points_dtype]
+            ),
             self.data.y_scales[q_granularity_val],
-            self.data.y_zero_points[q_granularity_val],
+            get_comp_zero_points(self.data.y_zero_points[q_granularity_val]),
             self.data.binary_input[input_dim],
             self.data.binary_input[input_dim],
             output_dtype=self.data.get_torch_type(output_dtype),

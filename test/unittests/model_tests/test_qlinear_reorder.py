@@ -24,6 +24,7 @@ from unittest_utils import (  # noqa: 402
     bias_opt,
     q_granularity_opt,
     q_zero_points_dtype_opt,
+    get_comp_zero_points,
 )
 
 
@@ -156,10 +157,12 @@ class Test_Qlinear_Model(Zentorch_TestCase):
             self.data.y_int8_square[0],
             self.data.bias_for_qlinear_square[bias_opt_idx],
             self.data.x_scales["per_tensor"],
-            self.data.x_zero_points["per_tensor"][dtype][q_zero_points_dtype],
+            get_comp_zero_points(
+                self.data.x_zero_points["per_tensor"][dtype][q_zero_points_dtype]
+            ),
             self.data.y_scales_square[q_granularity_val],
-            self.data.y_zero_points_square[q_granularity_val],
-            self.data.get_torch_type(dtype),
+            get_comp_zero_points(self.data.y_zero_points_square[q_granularity_val]),
+            output_dtype=self.data.get_torch_type(dtype),
         )
 
         counters.clear()
@@ -167,16 +170,17 @@ class Test_Qlinear_Model(Zentorch_TestCase):
 
         reset_dynamo()
         zentorch_model = torch.compile(zentorch_model, backend="zentorch")
-
         zentorch_output = zentorch_model(
             self.data.x_for_qlinear[dtype][input_dim],
             self.data.y_int8_square[0],
             self.data.bias_for_qlinear_square[bias_opt_idx],
             self.data.x_scales["per_tensor"],
-            self.data.x_zero_points["per_tensor"][dtype][q_zero_points_dtype],
+            get_comp_zero_points(
+                self.data.x_zero_points["per_tensor"][dtype][q_zero_points_dtype]
+            ),
             self.data.y_scales_square[q_granularity_val],
-            self.data.y_zero_points_square[q_granularity_val],
-            self.data.get_torch_type(dtype),
+            get_comp_zero_points(self.data.y_zero_points_square[q_granularity_val]),
+            output_dtype=self.data.get_torch_type(dtype),
         )
         self.assertEqual(counters["zentorch"]["optimized_reorder"], 2)
         self.assertEqual(model_output, zentorch_output)
@@ -210,10 +214,12 @@ class Test_Qlinear_Model(Zentorch_TestCase):
             self.data.y_int8_square[0],
             self.data.bias_for_qlinear_square[bias_opt_idx],
             self.data.x_scales["per_tensor"],
-            self.data.x_zero_points["per_tensor"][dtype][q_zero_points_dtype],
+            get_comp_zero_points(
+                self.data.x_zero_points["per_tensor"][dtype][q_zero_points_dtype]
+            ),
             self.data.y_scales_square[q_granularity_val],
-            self.data.y_zero_points_square[q_granularity_val],
-            self.data.get_torch_type(dtype),
+            get_comp_zero_points(self.data.y_zero_points_square[q_granularity_val]),
+            output_dtype=self.data.get_torch_type(dtype),
         )
 
         counters.clear()
@@ -227,10 +233,12 @@ class Test_Qlinear_Model(Zentorch_TestCase):
             self.data.y_int8_square[0],
             self.data.bias_for_qlinear_square[bias_opt_idx],
             self.data.x_scales["per_tensor"],
-            self.data.x_zero_points["per_tensor"][dtype][q_zero_points_dtype],
+            get_comp_zero_points(
+                self.data.x_zero_points["per_tensor"][dtype][q_zero_points_dtype]
+            ),
             self.data.y_scales_square[q_granularity_val],
-            self.data.y_zero_points_square[q_granularity_val],
-            self.data.get_torch_type(dtype),
+            get_comp_zero_points(self.data.y_zero_points_square[q_granularity_val]),
+            output_dtype=self.data.get_torch_type(dtype),
         )
         self.assertEqual(counters["zentorch"]["optimized_reorder"], 2)
         self.assertEqual(model_output, zentorch_output)

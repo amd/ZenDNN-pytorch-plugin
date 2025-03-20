@@ -8,7 +8,6 @@ from torch._inductor.pattern_matcher import stable_topological_sort
 import os
 import operator
 from ._utils import counters
-from ._op_replacement import get_tensor
 
 # import the custom logging module
 from ._logging import get_logger
@@ -441,7 +440,9 @@ def group_eb_concat_fusion(fx_graph):
                 if len(cat_node_args) == 2:
                     cat_dim = cat_node_args[1]
                 (other_arguments_position, other_arguments, getitem_nodes) = (
-                    [], [], []
+                    [],
+                    [],
+                    [],
                 )
                 for idx, input_arg in enumerate(cat_node_args[0]):
                     # The basic functionality of this pass is to fuse the group
@@ -556,8 +557,6 @@ def qlinear_reorder_optimizations(fx_graph):
                 curr_args = curr_node.args
                 # TODO: modify the output dtype comparison after
                 # Quark v1.0.0 release.
-                # Index 3: input_scales
-                # Index 4: input_zero_point
                 # if dtype is not None or
                 # if dtype is None then o/p-scales & o/p-zp should also be None
                 # and copy all the arguments, then below holds good
@@ -566,12 +565,21 @@ def qlinear_reorder_optimizations(fx_graph):
                     and pred_node.kwargs["output_dtype"]
                     in (torch.float, torch.bfloat16)
                 ):
+                    schema = curr_node.target._schema
+                    # Map argument names to index
+                    arg_indices = {
+                        arg.name: i for i, arg in enumerate(schema.arguments)
+                    }
                     new_kwargs = dict(pred_node.kwargs)
-                    new_kwargs["output_dtype"] = get_tensor(
-                        fx_graph, curr_args[4]
-                    ).dtype
-                    new_kwargs["output_scales"] = curr_args[3]
-                    new_kwargs["output_zero_points"] = curr_args[4]
+                    input_scales_idx = arg_indices["input_scales"]
+                    input_zero_points_idx = arg_indices["input_zero_points"]
+                    new_kwargs["output_dtype"] = (
+                        torch.int8
+                        if curr_args[input_zero_points_idx] is None
+                        else torch.uint8
+                    )
+                    new_kwargs["output_scales"] = curr_args[input_scales_idx]
+                    new_kwargs["output_zero_points"] = curr_args[input_zero_points_idx]
                     pred_node.kwargs = new_kwargs
                     counters["zentorch"]["optimized_reorder"] += 1
                 pred_node = curr_node

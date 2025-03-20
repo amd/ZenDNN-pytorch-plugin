@@ -23,10 +23,12 @@ from unittest_utils import (  # noqa: 402
     q_granularity_opt,
     q_zero_points_dtype_opt,
     q_linear_dtype_opt,
+    get_comp_zero_points,
 )
 from quant_utils import qdq_linear  # noqa: 402
 
 
+# TODO:Segregate DLRM and LLM specific, model tests and/or test data.
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class Custom_Model_Qlinear(nn.Module):
     def __init__(self) -> None:
@@ -144,17 +146,20 @@ class Test_Qlinear_Model(Zentorch_TestCase):
             self.data.output_scales["per_tensor"][output_dtype]["positive_scales"],
             self.data.output_zero_points["per_tensor"][output_dtype],
         )
+
         zentorch_output = model(
             self.data.x_for_qlinear[input_dtype][input_dim],
             self.data.y_int8[q_weight_idx],
             self.data.bias_for_qlinear[bias_opt_idx],
             self.data.x_scales["per_tensor"],
-            self.data.x_zero_points["per_tensor"][input_dtype][q_zero_points_dtype],
+            get_comp_zero_points(
+                self.data.x_zero_points["per_tensor"][input_dtype][q_zero_points_dtype]
+            ),
             self.data.y_scales[q_granularity_val],
-            self.data.y_zero_points[q_granularity_val],
+            get_comp_zero_points(self.data.y_zero_points[q_granularity_val]),
             self.data.get_torch_type(output_dtype),
             self.data.output_scales["per_tensor"][output_dtype]["positive_scales"],
-            self.data.output_zero_points["per_tensor"][output_dtype],
+            get_comp_zero_points(self.data.output_zero_points["per_tensor"][output_dtype]),
             use_zentorch=True,
         )
         self.assertEqual(simulated_output, zentorch_output, atol=1e-2, rtol=1e-2)
@@ -162,7 +167,9 @@ class Test_Qlinear_Model(Zentorch_TestCase):
         output_torch_dtype = self.data.get_torch_type(output_dtype)
         input = self.data.binary_input[input_dim].to(output_torch_dtype)
         simulated_cat_output = torch.cat([input, simulated_output], dim=(input_dim - 1))
-        zentorch_cat_output = torch.ones_like(simulated_cat_output)
+        zentorch_cat_output = torch.ones_like(simulated_cat_output).to(
+            output_torch_dtype
+        )
         cat_output_stride = zentorch_cat_output.stride()
         input_view = torch.as_strided(
             zentorch_cat_output, size=input.shape, stride=cat_output_stride
@@ -184,12 +191,14 @@ class Test_Qlinear_Model(Zentorch_TestCase):
             self.data.y_int8[q_weight_idx],
             self.data.bias_for_qlinear[bias_opt_idx],
             self.data.x_scales["per_tensor"],
-            self.data.x_zero_points["per_tensor"][input_dtype][q_zero_points_dtype],
+            get_comp_zero_points(
+                self.data.x_zero_points["per_tensor"][input_dtype][q_zero_points_dtype]
+            ),
             self.data.y_scales[q_granularity_val],
-            self.data.y_zero_points[q_granularity_val],
+            get_comp_zero_points(self.data.y_zero_points[q_granularity_val].to(torch.int32)),
             output_torch_dtype,
             self.data.output_scales["per_tensor"][output_dtype]["positive_scales"],
-            self.data.output_zero_points["per_tensor"][output_dtype],
+            get_comp_zero_points(self.data.output_zero_points["per_tensor"][output_dtype]),
             use_zentorch=True,
             qlinear_output=qlinear_view,
             stride=reshaped_stride[0],

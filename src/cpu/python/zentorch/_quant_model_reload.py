@@ -449,6 +449,7 @@ def load_quantized_model(
                 False,  # group_size
                 model_config["torch_dtype"],
                 model_config["activation_symmetric"],
+                model_config["weight_symmetric"],
                 enable_weight_prepack,
             )
             set_op_by_name(model, module_name, quant_module)

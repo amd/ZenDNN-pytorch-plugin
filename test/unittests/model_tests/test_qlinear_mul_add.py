@@ -27,6 +27,7 @@ from unittest_utils import (  # noqa: 402
     q_granularity_opt,
     q_zero_points_dtype_opt,
     q_linear_dtype_opt,
+    get_comp_zero_points,
 )
 
 
@@ -108,18 +109,19 @@ class Test_Qlinear_Mul_Add_Model(Zentorch_TestCase):
 
         model = Custom_Model_Qlinear_Mul_Add()
         zentorch_model = copy.deepcopy(model)
-
         model_output = model(
             self.data.x_for_qlinear[input_dtype][input_dim],
             self.data.y_int8[q_weight_idx],
             self.data.bias_for_qlinear[bias_opt_idx],
             self.data.x_scales["per_tensor"],
-            self.data.x_zero_points["per_tensor"][input_dtype][q_zero_points_dtype],
+            get_comp_zero_points(
+                self.data.x_zero_points["per_tensor"][input_dtype][q_zero_points_dtype]
+            ),
             self.data.y_scales[q_granularity_val],
-            self.data.y_zero_points[q_granularity_val],
+            get_comp_zero_points(self.data.y_zero_points[q_granularity_val]),
             self.data.binary_input[input_dim],
             self.data.binary_input[input_dim],
-            self.data.get_torch_type(output_dtype),
+            output_dtype=self.data.get_torch_type(output_dtype),
         )
 
         counters.clear()
@@ -133,12 +135,14 @@ class Test_Qlinear_Mul_Add_Model(Zentorch_TestCase):
             self.data.y_int8[q_weight_idx],
             self.data.bias_for_qlinear[bias_opt_idx],
             self.data.x_scales["per_tensor"],
-            self.data.x_zero_points["per_tensor"][input_dtype][q_zero_points_dtype],
+            get_comp_zero_points(
+                self.data.x_zero_points["per_tensor"][input_dtype][q_zero_points_dtype]
+            ),
             self.data.y_scales[q_granularity_val],
-            self.data.y_zero_points[q_granularity_val],
+            get_comp_zero_points(self.data.y_zero_points[q_granularity_val]),
             self.data.binary_input[input_dim],
             self.data.binary_input[input_dim],
-            self.data.get_torch_type(output_dtype),
+            output_dtype=self.data.get_torch_type(output_dtype),
         )
         self.assertEqual(counters["zentorch"]["pattern_matcher_qlinear_mul_add"], 1)
         self.assertEqual(model_output, zentorch_output, atol=1e-2, rtol=1e-2)

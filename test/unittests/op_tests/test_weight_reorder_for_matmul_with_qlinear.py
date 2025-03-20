@@ -23,6 +23,7 @@ from unittest_utils import (  # noqa: 402
     q_granularity_opt,
     q_zero_points_dtype_opt,
     q_linear_dtype_opt,
+    get_comp_zero_points,
 )
 from quant_utils import qdq_linear  # noqa: 402
 
@@ -92,14 +93,14 @@ class Test_Weight_Reorder_For_Matmul_With_Qlinear(Zentorch_TestCase):
             weight,
             self.data.bias_for_qlinear[bias_opt_idx],
             self.data.x_scales["per_tensor"],
-            self.data.x_zero_points["per_tensor"][input_dtype][q_zero_points_dtype],
+            get_comp_zero_points(self.data.x_zero_points["per_tensor"][input_dtype][q_zero_points_dtype]),
             self.data.y_scales[q_granularity_val],
-            self.data.y_zero_points[q_granularity_val],
+            self.data.y_zero_points[q_granularity_val].to(torch.int32),
             output_dtype=self.data.get_torch_type(output_dtype),
             output_scales=self.data.output_scales["per_tensor"][output_dtype][
                 "positive_scales"
             ],
-            output_zero_points=self.data.output_zero_points["per_tensor"][output_dtype],
+            output_zero_points=get_comp_zero_points(self.data.output_zero_points["per_tensor"][output_dtype]),
         )
 
         self.assertEqual(
@@ -169,14 +170,14 @@ class Test_Weight_Reorder_For_Matmul_With_Qlinear(Zentorch_TestCase):
             weight.t(),
             self.data.bias_for_qlinear[bias_opt_idx],
             self.data.x_scales["per_tensor"],
-            self.data.x_zero_points["per_tensor"][input_dtype][q_zero_points_dtype],
+            get_comp_zero_points(self.data.x_zero_points["per_tensor"][input_dtype][q_zero_points_dtype]),
             self.data.y_scales[q_granularity_val],
-            self.data.y_zero_points[q_granularity_val],
+            self.data.y_zero_points[q_granularity_val].to(torch.int32),
             output_dtype=self.data.get_torch_type(output_dtype),
             output_scales=self.data.output_scales["per_tensor"][output_dtype][
                 "positive_scales"
             ],
-            output_zero_points=self.data.output_zero_points["per_tensor"][output_dtype],
+            output_zero_points=get_comp_zero_points(self.data.output_zero_points["per_tensor"][output_dtype]),
         )
 
         self.assertEqual(

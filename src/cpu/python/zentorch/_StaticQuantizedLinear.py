@@ -33,6 +33,7 @@ class ZenTorchStaticQuantizedLinearOpContext:
         group_size=None,
         compute_dtype="bfloat16",
         input_symmetric=False,
+        weight_symmetric=False,
         enable_weight_prepack=False,
         is_weight_oc_x_ic=True,
     ):
@@ -57,30 +58,30 @@ class ZenTorchStaticQuantizedLinearOpContext:
                     + "ZENDNN_MATMUL_ALGO is set with INT8:1 or INT8:2, weight "
                     + "prepacking is required."
                 )
-
+        # With Quark, the 8-bit quantized LLM models produce zero points
+        # with int8/uint8 dtype. Whereas, the 8-bit quantized Linear ops
+        # in DLRMv2 generates int32 zero points.
+        # Since ZenDNN library is only compatible with int32 format, we
+        # convert zero points to compatible data types.
         self.weight_zero_points = (
-            weight_zero_points.to(torch.int8)
-            if weight_bits == "8"
-            else weight_zero_points
+            None if weight_symmetric else weight_zero_points.to(torch.int32)
         )
         self.input_zero_points = (
-            input_zero_points.to(torch.int8 if input_symmetric else torch.uint8)
-            if input_bits == "8"
-            else input_zero_points
+            None if input_symmetric else input_zero_points.to(torch.int32)
         )
         if enable_weight_prepack:
-            if self.input_zero_points.dtype == torch.uint8:
+            if input_symmetric:
+                raise NotImplementedError(
+                    "Weight prepacking is not yet supported if "
+                    + "input is symmetrically quantized."
+                )
+            else:
                 logger.info("Reordering the weight tensor.")
                 self.weight = (
                     torch.ops.zentorch.zentorch_weight_reorder_for_matmul.default(
                         weight,
                         is_weight_oc_x_ic,
                     )
-                )
-            else:
-                raise NotImplementedError(
-                    "Weight prepacking is not yet supported if "
-                    + "input is symmetrically quantized."
                 )
         else:
             self.weight = weight
@@ -96,7 +97,6 @@ class ZenTorchStaticQuantizedLinearOpContext:
 # this is a custom ZenTorchStaticQuantizedLinear module to support static Linear
 # modules through zentorch optimization and execution flow
 class ZenTorchStaticQuantizedLinear(nn.Linear):
-
     def __init__(
         self,
         mod,
@@ -111,6 +111,7 @@ class ZenTorchStaticQuantizedLinear(nn.Linear):
         group_size=None,
         compute_dtype="bfloat16",
         input_symmetric=False,
+        weight_symmetric=False,
         enable_weight_prepack=False,
     ):
         r"""Create a ZenTorchStaticQuantizedLinear module
@@ -132,8 +133,8 @@ class ZenTorchStaticQuantizedLinear(nn.Linear):
             bias (Tensor or None): bias for linear
             group_size (int): Group size for weight quantization
             compute_dtype (str): Dtype of the module computation
-            input_symmetric (bool): True for symmetric quantization and
-            False for asymmetric quantization
+            input_symmetric (bool): True when inputs are symmetrically quantized
+            weight_symmetric (bool): True when weight are symmetrically quantized
         """
 
         float_modules = [torch.nn.Linear]
@@ -184,6 +185,7 @@ class ZenTorchStaticQuantizedLinear(nn.Linear):
             group_size,
             compute_dtype,
             input_symmetric,
+            weight_symmetric,
             enable_weight_prepack,
             is_weight_oc_x_ic,
         )
