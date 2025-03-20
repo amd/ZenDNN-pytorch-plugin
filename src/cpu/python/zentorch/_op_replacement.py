@@ -61,7 +61,20 @@ def numdims_tensor(fx_graph, node, arg_index=None):
 
 
 def is_baddbmm_replacable(fx_graph, node):
-    return all(numdims_tensor(fx_graph, node, i) == 3 for i in range(0, 3))
+    # TODO : Below shape checks needs to be removed
+    # ones the broadcast support for zentorch_baddbmm
+    # op is added.
+    add_shape = get_tensor(fx_graph, node, 0).size()
+    mat1_shape = get_tensor(fx_graph, node, 1).size()
+    mat2_shape = get_tensor(fx_graph, node, 2).size()
+    shape_check = (
+        add_shape[0] == mat1_shape[0]
+        and add_shape[1] == mat1_shape[1]
+        and add_shape[2] == mat2_shape[2]
+    )
+    return (
+        all(numdims_tensor(fx_graph, node, i) == 3 for i in range(0, 3)) and shape_check
+    )
 
 
 def is_arg_1d_tensor(fx_graph, node, arg_index):
