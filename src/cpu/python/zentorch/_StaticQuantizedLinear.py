@@ -36,16 +36,27 @@ class ZenTorchStaticQuantizedLinearOpContext:
         enable_weight_prepack=False,
         is_weight_oc_x_ic=True,
     ):
-        zendnn_inplace_caching = os.environ.get("ZENDNN_INPLACE_CACHING", "0")
-        if enable_weight_prepack and zendnn_inplace_caching != "1":
-            raise NotImplementedError(
-                "Weight prepacking is not supported when inplace caching is disabled."
-            )
+        # TODO : When save and load of quantized model is supported, consider
+        # avoiding the dependency between ENV variables during this stage
+        zendnn_matmul_algo = os.environ.get(
+            "ZENDNN_MATMUL_ALGO", "FP32:4,BF16:4,INT8:4"
+        )
+        zendnn_weight_caching = os.environ.get("ZENDNN_WEIGHT_CACHING", "1")
 
-        if not enable_weight_prepack and zendnn_inplace_caching == "1":
-            raise NotImplementedError(
-                "When inplace caching is enabled weight prepacking is required."
-            )
+        if "INT8:1" in zendnn_matmul_algo or "INT8:2" in zendnn_matmul_algo:
+            if enable_weight_prepack and zendnn_weight_caching != "3":
+                raise NotImplementedError(
+                    "Weight prepacking is not supported when "
+                    + "ZENDNN_WEIGHT_CACHING is not set to 3 while ZENDNN_MATMUL_ALGO "
+                    + "is set with INT8:1 or INT8:2."
+                )
+
+            if not enable_weight_prepack and zendnn_weight_caching == "3":
+                raise NotImplementedError(
+                    "When ZENDNN_WEIGHT_CACHING is set to 3 while "
+                    + "ZENDNN_MATMUL_ALGO is set with INT8:1 or INT8:2, weight "
+                    + "prepacking is required."
+                )
 
         self.weight_zero_points = (
             weight_zero_points.to(torch.int8)
