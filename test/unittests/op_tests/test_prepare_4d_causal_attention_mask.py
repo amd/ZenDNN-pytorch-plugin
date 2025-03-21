@@ -25,7 +25,7 @@ seq_lens = [1, 32]
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
-class Test_Prepare_4d_Casual_Attention_Mask(Zentorch_TestCase):
+class Test_Prepare_4d_causal_Attention_Mask(Zentorch_TestCase):
     @parameterized.expand(product(supported_dtypes, sliding_windows, seq_lens))
     @torch.inference_mode()
     def test_prepare_4d_causal_attention_mask(self, dtype, sliding_window, seq_len):

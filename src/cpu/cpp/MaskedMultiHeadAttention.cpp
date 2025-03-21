@@ -106,7 +106,7 @@ void copy_key_value_ref(at::Tensor key_cache, const at::Tensor key,
  *@param  offset  The length of decoded(past) token.
  *@param  scale_factor the sqrt(head_dim).
  *@param  head_mask Which is not used by our kernel now.
- *@param  attention_mask Which is combined mask for padding mask and casual
+ *@param  attention_mask Which is combined mask for padding mask and causal
  *mask.
  *@return attn_outs, None, key_cache, value_cache, beam_idx
  */
@@ -430,7 +430,7 @@ first_token_masked_mha_ref(at::Tensor query, at::Tensor key, at::Tensor value,
                            at::Tensor &key_cache, at::Tensor &value_cache,
                            at::Tensor &beam_idx, const int64_t beam_batch,
                            const double scale_attn, at::Tensor attention_mask,
-                           bool add_casual_mask = true) {
+                           bool add_causal_mask = true) {
   auto origin_type = query.scalar_type();
   auto query_length = query.size(1);
   auto key_lenght = key.size(1);
@@ -442,12 +442,12 @@ first_token_masked_mha_ref(at::Tensor query, at::Tensor key, at::Tensor value,
     key_cache = key_cache.to(at::kFloat);
     value_cache = value_cache.to(at::kFloat);
   }
-  if (add_casual_mask) {
-    auto casual_mask =
+  if (add_causal_mask) {
+    auto causal_mask =
         at::full({query_length, key_lenght}, -1e6, query.options());
-    casual_mask = at::triu(casual_mask, 1);
-    casual_mask = casual_mask.unsqueeze(0).unsqueeze(0);
-    attention_mask = attention_mask + casual_mask;
+    causal_mask = at::triu(causal_mask, 1);
+    causal_mask = causal_mask.unsqueeze(0).unsqueeze(0);
+    attention_mask = attention_mask + causal_mask;
   }
   if (key.scalar_type() != at::kBFloat16 && key.scalar_type() != at::kFloat) {
     TORCH_CHECK(
@@ -509,7 +509,7 @@ masked_multihead_self_attention_kernel_impl_ref(
     at::Tensor seq_info, const double scale_attn, int64_t max_positions,
     const c10::optional<at::Tensor> &head_mask /* optional */,
     const c10::optional<at::Tensor> &attention_mask /* optional */,
-    c10::optional<bool> add_casual_mask /* optional */) {
+    c10::optional<bool> add_causal_mask /* optional */) {
   TORCH_CHECK(attention_mask.has_value(),
               "Attention mask is necessary for "
               "zentorch::masked_multihead_self_attention_kernel_impl_ref");
@@ -584,7 +584,7 @@ masked_multihead_self_attention_kernel_impl_ref(
   } else {
     return first_token_masked_mha_ref(
         query, key, value, key_cache, value_cache, beam_idx, beam_batch,
-        scale_attn, attention_mask_v, add_casual_mask.value_or(true));
+        scale_attn, attention_mask_v, add_causal_mask.value_or(true));
   }
 }
 
@@ -602,7 +602,7 @@ masked_multihead_self_attention_kernel_impl_ref(
  *@param max_positions
  *@param head_mask
  *@param attention_mask
- *@param add_casual_mask
+ *@param add_causal_mask
  *@return {attn_weights, attn_outs}
  */
 std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor>
@@ -612,18 +612,18 @@ zentorch_masked_multihead_self_attention_impl(
     at::Tensor seq_info, double scale_attn, int64_t max_positions,
     c10::optional<at::Tensor> head_mask /* optional */,
     c10::optional<at::Tensor> attention_mask /* optional */,
-    c10::optional<bool> add_casual_mask /* optional */,
+    c10::optional<bool> add_causal_mask /* optional */,
     std::string zentorch_op_name) {
   std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor> a;
 
   if (is_avx512_supported()) {
     return masked_multihead_self_attention_kernel_impl_512(
         query, key, value, key_cache, value_cache, beam_idx, seq_info,
-        scale_attn, max_positions, head_mask, attention_mask, add_casual_mask);
+        scale_attn, max_positions, head_mask, attention_mask, add_causal_mask);
   }
   return masked_multihead_self_attention_kernel_impl_ref(
       query, key, value, key_cache, value_cache, beam_idx, seq_info, scale_attn,
-      max_positions, head_mask, attention_mask, add_casual_mask);
+      max_positions, head_mask, attention_mask, add_causal_mask);
 }
 
 TORCH_LIBRARY_FRAGMENT(zentorch, m) {
@@ -632,7 +632,7 @@ TORCH_LIBRARY_FRAGMENT(zentorch, m) {
         "Tensor value_cache, Tensor beam_idx, Tensor seq_info, float "
         "scale_attn, int max_positions, "
         "Tensor? head_mask, Tensor? attention_mask, bool? "
-        "add_casual_mask=None, str zentorch_op_name = "
+        "add_causal_mask=None, str zentorch_op_name = "
         "'zentorch::zentorch_masked_multihead_self_attention')-> (Tensor, "
         "Tensor, Tensor, Tensor, Tensor)");
 }
