@@ -52,20 +52,20 @@ class Test_WOQ_Embedding_Bag(Zentorch_TestCase):
         zentorch_packed_weights = zentorch._C.zentorch_get_packed_embedding_weight(
             packed_weight, scales, zero_points
         )
-        op_result = torch.ops.zentorch.zentorch_horizontal_quant_embedding_bag_group(
-            [zentorch_packed_weights],
-            [indices],
-            [offsets],
+        op_result = torch.ops.zentorch.zentorch_quant_embedding_bag(
+            zentorch_packed_weights,
+            indices,
+            offsets,
             4,  # assumes that weights has been quantized to uint4 hence 4 bits
             torch_type,
-            [False],
-            [0],
-            [False],
-            [None],
-            [0],
-            [-1],
+            False,
+            0,
+            False,
+            None,
+            0,
+            -1,
         )
-        self.assertEqual(ref_result, op_result[0])
+        self.assertEqual(ref_result, op_result)
 
 
 if __name__ == "__main__":
