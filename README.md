@@ -50,7 +50,7 @@ They also incorporate optimized embedding bag kernels and enhanced zenMatMul mat
 
 Combined with PyTorch's torch.compile, zentorch transforms deep learning pipelines into finely-tuned, AMD-specific engines, delivering unparalleled efficiency and speed for large-scale inference workloads
 
-The zentorch 5.0.2 release plugs seamlessly with PyTorch versions from 2.5 to 2.2, offering a high-performance experience for deep learning on AMD EPYC™ platforms.
+The zentorch 5.0.2 release plugs seamlessly with PyTorch versions from 2.6 to 2.2, offering a high-performance experience for deep learning on AMD EPYC™ platforms.
 
 ## Support
 
@@ -110,9 +110,9 @@ _zentorch_ can be installed using binary wheel file or can be built from source 
 ```bash
 pip uninstall zentorch
 ```
-* Install Pytorch v2.5.0
+* Install Pytorch v2.6.0
 ```bash
-pip install torch==2.5.0 --index-url https://download.pytorch.org/whl/cpu
+pip install torch==2.6.0 --index-url https://download.pytorch.org/whl/cpu
 ```
 * Use one of two methods to install zentorch:
 
@@ -134,7 +134,7 @@ cd ZENTORCH_v5.0.2_Python_v3.10/
 pip install zentorch-5.0.2-cp310-cp310-manylinux_2_28_x86_64.whl
 ```
 >Notes:
-* Zentorch is compatible with Python versions 3.9 to 3.12. This README uses Python 3.10.
+* Zentorch inherits its Python version compatibility from PyTorch. For Torch 2.6, Zentorch supports Python 3.9 to 3.13. For other versions, please refer to the [PyTorch Release Compatibility Matrix](https://github.com/pytorch/pytorch/blob/main/RELEASE.md#release-compatibility-matrix). This README uses Python 3.10.
 * Dependent packages 'numpy' and 'torch' will be installed by '_zentorch_' if not already present.
 * If you get the error: ImportError: /lib64/libstdc++.so.6: version `GLIBCXX_.a.b.cc' not found (required by <path_to_conda>/envs/<env_name>/lib/python<py_version>/site-packages/zentorch-5.0.2-pyx.y-linux-x86_64.egg/zentorch/_C.cpython-xy-x86_64-linux-gnu.so), export LD_PRELOAD as:
   * export LD_PRELOAD=<path_to_conda>/envs/<env_name>/lib/libstdc++.so.6:$LD_PRELOAD
@@ -161,10 +161,10 @@ Build setup downloads the ZenDNN, AOCL BLIS and FBGEMM repos into `third_party` 
 conda create -n pt-zentorch python=3.10 -y
 conda activate pt-zentorch
 ```
-#### 2.2.2.2. Install Pytorch v2.5.0
+#### 2.2.2.2. Install Pytorch v2.6.0
 ```bash
 # Pip command
-pip install torch==2.5.0 --index-url https://download.pytorch.org/whl/cpu
+pip install torch==2.6.0 --index-url https://download.pytorch.org/whl/cpu
 ```
 
 >Note: The CPU version of torch/pytorch only supports CPU version of torchvision.
@@ -269,7 +269,7 @@ python -c 'import zentorch; print("\n".join([f"{i+1:3}. {item}" for i, item in e
 If a model id other than the listed above are passed, zentorch.llm.optimize will not apply the above specific optimizations to the model and a warning will be displayed as follows: “Complete set of optimizations are currently unavailable for this model.” Control will pass to the zentorch custom backend to torch.compile for applying optimizations.
 
 For leveraging the best performance of zentorch_llm_optimize, user has to install IPEX corresponding to the PyTorch version that is installed in the environment.
-The PyTorch version for performant execution of supported LLMs should be greater than or equal to 2.3.0. Recommended version for optimal performance is using PyTorch 2.4.
+The PyTorch version for performance execution of supported LLMs should be greater than or equal to 2.3.0. Recommended version for optimal performance is using PyTorch 2.6.
 
 ### Case #1. If output is generated through a call to direct `model`, optimize it as below:
 ```python
@@ -369,7 +369,7 @@ TORCH_COMPILE_DEBUG=1 python test.py
 For more information about TORCH_COMPILE_DEBUG refer to the official PyTorch documentaion available.
 
 # 6. Performance tuning and Benchmarking
-zentorch v5.0.2 is supported with ZenDNN v5.0. Please see the **Tuning Guidelines** section of ZenDNN User Guide for performance tuning. ZenDNN User Guide can be downloaded from [here](https://developer.amd.com/zendnn)
+zentorch v5.0.2 is supported with ZenDNN v5.0.2. Please see the **Tuning Guidelines** section of ZenDNN User Guide for performance tuning. ZenDNN User Guide can be downloaded from [here](https://developer.amd.com/zendnn)
 
 # 7. Additional Utilities:
 
