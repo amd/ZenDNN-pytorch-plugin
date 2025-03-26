@@ -231,20 +231,6 @@ def customize_model(model):
         models.MistralModel_forward = (
             MistralModel_forward
         )
-
-    if model.config.architectures[0] == "MixtralForCausalLM":
-        from intel_extension_for_pytorch.transformers.models.reference.modules import (
-            decoder,
-        )
-        from intel_extension_for_pytorch.transformers.models.reference import (
-            models,
-        )
-        from ._custom_model_forward import (
-            MixtralDecoderLayer_forward, MixtralModel_forward
-        )
-        decoder.MixtralDecoderLayer_forward, models.MixtralModel_forward = (
-            MixtralDecoderLayer_forward, MixtralModel_forward
-        )
     # Over riding forward of RotaryEmbedding class for modifying
     # the longrope op to address graph breaks for v2.4 and above.
     installed_ipex_version = get_installed_ipex_version()
