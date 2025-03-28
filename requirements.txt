@@ -1,4 +1,4 @@
-cmake>=3.13.0
+cmake==3.31.6
 expecttest==0.1.6
 hypothesis
 ninja
