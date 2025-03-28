@@ -24,8 +24,11 @@ else
     test_type="performance"
 fi
 
+export TORCHINDUCTOR_SIZE_ASSERTS=0
+export TORCHINDUCTOR_NAN_ASSERTS=0
+export TORCHINDUCTOR_SCALAR_ASSERTS=0
 export ZENDNN_EB_THREAD_TYPE=2
-export ZENDNN_MATMUL_ALGO=INT8:2
+export USE_ZENDNN_EB=0
 export OMP_NUM_THREADS=$CPUS_PER_INSTANCE
 export ZENDNN_PRIMITIVE_CACHE_CAPACITY=20971520 # https://oneapi-src.github.io/oneDNN/dev_guide_primitive_cache.html. Kindly refer this link for more details
 export LD_PRELOAD="${CONDA_PREFIX}/lib/libtcmalloc.so:${CONDA_PREFIX}/lib/libomp.so:$LD_PRELOAD"
