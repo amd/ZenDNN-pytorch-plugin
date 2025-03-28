@@ -3,7 +3,7 @@
 # All rights reserved.
 #******************************************************************************
 
-cmake_minimum_required(VERSION 3.1 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.21 FATAL_ERROR)
 project(zentorch)
 
 # set cmake folder as a place to search for .cmake files
