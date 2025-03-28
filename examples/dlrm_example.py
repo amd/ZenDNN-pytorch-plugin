@@ -11,12 +11,15 @@ import zentorch
 import random
 from sklearn.metrics import roc_auc_score
 
+print("\n" + "=" * 10 + " DLRM Example Execution Started " + "=" * 10 + "\n")
+
 # Basic setup for reproducibility
 np.random.seed(123)
 random.seed(123)
 torch.manual_seed(123)
 
 # Initialize the model
+print("Initializing DLRM model")
 DEFAULT_INT_NAMES = [f'int_{i}' for i in range(13)]
 model = DLRMMLPerf(
     embedding_dim=128,
@@ -35,6 +38,7 @@ model = DLRMMLPerf(
 ).bfloat16()
 
 # Prepare Inputs
+print("Preparing input tensors")
 multi_hot = [3, 2, 1, 2, 6, 1, 1, 1, 1, 7, 3, 8, 1, 6, 9, 5, 1, 1,
              1, 12, 100, 27, 10, 3, 1, 1]
 batchsize = 32768
@@ -42,9 +46,12 @@ densex = torch.randn((batchsize, 13), dtype=torch.float).to(torch.bfloat16)
 index = [torch.ones((batchsize * h), dtype=torch.long) for h in multi_hot]
 offset = [torch.arange(0, (batchsize + 1) * h, h, dtype=torch.long) for h in multi_hot]
 
-# Inference with zentorch optimization
+# Optimize Model with ZenTorch
+print("Optimizing model with ZenTorch")
 model = torch.compile(model, backend="zentorch")
 
+# Run Inference
+print("Running inference")
 with torch.inference_mode(), torch.no_grad(), \
      torch.amp.autocast("cpu", enabled=True), \
      zentorch.freezing_enabled():
@@ -58,3 +65,5 @@ true_labels = true_labels.cpu().detach().numpy()
 # Calculate AUC
 auc_score = roc_auc_score(true_labels, predicted_probabilities)
 print(f"AUC Score: {auc_score}")
+
+print("\n" + "=" * 10 + " Script Executed Successfully " + "=" * 10 + "\n")

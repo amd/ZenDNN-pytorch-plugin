@@ -60,5 +60,5 @@ python resnet_example.py
 ```
 ### Output
 ```plain
-airliner
+plane, carpenter's plane, woodworking plane
 ```
