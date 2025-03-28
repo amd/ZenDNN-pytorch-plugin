@@ -1,5 +1,7 @@
 # Running the Quantized DLRMv2 Model with Zentorch
 
+> **_NOTE:_** The following paths are relative to the directory this file is located in.
+
 ## 1. Environment Setup
 
 ### 1.1. Create a New Conda Environment
@@ -58,7 +60,13 @@ bash prepare_env.sh
 
 ### 4.2. Setup
 
-Ensure `$DATA_DIR` and `$MODEL_DIR` are set, and modify the configuration files, `setup_env_offline.sh`, to match your machine's specifications.
+Ensure `$DATA_DIR` and `$MODEL_DIR` are set. Use the most optimal setup for performance using
+
+```shell
+source ../../../scripts/dlrm_optimal_env_setup.sh
+```
+
+And modify the configuration files, `setup_env_offline.sh`, to match your machine's specifications.
 
 ```shell
 export NUM_SOCKETS=2         # e.g., 2
