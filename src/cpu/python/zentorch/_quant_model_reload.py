@@ -259,6 +259,7 @@ def get_llm_config(config):
     else:
         raise KeyError("quantization_config is not available.")
     quant_type = "weight-only"
+    model_config = {}
     if bool(global_config["weight"]):
         model_config = {
             "weight_symmetric": global_config["weight"]["symmetric"],
@@ -306,8 +307,10 @@ def get_llm_config(config):
         }
         model_config.update(static_config)
 
-    group_size = model_config["group_size"]
-    if group_size is not None:
+    group_size = (
+        -1 if model_config["group_size"] is None else model_config["group_size"]
+    )
+    if group_size != -1:
         if group_size == 0 or group_size < supported_config["group_size"]:
             raise NotImplementedError(
                 f"Zentorch does not support group_size {group_size}."
