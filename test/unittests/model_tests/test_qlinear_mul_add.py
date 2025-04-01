@@ -11,6 +11,7 @@ from parameterized import parameterized
 from torch import nn
 import sys
 from pathlib import Path
+import zentorch
 
 sys.path.append(str(Path(__file__).parent.parent))
 from unittest_utils import (  # noqa: 402
@@ -63,6 +64,10 @@ class Custom_Model_Qlinear_Mul_Add(nn.Module):
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
+@unittest.skipIf(not zentorch._C.is_avx512_supported(), "No bf16 support on hardware")
+# temporary fix for Milan unittest failure
+# TODO: Re-factor the unit-test configuration to use dtypes
+# based on the underlying machine capabilities.
 class Test_Qlinear_Mul_Add_Model(Zentorch_TestCase):
     @parameterized.expand(
         product(
