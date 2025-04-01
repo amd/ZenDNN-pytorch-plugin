@@ -49,9 +49,7 @@ def get_args():
             "--day-23-file is specified"
         ),
     )
-    parser.add_argument(
-        "--verbose", action="store_true", help="verbose messages"
-    )
+    parser.add_argument("--verbose", action="store_true", help="verbose messages")
     parser.add_argument(
         "--dtype",
         default="float32",
@@ -71,9 +69,7 @@ def get_targets(args, qsl_indices):
     sample_boundaries = [0]
     with open(args.aggregation_trace_file) as f:
         for line in f:
-            sample_boundaries.append(
-                sample_boundaries[-1] + int(line.split(", ")[2])
-            )
+            sample_boundaries.append(sample_boundaries[-1] + int(line.split(", ")[2]))
     assert len(sample_boundaries) == len(qsl_indices) + 1, (
         "Number of samples in trace file does not match number of samples in "
         "loadgen accuracy log!"
@@ -90,9 +86,7 @@ def get_targets(args, qsl_indices):
     print("Re-ordering ground truth labels...")
     targets = []
     for qsl_idx in qsl_indices:
-        for i in range(
-            sample_boundaries[qsl_idx], sample_boundaries[qsl_idx + 1]
-        ):
+        for i in range(sample_boundaries[qsl_idx], sample_boundaries[qsl_idx + 1]):
             targets.append(ground_truths[i])
     return targets
 
@@ -107,9 +101,7 @@ def main():
     if log_contains_gt:
         print("Assuming loadgen accuracy log contains ground truth labels.")
     else:
-        print(
-            "Assuming loadgen accuracy log does not contain ground truth labels."
-        )
+        print("Assuming loadgen accuracy log does not contain ground truth labels.")
 
     print("Parsing loadgen accuracy log...")
     with open(args.mlperf_accuracy_file, "r") as f:
@@ -179,9 +171,7 @@ def main():
         )
     )
     if args.verbose:
-        print(
-            "found and ignored {} query dupes".format(len(results) - len(seen))
-        )
+        print("found and ignored {} query dupes".format(len(results) - len(seen)))
 
 
 if __name__ == "__main__":

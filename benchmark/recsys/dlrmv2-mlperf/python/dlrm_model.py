@@ -36,9 +36,7 @@ def _calculate_correct_fan(shape, mode):
     valid_modes = ["fan_in", "fan_out"]
     if mode not in valid_modes:
         raise ValueError(
-            "Mode {} not supported, please use one of {}".format(
-                mode, valid_modes
-            )
+            "Mode {} not supported, please use one of {}".format(mode, valid_modes)
         )
 
     fan_in, fan_out = _calculate_fan_in_and_fan_out(shape)
@@ -72,9 +70,7 @@ def calculate_gain(nonlinearity, param=None):
             # True/False are instances of int, hence check above
             negative_slope = param
         else:
-            raise ValueError(
-                "negative_slope {} not a valid number".format(param)
-            )
+            raise ValueError("negative_slope {} not a valid number".format(param))
         return np.sqrt(2.0 / (1 + negative_slope**2))
     elif nonlinearity == "selu":
         return (
@@ -102,9 +98,7 @@ def kaiming_uniform_(
     fan = _calculate_correct_fan(shape, mode)
     gain = calculate_gain(nonlinearity, a)
     std = gain / np.sqrt(fan)
-    bound = (
-        np.sqrt(3.0) * std
-    )  # Calculate uniform bounds from standard deviation
+    bound = np.sqrt(3.0) * std  # Calculate uniform bounds from standard deviation
     return np.random.uniform(-bound, bound, size=shape)
 
 
@@ -145,9 +139,7 @@ class MLP(nn.Module):
                     layers.append(nn.Sigmoid())
         else:
             if activation == "swish_layernorm":
-                raise AssertionError(
-                    "swish layernorm is not supported in mlperf"
-                )
+                raise AssertionError("swish layernorm is not supported in mlperf")
         self._mlp: nn.Module = nn.Sequential(*layers)
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
@@ -164,9 +156,7 @@ class MLP(nn.Module):
 
 
 class LowRankCrossNet(nn.Module):
-    def __init__(
-        self, in_features: int, num_layers: int, low_rank: int
-    ) -> None:
+    def __init__(self, in_features: int, num_layers: int, low_rank: int) -> None:
         super().__init__()
         assert low_rank >= 1, "Low rank must be larger or equal to 1"
 
@@ -278,9 +268,7 @@ class SparseArch(nn.Module):
 
     def __init__(self, embedding_bag_collection: MergedEmbeddingBagCat) -> None:
         super().__init__()
-        self.embedding_bag_collection: MergedEmbeddingBagCat = (
-            embedding_bag_collection
-        )
+        self.embedding_bag_collection: MergedEmbeddingBagCat = embedding_bag_collection
         self._sparse_feature_names: List[str] = [
             name for name, param in embedding_bag_collection.named_parameters()
         ]

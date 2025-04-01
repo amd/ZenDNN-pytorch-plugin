@@ -94,9 +94,7 @@ class BackendPytorchNative(backend.Backend):
         else:
             print(f"Loading fp32 model: {args.model_path}")
             model.load_state_dict(
-                torch.load(
-                    os.path.join(args.model_path, "dlrm-multihot-pytorch.pt")
-                )
+                torch.load(os.path.join(args.model_path, "dlrm-multihot-pytorch.pt"))
             )
             model_inp_dtype = torch.float32
             print("fp32 model ready...")
@@ -149,9 +147,7 @@ def get_backend(backend, dataset):
                 over_arch_layer_sizes=[1024, 1024, 512, 256, 1],
             )
         else:
-            raise ValueError(
-                "only multihot-criteo dataset options are supported"
-            )
+            raise ValueError("only multihot-criteo dataset options are supported")
 
     else:
         raise ValueError("unknown backend: " + backend)

@@ -81,9 +81,7 @@ class MultihotCriteo(Dataset):
         if self.use_fixed_size:
             # fixed size queries
             self.samples_to_aggregate = (
-                1
-                if samples_to_aggregate_fix is None
-                else samples_to_aggregate_fix
+                1 if samples_to_aggregate_fix is None else samples_to_aggregate_fix
             )
             self.samples_to_aggregate_min = None
             self.samples_to_aggregate_max = None
@@ -92,18 +90,12 @@ class MultihotCriteo(Dataset):
             self.samples_to_aggregate = 1
             self.samples_to_aggregate_min = samples_to_aggregate_min
             self.samples_to_aggregate_max = samples_to_aggregate_max
-            self.samples_to_aggregate_quantile_file = (
-                samples_to_aggregate_quantile_file
-            )
+            self.samples_to_aggregate_quantile_file = samples_to_aggregate_quantile_file
 
         if name == "debug":
             stage_files = [
                 [os.path.join(data_path, f"day_{DAYS - 1}_dense_debug.npy")],
-                [
-                    os.path.join(
-                        data_path, f"day_{DAYS - 1}_sparse_multi_hot_debug.npz"
-                    )
-                ],
+                [os.path.join(data_path, f"day_{DAYS - 1}_sparse_multi_hot_debug.npz")],
                 [os.path.join(data_path, f"day_{DAYS - 1}_labels_debug.npy")],
             ]
         elif name == "multihot-criteo-sample":
@@ -119,11 +111,7 @@ class MultihotCriteo(Dataset):
         elif name == "multihot-criteo":
             stage_files = [
                 [os.path.join(data_path, f"day_{DAYS - 1}_dense.npy")],
-                [
-                    os.path.join(
-                        data_path, f"day_{DAYS - 1}_sparse_multi_hot.npz"
-                    )
-                ],
+                [os.path.join(data_path, f"day_{DAYS - 1}_sparse_multi_hot.npz")],
                 [os.path.join(data_path, f"day_{DAYS - 1}_labels.npy")],
             ]
         else:
@@ -191,14 +179,10 @@ class MultihotCriteo(Dataset):
 
                 # compute min and max number of samples
                 nas_max = (
-                    self.num_individual_samples
-                    + self.samples_to_aggregate_min
-                    - 1
+                    self.num_individual_samples + self.samples_to_aggregate_min - 1
                 ) // self.samples_to_aggregate_min
                 nas_min = (
-                    self.num_individual_samples
-                    + self.samples_to_aggregate_max
-                    - 1
+                    self.num_individual_samples + self.samples_to_aggregate_max - 1
                 ) // self.samples_to_aggregate_max
             else:
                 # generate number of samples in a query from a custom distribution,
@@ -234,12 +218,10 @@ class MultihotCriteo(Dataset):
                 self.random_offsets.append(int(qo))
 
                 # compute min and max number of samples
-                nas_max = (
-                    self.num_individual_samples + quantile[0] - 1
-                ) // quantile[0]
-                nas_min = (
-                    self.num_individual_samples + quantile[-1] - 1
-                ) // quantile[-1]
+                nas_max = (self.num_individual_samples + quantile[0] - 1) // quantile[0]
+                nas_min = (self.num_individual_samples + quantile[-1] - 1) // quantile[
+                    -1
+                ]
 
             # reset num_aggregated_samples
             self.num_aggregated_samples = len(self.random_offsets) - 1
@@ -253,9 +235,7 @@ class MultihotCriteo(Dataset):
 
         # limit number of items to count if needed
         if self.count is not None:
-            self.num_aggregated_samples = min(
-                self.count, self.num_aggregated_samples
-            )
+            self.num_aggregated_samples = min(self.count, self.num_aggregated_samples)
 
         # dump the trace of aggregated samples
         if samples_to_aggregate_trace_file is not None:
@@ -394,26 +374,16 @@ class MultihotCriteoPipe:
         second_half_start_index = int(len_d0 // 2 + len_d0 % 2)
         if name == "multihot-criteo":
             if stage == "val":
-                self.dense_arrs[0] = self.dense_arrs[0][
-                    :second_half_start_index, :
-                ]
-                self.labels_arrs[0] = self.labels_arrs[0][
-                    :second_half_start_index, :
-                ]
+                self.dense_arrs[0] = self.dense_arrs[0][:second_half_start_index, :]
+                self.labels_arrs[0] = self.labels_arrs[0][:second_half_start_index, :]
                 self.sparse_arrs[0] = [
-                    feats[:second_half_start_index, :]
-                    for feats in self.sparse_arrs[0]
+                    feats[:second_half_start_index, :] for feats in self.sparse_arrs[0]
                 ]
             elif stage == "test":
-                self.dense_arrs[0] = self.dense_arrs[0][
-                    second_half_start_index:, :
-                ]
-                self.labels_arrs[0] = self.labels_arrs[0][
-                    second_half_start_index:, :
-                ]
+                self.dense_arrs[0] = self.dense_arrs[0][second_half_start_index:, :]
+                self.labels_arrs[0] = self.labels_arrs[0][second_half_start_index:, :]
                 self.sparse_arrs[0] = [
-                    feats[second_half_start_index:, :]
-                    for feats in self.sparse_arrs[0]
+                    feats[second_half_start_index:, :] for feats in self.sparse_arrs[0]
                 ]
 
         self.num_rows_per_file: List[int] = list(map(len, self.dense_arrs))
@@ -455,9 +425,7 @@ class MultihotCriteoPipe:
         # read .npy header
         zf.open(npy_name, "r")
         version = np.lib.format.read_magic(zf.fp)
-        shape, fortran_order, dtype = np.lib.format._read_array_header(
-            zf.fp, version
-        )
+        shape, fortran_order, dtype = np.lib.format._read_array_header(zf.fp, version)
         assert (
             dtype == "int32"
         ), f"sparse multi-hot dtype is {dtype} but should be int32"
@@ -506,20 +474,15 @@ class MultihotCriteoPipe:
             batch = []
             n_samples = len(sample_list)
             limits = [
-                i * n_samples // self.world_size
-                for i in range(self.world_size + 1)
+                i * n_samples // self.world_size for i in range(self.world_size + 1)
             ]
             for i in range(self.world_size):
-                dense = self.dense_arrs[0][
-                    sample_list[limits[i] : limits[i + 1]], :
-                ]
+                dense = self.dense_arrs[0][sample_list[limits[i] : limits[i + 1]], :]
                 sparse = [
                     arr[sample_list[limits[i] : limits[i + 1]], :]
                     for arr in self.sparse_arrs[0]
                 ]
-                labels = self.labels_arrs[0][
-                    sample_list[limits[i] : limits[i + 1]], :
-                ]
+                labels = self.labels_arrs[0][sample_list[limits[i] : limits[i + 1]], :]
                 batch.append(self._np_arrays_to_batch(dense, sparse, labels))
             return batch
         else:
@@ -599,9 +562,7 @@ def get_dataset(args):
     kwargs = {"randomize": "total", "memory_map": True}
     # dataset to use
     # --count-samples can be used to limit the number of samples used for testing
-    wanted_dataset, pre_proc, post_proc, kwargs = SUPPORTED_DATASETS[
-        args.dataset
-    ]
+    wanted_dataset, pre_proc, post_proc, kwargs = SUPPORTED_DATASETS[args.dataset]
     ds = wanted_dataset(
         num_embeddings_per_feature=[
             40000000,

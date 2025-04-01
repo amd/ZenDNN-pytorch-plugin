@@ -107,12 +107,8 @@ def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", help="name of the mlperf model, ie. dlrm")
     parser.add_argument("--model-path", help="path to the model file")
-    parser.add_argument(
-        "--dataset", choices=SUPPORTED_DATASETS.keys(), help="dataset"
-    )
-    parser.add_argument(
-        "--dataset-path", required=True, help="path to the dataset"
-    )
+    parser.add_argument("--dataset", choices=SUPPORTED_DATASETS.keys(), help="dataset")
+    parser.add_argument("--dataset-path", required=True, help="path to the dataset")
     parser.add_argument(
         "--profile", choices=SUPPORTED_PROFILES.keys(), help="standard profiles"
     )
@@ -125,8 +121,7 @@ def get_args():
     parser.add_argument(
         "--scenario",
         default="Offline",
-        help="mlperf benchmark scenario, one of "
-        + str(list(SCENARIO_MAP.keys())),
+        help="mlperf benchmark scenario, one of " + str(list(SCENARIO_MAP.keys())),
     )
     parser.add_argument(
         "--test-num-workers",
@@ -158,9 +153,7 @@ def get_args():
     parser.add_argument(
         "--cache", type=int, default=0, help="use cache (currently not used)"
     )
-    parser.add_argument(
-        "--accuracy", action="store_true", help="enable accuracy pass"
-    )
+    parser.add_argument("--accuracy", action="store_true", help="enable accuracy pass")
     parser.add_argument(
         "--find-peak-performance",
         action="store_true",
@@ -177,19 +170,13 @@ def get_args():
 
     # below will override mlperf rules compliant settings - don't use for
     # official submission
-    parser.add_argument(
-        "--duration", type=int, help="duration in milliseconds (ms)"
-    )
+    parser.add_argument("--duration", type=int, help="duration in milliseconds (ms)")
     parser.add_argument("--target-qps", type=int, help="target/expected qps")
     parser.add_argument(
         "--max-latency", type=float, help="mlperf max latency in pct tile"
     )
-    parser.add_argument(
-        "--count-samples", type=int, help="dataset items to use"
-    )
-    parser.add_argument(
-        "--count-queries", type=int, help="number of queries to use"
-    )
+    parser.add_argument("--count-samples", type=int, help="dataset items to use")
+    parser.add_argument("--count-queries", type=int, help="number of queries to use")
     parser.add_argument(
         "--samples-per-query-multistream",
         type=int,
@@ -443,9 +430,7 @@ class ServerQueueRunner:
     def flush_queries(self):
         for q in range(self.num_queues):
             if self.ids[q]:
-                self.inQueue.put(
-                    Item(self.ids[q], self.idxes[q], self.idxlens[q])
-                )
+                self.inQueue.put(Item(self.ids[q], self.idxes[q], self.idxlens[q]))
         for _ in range(total_instances):
             self.inQueue.put(None)
 
@@ -509,8 +494,6 @@ def add_results(
 def response_loadgen(outQueue, accuracy, lock):
     global item_good
     global item_total
-    global item_timing
-    global item_results
 
     """
     max_outqueue_len = 0
@@ -557,9 +540,7 @@ def calc_core_bind(
     Generate every process instances start_core_idx and re-calculate cpus_for_loadgen
     """
     assert cpus_per_consumer > 0 and cpus_per_instance > 0
-    assert (
-        cpus_for_loadgen < cpus_per_socket
-    ), "Unsupport multisocket for loadgen"
+    assert cpus_for_loadgen < cpus_per_socket, "Unsupport multisocket for loadgen"
     assert (
         cpus_per_consumer <= cpus_per_socket
     ), "Unsupport cpus_per_consumer > cpus_per_socket"
@@ -599,13 +580,7 @@ def calc_core_bind(
 
 
 def main():
-    global num_sockets
     global cpus_for_loadgen
-    global cpus_per_socket
-    global cpus_per_consumer
-    global cpus_per_instance
-    global start_time
-    global item_total
     global last_timeing
     global total_instances
 
@@ -725,15 +700,11 @@ def main():
         settings.max_query_count = args.count_queries
 
     if args.samples_per_query_multistream:
-        settings.multi_stream_samples_per_query = (
-            args.samples_per_query_multistream
-        )
+        settings.multi_stream_samples_per_query = args.samples_per_query_multistream
 
     if args.max_latency:
         settings.server_target_latency_ns = int(args.max_latency * NANO_SEC)
-        settings.multi_stream_target_latency_ns = int(
-            args.max_latency * NANO_SEC
-        )
+        settings.multi_stream_target_latency_ns = int(args.max_latency * NANO_SEC)
 
     def load_query_samples(sample_list):
         # Wait until subprocess ready
