@@ -213,6 +213,7 @@ class MergedEmbeddingBagCat(nn.Module):
             embedding_bags.append(EE)
         self.embedding_bags = embedding_bags
         self.weights = tuple([e.weight for e in self.embedding_bags])
+        self.reshape_val = (self._num_embeddings + 1) * self._embedding_dim
         return
 
     def forward(
@@ -226,7 +227,7 @@ class MergedEmbeddingBagCat(nn.Module):
             res.append(e(i, o))
         res = [dense] + res
         data = torch.cat(res, dim=1).reshape(
-            B, (self._num_embeddings + 1) * self._embedding_dim
+            B, self.reshape_val
         )
         return data
 
