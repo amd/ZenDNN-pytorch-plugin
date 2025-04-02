@@ -13,7 +13,7 @@ conda activate zentorch-env-py3.10
 
 ### 1.2. Install Zentorch
 
-Ensure GCC version is 12 or higher.
+Ensure GCC version is 12.2 or higher.
 
 Follow the zentorch installation steps in the [README](https://github.com/amd/ZenDNN-pytorch-plugin?tab=readme-ov-file#2-installation) file.
 
@@ -40,7 +40,7 @@ export DATA_DIR=/path/to/terabyte_input/
 Download and install Quark v0.8. Installation instructions can be found [here](https://quark.docs.amd.com/release-0.8/install.html).
 We suggest downloading the "zip release".
 
-> zentorch v5.0.1 is compatible with Quark v0.8. Please make sure you download the right version.
+> zentorch v5.0.2 is compatible with Quark v0.8. Please make sure you download the right version.
 
 Follow the steps in the README file at "examples/torch/rm" directory to download, prepare and quantize the model.
 

@@ -111,14 +111,14 @@ if [ "$precision" = "fp32" ]; then
    export ZENDNN_MATMUL_ALGO=FP32:2
    export ZENDNN_EB_THREAD_TYPE=1
 elif [ "$precision" = "bf16" ]; then
-   export ZENDNN_MATMUL_ALGO=BF16:0
+   export ZENDNN_MATMUL_ALGO=BF16:2
    export ZENDNN_EB_THREAD_TYPE=1
 elif [ "$precision" = "int8" ]; then
    export ZENDNN_MATMUL_ALGO=INT8:2
    export ZENDNN_EB_THREAD_TYPE=2
 elif [ "$precision" = "default" ]; then
-   export ZENDNN_MATMUL_ALGO=FP32:2,BF16:0,INT8:2
-   export ZENDNN_EB_THREAD_TYPE=1
+   export ZENDNN_MATMUL_ALGO=FP32:2,BF16:2,INT8:2
+   export ZENDNN_EB_THREAD_TYPE=2
 fi
 
 

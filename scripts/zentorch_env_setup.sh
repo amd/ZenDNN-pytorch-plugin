@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ******************************************************************************
-# Copyright (c) 2023-2025 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -209,7 +209,7 @@ if [ "$framework" = "zentorch" ]; then
         if [ "$precision" = "fp32" ]; then
             export ZENDNN_MATMUL_ALGO=FP32:2
         elif [ "$precision" = "bf16" ]; then
-            export ZENDNN_MATMUL_ALGO=BF16:0
+            export ZENDNN_MATMUL_ALGO=BF16:2
         elif [ "$precision" = "bf16_amp" ]; then
             export ZENDNN_MATMUL_ALGO=BF16:4
         elif [ "$precision" = "int8" ]; then
