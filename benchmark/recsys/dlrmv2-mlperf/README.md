@@ -13,7 +13,7 @@ conda activate zentorch-env-py3.10
 
 ### 1.2. Install Zentorch
 
-Ensure GCC version is 12 or higher.
+Ensure GCC version is 12.2 or higher.
 
 Follow the zentorch installation steps in the [README](https://github.com/amd/ZenDNN-pytorch-plugin?tab=readme-ov-file#2-installation) file.
 

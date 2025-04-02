@@ -1,5 +1,5 @@
 ### For CNN/RECSYS/LLM/NLP models:
-This scripts setups the optimal env settings for zentorch/ipex llm/recsys/cnn/nlp runs
+This scripts setups the optimal env settings for zentorch/ipex llm/recsys/cnn/nlp runs.
 
 #### Usage:
 Create a conda environment where you run the benchmarks.(Don't use any conda base environment)
@@ -13,7 +13,7 @@ source zentorch_env_setup.sh --framework zentorch/ipex --model llm/recsys/cnn/nl
 It sets all the necessary variables for respective runs based on the options provided.
 
 ### For DLRM model:
-This scripts setups the optimal env settings for zentorch dlrm runs
+This scripts setups the optimal env settings for zentorch dlrm runs.
 
 #### Usage:
 Create a conda environment where you run the benchmarks.(Don't use any conda base environment)
