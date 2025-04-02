@@ -22,7 +22,7 @@ Before you run the benchmarks, activate the conda environment and run the dlrm_o
 
 source dlrm_optimal_env_setup.sh --help
 
-source dlrm_optimal_env_setup.sh --threads 96/128/192 --precision fp32/int8
+source dlrm_optimal_env_setup.sh --threads 96/128/192 --precision bf16/fp32/int8
 
 It sets all the necessary variables for respective runs based on the options provided.
 
