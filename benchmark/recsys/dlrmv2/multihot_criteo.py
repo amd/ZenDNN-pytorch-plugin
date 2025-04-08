@@ -6,9 +6,6 @@
 #  * https://github.com/mlcommons/inference_results_v3.1/blob/main/closed/Intel/code/dlrm-v2-99/pytorch-cpu-int8/python/multihot_criteo.py  # noqa: B950
 #  * commit ID: eaf622a
 #  ******************************************************************************
-"""
-implementation of criteo dataset
-"""
 
 import os
 import time
@@ -54,13 +51,14 @@ DEFAULT_CAT_NAMES = [
 ]
 
 
+# TODO: Sample aggregation can be removed.
 class MultihotCriteo(Dataset):
     def __init__(
         self,
         data_path,
         name,
-        num_embeddings_per_feature,
-        pre_process,
+        num_embeddings_per_feature=None,
+        pre_process=None,
         count=None,
         samples_to_aggregate_fix=None,
         samples_to_aggregate_min=None,
@@ -147,7 +145,7 @@ class MultihotCriteo(Dataset):
         # number of batches.
         if self.use_fixed_size:
             # the offsets for fixed query size will be generated on-the-fly later on
-            print("Using fixed query size: " + str(self.samples_to_aggregate))
+            # print("Using fixed query size: " + str(self.samples_to_aggregate))
             self.num_aggregated_samples = (
                 self.num_individual_samples + self.samples_to_aggregate - 1
             ) // self.samples_to_aggregate
@@ -516,7 +514,7 @@ class DlrmPostProcess:
             result = results[idx].detach().cpu()
             target = expected[idx]
 
-            for r, t in zip(result, target, strict=False):
+            for r, t in zip(result, target, strict=True):
                 processed_results.append([r, t])
             # debug prints
             # print(result)
@@ -538,7 +536,7 @@ class DlrmPostProcess:
     def finalize(self, result_dict, ds=False, output_dir=None):
         # AUC metric
         self.results = np.concatenate(self.results, axis=0)
-        results, targets = list(zip(*self.results, strict=False))
+        results, targets = list(zip(*self.results, strict=True))
         results = np.array(results)
         targets = np.array(targets)
         self.roc_auc = sklearn.metrics.roc_auc_score(targets, results)

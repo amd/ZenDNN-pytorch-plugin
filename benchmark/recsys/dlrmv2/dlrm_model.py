@@ -229,9 +229,7 @@ class MergedEmbeddingBagCat(nn.Module):
             e, i, o = self.embedding_bags[idx], index[idx], offset[idx]
             res.append(e(i, o))
         res = [dense] + res
-        data = torch.cat(res, dim=1).reshape(
-            B, self.reshape_val
-        )
+        data = torch.cat(res, dim=1).reshape(B, self.reshape_val)
         return data
 
 
