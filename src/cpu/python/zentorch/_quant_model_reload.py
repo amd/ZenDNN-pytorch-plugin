@@ -260,6 +260,7 @@ def get_llm_config(config):
         raise KeyError("quantization_config is not available.")
     quant_type = "weight-only"
     model_config = {}
+    supported_config = {}
     if bool(global_config["weight"]):
         model_config = {
             "weight_symmetric": global_config["weight"]["symmetric"],
