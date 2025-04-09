@@ -110,7 +110,7 @@ _zentorch_ can be installed using binary wheel file or can be built from source 
 ```bash
 pip uninstall zentorch
 ```
-* Install Pytorch v2.6.0
+* Install PyTorch v2.6.0
 ```bash
 pip install torch==2.6.0 --index-url https://download.pytorch.org/whl/cpu
 ```
@@ -143,7 +143,7 @@ pip install zentorch-5.0.2-cp310-cp310-manylinux_2_28_x86_64.whl
 Run the following commands:
 ```bash
 git clone https://github.com/amd/ZenDNN-pytorch-plugin.git
-cd ZenDNN_PyTorch_Plugin/
+cd ZenDNN-pytorch-plugin
 ```
 >Note: The repository defaults to the master branch. To build version 5.0.2, please check out the r5.0.2 branch; otherwise, it will build using the master branch.
 ```bash
@@ -161,7 +161,7 @@ Build setup downloads the ZenDNN, AOCL BLIS and FBGEMM repos into `third_party` 
 conda create -n pt-zentorch python=3.10 -y
 conda activate pt-zentorch
 ```
-#### 2.2.2.2. Install Pytorch v2.6.0
+#### 2.2.2.2. Install PyTorch v2.6.0
 ```bash
 # Pip command
 pip install torch==2.6.0 --index-url https://download.pytorch.org/whl/cpu
@@ -179,7 +179,7 @@ pip install -r requirements.txt
 ```bash
 python setup.py bdist_wheel
 ```
->Note: The wheel file will be generated in dist folder in ZenDNN_PyTorch_Plugin directory
+>Note: The wheel file will be generated in dist folder in ZenDNN-pytorch-plugin directory
 
 #### 2.2.2.5. To install the wheel file of _zentorch_
 ```bash
@@ -366,7 +366,7 @@ PyTorch offers a debugging toolbox that comprises a built-in stats and trace fun
 # test.py contains model optimized by torch.compile with 'zentorch' as backend
 TORCH_COMPILE_DEBUG=1 python test.py
 ```
-For more information about TORCH_COMPILE_DEBUG refer to the official PyTorch documentaion available.
+For more information about TORCH_COMPILE_DEBUG refer to the official PyTorch documentation available.
 
 # 6. Performance tuning and Benchmarking
 zentorch v5.0.2 is supported with ZenDNN v5.0.2. Please see the **Tuning Guidelines** section of ZenDNN User Guide for performance tuning. ZenDNN User Guide can be downloaded from [here](https://developer.amd.com/zendnn)
