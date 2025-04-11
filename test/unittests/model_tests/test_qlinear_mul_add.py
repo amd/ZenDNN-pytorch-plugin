@@ -64,8 +64,9 @@ class Custom_Model_Qlinear_Mul_Add(nn.Module):
         return add_output.to(output_dtype)
 
 
-@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
+# stacked decorators get excecuted down->up
 @unittest.skipIf(not zentorch._C.is_avx512_supported(), "No bf16 support on hardware")
+@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 # temporary fix for Milan unittest failure
 # TODO: Re-factor the unit-test configuration to use dtypes
 # based on the underlying machine capabilities.

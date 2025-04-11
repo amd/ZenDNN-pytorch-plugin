@@ -21,6 +21,7 @@ from unittest_utils import (  # noqa: 402
     zentorch,
     freeze_opt,
     test_with_freeze_opt,
+    counters,
 )
 
 
@@ -128,11 +129,14 @@ class Test_Addmm_1dbias_Model(Zentorch_TestCase):
         native_output = model(self.data.x)
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
+        counters.clear()
+        self.assertEqual(counters["zentorch"]["zentorch_addmm_1dbias"], 0)
         compiled_output = test_with_freeze_opt(
             compiled_graph,
             (self.data.x),
             freeze_opt
         )
+        self.assertEqual(counters["zentorch"]["zentorch_addmm_1dbias"], 3)
         self.assertEqual(native_output, compiled_output)
 
     @parameterized.expand(product(supported_dtypes, freeze_opt))
@@ -148,11 +152,14 @@ class Test_Addmm_1dbias_Model(Zentorch_TestCase):
         native_output = model(self.data.x)
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
+        counters.clear()
+        self.assertEqual(counters["zentorch"]["zentorch_addmm_1dbias"], 0)
         compiled_output = test_with_freeze_opt(
             compiled_graph,
             (self.data.x),
             freeze_opt
         )
+        self.assertEqual(counters["zentorch"]["zentorch_addmm_1dbias"], 6)
         self.assertEqual(native_output, compiled_output)
 
     @parameterized.expand(product(supported_dtypes, freeze_opt))
@@ -168,11 +175,14 @@ class Test_Addmm_1dbias_Model(Zentorch_TestCase):
         native_output = model(self.data.x)
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
+        counters.clear()
+        self.assertEqual(counters["zentorch"]["zentorch_addmm_1dbias"], 0)
         compiled_output = test_with_freeze_opt(
             compiled_graph,
             (self.data.x),
             freeze_opt
         )
+        self.assertEqual(counters["zentorch"]["zentorch_addmm_1dbias"], 6)
         self.assertEqual(native_output, compiled_output, atol=1e-3, rtol=1e-5)
 
 

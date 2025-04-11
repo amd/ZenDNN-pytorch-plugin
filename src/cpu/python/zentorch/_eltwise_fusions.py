@@ -99,20 +99,51 @@ def set_fused_target_for_matmul_variants(node, post_op):
         node.target = eltwise_targets[node.target]["gelu_erf"]
 
 
-def zentorch_eltwise_fusions(fx_graph):
+def zentorch_eltwise_unary_fusions(fx_graph):
     """
     zentorch_op_fusion:
     takes in the fx_graph and fuses some of the native ops
     with zentorch implementation of respective op fusions
     """
-    logger.info("Fusing the zentorch ops in fx graph.")
-    # Loop through the nodes in fx_graph.graph
+    logger.info("Fusing the zentorch unary elementwise ops in fx graph.")
     for node in fx_graph.graph.nodes:
-        if len(node.users) > 1:  # Output of node is used by other nodes
-            continue
-        if node.target == at_ops.clone.default and len(node.kwargs) == 0:
-            node.replace_all_uses_with(node.args[0])
-            fx_graph.graph.erase_node(node)
+        # The last node in the graph pattern should be replaced. Eltwise
+        # fusion is an exception.
+        if node.target in eltwise_targets:
+            if node.target == zt_ops.zentorch_qlinear.default:
+                supported_eltwise_ops_for_node = qlinear_supported_eltwise_ops
+            else:
+                supported_eltwise_ops_for_node = supported_eltwise_ops
+            # create a sub-dict from pattern dict
+            if len(node.users) > 1:  # Output of node is used by other nodes
+                continue
+            op_list = [node]
+            # store the user of node in next_node
+            next_node = next(iter(node.users))
+            # checking for benign op
+            while next_node.target in benign_op:
+                if len(next_node.users) > 1:  # Output of node is used by other nodes
+                    break
+                # store benign op in list
+                op_list.append(next_node)
+                # store user of next_node
+                next_node = next(iter(next_node.users))
+            if next_node.target in supported_eltwise_ops_for_node:
+                # call the function for eltwise ops
+                set_fused_target_for_matmul_variants(node, next_node)
+                next_node.replace_all_uses_with(op_list[-1])
+                fx_graph.graph.erase_node(next_node)
+
+    logger.info("Recompiling the fx_graph with fusion changes made.")
+
+    fx_graph.graph.lint()
+    fx_graph.recompile()
+    return fx_graph
+
+
+def zentorch_eltwise_binary_fusions(fx_graph):
+    logger.info("Fusing the zentorch binary elementwise ops in fx graph.")
+    # Loop through the nodes in fx_graph.graph
     for node in fx_graph.graph.nodes:
         if len(node.users) > 1:  # Output of node is used by other nodes
             continue
@@ -164,33 +195,6 @@ def zentorch_eltwise_fusions(fx_graph):
                         "baddbmm in zentorch doesnt support "
                         "non 3 dimentional tensors as of now"
                     )
-        # The last node in the graph pattern should be replaced. Eltwise
-        # fusion is an exception.
-        if node.target in eltwise_targets:
-            if node.target == zt_ops.zentorch_qlinear.default:
-                supported_eltwise_ops_for_node = qlinear_supported_eltwise_ops
-            else:
-                supported_eltwise_ops_for_node = supported_eltwise_ops
-            # create a sub-dict from pattern dict
-            if len(node.users) > 1:  # Output of node is used by other nodes
-                continue
-            op_list = [node]
-            # store the user of node in next_node
-            next_node = next(iter(node.users))
-            # checking for benign op
-            while next_node.target in benign_op:
-                if len(next_node.users) > 1:  # Output of node is used by other nodes
-                    break
-                # store benign op in list
-                op_list.append(next_node)
-                # store user of next_node
-                next_node = next(iter(next_node.users))
-            if next_node.target in supported_eltwise_ops_for_node:
-                # call the function for eltwise ops
-                set_fused_target_for_matmul_variants(node, next_node)
-                next_node.replace_all_uses_with(op_list[-1])
-                fx_graph.graph.erase_node(next_node)
-
     logger.info("Recompiling the fx_graph with fusion changes made.")
 
     fx_graph.graph.lint()

@@ -21,6 +21,7 @@ from unittest_utils import (  # noqa: 402
     zentorch,
     freeze_opt,
     test_with_freeze_opt,
+    counters,
 )
 
 
@@ -46,11 +47,14 @@ class Test_Embedding_Model(Zentorch_TestCase):
         model_output = model(input)
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
+        counters.clear()
+        self.assertEqual(counters["zentorch"]["zentorch_embedding"], 0)
         compiled_graph_output = test_with_freeze_opt(
             compiled_graph,
             (input),
             freeze_opt
         )
+        self.assertEqual(counters["zentorch"]["zentorch_embedding"], 1)
         self.assertEqual(model_output, compiled_graph_output)
 
 

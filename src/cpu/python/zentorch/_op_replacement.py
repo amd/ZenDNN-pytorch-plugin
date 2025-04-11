@@ -5,6 +5,7 @@
 
 import torch
 import operator
+from ._utils import counters
 
 # import the custom logging module
 from ._logging import get_logger
@@ -191,6 +192,7 @@ def replace_with_zentorch_ops(fx_graph: torch.fx.GraphModule, op_dict_lst: list)
                             "!", target_op, op_dict[target_op][0]
                         )
                         node.target = op_dict[target_op][0]
+                        counters["zentorch"][node.target._opname] += 1
                     else:
                         logger.info(
                             "Not able to replace default "
@@ -204,7 +206,7 @@ def replace_with_zentorch_ops(fx_graph: torch.fx.GraphModule, op_dict_lst: list)
                         "!", target_op, op_dict[target_op][0]
                     )
                     node.target = op_dict[target_op][0]
-
+                    counters["zentorch"][node.target._opname] += 1
     return fx_graph
 
 

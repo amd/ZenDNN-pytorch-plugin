@@ -29,7 +29,10 @@ from ._custom_op_replacement import (
     eb_group_mlp_group_fusion,
     qkv_fusion,
 )
-from ._eltwise_fusions import zentorch_eltwise_fusions
+from ._eltwise_fusions import (
+    zentorch_eltwise_unary_fusions,
+    zentorch_eltwise_binary_fusions,
+)
 from ._graph_preprocess_matcher import preprocess_graph_pass
 from ._fusion_matcher import fusions_graph_pass
 
@@ -90,7 +93,10 @@ def optimize(fx_graph):
     optimized_graph = replace_with_composite_zentorch_ops(optimized_graph)
 
     # eltwise op fusions supported by zentorch
-    optimized_graph = zentorch_eltwise_fusions(optimized_graph)
+    optimized_graph = zentorch_eltwise_binary_fusions(optimized_graph)
+
+    # unary fusions happen after binary
+    optimized_graph = zentorch_eltwise_unary_fusions(optimized_graph)
 
     # eltwise fusion replacements
     optimized_graph = fusions_graph_pass(optimized_graph)

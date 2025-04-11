@@ -31,9 +31,8 @@ class Custom_Model_Addmm(nn.Module):
         super(Custom_Model_Addmm, self).__init__()
 
     def forward(self, input, batch1, batch2):
-        mm_res = torch.mm(batch1, batch2)
-        add_res = torch.add(mm_res, input)
-        return add_res
+        addmm_res = torch.addmm(input, batch1, batch2)
+        return addmm_res
 
 
 class Custom_Model_Addmm_1D(nn.Module):
@@ -88,11 +87,14 @@ class Test_Addmm_Model(Zentorch_TestCase):
                     )
                     reset_dynamo()
                     zentorch_graph = torch.compile(zentorch_model, backend="zentorch")
+                    counters.clear()
+                    self.assertEqual(counters["zentorch"]["zentorch_addmm"], 0)
                     zentorch_graph_output = test_with_freeze_opt(
                         zentorch_graph,
                         (inp, self.data.x1[i], self.data.y1[j]),
                         freeze_opt
                     )
+                    self.assertEqual(counters["zentorch"]["zentorch_addmm"], 1)
                     self.assertEqual(inductor_graph_output, zentorch_graph_output)
 
     @parameterized.expand(product(supported_dtypes, freeze_opt))
@@ -105,11 +107,14 @@ class Test_Addmm_Model(Zentorch_TestCase):
             model_output = model(inp * 0, self.data.x1[0] * 0, self.data.y1[0] * 0)
             reset_dynamo()
             compiled_graph = torch.compile(model, backend="zentorch")
+            counters.clear()
+            self.assertEqual(counters["zentorch"]["zentorch_addmm"], 0)
             compiled_graph_output = test_with_freeze_opt(
                 compiled_graph,
                 (inp * 0, self.data.x1[0] * 0, self.data.y1[0] * 0),
                 freeze_opt
             )
+            self.assertEqual(counters["zentorch"]["zentorch_addmm"], 1)
             self.assertEqual(model_output, compiled_graph_output)
 
     @parameterized.expand(product(supported_dtypes, freeze_opt))
@@ -122,11 +127,14 @@ class Test_Addmm_Model(Zentorch_TestCase):
             model_output = model(inp / 0, self.data.x1[0] / 0, self.data.y1[0] / 0)
             reset_dynamo()
             compiled_graph = torch.compile(model, backend="zentorch")
+            counters.clear()
+            self.assertEqual(counters["zentorch"]["zentorch_addmm"], 0)
             compiled_graph_output = test_with_freeze_opt(
                 compiled_graph,
                 (inp / 0, self.data.x1[0] / 0, self.data.y1[0] / 0),
                 freeze_opt
             )
+            self.assertEqual(counters["zentorch"]["zentorch_addmm"], 1)
             self.assertEqual(model_output, compiled_graph_output)
 
     @parameterized.expand(product(supported_dtypes, freeze_opt))
@@ -146,6 +154,8 @@ class Test_Addmm_Model(Zentorch_TestCase):
             )
             reset_dynamo()
             zentorch_graph = torch.compile(zentorch_model, backend="zentorch")
+            counters.clear()
+            self.assertEqual(counters["zentorch"]["zentorch_addmm"], 0)
             zentorch_graph_output = test_with_freeze_opt(
                 zentorch_graph,
                 (
@@ -155,6 +165,7 @@ class Test_Addmm_Model(Zentorch_TestCase):
                 ),
                 freeze_opt
             )
+            self.assertEqual(counters["zentorch"]["zentorch_addmm"], 1)
             self.assertEqual(inductor_graph_output, zentorch_graph_output)
 
     @parameterized.expand(product(supported_dtypes, freeze_opt))
@@ -172,6 +183,8 @@ class Test_Addmm_Model(Zentorch_TestCase):
         )
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
+        counters.clear()
+        self.assertEqual(counters["zentorch"]["zentorch_addmm"], 0)
         compiled_graph_output = test_with_freeze_opt(
             compiled_graph,
             (
@@ -181,6 +194,7 @@ class Test_Addmm_Model(Zentorch_TestCase):
             ),
             freeze_opt
         )
+        self.assertEqual(counters["zentorch"]["zentorch_addmm"], 1)
         self.assertEqual(model_output, compiled_graph_output)
 
     @parameterized.expand(supported_dtypes)

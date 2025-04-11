@@ -58,7 +58,11 @@ def unused_node_elimination(fx_graph: torch.fx.GraphModule):
     }
 
     for node in fx_graph.graph.nodes:
-        if (node.target in supported_nodes_for_removal) and (len(node.users) == 0):
+        if node.target in supported_nodes_for_removal and len(node.users) == 0:
+            fx_graph.graph.erase_node(node)
+        # check for replacing redundant clone ops
+        elif node.target == at_ops.clone.default and len(node.kwargs) == 0 and len(node.users) == 1:
+            node.replace_all_uses_with(node.args[0])
             fx_graph.graph.erase_node(node)
 
     return fx_graph
