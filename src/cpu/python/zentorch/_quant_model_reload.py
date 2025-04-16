@@ -13,6 +13,7 @@ from ._logging import get_logger
 from ._quantization_utils import (
     set_op_by_name,
     get_name_and_info,
+    get_torch_type_from_str,
 )
 
 # Generate a logger for this file.
@@ -123,7 +124,7 @@ def get_woq_module_param_tensors(module_name, params_dict):
     return (weight_tensor, weight_scales, weight_zero_points, bias_tensor)
 
 
-def get_static_module_param_tensors(module_name, params_dict):
+def get_static_module_param_tensors(module_name, params_dict, model_dtype):
     logger.info("Fetching static quant parameters.")
     weight_tensor = module_name + ".weight"
     weight_scales_key = module_name + ".weight_scale"
@@ -146,6 +147,8 @@ def get_static_module_param_tensors(module_name, params_dict):
     input_zero_points = params_dict[input_zero_points_key]
     bias_tensor_key = module_name + ".bias"
     bias_tensor = params_dict.get(bias_tensor_key, None)
+    if bias_tensor is not None:
+        bias_tensor = bias_tensor.to(get_torch_type_from_str(model_dtype))
     return (
         weight_tensor,
         input_scales,
@@ -433,7 +436,9 @@ def load_quantized_model(
                 weight_scales,
                 weight_zero_points,
                 bias_tensor,
-            ) = get_static_module_param_tensors(module_name, params_dict)
+            ) = get_static_module_param_tensors(
+                module_name, params_dict, model_config["torch_dtype"]
+            )
             from ._StaticQuantizedLinear import ZenTorchStaticQuantizedLinear
 
             quant_module = ZenTorchStaticQuantizedLinear(

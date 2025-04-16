@@ -4,6 +4,7 @@
 # ******************************************************************************
 
 from typing import Union, Dict, Any, Tuple, Iterable
+import torch
 import torch.nn as nn
 
 
@@ -52,3 +53,12 @@ def get_name_and_info(
                 yield from get_name_and_info(value, new_key)
         else:
             continue
+
+
+def get_torch_type_from_str(str_type):
+    if str_type.lower() == "bfloat16":
+        return torch.bfloat16
+    elif str_type.lower() == "float32":
+        return torch.float32
+    else:
+        raise ValueError("Only float32 or bfloat16 models are supported.")
