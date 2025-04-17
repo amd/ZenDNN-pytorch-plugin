@@ -270,6 +270,7 @@ If a model id other than the listed above are passed, zentorch.llm.optimize will
 
 For leveraging the best performance of zentorch_llm_optimize, user has to install IPEX corresponding to the PyTorch version that is installed in the environment.
 The PyTorch version for performance execution of supported LLMs should be greater than or equal to 2.3.0. Recommended version for optimal performance is using PyTorch 2.6.
+zentorch.llm.optimize requires the dtype to be torch.dtype. Please make sure you pass a valid torch.dtype (such as torch.bfloat16) to optimize your model.
 
 ### Case #1. If output is generated through a call to direct `model`, optimize it as below:
 ```python

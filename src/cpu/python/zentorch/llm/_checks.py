@@ -62,14 +62,22 @@ def essential_checks(model, dtype):
                 installed_ipex_version = TorchVersion(installed_ipex_version)
 
                 if installed_ipex_version >= min_version:
-                    # All checks good...
-                    if dtype != torch.bfloat16:
-                        logger.warning(
-                            "The supported datatype for the most optimal "
-                            "performance with zentorch is bfloat16."
+                    if isinstance(dtype, torch.dtype):
+                        # All checks good...
+                        if dtype != torch.bfloat16:
+                            logger.warning(
+                                "The supported datatype for the most optimal "
+                                "performance with zentorch is torch.bfloat16."
+                            )
+                            return False
+                        return True
+                    else:
+                        raise TypeError(
+                            "zentorch.llm.optimize requires dtype to be torch.dtype "
+                            f"but your dtype is {type(dtype).__name__} instead."
                         )
                         return False
-                    return True
+
                 else:
                     logger.warning(
                         "zentorch.llm.optimize requires IPEX: at least "
