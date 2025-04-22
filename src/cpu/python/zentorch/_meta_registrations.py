@@ -277,11 +277,8 @@ if hasattr(torch.ops.zentorch, "zentorch_sdpa"):
         batch_size = query.size(0)
         num_heads = query.size(1)
         max_seqlen_batch_q = query.size(2)
-        head_dim = query.size(3)
 
-        attention = query.new_empty(
-            (batch_size, max_seqlen_batch_q, num_heads, head_dim)
-        ).transpose(1, 2)
+        attention = torch.empty_like(query)
         logsumexp = query.new_empty(
             (
                 batch_size,
