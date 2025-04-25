@@ -71,7 +71,7 @@ if __name__ == "__main__":
     if importutil.find_spec("torchvision") is not None:
         print("Warning: Torchvision already installed, skipping installing it")
         exit(1)
-    elif torch_version in torchvision_compatibilty.keys():
+    elif torch_version in torchvision_compatibilty:
         torchvision_cmd = [torchvision_compatibilty[torch_version] + extra_args]
         install(torchvision_cmd)
     else:

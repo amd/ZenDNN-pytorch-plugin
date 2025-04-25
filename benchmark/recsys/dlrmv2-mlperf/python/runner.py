@@ -437,7 +437,7 @@ class ServerQueueRunner:
 
 def auc_score(results):
     results = np.concatenate(results, axis=0)
-    results, targets = list(zip(*results))
+    results, targets = list(zip(*results, strict=False))
     results = np.array(results)
     targets = np.array(targets)
     roc_auc = sklearn.metrics.roc_auc_score(targets, results)
@@ -450,7 +450,7 @@ def add_results(
     percentiles = [50.0, 80.0, 90.0, 95.0, 99.0, 99.9]
     buckets = np.percentile(result_list, percentiles).tolist()
     buckets_str = ",".join(
-        ["{}:{:.4f}".format(p, b) for p, b in zip(percentiles, buckets)]
+        ["{}:{:.4f}".format(p, b) for p, b in zip(percentiles, buckets, strict=False)]
     )
 
     if result_dict["total"] == 0:
@@ -460,7 +460,7 @@ def add_results(
     result = {
         "took": took,
         "mean": np.mean(result_list),
-        "percentiles": {str(k): v for k, v in zip(percentiles, buckets)},
+        "percentiles": {str(k): v for k, v in zip(percentiles, buckets, strict=False)},
         "qps": len(result_list) / took,
         "count": len(result_list),
         "good_items": result_dict["good"],
@@ -509,7 +509,7 @@ def response_loadgen(outQueue, accuracy, lock):
         if accuracy:
             lock.acquire()
 
-        for q_id, arr in zip(oitem.query_ids, oitem.array_ref):
+        for q_id, arr in zip(oitem.query_ids, oitem.array_ref, strict=False):
             bi = arr.buffer_info()
             response.append(lg.QuerySampleResponse(q_id, bi[0], bi[1]))
         lg.QuerySamplesComplete(response)
@@ -590,11 +590,11 @@ def main():
     user_config = os.path.abspath(args.user_config)
 
     if not os.path.exists(config):
-        log.error("{} not found".format(config))
+        log.error("%s not found", config)
         sys.exit(1)
 
     if not os.path.exists(user_config):
-        log.error("{} not found".format(user_config))
+        log.error("%s not found", user_config)
         sys.exit(1)
 
     if args.output:
@@ -743,7 +743,7 @@ def main():
         "roc_auc": 0,
         "scenario": str(scenario),
     }
-    log.info("starting {}".format(scenario))
+    log.info("starting %s", scenario)
     lg.StartTest(sut, qsl, settings)
 
     for c in consumers:

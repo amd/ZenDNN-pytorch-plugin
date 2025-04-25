@@ -32,7 +32,7 @@ if disable_recompilation_env in valid_values:
 else:
     # Handle the case of an unexpected value
     print(
-        f"Warning: Unexpected value '{disable_recompilation_env}' "
+        f"Warning: Unexpected value {disable_recompilation_env} "
         "for DISABLE_RECOMPILATION_VAL. Defaulting to True."
     )
     disable_recompilation_env = True

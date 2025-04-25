@@ -19,6 +19,7 @@ from torch._inductor.fx_passes.pre_grad import fuse_conv_bn, remove_identity
 if is_version_compatible_import(["_dynamo", "utils"], ["is_parameter_freezing"]):
     from torch._dynamo.utils import is_parameter_freezing
 else:
+
     def is_parameter_freezing():  # for PT 2.4.x or below
         return torch._inductor.config.freezing and not torch.is_grad_enabled()
 
@@ -130,9 +131,8 @@ def zentorch_compile(
     if not torch.is_grad_enabled():
         gm = remove_identity(gm)
         gm = fuse_conv_bn(gm)
-        if not conv_config.enable_zentorch_conv_flag:
-            if not dynamic:
-                gm = mkldnn_fuse_fx(gm, example_inputs)
+        if not conv_config.enable_zentorch_conv_flag and not dynamic:
+            gm = mkldnn_fuse_fx(gm, example_inputs)
 
     # we cannot use options to pass 'freezing' to inductor config here
     # as the dynamo utilizes the freezing flag when it is set by the env
@@ -198,8 +198,8 @@ def zentorch(model, inputs):
 
     if disable_inductor_flag:
         logger.info(
-            "Inductor Compilation has been disabled."
-            + "FX Graph is sent to aot_module_simplified"
+            "Inductor Compilation has been disabled. "
+            "FX Graph is sent to aot_module_simplified"
         )
         return zentorch_compiler_noinductor(model, inputs)
     else:

@@ -50,14 +50,13 @@ model = zentorch.llm.optimize(model, dtype=torch.bfloat16)
 
 # Run Inference
 print("Running inference")
-with torch.inference_mode(), torch.no_grad(), \
-     torch.amp.autocast("cpu", enabled=True):
+with torch.inference_mode(), torch.no_grad(), torch.amp.autocast("cpu", enabled=True):
     model.forward = torch.compile(model.forward, backend="zentorch")
     input_ids = tokenizer(prompt, return_tensors="pt").input_ids
     output = model.generate(input_ids, **generate_kwargs)
 
 # Decode Output
 gen_text = tokenizer.batch_decode(output, skip_special_tokens=True)
-print(f"Generated text: \"{gen_text[0]}\"")
+print(f'Generated text: {gen_text[0]!r}')
 
 print("\n" + "=" * 10 + " Script Executed Successfully " + "=" * 10 + "\n")

@@ -120,8 +120,8 @@ class Test_Baddbmm_Op(Zentorch_TestCase):
 
     def test_float_baddbmm_bfloat16_postop(self):
         self.data.create_unittest_data("float32")
+        bias_as_postop = self.data.input3d.clone().to(torch.bfloat16)
         with self.assertRaises(RuntimeError) as context:
-            bias_as_postop = self.data.input3d.clone().to(torch.bfloat16)
             torch.ops.zentorch.zentorch_baddbmm(
                 bias_as_postop, self.data.x3d, self.data.y3d
             )
@@ -133,8 +133,8 @@ class Test_Baddbmm_Op(Zentorch_TestCase):
     def test_bfloat16_baddbmm_int_postop(self):
         self.skip_if_bfloat16_unsupported_hardware()
         self.data.create_unittest_data("bfloat16")
+        bias_as_postop = self.data.input3d.clone().to(torch.int)
         with self.assertRaises(RuntimeError) as context_int:
-            bias_as_postop = self.data.input3d.clone().to(torch.int)
             torch.ops.zentorch.zentorch_baddbmm(
                 bias_as_postop, self.data.x3d, self.data.y3d
             )
@@ -146,8 +146,8 @@ class Test_Baddbmm_Op(Zentorch_TestCase):
 
     def test_int_baddbmm_postop(self):
         self.data.create_unittest_data("int")
+        bias_as_postop = self.data.x3d.clone().to(torch.int)
         with self.assertRaises(RuntimeError) as context_int:
-            bias_as_postop = self.data.x3d.clone().to(torch.int)
             torch.ops.zentorch.zentorch_baddbmm(
                 bias_as_postop, self.data.x3d, self.data.x3d
             )

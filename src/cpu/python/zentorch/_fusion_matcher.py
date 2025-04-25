@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2024 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -51,8 +51,8 @@ def fusions_graph_pass(gm: torch.fx.GraphModule):
         count += matcher_pass.apply(gm.graph)
     else:
         logger.info(
-            "Inductor config for pattern matching is set to False,"
-            + " no matcher passes will be run."
+            "Inductor config for pattern matching is set to False, "
+            "no matcher passes will be run."
         )
     if count:
         stable_topological_sort(gm.graph)

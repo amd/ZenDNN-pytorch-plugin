@@ -580,7 +580,7 @@ def _woq_check(match):
             post_op_dtypes_bf16 = post_op_dtypes_bf16 and (
                 v.meta["val"].dtype == torch.bfloat16
             )
-        if not (torch.is_tensor(v.meta["val"]) and k in expected_dtype.keys()):
+        if not (torch.is_tensor(v.meta["val"]) and k in expected_dtype):
             continue
         if v.meta["val"].dtype not in expected_dtype[str(k)]:
             return False

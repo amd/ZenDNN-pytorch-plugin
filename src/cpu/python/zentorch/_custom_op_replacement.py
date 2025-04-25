@@ -21,16 +21,13 @@ zt_ops = torch.ops.zentorch
 def emb_ops_horizontal_fusion(fx_g):
     logger.info("Fusing horizontal parallel embedding ops.")
     zentorch_embed_ops_dict = {
-        zt_ops.zentorch_embedding_bag.default:
-        zt_ops.zentorch_horizontal_embedding_bag_group.default,
-        zt_ops.zentorch_embedding.default:
-        zt_ops.zentorch_horizontal_embedding_group.default,
-        zt_ops.zentorch_quant_embedding_bag.default:
-        zt_ops.zentorch_horizontal_quant_embedding_bag_group.default,
+        zt_ops.zentorch_embedding_bag.default: zt_ops.zentorch_horizontal_embedding_bag_group.default,
+        zt_ops.zentorch_embedding.default: zt_ops.zentorch_horizontal_embedding_group.default,
+        zt_ops.zentorch_quant_embedding_bag.default: zt_ops.zentorch_horizontal_quant_embedding_bag_group.default,
     }
     groups = {}
     for node in fx_g.graph.nodes:
-        if node.target in zentorch_embed_ops_dict.keys():
+        if node.target in zentorch_embed_ops_dict:
             users = list(node.users.keys())
             user_node = None
             if len(users) == 1:
@@ -50,11 +47,11 @@ def emb_ops_horizontal_fusion(fx_g):
                         }:
                             other_op = groups[node_name]["type"]
                             logger.info(
-                                f"Cannot fuse {other_op} and embedding with "
-                                + "common node. This is because of the function "
-                                + "prototype difference between the "
-                                + f"embedding and {other_op} ops and "
-                                + "their corresponding zentorch group ops!"
+                                "Cannot fuse %s and embedding with "
+                                "common node. This is because of the function "
+                                "prototype difference between the "
+                                "embedding and %s ops and "
+                                "their corresponding zentorch group ops!", other_op, other_op
                             )
                             return fx_g
                         groups[node_name]["nodes"].append(node)
@@ -82,11 +79,11 @@ def emb_ops_horizontal_fusion(fx_g):
                         }:
                             other_op = groups[node_name]["type"]
                             logger.info(
-                                f"Cannot fuse {other_op} and embedding_bag with "
-                                + "common node. This is because of the function "
-                                + "prototype difference between the "
-                                + f"embeddingbag and {other_op} ops and "
-                                + "their corresponding zentorch group ops."
+                                "Cannot fuse %s and embedding_bag with "
+                                "common node. This is because of the function "
+                                "prototype difference between the "
+                                "embeddingbag and %s ops and "
+                                "their corresponding zentorch group ops.", other_op, other_op
                             )
                             return fx_g
                         groups[node_name]["nodes"].append(node)
@@ -106,12 +103,12 @@ def emb_ops_horizontal_fusion(fx_g):
                         if groups[node_name]["type"] in {"embedding", "embedding_bag"}:
                             other_op = groups[node_name]["type"]
                             logger.info(
-                                f"Cannot fuse {other_op} and "
-                                + "quant_embedding_bag with common node. This "
-                                + "is because of the function prototype "
-                                + "difference between the quantized embedding "
-                                + f"bag and {other_op} ops and their "
-                                + "corresponding zentorch group ops."
+                                "Cannot fuse %s and "
+                                "quant_embedding_bag with common node. This "
+                                "is because of the function prototype "
+                                "difference between the quantized embedding "
+                                "bag and %s ops and their "
+                                "corresponding zentorch group ops.", other_op, other_op
                             )
                             return fx_g
                         groups[node_name]["nodes"].append(node)
@@ -266,9 +263,9 @@ def emb_ops_horizontal_fusion(fx_g):
                     if not all(i == ref_value for i in list_new_args[idx]):
                         logger.info(
                             "Cannot fuse zentorch quant embedding bags into a "
-                            + "zentorch_horizontal_quant_embedding_bag_group "
-                            + "as the non-tensor arguments are different "
-                            + "across embedding bags."
+                            "zentorch_horizontal_quant_embedding_bag_group "
+                            "as the non-tensor arguments are different "
+                            "across embedding bags."
                         )
                         # Since there can be multiple such sites in the graph where
                         # a group embedding bag can be followed by a cat node, we
@@ -301,7 +298,7 @@ def emb_ops_horizontal_fusion(fx_g):
                 while len(list_new_args[idx]) == 0:
                     list_new_args.pop()
                 last_node.args = tuple(list_new_args)
-                if last_node.target in zentorch_embed_ops_dict.keys():
+                if last_node.target in zentorch_embed_ops_dict:
                     last_node.target = zentorch_embed_ops_dict[last_node.target]
             elif op_count == 1:
                 last_node.target = node.target
@@ -371,9 +368,9 @@ def group_eb_concat_fusion(fx_graph):
                 if not all(i == ref_value for i in argument_list):
                     logger.info(
                         "Cannot fuse "
-                        + " zentorch_horizontal_quant_embedding_bag_group and "
-                        + "concat node as the non-tensor arguments are "
-                        + "different across embedding bags."
+                        "zentorch_horizontal_quant_embedding_bag_group and "
+                        "concat node as the non-tensor arguments are "
+                        "different across embedding bags."
                     )
                     # Since there can be multiple such sites in the graph where
                     # a group embedding bag can be followed by a cat node, we
@@ -415,9 +412,9 @@ def group_eb_concat_fusion(fx_graph):
                 else:
                     logger.info(
                         "Cannot fuse "
-                        + " zentorch_horizontal_quant_embedding_bag_group and "
-                        + "concat node as the output of one/more embedding "
-                        + "bags is being used by more than one node."
+                        "zentorch_horizontal_quant_embedding_bag_group and "
+                        "concat node as the output of one/more embedding "
+                        "bags is being used by more than one node."
                     )
                     # Since there can be multiple such sites in the graph where
                     # a group embedding bag can be followed by a cat node, we
@@ -501,9 +498,9 @@ def group_eb_concat_fusion(fx_graph):
                     )
             else:
                 logger.info(
-                    "Cannot fuse zentorch_horizontal_quant_embedding_bag_group"
-                    + " and concat node as the output of one/more embedding "
-                    + "bags is not being used by concat node."
+                    "Cannot fuse zentorch_horizontal_quant_embedding_bag_group "
+                    "and concat node as the output of one/more embedding "
+                    "bags is not being used by concat node."
                 )
                 continue
 
@@ -524,9 +521,8 @@ def qlinear_reorder_optimizations(fx_graph):
     }
 
     def next_user_node(users):
-        if len(users) == 1:
-            if users[0].target in reorder_qlinear_candidates:
-                return users[0]
+        if len(users) == 1 and users[0].target in reorder_qlinear_candidates:
+            return users[0]
         return None
 
     logger.info("Reorder optimization for serialized qlinear_* ops.")
@@ -658,9 +654,8 @@ def vertical_mlp_fusion(fx_graph):
         # the user is either zentorch_addmm or zentorch_addmm_1dbias. Only when
         # these two conditions are true, True and the next Linear layer node
         # is returned.
-        if len(users) == 1:
-            if users[0].target in vertical_mlp_candidates:
-                return users[0]
+        if len(users) == 1 and users[0].target in vertical_mlp_candidates:
+            return users[0]
         return None
 
     logger.info("Fusing vertical contiguous addmm ops.")
@@ -709,7 +704,7 @@ def vertical_mlp_fusion(fx_graph):
                 if arg.op != "placeholder":
                     logger.warning(
                         "GroupMLP fusion not possible with the current "
-                        + "sequence of addmm layers"
+                        "sequence of addmm layers"
                     )
                     continue_status = True
                     break
@@ -861,8 +856,8 @@ def qkv_fusion(fx_graph):
 
 def eb_group_mlp_group_fusion(fx_graph):
     logger.info(
-        "Fusing the horizontally fused EmbeddingBag op and the"
-        + " vertically fused MLP op"
+        "Fusing the horizontally fused EmbeddingBag op and the "
+        "vertically fused MLP op"
     )
     # This function makes changes on the graph after the Horizontal
     # EmbeddingBag Fusion and Vertical MLP fusion is introduced in the graph.
@@ -927,9 +922,9 @@ def eb_group_mlp_group_fusion(fx_graph):
             # interaction node
             if node_input_loop_break:
                 logger.info(
-                    "Fusion of horizontally fused EmbeddingBag op and"
-                    + " the vertically fused MLP op into one single op is"
-                    + f" not possible at the current concate node: {node}!"
+                    "Fusion of horizontally fused EmbeddingBag op and "
+                    "the vertically fused MLP op into one single op is "
+                    "not possible at the current concate node: %s!", node
                 )
                 group_mlp_op, group_eb_op = None, None
                 break

@@ -26,7 +26,7 @@ def get_tensor(fx_graph, node, arg_index=None):
         if node.args[arg_index].target == at_ops.clone.default:
             # workaround for CNNs in freezing path
             return node.args[arg_index].args[0].meta["val"]
-        if "val" in node.args[arg_index].meta.keys():
+        if "val" in node.args[arg_index].meta:
             # arg node in fx_graph generated through torch.compile
             # will be fake tensor
             return node.args[arg_index].meta["val"]
@@ -50,10 +50,7 @@ def are_args_same_dtype(fx_graph, node):
     dtype_set = set()
     for i in range(0, len(node.args)):
         dtype_set.add(get_tensor(fx_graph, node, i).dtype)
-    if len(dtype_set) == 1:
-        return True
-    else:
-        return False
+    return len(dtype_set) == 1
 
 
 def numdims_tensor(fx_graph, node, arg_index=None):
@@ -79,10 +76,7 @@ def is_baddbmm_replacable(fx_graph, node):
 
 def is_arg_1d_tensor(fx_graph, node, arg_index):
     dims = numdims_tensor(fx_graph, node, arg_index)
-    if dims == 1:
-        return True
-    else:
-        return False
+    return dims == 1
 
 
 # checks the two conditions for arg nodes datatypes
@@ -93,17 +87,14 @@ def is_arg_dtype_bfloat16(fx_graph, node, arg_index):
     # keys in node.args[arg_index].meta. Till PT <= 2.4.x, presence of
     # metadata implied fake tensors. But from PT 2.5.x,
     # the 'mutation_region_id' default argument is introduced in meta.
-    if "val" in node.args[arg_index].meta.keys():
+    if "val" in node.args[arg_index].meta:
         # arg node in fx_graph generated through torch.compile will be fake tensor
         arg_dtype = node.args[arg_index].meta["val"].dtype
     else:
         # while arg node in fx_graph generated through make_fx will not be fake tensor
         arg_dtype = fx_graph._parameters[node.args[arg_index].target].dtype
 
-    if arg_dtype == torch.bfloat16:
-        return True
-    else:
-        return False
+    return arg_dtype == torch.bfloat16
 
 
 def is_embedding_op_replacable(fx_graph, node):
@@ -117,8 +108,8 @@ def is_embedding_op_replacable(fx_graph, node):
     if is_arg_1d_tensor(fx_graph, node, 1):
         return True
     logger.info(
-        "embedding op will not be replaced as"
-        + " zentorch supports only 1-dimensional inputs to the op!"
+        "embedding op will not be replaced as "
+        "zentorch supports only 1-dimensional inputs to the op!"
     )
     return False
 
@@ -190,33 +181,27 @@ def replace_with_zentorch_ops(fx_graph: torch.fx.GraphModule, op_dict_lst: list)
     for node in fx_graph.graph.nodes:
         # Checking for op implementation to be replaced.
         for op_dict in op_dict_lst:
-            if node.target in op_dict.keys():
+            if node.target in op_dict:
                 target_op = node.target
                 if op_dict[target_op][1] is not None:
                     if op_dict[target_op][1](fx_graph, node):
                         logger.info(
-                            "Now replacing default "
-                            + str(target_op)
-                            + " with "
-                            + str(op_dict[target_op][0])
-                            + "!"
+                            "Now replacing default %s "
+                            "with %s"
+                            "!", target_op, op_dict[target_op][0]
                         )
                         node.target = op_dict[target_op][0]
                     else:
                         logger.info(
                             "Not able to replace default "
-                            + str(target_op)
-                            + " with "
-                            + str(op_dict[target_op][0])
-                            + " due to non-fulfilment of the condition."
+                            "%s with %s "
+                            "due to non-fulfilment of the condition.", target_op, op_dict[target_op][0]
                         )
                 else:
                     logger.info(
-                        "Now replacing default "
-                        + str(target_op)
-                        + " with "
-                        + str(op_dict[target_op][0])
-                        + "!"
+                        "Now replacing default %s"
+                        " with %s "
+                        "!", target_op, op_dict[target_op][0]
                     )
                     node.target = op_dict[target_op][0]
 
@@ -243,7 +228,7 @@ def replace_with_composite_zentorch_ops(fx_graph: torch.fx.GraphModule):
 
         users = list(node.users.keys())
         if len(users) != 1:
-            logger.warn(
+            logger.warning(
                 "There are more than one users of aten embedding bag."
                 "Removal of get-item node and replacement with zentorch op"
                 "not possible."

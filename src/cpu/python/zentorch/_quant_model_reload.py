@@ -80,8 +80,8 @@ def build_and_replace_with_woq_op(
         if enable_weight_prepack:
             logger.warning(
                 "Arg - 'enable_weight_prepack' is not being utilized for "
-                + "WOQ Linear as reorder of weight is not yet required "
-                + "for WOQ Linear."
+                "WOQ Linear as reorder of weight is not yet required "
+                "for WOQ Linear."
             )
         quant_module = ZenTorchWOQLinear(
             float_module,
@@ -314,24 +314,23 @@ def get_llm_config(config):
     group_size = (
         -1 if model_config["group_size"] is None else model_config["group_size"]
     )
-    if group_size != -1:
-        if group_size == 0 or group_size < supported_config["group_size"]:
-            raise NotImplementedError(
-                f"Zentorch does not support group_size {group_size}."
-                " Supported values are group_size = ",
-                supported_config["group_size"],
-                "and group_size > 0 for weight-only quantization.",
-            )
+    if group_size != -1 and (group_size == 0 or group_size < supported_config["group_size"]):
+        raise NotImplementedError(
+            f"Zentorch does not support group_size {group_size}."
+            " Supported values are group_size = ",
+            supported_config["group_size"],
+            "and group_size > 0 for weight-only quantization.",
+        )
 
     for key, value in model_config.items():
-        logger.info(f"Model's config.json file has {key} = {value}")
+        logger.info("Model's config.json file has %s = %s", key, value)
         if key == "group_size":
             continue
         if value not in supported_config[key]:
             raise NotImplementedError(
-                f"Zentorch has not yet implemented support for {key} = {value}."
-                f"It only supports {key} = {supported_config[key]} "
-                f"for {quant_type} quantization."
+                "Zentorch has not yet implemented support for %s = %s."
+                "It only supports %s = %s "
+                "for %s quantization.", key, value, key, supported_config[key], quant_type
             )
 
     logger.info("Extracted required config information successfully!")
@@ -389,10 +388,10 @@ def load_quantized_model(
     """
     if saved_model_type != "hf_format":
         raise NotImplementedError(
-            "Zentorch has not yet implemented support for the models"
-            + f" exported with '{saved_model_type}' method, it only "
-            + "supports models saved/exported with 'hf_format' "
-            + "method."
+            "Zentorch has not yet implemented support for the models "
+            "exported with %s method, it only "
+            "supports models saved/exported with 'hf_format' "
+            "method.", saved_model_type
         )
     if model is None:
         raise ValueError("Model should not be none for loading the quantized model.")
@@ -467,8 +466,8 @@ def load_quantized_model(
             if weight_tensor.dtype != torch.int32:
                 raise NotImplementedError(
                     "Zentorch has not yet implemented support for weights packed "
-                    + f"into '{weight_tensor.dtype}' tensor, it only supports "
-                    + "weight packed into 'torch.int32' tensor."
+                    "into %s tensor, it only supports "
+                    "weight packed into 'torch.int32' tensor.", weight_tensor.dtype
                 )
             quant_module = build_and_replace_with_woq_op(
                 float_module,
@@ -487,7 +486,7 @@ def load_quantized_model(
             weight_device = float_module.weight.device
             float_module.weight.data = weight_tensor.to(weight_device)
             bias_tensor_key = module_name + ".bias"
-            if bias_tensor_key in params_dict.keys():
+            if bias_tensor_key in params_dict:
                 bias_tensor = params_dict[bias_tensor_key]
                 bias_device = float_module.bias.device
                 float_module.bias.data = bias_tensor.to(bias_device)

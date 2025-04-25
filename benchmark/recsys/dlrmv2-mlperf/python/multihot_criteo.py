@@ -516,7 +516,7 @@ class DlrmPostProcess:
             result = results[idx].detach().cpu()
             target = expected[idx]
 
-            for r, t in zip(result, target):
+            for r, t in zip(result, target, strict=False):
                 processed_results.append([r, t])
             # debug prints
             # print(result)
@@ -538,7 +538,7 @@ class DlrmPostProcess:
     def finalize(self, result_dict, ds=False, output_dir=None):
         # AUC metric
         self.results = np.concatenate(self.results, axis=0)
-        results, targets = list(zip(*self.results))
+        results, targets = list(zip(*self.results, strict=False))
         results = np.array(results)
         targets = np.array(targets)
         self.roc_auc = sklearn.metrics.roc_auc_score(targets, results)

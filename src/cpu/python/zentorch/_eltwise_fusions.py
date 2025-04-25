@@ -26,32 +26,32 @@ benign_op = [at_ops.clone.default, at_ops.view.default]
 
 eltwise_targets = {
     zt_ops.zentorch_mm.default: {
-        "relu" : zt_ops.zentorch_mm_relu.default,
-        "silu" : zt_ops.zentorch_mm_silu.default,
-        "gelu_tanh" : zt_ops.zentorch_mm_gelu_tanh.default,
-        "gelu_erf" : zt_ops.zentorch_mm_gelu_erf.default,
+        "relu": zt_ops.zentorch_mm_relu.default,
+        "silu": zt_ops.zentorch_mm_silu.default,
+        "gelu_tanh": zt_ops.zentorch_mm_gelu_tanh.default,
+        "gelu_erf": zt_ops.zentorch_mm_gelu_erf.default,
     },
     zt_ops.zentorch_addmm.default: {
-        "relu" : zt_ops.zentorch_addmm_relu.default,
-        "silu" : zt_ops.zentorch_addmm_silu.default,
-        "gelu_tanh" : zt_ops.zentorch_addmm_gelu_tanh.default,
-        "gelu_erf" : zt_ops.zentorch_addmm_gelu_erf.default,
+        "relu": zt_ops.zentorch_addmm_relu.default,
+        "silu": zt_ops.zentorch_addmm_silu.default,
+        "gelu_tanh": zt_ops.zentorch_addmm_gelu_tanh.default,
+        "gelu_erf": zt_ops.zentorch_addmm_gelu_erf.default,
     },
     zt_ops.zentorch_addmm_1dbias.default: {
-        "relu" : zt_ops.zentorch_addmm_1dbias_relu.default,
-        "silu" : zt_ops.zentorch_addmm_1dbias_silu.default,
-        "gelu_tanh" : zt_ops.zentorch_addmm_1dbias_gelu_tanh.default,
-        "gelu_erf" : zt_ops.zentorch_addmm_1dbias_gelu_erf.default,
+        "relu": zt_ops.zentorch_addmm_1dbias_relu.default,
+        "silu": zt_ops.zentorch_addmm_1dbias_silu.default,
+        "gelu_tanh": zt_ops.zentorch_addmm_1dbias_gelu_tanh.default,
+        "gelu_erf": zt_ops.zentorch_addmm_1dbias_gelu_erf.default,
     },
     zt_ops.zentorch_woq_linear.default: {
-        "relu" : zt_ops.zentorch_woq_linear_relu.default,
-        "silu" : zt_ops.zentorch_woq_linear_silu.default,
-        "gelu_tanh" : zt_ops.zentorch_woq_linear_gelu_tanh.default,
-        "gelu_erf" : zt_ops.zentorch_woq_linear_gelu_erf.default,
+        "relu": zt_ops.zentorch_woq_linear_relu.default,
+        "silu": zt_ops.zentorch_woq_linear_silu.default,
+        "gelu_tanh": zt_ops.zentorch_woq_linear_gelu_tanh.default,
+        "gelu_erf": zt_ops.zentorch_woq_linear_gelu_erf.default,
     },
     zt_ops.zentorch_qlinear.default: {
-        "relu" : zt_ops.zentorch_qlinear_relu.default,
-        "sigmoid" : zt_ops.zentorch_qlinear_sigmoid.default,
+        "relu": zt_ops.zentorch_qlinear_relu.default,
+        "sigmoid": zt_ops.zentorch_qlinear_sigmoid.default,
     },
 }
 
@@ -125,11 +125,7 @@ def zentorch_eltwise_fusions(fx_graph):
             node_next = next(iter(node.users))
             if node_next.target == at_ops.add.Tensor and node_next == node.next:
                 logger.info(
-                    "Fusing the "
-                    + str(node.target)
-                    + "->"
-                    + str(node_next.target)
-                    + " in fx graph"
+                    "Fusing the %s->%s" " in fx graph.", node.target, node_next.target
                 )
                 # fuse bmm and add only if dims of bmm and add is same
                 should_add_be_fused = (
@@ -147,29 +143,26 @@ def zentorch_eltwise_fusions(fx_graph):
                 )
                 if should_add_be_fused and are_args_same_dtype(fx_graph, node_next):
                     for add_tensor in node_next.args:
-                        if add_tensor != node:
-                            if (
-                                torch.is_tensor(get_tensor(fx_graph, add_tensor))
-                                and get_tensor(fx_graph, add_tensor).dim != 0
-                            ):
-                                # by *node.args we can append all the arguments
-                                new_args = (add_tensor, *node.args)
-                                node.args = new_args
-                                node_next.replace_all_uses_with(node)
-                                fx_graph.graph.erase_node(node_next)
-                                if node.target == zt_ops.zentorch_mm.default:
-                                    if is_bias_1d_tensor(fx_graph, node):
-                                        node.target = (
-                                            zt_ops.zentorch_addmm_1dbias.default
-                                        )
-                                    else:
-                                        node.target = zt_ops.zentorch_addmm.default
+                        if add_tensor != node and (
+                            torch.is_tensor(get_tensor(fx_graph, add_tensor))
+                            and get_tensor(fx_graph, add_tensor).dim != 0
+                        ):
+                            # by *node.args we can append all the arguments
+                            new_args = (add_tensor, *node.args)
+                            node.args = new_args
+                            node_next.replace_all_uses_with(node)
+                            fx_graph.graph.erase_node(node_next)
+                            if node.target == zt_ops.zentorch_mm.default:
+                                if is_bias_1d_tensor(fx_graph, node):
+                                    node.target = zt_ops.zentorch_addmm_1dbias.default
                                 else:
-                                    node.target = zt_ops.zentorch_baddbmm.default
+                                    node.target = zt_ops.zentorch_addmm.default
+                            else:
+                                node.target = zt_ops.zentorch_baddbmm.default
                 else:
                     logger.warning(
                         "baddbmm in zentorch doesnt support "
-                        + "non 3 dimentional tensors as of now"
+                        "non 3 dimentional tensors as of now"
                     )
         # The last node in the graph pattern should be replaced. Eltwise
         # fusion is an exception.

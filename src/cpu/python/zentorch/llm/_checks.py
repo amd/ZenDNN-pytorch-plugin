@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2024 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -43,6 +43,7 @@ def get_installed_ipex_version():
     # metadata stored in dist-info or egg-info.
 
     from importlib.metadata import version, PackageNotFoundError
+
     try:
         return version("intel_extension_for_pytorch")
     except PackageNotFoundError:
@@ -72,10 +73,10 @@ def essential_checks(model, dtype):
                 else:
                     logger.warning(
                         "zentorch.llm.optimize requires IPEX: at least "
-                        f"{min_version} but your IPEX is "
-                        f"{installed_ipex_version}. Some of the ZenTorch "
+                        "%s but your IPEX is "
+                        "%s. Some of the ZenTorch "
                         "specific optimizations for LLMs might not be "
-                        "triggered."
+                        "triggered.", min_version, installed_ipex_version
                     )
                     return False
 

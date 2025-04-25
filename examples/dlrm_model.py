@@ -25,7 +25,8 @@ def _calculate_fan_in_and_fan_out(shape):
     dimensions = len(shape)
     assert dimensions >= 2, (
         "Fan in and fan out can not be computed for tensor with fewer than 2 "
-        "dimensions")
+        "dimensions"
+    )
 
     num_input_fmaps = shape[1]
     num_output_fmaps = shape[0]
@@ -43,42 +44,51 @@ def _calculate_fan_in_and_fan_out(shape):
 
 def _calculate_correct_fan(shape, mode):
     mode = mode.lower()
-    valid_modes = ['fan_in', 'fan_out']
+    valid_modes = ["fan_in", "fan_out"]
     if mode not in valid_modes:
         raise ValueError(
-            "Mode {} not supported, please use one of {}".format(mode, valid_modes))
+            "Mode {} not supported, please use one of {}".format(mode, valid_modes)
+        )
 
     fan_in, fan_out = _calculate_fan_in_and_fan_out(shape)
-    return fan_in if mode == 'fan_in' else fan_out
+    return fan_in if mode == "fan_in" else fan_out
 
 
 def calculate_gain(nonlinearity, param=None):
-    linear_fns = ['linear', 'conv1d', 'conv2d', 'conv3d', 'conv_transpose1d',
-                  'conv_transpose2d', 'conv_transpose3d']
-    if nonlinearity in linear_fns or nonlinearity == 'sigmoid':
+    linear_fns = [
+        "linear",
+        "conv1d",
+        "conv2d",
+        "conv3d",
+        "conv_transpose1d",
+        "conv_transpose2d",
+        "conv_transpose3d",
+    ]
+    if nonlinearity in linear_fns or nonlinearity == "sigmoid":
         return 1
-    elif nonlinearity == 'tanh':
+    elif nonlinearity == "tanh":
         return 5.0 / 3
-    elif nonlinearity == 'relu':
+    elif nonlinearity == "relu":
         return np.sqrt(2.0)
-    elif nonlinearity == 'leaky_relu':
+    elif nonlinearity == "leaky_relu":
         if param is None:
             negative_slope = 0.01
-        elif (not isinstance(param, bool) and isinstance(param, int)) or \
-                isinstance(param, float):
+        elif (not isinstance(param, bool) and isinstance(param, int)) or isinstance(
+            param, float
+        ):
             # True/False are instances of int, hence check above
             negative_slope = param
         else:
             raise ValueError("negative_slope {} not a valid number".format(param))
-        return np.sqrt(2.0 / (1 + negative_slope ** 2))
-    elif nonlinearity == 'selu':
+        return np.sqrt(2.0 / (1 + negative_slope**2))
+    elif nonlinearity == "selu":
         return 3.0 / 4
         # Value found empirically (https://github.com/pytorch/pytorch/pull/50664)
     else:
         raise ValueError("Unsupported nonlinearity {}".format(nonlinearity))
 
 
-def xavier_norm_(shape: tuple, gain: float = 1.):
+def xavier_norm_(shape: tuple, gain: float = 1.0):
     fan_in, fan_out = _calculate_fan_in_and_fan_out(shape)
     std = gain * np.sqrt(2.0 / float(fan_in + fan_out))
     mean = 0.0
@@ -86,10 +96,10 @@ def xavier_norm_(shape: tuple, gain: float = 1.):
     return d
 
 
-def kaiming_uniform_(shape: tuple, a: float = 0,
-                     mode: str = 'fan_in',
-                     nonlinearity: str = 'leaky_relu'):
-    assert (0 not in shape), "Initializing zero-element tensors is a no-op"
+def kaiming_uniform_(
+    shape: tuple, a: float = 0, mode: str = "fan_in", nonlinearity: str = "leaky_relu"
+):
+    assert 0 not in shape, "Initializing zero-element tensors is a no-op"
     fan = _calculate_correct_fan(shape, mode)
     gain = calculate_gain(nonlinearity, a)
     std = gain / np.sqrt(fan)
@@ -98,19 +108,20 @@ def kaiming_uniform_(shape: tuple, a: float = 0,
 
 
 class MLP(nn.Module):
-    def __init__(self,
-                 in_size: int,
-                 layer_sizes: List[int],
-                 bias: bool = True,
-                 activation: Union[
-                     str,
-                     Callable[[], nn.Module],
-                     nn.Module,
-                     Callable[[torch.Tensor], torch.Tensor],
-                 ] = torch.relu,
-                 device: Optional[torch.device] = None,
-                 sigmoid: int = -1
-                 ) -> None:
+    def __init__(
+        self,
+        in_size: int,
+        layer_sizes: List[int],
+        bias: bool = True,
+        activation: Union[
+            str,
+            Callable[[], nn.Module],
+            nn.Module,
+            Callable[[torch.Tensor], torch.Tensor],
+        ] = torch.relu,
+        device: Optional[torch.device] = None,
+        sigmoid: int = -1,
+    ) -> None:
         super().__init__()
         if activation == "relu":
             activation = nn.ReLU
@@ -151,11 +162,7 @@ class MLP(nn.Module):
 
 
 class LowRankCrossNet(nn.Module):
-    def __init__(
-            self,
-            in_features: int,
-            num_layers: int,
-            low_rank: int) -> None:
+    def __init__(self, in_features: int, num_layers: int, low_rank: int) -> None:
         super().__init__()
         assert low_rank >= 1, "Low rank must be larger or equal to 1"
 
@@ -178,31 +185,59 @@ class LowRankCrossNet(nn.Module):
         )
         self.MLPs = nn.ModuleDict()
         for i in range(num_layers):
-            self.MLPs[f'V{i}'] = nn.Linear(in_features, low_rank, bias=False)
-            self.MLPs[f'W{i}'] = nn.Linear(low_rank, in_features, bias=True)
-            self.MLPs[f'V{i}'].weight = V_kernels[i]
-            self.MLPs[f'W{i}'].weight = W_kernels[i]
-            self.MLPs[f'W{i}'].bias = bias[i]
+            self.MLPs[f"V{i}"] = nn.Linear(in_features, low_rank, bias=False)
+            self.MLPs[f"W{i}"] = nn.Linear(low_rank, in_features, bias=True)
+            self.MLPs[f"V{i}"].weight = V_kernels[i]
+            self.MLPs[f"W{i}"].weight = W_kernels[i]
+            self.MLPs[f"W{i}"].bias = bias[i]
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         x_0 = input
         x_l = x_0
         for layer in range(self._num_layers):
-            x_l_v = self.MLPs[f'V{layer}'](x_l)
-            x_l_w = self.MLPs[f'W{layer}'](x_l_v)
+            x_l_v = self.MLPs[f"V{layer}"](x_l)
+            x_l_w = self.MLPs[f"W{layer}"](x_l_v)
             x_l = x_0 * x_l_w + x_l  # (B, N)
         return x_l
 
 
 class MergedEmbeddingBagCat(nn.Module):
-    def __init__(self,
-                 embedding_dim: int,
-                 num_embeddings_pool: List[int],
-                 use_int8: bool = False,
-                 use_bf16: bool = True):
+    def __init__(
+        self,
+        embedding_dim: int,
+        num_embeddings_pool: List[int],
+        use_int8: bool = False,
+        use_bf16: bool = True,
+    ):
         super().__init__()
-        self._multi_hot = [3, 2, 1, 2, 6, 1, 1, 1, 1, 7, 3, 8,
-                           1, 6, 9, 5, 1, 1, 1, 12, 100, 27, 10, 3, 1, 1]
+        self._multi_hot = [
+            3,
+            2,
+            1,
+            2,
+            6,
+            1,
+            1,
+            1,
+            1,
+            7,
+            3,
+            8,
+            1,
+            6,
+            9,
+            5,
+            1,
+            1,
+            1,
+            12,
+            100,
+            27,
+            10,
+            3,
+            1,
+            1,
+        ]
         self._embedding_dim = embedding_dim
         self._num_embeddings = len(num_embeddings_pool)
         embedding_bags: nn.ModuleList = nn.ModuleList()
@@ -213,7 +248,8 @@ class MergedEmbeddingBagCat(nn.Module):
                 embedding_dim=embedding_dim,
                 _weight=W,
                 include_last_offset=True,
-                mode="sum")
+                mode="sum",
+            )
             embedding_bags.append(EE)
         self.embedding_bags = embedding_bags
         self.weights = tuple([e.weight for e in self.embedding_bags])
@@ -221,18 +257,20 @@ class MergedEmbeddingBagCat(nn.Module):
         self.bf16 = use_bf16
         return
 
-    def forward(self,
-                index: List[torch.Tensor],
-                offset: List[torch.Tensor],
-                dense) -> torch.Tensor:
+    def forward(
+        self, index: List[torch.Tensor], offset: List[torch.Tensor], dense
+    ) -> torch.Tensor:
         self.int8 = False
         B = offset[0].numel() - 1  # it works without -1
         if self.bf16:
-            res = [e(i.long(), o.long())
-                   for (e, i, o) in zip(self.embedding_bags, index, offset)]
+            res = [
+                e(i.long(), o.long())
+                for (e, i, o) in zip(self.embedding_bags, index, offset, strict=False)
+            ]
             res = [dense] + res
             data = torch.cat(res, dim=1).reshape(
-                B, (self._num_embeddings + 1) * self._embedding_dim)
+                B, (self._num_embeddings + 1) * self._embedding_dim
+            )
             return data
         else:
             res = []  # removed list comprehension
@@ -241,7 +279,8 @@ class MergedEmbeddingBagCat(nn.Module):
                 res.append(e(i, o))
             res = [dense] + res
             data = torch.cat(res, dim=1).reshape(
-                B, (self._num_embeddings + 1) * self._embedding_dim)
+                B, (self._num_embeddings + 1) * self._embedding_dim
+            )
             return data
 
 
@@ -284,7 +323,8 @@ class SparseArch(nn.Module):
         super().__init__()
         self.embedding_bag_collection: MergedEmbeddingBagCat = embedding_bag_collection
         self._sparse_feature_names: List[str] = [
-            name for name, param in embedding_bag_collection.named_parameters()]
+            name for name, param in embedding_bag_collection.named_parameters()
+        ]
 
     def forward(self, index, offset, dense) -> torch.Tensor:
         """
@@ -295,6 +335,7 @@ class SparseArch(nn.Module):
             torch.Tensor: tensor of shape B X F X D.
         """
         return self.embedding_bag_collection(index, offset, dense)
+
     # return y
 
     @property
@@ -381,17 +422,16 @@ class InteractionDCNArch(nn.Module):
         concat_dense = inter_arch(dense_features, sparse_features)
     """
 
-    def __init__(self, num_sparse_features: int,
-                 embedding_dim: int,
-                 crossnet: nn.Module) -> None:
+    def __init__(
+        self, num_sparse_features: int, embedding_dim: int, crossnet: nn.Module
+    ) -> None:
         super().__init__()
         self.F: int = num_sparse_features
         self.D: int = embedding_dim
         self.crossnet = crossnet
         self.ID = (self.F + 1) * self.D
 
-    def forward(
-            self, combined_values: torch.Tensor) -> torch.Tensor:
+    def forward(self, combined_values: torch.Tensor) -> torch.Tensor:
         """
         Args:
             dense_features (torch.Tensor): an input tensor of size B X D.
@@ -429,12 +469,14 @@ class OverArch(nn.Module):
         super().__init__()
         if len(layer_sizes) <= 1:
             raise ValueError("OverArch must have multiple layers.")
-        self.model: nn.Module = MLP(in_features,
-                                    layer_sizes,
-                                    bias=True,
-                                    activation="relu",
-                                    device=device,
-                                    sigmoid=4)
+        self.model: nn.Module = MLP(
+            in_features,
+            layer_sizes,
+            bias=True,
+            activation="relu",
+            device=device,
+            sigmoid=4,
+        )
 
     def forward(self, features: torch.Tensor) -> torch.Tensor:
         """
@@ -449,45 +491,41 @@ class OverArch(nn.Module):
 
 class DLRMMLPerf(nn.Module):
     def __init__(
-            self,
-            embedding_dim: int,
-            num_embeddings_pool: List[int],
-            dense_in_features: int,
-            dense_arch_layer_sizes: List[int],
-            over_arch_layer_sizes: List[int],
-            dcn_num_layers: int,
-            dcn_low_rank_dim: int,
-            use_int8: bool,
-            use_bf16: bool
+        self,
+        embedding_dim: int,
+        num_embeddings_pool: List[int],
+        dense_in_features: int,
+        dense_arch_layer_sizes: List[int],
+        over_arch_layer_sizes: List[int],
+        dcn_num_layers: int,
+        dcn_low_rank_dim: int,
+        use_int8: bool,
+        use_bf16: bool,
     ) -> None:
         super().__init__()
         self.sparse_arch: SparseArch = SparseArch(
             MergedEmbeddingBagCat(
-                embedding_dim,
-                num_embeddings_pool,
-                use_int8,
-                use_bf16
+                embedding_dim, num_embeddings_pool, use_int8, use_bf16
             )
         )
         self.dense_arch = DenseArch(
-            in_features=dense_in_features,
-            layer_sizes=dense_arch_layer_sizes
+            in_features=dense_in_features, layer_sizes=dense_arch_layer_sizes
         )
         num_sparse_features: int = len(self.sparse_arch.sparse_feature_names)
         crossnet = LowRankCrossNet(
             in_features=(num_sparse_features + 1) * embedding_dim,
             num_layers=dcn_num_layers,
-            low_rank=dcn_low_rank_dim
+            low_rank=dcn_low_rank_dim,
         )
         self.inter_arch = InteractionDCNArch(
             num_sparse_features=num_sparse_features,
             embedding_dim=embedding_dim,
-            crossnet=crossnet
+            crossnet=crossnet,
         )
         over_in_features: int = (num_sparse_features + 1) * embedding_dim
         self.over_arch = OverArch(
-            in_features=over_in_features,
-            layer_sizes=over_arch_layer_sizes)
+            in_features=over_in_features, layer_sizes=over_arch_layer_sizes
+        )
         return
 
     def forward(self, densex, index, offset) -> torch.Tensor:
@@ -495,5 +533,5 @@ class DLRMMLPerf(nn.Module):
         combined_values = self.sparse_arch(index, offset, embedded_dense)
         concatenated_dense = self.inter_arch(combined_values)
         out = self.over_arch(concatenated_dense)
-        out = torch.reshape(out, (-1, ))
+        out = torch.reshape(out, (-1,))
         return out

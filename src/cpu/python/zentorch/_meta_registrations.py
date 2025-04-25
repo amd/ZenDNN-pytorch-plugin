@@ -15,9 +15,7 @@ def get_meta_lib():
 
 def register_meta(op_name, overload_name="default"):
     def wrapper(fn):
-        get_meta_lib().impl(
-            getattr(getattr(torch.ops.zentorch, op_name), overload_name), fn
-        )
+        get_meta_lib().impl(getattr(getattr(torch.ops.zentorch, op_name), overload_name), fn)
         return fn
 
     return wrapper
@@ -33,12 +31,16 @@ def register_meta(op_name, overload_name="default"):
 # https://pytorch.org/docs/stable/torch.compiler_fake_tensor.html
 
 if hasattr(torch.ops.zentorch, "zentorch_attention_reshape_and_cache"):
+
     @register_meta("zentorch_attention_reshape_and_cache")
-    def meta_zentorch_reshape_and_cache(key, value,
-                                        key_cache, value_cache, slot_mapping):
+    def meta_zentorch_reshape_and_cache(
+        key, value, key_cache, value_cache, slot_mapping
+    ):
         return None
 
+
 if hasattr(torch.ops.zentorch, "zentorch_attention_single_query_cached_kv_attention"):
+
     @register_meta("zentorch_attention_single_query_cached_kv_attention")
     def meta_zentorch_single_query_cached_kv_attention(
         out,
@@ -1089,4 +1091,6 @@ if hasattr(torch.ops.zentorch, "zentorch_sdpa"):
 if hasattr(torch.ops.zentorch, "zentorch_attention_reshape_and_cache"):
     make_fallback(torch.ops.zentorch.zentorch_attention_reshape_and_cache)
 if hasattr(torch.ops.zentorch, "zentorch_attention_single_query_cached_kv_attention"):
-    make_fallback(torch.ops.zentorch.zentorch_attention_single_query_cached_kv_attention)
+    make_fallback(
+        torch.ops.zentorch.zentorch_attention_single_query_cached_kv_attention
+    )

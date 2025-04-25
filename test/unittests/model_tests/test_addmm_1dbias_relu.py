@@ -36,11 +36,10 @@ class Test_Addmm_1dbias_Relu_Model(Zentorch_TestCase):
         fx_g_modified_output = fx_g_modified(self.data.input)
         self.assertEqual(fx_g_output, fx_g_modified_output)
         for node in fx_g_modified.graph.nodes:
-            if isinstance(node.target, torch._ops.OpOverload):
-                if node.target.name() in ["aten::addmm"]:
-                    self.assertEqual(
-                        node.target, torch.ops.zentorch.zentorch_addmm_1dbias
-                    )
+            if isinstance(node.target, torch._ops.OpOverload) and node.target.name() in ["aten::addmm"]:
+                self.assertEqual(
+                    node.target, torch.ops.zentorch.zentorch_addmm_1dbias
+                )
 
 
 if __name__ == "__main__":

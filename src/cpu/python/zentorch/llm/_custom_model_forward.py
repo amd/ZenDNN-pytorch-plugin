@@ -521,12 +521,11 @@ def MistralModel_forward(
 
     hidden_states = inputs_embeds
 
-    if self.gradient_checkpointing and self.training:
-        if use_cache:
-            logger.warning(
-                "`use_cache=True` is incompatible with gradient checkpointing."
-            )
-            use_cache = False
+    if self.gradient_checkpointing and self.training and use_cache:
+        logger.warning(
+            "`use_cache=True` is incompatible with gradient checkpointing."
+        )
+        use_cache = False
 
     # decoder layers
     all_hidden_states = () if output_hidden_states else None
@@ -758,12 +757,11 @@ def MixtralModel_forward(
 
     past_key_values_length = 0
     seq_length_with_past = seq_length
-    if self.gradient_checkpointing and self.training:
-        if use_cache:
-            logger.warning(
-                "`use_cache=True` is incompatible with gradient checkpointing",
-            )
-            use_cache = False
+    if self.gradient_checkpointing and self.training and use_cache:
+        logger.warning(
+            "`use_cache=True` is incompatible with gradient checkpointing",
+        )
+        use_cache = False
 
     if past_key_values is not None:
         past_key_values_length = past_key_values[0][0].shape[2]

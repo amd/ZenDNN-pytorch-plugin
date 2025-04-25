@@ -54,9 +54,9 @@ class Test_Matmul_Impl_Op(Zentorch_TestCase):
 
     def test_matmul_impl_bfloat16_postop(self):
         self.data.create_unittest_data("float32")
+        bias_as_postop = self.data.x.clone().to(torch.bfloat16)
+        post_op_add = 6
         with self.assertRaises(RuntimeError) as context:
-            bias_as_postop = self.data.x.clone().to(torch.bfloat16)
-            post_op_add = 6
             zentorch._C.zentorch_matmul_impl(
                 self.data.x,
                 self.data.x,
@@ -74,9 +74,9 @@ class Test_Matmul_Impl_Op(Zentorch_TestCase):
     def test_matmul_impl_int_postop(self):
         self.skip_if_bfloat16_unsupported_hardware()
         self.data.create_unittest_data("bfloat16")
+        bias_as_postop = self.data.x.clone().to(torch.int)
+        post_op_add = 6
         with self.assertRaises(RuntimeError) as context_int:
-            bias_as_postop = self.data.x.clone().to(torch.int)
-            post_op_add = 6
             zentorch._C.zentorch_matmul_impl(
                 self.data.x,
                 self.data.x,
@@ -93,9 +93,9 @@ class Test_Matmul_Impl_Op(Zentorch_TestCase):
 
     def test_int_matmul_impl_postop(self):
         self.data.create_unittest_data("int")
+        bias_as_postop = self.data.x3d.clone().to(torch.int)
+        post_op_add = 6
         with self.assertRaises(RuntimeError) as context_int:
-            bias_as_postop = self.data.x3d.clone().to(torch.int)
-            post_op_add = 6
             zentorch._C.zentorch_matmul_impl(
                 self.data.x,
                 self.data.x,

@@ -1,5 +1,5 @@
 # **********************************************************************************************************************************************************
-# Modifications Copyright (c) 2024 Advanced Micro Devices, Inc.
+# Modifications Copyright (c) 2025 Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Was sourced from
@@ -52,55 +52,53 @@ class _ZenTorchConcatLinearRef(nn.Module):
 
                     out_features = out_features + linear_list[i].out_features
 
-                if zero_points_list != []:
-                    if (len(qweight_list) != len(zero_points_list)):
-                        logger.warning(
-                            "ZenTorch woq QKV fusion is not possible because the"
-                            + " number of qweight and zero_points does"
-                            + " not match with each other,"
-                            + f" but num(qweight)={len(qweight_list)}"
-                            + f" and num(zero_points)={len(zero_points_list)}"
-                        )
-                        return
-                if bias_list != []:
-                    if len(qweight_list) != len(bias_list):
-                        logger.warning(
-                            "ZenTorch woq QKV fusion is not possible because the"
-                            + " number of qweight and bias does"
-                            + " not match with each other,"
-                            + f" but num(qweight)={len(qweight_list)}"
-                            + f" and num(bias)={len(bias_list)}"
-                        )
-                        return
+                if zero_points_list != [] and (len(qweight_list) != len(zero_points_list)):
+                    logger.warning(
+                        "ZenTorch woq QKV fusion is not possible because the "
+                        "number of qweight and zero_points does "
+                        "not match with each other, "
+                        "but num(qweight)=%s"
+                        "and num(zero_points)=%s", len(qweight_list), len(zero_points_list)
+                    )
+                    return
+                if bias_list != [] and (len(qweight_list) != len(bias_list)):
+                    logger.warning(
+                        "ZenTorch woq QKV fusion is not possible because the "
+                        "number of qweight and bias does "
+                        "not match with each other,"
+                        "but num(qweight)=%s"
+                        "and num(bias)=%s", len(qweight_list), len(bias_list)
+                    )
+                    return
 
                 if len(set(group_size_list)) != 1:
                     logger.warning(
-                        "ZenTorch woq QKV fusion is not possible because"
-                        + " group_size of all woq qkv layers is not equal"
+                        "ZenTorch woq QKV fusion is not possible because "
+                        "group_size of all woq qkv layers is not equal"
                     )
                     return
                 new_group_size = group_size_list[0]
 
                 if len(set(weight_bits_list)) != 1:
                     logger.warning(
-                        "ZenTorch woq QKV fusion is not possible because"
-                        + " weight_bits of all woq qkv layers is not equal"
+                        "ZenTorch woq QKV fusion is not possible because "
+                        "weight_bits of all woq qkv layers is not equal"
                     )
                     return
                 new_weight_bits = weight_bits_list[0]
 
                 if len(set(compute_dtype_list)) != 1:
                     logger.warning(
-                        "ZenTorch woq QKV fusion is not possible because"
-                        + " compute_dtype of all woq qkv layers is not equal"
+                        "ZenTorch woq QKV fusion is not possible because "
+                        "compute_dtype of all woq qkv layers is not equal"
                     )
                     return
                 new_compute_dtype = compute_dtype_list[0]
 
                 if len(set(dummy_weight_dtype_list)) != 1:
                     logger.warning(
-                        "ZenTorch woq QKV fusion is not possible because"
-                        + " dummy_weight_dtype of all woq qkv layers is not equal"
+                        "ZenTorch woq QKV fusion is not possible because "
+                        "dummy_weight_dtype of all woq qkv layers is not equal"
                     )
                     return
                 new_dummy_weight_dtype = dummy_weight_dtype_list[0]
@@ -132,8 +130,8 @@ class _ZenTorchConcatLinearRef(nn.Module):
                 )
             elif any(isinstance(linear, ZenTorchWOQLinear) for linear in linear_list):
                 logger.warning(
-                    "QKV fusion is not possible as qkv modules are mix of"
-                    + " ZenTorchWOQLinear and other Linear modules"
+                    "QKV fusion is not possible as qkv modules are mix of "
+                    "ZenTorchWOQLinear and other Linear modules"
                 )
                 return
             else:
@@ -146,16 +144,15 @@ class _ZenTorchConcatLinearRef(nn.Module):
                 concat_weight = torch.concat(weights_list, 0)
 
                 # this additional check is added for zentorch
-                if bias_list != []:
-                    if len(weights_list) != len(bias_list):
-                        logger.warning(
-                            "QKV fusion is not possible because the"
-                            + " number of weight and bias does"
-                            + " not match with each other,"
-                            + f" but num(weight)={len(weights_list)}"
-                            + f" and num(bias)={len(bias_list)}"
-                        )
-                        return
+                if bias_list != [] and (len(weights_list) != len(bias_list)):
+                    logger.warning(
+                        "QKV fusion is not possible because the "
+                        "number of weight and bias does "
+                        "not match with each other,"
+                        "but num(weight)=%s"
+                        "and num(bias)=%s", len(weights_list), len(bias_list)
+                    )
+                    return
 
                 use_bias = True if bias_list != [] else False
                 concat_bias = torch.concat(bias_list, 0) if use_bias else None

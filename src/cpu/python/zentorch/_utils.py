@@ -47,8 +47,7 @@ def is_version_compatible_import(modules: List[str], functions: List[str]) -> bo
 
     # Check if the functions exist in the final module
     for func in functions:
-        if not hasattr(current_module, func):
-            return False
+        return all(hasattr(current_module, func) for func in functions)
 
     # If all checks pass
     return True

@@ -94,7 +94,7 @@ class BackendPytorchNative(backend.Backend):
         else:
             print(f"Loading fp32 model: {args.model_path}")
             model.load_state_dict(
-                torch.load(os.path.join(args.model_path, "dlrm-multihot-pytorch.pt"))
+                torch.load(os.path.join(args.model_path, "dlrm-multihot-pytorch.pt"), weights_only=True)
             )
             model_inp_dtype = torch.float32
             print("fp32 model ready...")

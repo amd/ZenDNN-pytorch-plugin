@@ -38,8 +38,7 @@ class Test_Addmm_Op(Zentorch_TestCase):
             and self.data.input.size() == (5, 9)
         ):
             self.skipTest(
-                "Skipping test for specific dimensions "
-                "(5, 8), (8, 9), (5, 9)"
+                "Skipping test for specific dimensions " "(5, 8), (8, 9), (5, 9)"
             )
 
         # addmm
@@ -164,8 +163,8 @@ class Test_Addmm_Op(Zentorch_TestCase):
 
     def test_float_addmm_bfloat16_postop(self):
         self.data.create_unittest_data("float32")
+        bias_as_postop = self.data.input.clone().to(torch.bfloat16)
         with self.assertRaises(RuntimeError) as context:
-            bias_as_postop = self.data.input.clone().to(torch.bfloat16)
             torch.ops.zentorch.zentorch_addmm(bias_as_postop, self.data.x, self.data.y)
 
         self.assertTrue(
@@ -186,8 +185,8 @@ class Test_Addmm_Op(Zentorch_TestCase):
     def test_bfloat16_addmm_int_postop(self):
         self.skip_if_bfloat16_unsupported_hardware()
         self.data.create_unittest_data("bfloat16")
+        bias_as_postop = self.data.input.clone().to(torch.int)
         with self.assertRaises(RuntimeError) as context_int:
-            bias_as_postop = self.data.input.clone().to(torch.int)
             torch.ops.zentorch.zentorch_addmm(bias_as_postop, self.data.x, self.data.y)
 
         self.assertTrue(
@@ -209,8 +208,8 @@ class Test_Addmm_Op(Zentorch_TestCase):
 
     def test_int_addmm_postop(self):
         self.data.create_unittest_data("int")
+        bias_as_postop = self.data.input.clone().to(torch.int)
         with self.assertRaises(RuntimeError) as context_int:
-            bias_as_postop = self.data.input.clone().to(torch.int)
             torch.ops.zentorch.zentorch_addmm(bias_as_postop, self.data.x, self.data.y)
 
         self.assertTrue(
@@ -234,8 +233,7 @@ class Test_Addmm_Op(Zentorch_TestCase):
             and self.data.input.size() == (5, 9)
         ):
             self.skipTest(
-                "Skipping test for specific dimensions "
-                "(5, 8), (8, 9), (5, 9)"
+                "Skipping test for specific dimensions " "(5, 8), (8, 9), (5, 9)"
             )
 
         # addmm->relu
