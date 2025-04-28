@@ -67,6 +67,7 @@ if __name__ == "__main__":
         "2.5.0": "torchvision==0.20.0",
         "2.5.1": "torchvision==0.20.1",
         "2.6.0": "torchvision==0.21.0",
+        "2.7.0": "torchvision==0.22.0",
     }
     if importutil.find_spec("torchvision") is not None:
         print("Warning: Torchvision already installed, skipping installing it")
