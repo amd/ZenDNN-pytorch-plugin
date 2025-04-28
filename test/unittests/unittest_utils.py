@@ -10,7 +10,7 @@ import shutil
 
 sys.path.append(str(Path(__file__).parent.parent))
 
-from utils import (  # noqa: 402 # noqa: F401
+from zentorch_test_utils import (  # noqa: 402 # noqa: F401
     BaseZentorchTestCase,
     run_tests,
     zentorch,
