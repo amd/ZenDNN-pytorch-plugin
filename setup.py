@@ -164,7 +164,12 @@ include_dirs = [
 
 zentorch_build_version = os.getenv("ZenTorch_BUILD_VERSION", PACKAGE_VERSION)
 git_sha = get_commit_hash(project_root_dir)
-wheel_file_dependencies = ["numpy", "torch", "deprecated", "safetensors"]
+wheel_file_dependencies = [
+    "numpy",
+    "torch",
+    "deprecated",
+    "safetensors",
+]
 # -Wno-unknown-pragma is for [unroll pragma], to be removed
 # -fopenmp is needed for omp related pragmas (simd etc.)
 zentorch_compile_args = [
@@ -202,7 +207,11 @@ _build_info_path = os.path.join(
 _build_config = "# PyTorch Build Version:\n"
 _build_config += '__torchversion__ = "{}"\n'.format(PT_VERSION)
 
-packages = [PACKAGE_NAME, PACKAGE_NAME + ".llm"]
+packages = [
+    PACKAGE_NAME,
+    PACKAGE_NAME + ".llm",
+    PACKAGE_NAME + ".vllm"
+]
 extras_require = {}
 
 # maybe_valid_ipex_version will contain either the valid ipex version
@@ -249,6 +258,16 @@ def main():
         packages=packages,
         package_dir={"": Path("src", "cpu", "python")},
         extras_require=extras_require,
+        entry_points={
+            # vLLM will import this automatically when the wheel is present
+            "vllm.platform_plugins": [
+                "zentorch = zentorch.vllm:register",
+            ],
+            "vllm.general_plugins": [
+                # same callable, but this group is invoked for runtime patches
+                "zentorch_general = zentorch.vllm:register",
+            ],
+        },
     )
 
 
