@@ -159,7 +159,7 @@ echo "MALLOC_CONF =$MALLOC_CONF"
 # Get the path of the conda executable
 # path=$(which conda)
 path=$(conda info --base)
-echo "Path to anaconda is $path"
+echo "Path to conda is $path"
 
 # Use regex to find the path right before 'anaconda3'
 if [[ $path =~ (.*\/)(anaconda3)(\/.*|$) ]]; then
@@ -168,10 +168,14 @@ if [[ $path =~ (.*\/)(anaconda3)(\/.*|$) ]]; then
     # echo "Path of Anaconda3 is $extracted_path"
 elif [[ $path =~ (.*\/)(miniconda3)(\/.*|$) ]]; then
     extracted_path=${BASH_REMATCH[1]%/}
-    # echo "Path of Anaconda3 is $extracted_path"
+    # echo "Path of miniconda3 is $extracted_path"
     condavar="miniconda3"
+elif [[ $path =~ (.*\/)(miniforge)(\/.*|$) ]]; then
+    extracted_path=${BASH_REMATCH[1]%/}
+    # echo "Path of miniforge is $extracted_path"
+    condavar="miniforge"
 else
-    echo "No path found to anaconda3 or miniconda3"
+    echo "No path found to anaconda3, miniconda3 or miniforge"
     return
 fi
 
