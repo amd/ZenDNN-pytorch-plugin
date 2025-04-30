@@ -15,7 +15,9 @@ def get_meta_lib():
 
 def register_meta(op_name, overload_name="default"):
     def wrapper(fn):
-        get_meta_lib().impl(getattr(getattr(torch.ops.zentorch, op_name), overload_name), fn)
+        get_meta_lib().impl(
+            getattr(getattr(torch.ops.zentorch, op_name), overload_name), fn
+        )
         return fn
 
     return wrapper
@@ -663,7 +665,7 @@ def meta_zentorch_rope(
         )
 
 
-@register_meta("zentorch_masked_multihead_self_attention")
+@torch.library.register_fake("zentorch::zentorch_masked_multihead_self_attention")
 def meta_masked_multihead_self_attention(
     query,
     key,
@@ -681,24 +683,29 @@ def meta_masked_multihead_self_attention(
     attn_output = query.new_empty(
         (query.shape[0], query.shape[2], query.shape[1], query.shape[3])
     )
-    if query.dtype == torch.bfloat16:
-        attn_output.as_strided_(
-            attn_output.shape,
-            (
-                query.shape[1] * query.shape[2] * query.shape[3],
-                query.shape[3],
-                query.shape[2] * query.shape[3],
-                1,
-            ),
-        )
+
+    attn_output.as_strided_(
+        attn_output.shape,
+        (
+            query.shape[1] * query.shape[2] * query.shape[3],
+            query.shape[3],
+            query.shape[2] * query.shape[3],
+            1,
+        ),
+    )
     attn_weights = None
+    ctx = torch._custom_ops.get_ctx()
+    # Key_cache_out shape is dependent on input data
+    # Hence needs to be dynamic
+    max_positions = ctx.new_dynamic_size()
     key_cache_out = query.new_empty(
-        (key_cache.shape[0], key_cache.shape[1], key.shape[2], key.shape[3])
+        (max_positions, beam_idx.shape[1], key.shape[2], key.shape[3])
     )
     value_cache_out = query.new_empty(
-        (value_cache.shape[0], value_cache.shape[1], value.shape[2], value.shape[3])
+        (max_positions, beam_idx.shape[1], value.shape[2], value.shape[3])
     )
-    beam_idx_out = query.new_empty(beam_idx.shape)
+    num_to_keep = ctx.new_dynamic_size()
+    beam_idx_out = query.new_empty((num_to_keep, beam_idx.shape[1]))
     return (attn_output, attn_weights, key_cache_out, value_cache_out, beam_idx_out)
 
 

@@ -1830,9 +1830,9 @@ masked_multihead_self_attention_kernel_impl_512(
         new_beam_idx_access[i][j] = beam_idx_access[0][j];
       }
     }
-    new_beam_idx_access[new_cache_size][0] = beam_idx_access[cache_size - 2][0];
+    new_beam_idx_access[new_cache_size][0] = beam_idx_access[cache_size][0];
     new_beam_idx_access[new_cache_size + 1][0] =
-        beam_idx_access[cache_size - 1][0];
+        beam_idx_access[cache_size + 1][0];
     key_cache = new_key_cache;
     value_cache = new_value_cache;
     beam_idx = new_beam_idx;
