@@ -112,6 +112,7 @@ def reset_dynamo():
     # wouldn't be pass through zentorch.optimize
     # WARNING: torch._dynamo hit config.cache_size_limit (8)
     torch._dynamo.reset()
+    torch._functorch._aot_autograd.autograd_cache.AOTAutogradCache.clear()
 
 
 # Method to hadle test with freezeing enable
