@@ -5,10 +5,10 @@
 
 import unittest
 import torch
+import copy
 from parameterized import parameterized
 from itertools import product
 from torch import nn
-from torch.fx.experimental.proxy_tensor import make_fx
 import sys
 from pathlib import Path
 
@@ -22,6 +22,7 @@ from unittest_utils import (  # noqa: 402
     zentorch,
     freeze_opt,
     test_with_freeze_opt,
+    counters,
 )
 
 
@@ -93,9 +94,9 @@ class Custom_Model_Emb_Emb_Bag_Common_Node(nn.Module):
 class Custom_Model_Embedding_Group(nn.Module):
     def __init__(self, num_embeddings):
         super(Custom_Model_Embedding_Group, self).__init__()
-        self.e_bags_grp_0 = [torch.nn.Embedding(num_embeddings, 3)] * 5
-        self.e_bags_grp_1 = [torch.nn.Embedding(num_embeddings, 3)] * 10
-        self.e_bags_grp_2 = [torch.nn.Embedding(num_embeddings, 3)] * 6
+        self.e_bags_grp_0 = [torch.nn.Embedding(num_embeddings, 3) for _ in range(5)]
+        self.e_bags_grp_1 = [torch.nn.Embedding(num_embeddings, 3) for _ in range(10)]
+        self.e_bags_grp_2 = [torch.nn.Embedding(num_embeddings, 3) for _ in range(6)]
 
     def forward(self, e_input):
         e_outputs_grp_0 = [self.e_bags_grp_0[i](e_input) for i in range(5)]
@@ -119,18 +120,17 @@ class Test_Embedding_Group_Model(Zentorch_TestCase):
     def test_embedding_group_model(self, dtype):
         self.data.create_unittest_data(dtype)
         model = Custom_Model_Embedding_Group(self.data.R)
+        zentorch_model = copy.deepcopy(model)
         x = self.data.emb_input
-        fx_g = make_fx(model)(x)
-        fx_g_output = fx_g(x)
-        fx_g_optimized = zentorch.optimize(fx_g)
-        fx_g_optimized_output = fx_g_optimized(x)
-        self.assertEqual(fx_g_output, fx_g_optimized_output)
-        target = torch.ops.zentorch.zentorch_horizontal_embedding_group.default
-        group_eb_count = 0
-        for node in fx_g_optimized.graph.nodes:
-            if isinstance(node.target, torch._ops.OpOverload) and node.target == target:
-                group_eb_count += 1
-        self.assertEqual(group_eb_count, 3)
+        model = torch.compile(model, backend="inductor")
+        model_output = model(x)
+        reset_dynamo()
+        compiled_model = torch.compile(zentorch_model, backend="zentorch")
+        counters.clear()
+        self.assertEqual(counters["zentorch"]["zentorch_embedding"], 0)
+        compiled_model_output = compiled_model(x)
+        self.assertEqual(counters["zentorch"]["zentorch_embedding"], 21)
+        self.assertEqual(model_output, compiled_model_output)
 
     @parameterized.expand(product(supported_dtypes, freeze_opt))
     @torch.inference_mode()
@@ -141,11 +141,7 @@ class Test_Embedding_Group_Model(Zentorch_TestCase):
         native_output = model(x)
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
-        compiled_output = test_with_freeze_opt(
-            compiled_graph,
-            (x),
-            freeze_opt
-        )
+        compiled_output = test_with_freeze_opt(compiled_graph, (x), freeze_opt)
         self.assertEqual(native_output, compiled_output)
 
     @parameterized.expand(product(supported_dtypes, freeze_opt))
@@ -159,9 +155,7 @@ class Test_Embedding_Group_Model(Zentorch_TestCase):
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
         compiled_output = test_with_freeze_opt(
-            compiled_graph,
-            (indices, offsets),
-            freeze_opt
+            compiled_graph, (indices, offsets), freeze_opt
         )
         self.assertEqual(native_output, compiled_output)
 
@@ -176,9 +170,7 @@ class Test_Embedding_Group_Model(Zentorch_TestCase):
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
         compiled_output = test_with_freeze_opt(
-            compiled_graph,
-            (indices, offsets),
-            freeze_opt
+            compiled_graph, (indices, offsets), freeze_opt
         )
         self.assertEqual(native_output, compiled_output)
 
@@ -188,14 +180,11 @@ class Test_Embedding_Group_Model(Zentorch_TestCase):
         self.data.create_unittest_data(dtype)
         model = Custom_Model_Embedding(self.data.R)
         indices = torch.cat([torch.unsqueeze(self.data.emb_input, dim=0)] * 2)
+        model = torch.compile(model, backend="inductor")
         native_output = model(indices)
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
-        compiled_output = test_with_freeze_opt(
-            compiled_graph,
-            (indices),
-            freeze_opt
-        )
+        compiled_output = test_with_freeze_opt(compiled_graph, (indices), freeze_opt)
         self.assertEqual(native_output, compiled_output)
 
 

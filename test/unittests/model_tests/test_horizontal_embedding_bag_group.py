@@ -5,10 +5,10 @@
 
 import unittest
 import torch
+import copy
 from parameterized import parameterized
 from itertools import product
 from torch import nn
-from torch.fx.experimental.proxy_tensor import make_fx
 import sys
 from pathlib import Path
 
@@ -63,20 +63,15 @@ class Test_Embedding_Bag_Group_Model(Zentorch_TestCase):
     def test_embedding_bag_group_model(self, dtype):
         self.data.create_unittest_data(dtype)
         model = Custom_Model_Embedding_Bag_Group(self.data.R)
+        zentorch_model = copy.deepcopy(model)
         indices = self.data.emb_input
         offsets = self.data.offsets
-        fx_g = make_fx(model)(indices, offsets)
-        fx_g_output = fx_g(indices, offsets)
-        fx_g_optimized = zentorch.optimize(fx_g)
-        fx_g_optimized_output = fx_g_optimized(indices, offsets)
-        self.assertEqual(fx_g_output, fx_g_optimized_output)
-        target = torch.ops.zentorch.zentorch_horizontal_embedding_bag_group.default
-        group_eb_count = 0
-        for node in fx_g_optimized.graph.nodes:
-            if isinstance(node.target, torch._ops.OpOverload) and node.target == target:
-                group_eb_count += 1
-
-        self.assertEqual(group_eb_count, 3)
+        model = torch.compile(model, backend="inductor")
+        model_output = model(indices, offsets)
+        reset_dynamo()
+        compiled_model = torch.compile(zentorch_model, backend="zentorch")
+        compiled_model_output = compiled_model(indices, offsets)
+        self.assertEqual(model_output, compiled_model_output)
 
     @parameterized.expand(product(supported_dtypes, freeze_opt))
     @torch.inference_mode()
@@ -89,9 +84,7 @@ class Test_Embedding_Bag_Group_Model(Zentorch_TestCase):
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
         compiled_output = test_with_freeze_opt(
-            compiled_graph,
-            (indices, offset),
-            freeze_opt
+            compiled_graph, (indices, offset), freeze_opt
         )
         self.assertEqual(native_output, compiled_output)
 

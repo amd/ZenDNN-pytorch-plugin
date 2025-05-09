@@ -12,6 +12,60 @@ from typing import List
 
 counters = collections.defaultdict(collections.Counter)
 
+at_ops = torch.ops.aten
+
+
+# When arg_index is none, it will check for node
+def get_tensor(fx_graph, node, arg_index=None):
+    if arg_index is not None:
+        # To identify fake tensors, we check for the 'val' and 'tensor_meta'
+        # keys in node.args[arg_index].meta. Till PT <= 2.4.x, presence of
+        # metadata implied fake tensors. But from PT 2.5.x,
+        # the 'mutation_region_id' default argument is introduced in meta.
+        if node.args[arg_index].target == at_ops.clone.default:
+            # workaround for CNNs in freezing path
+            return node.args[arg_index].args[0].meta["val"]
+        if "val" in node.args[arg_index].meta:
+            # arg node in fx_graph generated through torch.compile
+            # will be fake tensor
+            return node.args[arg_index].meta["val"]
+        else:
+            # while arg node in fx_graph generated through make_fx
+            # will not be fake tensor
+            return fx_graph._parameters[node.args[arg_index].target]
+    else:
+        is_fake_tensor = bool(node.meta)
+        if is_fake_tensor:
+            # arg node in fx_graph generated through torch.compile will be fake tensor
+            return node.meta["val"]
+        else:
+            # while arg node in fx_graph generated through make_fx
+            # will not be fake tensor
+            return fx_graph._parameters[node.target]
+
+
+# Compare all the args are same dtype or not
+def are_args_same_dtype(fx_graph, node):
+    dtype_set = set()
+    for i in range(0, len(node.args)):
+        dtype_set.add(get_tensor(fx_graph, node, i).dtype)
+    return len(dtype_set) == 1
+
+
+def numdims_tensor(fx_graph, node, arg_index=None):
+    return get_tensor(fx_graph, node, arg_index).ndim
+
+
+def is_arg_1d_tensor(fx_graph, node, arg_index):
+    dims = numdims_tensor(fx_graph, node, arg_index)
+    return dims == 1
+
+
+def is_bias_1d_tensor(fx_graph, node):
+    # checks if self/bias tensor is 1-d or not
+    # returns true if 1d bias tensor
+    return is_arg_1d_tensor(fx_graph, node, 0)
+
 
 # getattr can result in false negatives if the submodule
 # isn't already imported in __init.py__

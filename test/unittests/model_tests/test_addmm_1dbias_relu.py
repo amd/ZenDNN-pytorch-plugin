@@ -5,9 +5,9 @@
 
 import unittest
 import torch
+import copy
 from parameterized import parameterized
 from torch import nn
-from torch.fx.experimental.proxy_tensor import make_fx
 import sys
 from pathlib import Path
 
@@ -18,6 +18,8 @@ from unittest_utils import (  # noqa: 402
     run_tests,
     supported_dtypes,
     zentorch,
+    counters,
+    reset_dynamo,
 )
 
 
@@ -28,18 +30,19 @@ class Test_Addmm_1dbias_Relu_Model(Zentorch_TestCase):
     def test_addmm_1dbias_relu_model(self, dtype):
         self.data.create_unittest_data(dtype)
         model = nn.Sequential(nn.Linear(self.data.n, self.data.m), nn.ReLU())
+        zentorch_model = copy.deepcopy(model)
         if dtype == "bfloat16":
             model = model.bfloat16()
-        fx_g = make_fx(model)(self.data.input)
-        fx_g_modified = zentorch.optimize(fx_g)
-        fx_g_output = fx_g(self.data.input)
-        fx_g_modified_output = fx_g_modified(self.data.input)
-        self.assertEqual(fx_g_output, fx_g_modified_output)
-        for node in fx_g_modified.graph.nodes:
-            if isinstance(node.target, torch._ops.OpOverload) and node.target.name() in ["aten::addmm"]:
-                self.assertEqual(
-                    node.target, torch.ops.zentorch.zentorch_addmm_1dbias
-                )
+            zentorch_model = zentorch_model.bfloat16()
+        model = torch.compile(model, backend="inductor")
+        model_output = model(self.data.input)
+        reset_dynamo()
+        compiled_model = torch.compile(zentorch_model, backend="zentorch")
+        counters.clear()
+        self.assertEqual(counters["zentorch"]["zentorch_addmm_1dbias"], 0)
+        compiled_model_output = compiled_model(self.data.input)
+        self.assertEqual(counters["zentorch"]["zentorch_addmm_1dbias"], 1)
+        self.assertEqual(model_output, compiled_model_output)
 
 
 if __name__ == "__main__":

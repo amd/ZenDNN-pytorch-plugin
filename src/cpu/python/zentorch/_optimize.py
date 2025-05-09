@@ -3,8 +3,6 @@
 # All rights reserved.
 # ******************************************************************************
 
-import sys
-import torch
 import zentorch._C  # noqa
 
 # import the custom logging module
@@ -17,8 +15,6 @@ from ._graph_cleanup import unused_node_elimination
 from ._op_replacement import (
     replace_with_zentorch_ops,
     replace_with_composite_zentorch_ops,
-    at_to_zen_op_dict,
-    zen_to_zen_op_dict,
 )
 
 from ._custom_op_replacement import (
@@ -38,9 +34,6 @@ from ._fusion_matcher import fusions_graph_pass
 
 # make a logger for this file
 logger = get_logger(__name__)
-
-at_ops = torch.ops.aten
-zt_ops = torch.ops.zentorch
 
 
 def optimize(fx_graph):
@@ -64,31 +57,7 @@ def optimize(fx_graph):
     pattern_matched_model = preprocess_graph_pass(cleaned_graph)
 
     # Replacing ops with zentorch ops
-    # first we check if ipex has been imported anywhere in the code,
-    # then we append the ipex dict to op replacement
-    op_dict_lst = [at_to_zen_op_dict]
-    if "intel_extension_for_pytorch" in sys.modules:
-        ipex_ops = torch.ops.torch_ipex
-        # add ipex rope replacement, no condition as of now
-        ipex_to_zen_op_dict = {
-            ipex_ops.rotary_position_embedding.default: (
-                zt_ops.zentorch_rope.default,
-                None,
-            ),
-            ipex_ops.masked_multihead_self_attention.default: (
-                zt_ops.zentorch_masked_multihead_self_attention.default,
-                None,
-            ),
-        }
-        # RoPE deepseek is only present in IPEX 2.6 or above
-        if hasattr(ipex_ops, "rotary_position_embedding_deepseek"):
-            ipex_to_zen_op_dict[ipex_ops.rotary_position_embedding_deepseek.default] = (
-                zt_ops.zentorch_rope_deepseek.default,
-                None,
-            )
-        op_dict_lst.append(ipex_to_zen_op_dict)
-    op_dict_lst.append(zen_to_zen_op_dict)
-    optimized_graph = replace_with_zentorch_ops(pattern_matched_model, op_dict_lst)
+    optimized_graph = replace_with_zentorch_ops(pattern_matched_model)
 
     optimized_graph = replace_with_composite_zentorch_ops(optimized_graph)
 

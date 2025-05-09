@@ -5,7 +5,7 @@
 
 import torch
 from ._logging import get_logger
-from ._op_replacement import (
+from ._utils import (
     is_bias_1d_tensor,
     numdims_tensor,
     are_args_same_dtype,
