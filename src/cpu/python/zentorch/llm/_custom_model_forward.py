@@ -266,6 +266,82 @@ def zentorch_prepare_4d_causal_attention_mask(
     return attention_mask
 
 
+def ChatGLMModel_forward(
+    self,
+    input_ids,
+    position_ids: Optional[torch.Tensor] = None,
+    attention_mask: Optional[torch.BoolTensor] = None,
+    full_attention_mask: Optional[torch.BoolTensor] = None,
+    past_key_values: Optional[Tuple[Tuple[torch.Tensor, torch.Tensor], ...]] = None,
+    inputs_embeds: Optional[torch.Tensor] = None,
+    use_cache: Optional[bool] = None,
+    output_hidden_states: Optional[bool] = None,
+    return_dict: Optional[bool] = False,
+):
+    output_hidden_states = (
+        output_hidden_states
+        if output_hidden_states is not None
+        else self.config.output_hidden_states
+    )
+    use_cache = use_cache if use_cache is not None else self.config.use_cache
+
+    batch_size, seq_length = input_ids.shape
+
+    if inputs_embeds is None:
+        inputs_embeds = self.embedding(input_ids)
+
+    if self.pre_seq_len is not None:
+        if past_key_values is None:
+            past_key_values = self.get_prompt(
+                batch_size=batch_size,
+                device=input_ids.device,
+                dtype=inputs_embeds.dtype,
+            )
+        if attention_mask is not None:
+            attention_mask = torch.cat(
+                [
+                    attention_mask.new_ones((batch_size, self.pre_seq_len)),
+                    attention_mask,
+                ],
+                dim=-1,
+            )
+
+    # Initializing attention_mask
+    # With IPEX 2.7 version changes, attention_mask is not
+    # initialized if past_len != 0 from the second iteration
+    # which causes IpexScaleDotProduct to receive a None mask
+    # and produce invalid outputs. As a result, this invalid outputs
+    # lead to past_key_values received by _GLM2Attention_forward is None.
+    if attention_mask is not None and full_attention_mask is None:
+        full_attention_mask = self.get_masks(
+            input_ids, past_key_values, padding_mask=attention_mask
+        )
+
+    # Rotary positional embeddings
+    rotary_pos_emb = self.rotary_pos_emb(self.seq_length)
+    # if position_ids is not None:
+    #     rotary_pos_emb = rotary_pos_emb[position_ids]
+    # else:
+    #     rotary_pos_emb = rotary_pos_emb[None, :seq_length]
+    # rotary_pos_emb = rotary_pos_emb.transpose(0, 1).contiguous()
+
+    # Run encoder.
+    hidden_states, presents, all_hidden_states, all_self_attentions = self.encoder(
+        inputs_embeds,
+        full_attention_mask,
+        rotary_pos_emb=rotary_pos_emb,
+        kv_caches=past_key_values,
+        use_cache=use_cache,
+        output_hidden_states=output_hidden_states,
+    )
+
+    return tuple(
+        v
+        for v in [hidden_states, presents, all_hidden_states, all_self_attentions]
+        if v is not None
+    )
+
+
 # _GLM2Attention_forward is inspired from IPEX 2.3.0 (commit id: d3c5244)
 def _GLM2Attention_forward(
     self,
@@ -283,55 +359,9 @@ def _GLM2Attention_forward(
     # =====================
     # Query, Key, and Value
     # =====================
-
     # Attention heads [sq, b, h] --> [sq, b, (np * 3 * hn)]
     mixed_x_layer = self.query_key_value(hidden_states)
     mixed_x_layer = mixed_x_layer.transpose(0, 1)
-
-    if self.multi_query_attention:
-        (query_layer, key_layer, value_layer) = mixed_x_layer.split(
-            [
-                self.num_attention_heads_per_partition
-                * self.hidden_size_per_attention_head,
-                self.num_multi_query_groups_per_partition
-                * self.hidden_size_per_attention_head,
-                self.num_multi_query_groups_per_partition
-                * self.hidden_size_per_attention_head,
-            ],
-            dim=-1,
-        )
-        query_layer = query_layer.view(
-            query_layer.size()[:-1]
-            + (
-                self.num_attention_heads_per_partition,
-                self.hidden_size_per_attention_head,
-            )
-        )
-        key_layer = key_layer.view(
-            key_layer.size()[:-1]
-            + (
-                self.num_multi_query_groups_per_partition,
-                self.hidden_size_per_attention_head,
-            )
-        )
-        value_layer = value_layer.view(
-            value_layer.size()[:-1]
-            + (
-                self.num_multi_query_groups_per_partition,
-                self.hidden_size_per_attention_head,
-            )
-        )
-    else:
-        new_tensor_shape = mixed_x_layer.size()[:-1] + (
-            self.num_attention_heads_per_partition,
-            3 * self.hidden_size_per_attention_head,
-        )
-        mixed_x_layer = mixed_x_layer.view(*new_tensor_shape)
-
-        # [sq, b, np, 3 * hn] --> 3 [sq, b, np, hn]
-        (query_layer, key_layer, value_layer) = self.split_tensor_along_last_dim(
-            mixed_x_layer, 3
-        )
     past_len = kv_cache[0].shape[-2] if kv_cache is not None else 0
     # Modified Rope op for ChatGLM3 to mitigate the
     # dimensionality prolem with compile flow.
@@ -340,29 +370,60 @@ def _GLM2Attention_forward(
     # Expanding them back with a view after Rope op.
     # apply relative positional encoding (rotary embedding)
     if rotary_pos_emb is not None:
-        query_layer = query_layer.contiguous()
-        key_layer = key_layer.contiguous()
-        k_shape = key_layer.shape
-        q_shape = query_layer.shape
-
-        key_layer = self._IPEXROPE(
-            key_layer,
+        query_layer, key_layer, value_layer = self._IPEXROPE(
+            mixed_x_layer,
             torch.tensor(past_len),
-            k_shape[-2],
-            k_shape[-1],
+            self.num_attention_heads_per_partition,
+            self.hidden_size_per_attention_head,
             1,
             64,
+            num_concats=3,
         )
-        query_layer = self._IPEXROPE(
-            query_layer,
-            torch.tensor(past_len),
-            q_shape[-2],
-            q_shape[-1],
-            1,
-            64,
-        )
-
-    if attention_mask is None:
+    else:
+        if self.multi_query_attention:
+            (query_layer, key_layer, value_layer) = mixed_x_layer.split(
+                [
+                    self.num_attention_heads_per_partition
+                    * self.hidden_size_per_attention_head,
+                    self.num_multi_query_groups_per_partition
+                    * self.hidden_size_per_attention_head,
+                    self.num_multi_query_groups_per_partition
+                    * self.hidden_size_per_attention_head,
+                ],
+                dim=-1,
+            )
+            query_layer = query_layer.view(
+                query_layer.size()[:-1]
+                + (
+                    self.num_attention_heads_per_partition,
+                    self.hidden_size_per_attention_head,
+                )
+            )
+            key_layer = key_layer.view(
+                key_layer.size()[:-1]
+                + (
+                    self.num_multi_query_groups_per_partition,
+                    self.hidden_size_per_attention_head,
+                )
+            )
+            value_layer = value_layer.view(
+                value_layer.size()[:-1]
+                + (
+                    self.num_multi_query_groups_per_partition,
+                    self.hidden_size_per_attention_head,
+                )
+            )
+        else:
+            new_tensor_shape = mixed_x_layer.size()[:-1] + (
+                self.num_attention_heads_per_partition,
+                3 * self.hidden_size_per_attention_head,
+            )
+            mixed_x_layer = mixed_x_layer.view(*new_tensor_shape)
+            # [sq, b, np, 3 * hn] --> 3 [sq, b, np, hn]
+            (query_layer, key_layer, value_layer) = self.split_tensor_along_last_dim(
+                mixed_x_layer, 3
+            )
+    if attention_mask is None and past_len == 0:
         attention_mask = torch.ones(
             query_layer.size(0),
             1,
@@ -372,6 +433,8 @@ def _GLM2Attention_forward(
         )
         attention_mask.tril_()
         attention_mask = ~attention_mask
+    if attention_mask is not None:
+        attention_mask = torch.where(attention_mask, float("-inf"), attention_mask)
     (
         attn_output,
         attn_weights,
@@ -387,7 +450,7 @@ def _GLM2Attention_forward(
     )
     context_layer = attn_output.permute(2, 0, 1, 3).contiguous()
     output = context_layer.reshape(
-        context_layer.shape[0], context_layer.shape[1], self.projection_size
+        context_layer.shape[0], context_layer.shape[1], -1
     )
     # output = self.dense(context_layer)
     return output, present

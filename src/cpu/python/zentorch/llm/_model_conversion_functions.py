@@ -216,6 +216,13 @@ def customize_model(model):
     # Over riding forward class of ChatGLM by modifying the Rope op
     # to address the dimensionality error with compile flow.
     if model.config.architectures[0] == "ChatGLMModel":
+        from intel_extension_for_pytorch.transformers.models.reference import (
+            models,
+        )
+        from ._custom_model_forward import ChatGLMModel_forward
+        models.ChatGLMModel_forward = (
+            ChatGLMModel_forward
+        )
         from intel_extension_for_pytorch.transformers.models.reference.modules import (
             attentions,
         )
