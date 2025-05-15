@@ -25,7 +25,12 @@ def has_out_variant_for_all_args(node):
     # Can not apply fusion for torch.cat([linear_0, linear_0])
     nodes_visited = []
     for arg in node.args[tensors_idx]:
-        if arg.op == "call_function" and hasattr(zt_ops, arg.target._opname):
+        # TODO: Handle get item nodes
+        if (
+            arg.op == "call_function"
+            and isinstance(arg.target, torch._ops.OpOverload)
+            and hasattr(zt_ops, arg.target._opname)
+        ):
             if arg in nodes_visited:
                 return False
             op = getattr(zt_ops, arg.target._opname)
@@ -34,7 +39,7 @@ def has_out_variant_for_all_args(node):
                 nodes_visited.append(arg)
                 continue
             else:
-                logger.info("No out variant found for %s", node.target.op)
+                logger.info("No out variant found for %s", arg.target._opname)
                 return False
         else:
             return False
@@ -154,7 +159,9 @@ def emb_ops_horizontal_fusion(fx_g):
                                 "common node. This is because of the function "
                                 "prototype difference between the "
                                 "embedding and %s ops and "
-                                "their corresponding zentorch group ops!", other_op, other_op
+                                "their corresponding zentorch group ops!",
+                                other_op,
+                                other_op,
                             )
                             return fx_g
                         groups[node_name]["nodes"].append(node)
@@ -186,7 +193,9 @@ def emb_ops_horizontal_fusion(fx_g):
                                 "common node. This is because of the function "
                                 "prototype difference between the "
                                 "embeddingbag and %s ops and "
-                                "their corresponding zentorch group ops.", other_op, other_op
+                                "their corresponding zentorch group ops.",
+                                other_op,
+                                other_op,
                             )
                             return fx_g
                         groups[node_name]["nodes"].append(node)
@@ -211,7 +220,9 @@ def emb_ops_horizontal_fusion(fx_g):
                                 "is because of the function prototype "
                                 "difference between the quantized embedding "
                                 "bag and %s ops and their "
-                                "corresponding zentorch group ops.", other_op, other_op
+                                "corresponding zentorch group ops.",
+                                other_op,
+                                other_op,
                             )
                             return fx_g
                         groups[node_name]["nodes"].append(node)
@@ -1027,7 +1038,8 @@ def eb_group_mlp_group_fusion(fx_graph):
                 logger.info(
                     "Fusion of horizontally fused EmbeddingBag op and "
                     "the vertically fused MLP op into one single op is "
-                    "not possible at the current concate node: %s!", node
+                    "not possible at the current concate node: %s!",
+                    node,
                 )
                 group_mlp_op, group_eb_op = None, None
                 break
