@@ -19,6 +19,38 @@ at::Tensor zentorch_matmul_impl(const at::Tensor &input,
                                 std::string zentorch_op_name,
                                 const bool &is_weight_const = true) {
 
+  // ZenDNN has implementation for matmul and batched matmul which bypasses the
+  // primitive creation and other over-heads to directly start the matmul
+  // computation. The usage of the kernel is managed by the env variable
+  // "USE_ZENDNN_MATMUL_DIRECT" and when this variable is set to 1 based
+  // on the certain conditions, the decision of whether to use this kernel or
+  // not is made.
+
+  // TODO
+  // Move this check of env variable to a single init functionality
+  const char *env_value = std::getenv("USE_ZENDNN_MATMUL_DIRECT");
+  const int int_env_value = env_value ? std::atoi(env_value) : 0;
+
+  // "may_i_use_zendnn_direct_kernel" returns a boolean representing whether the
+  // direct kernel will be used or not. If true, then the direct kernel will be
+  // used and the product is stored in the "result" tensor which is then
+  // returned based on the final boolean value "used_zendnn_direct_kernel".
+  // "used_zendnn_direct_kernel" takes its final value based on the env variable
+  // enablement and the return value of "may_i_use_zendnn_direct_kernel"
+  // function.
+
+  const bool used_zendnn_direct_kernel =
+      int_env_value &&
+      validate_zendnn_direct_kernel_usage(input, weight, bias, result,
+                                          post_op_ids, post_op_buffers);
+  if (used_zendnn_direct_kernel) {
+    LOG(INFO) << "Using zendnn direct kernel for matmul";
+    const int64_t &post_op_id =
+        post_op_ids.size() == 0 ? INT64_MIN : post_op_ids[0];
+    zendnn_direct_kernel(input, weight, bias, result, beta, alpha, post_op_id);
+    return result;
+  }
+
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
   LOG(INFO) << "input dimensions: " << input.sizes();

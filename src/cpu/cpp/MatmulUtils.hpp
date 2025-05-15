@@ -480,4 +480,171 @@ get_matmul_and_linear_output_strides(const std::vector<int64_t> &output_size) {
   std::reverse(output_strides.begin(), output_strides.end());
   return output_strides;
 }
+
+inline bool is_transposed(const at::Tensor &t) {
+  const auto sizes = t.sizes();
+  const auto strides = t.strides();
+  // check for transposed tensors
+  if (t.dim() == 2) {
+    return strides[0] == 1 && strides[1] >= sizes[0];
+  } else {
+    // dim = 3
+    return strides[0] >= sizes[1] * sizes[2] && strides[1] == 1 &&
+           strides[2] >= sizes[1];
+  }
+}
+
+inline bool is_stride_valid(const at::Tensor &t) {
+  const auto sizes = t.sizes();
+  const auto strides = t.strides();
+  if (t.dim() == 2) {
+    return true;
+  } else if (t.dim() == 3 && strides[0] >= sizes[1] * sizes[2]) {
+    return true;
+  }
+  return false;
+}
+
+inline bool validate_zendnn_direct_kernel_usage(
+    const at::Tensor &input, const at::Tensor &weight, const at::Tensor &bias,
+    const at::Tensor &result, const std::vector<int64_t> &post_op_ids,
+    const std::vector<at::Tensor> &post_op_buffers) {
+
+  check_valid_sizes_for_matmul(input, weight, bias, result, {});
+
+  // Currently this kernel supports only element-wise post-ops and no binary
+  // post ops are supported yet.
+  if (post_op_ids.size() > 1 || post_op_buffers.size() > 0) {
+    return false;
+  }
+  // TODO
+  // As soon as the gelu erf accuracy is resolved, the support will be added
+  if (post_op_ids.size() == 1 && post_op_ids[0] == UNARY_POST_OP::GELU_ERF) {
+    return false;
+  }
+
+  // Currently this kernel supports only float32 and bfloat16 datatype and the
+  // operator supported is batched matmul.
+  // Define the datatype check as a lambda
+  // The tensors for this kernel have to be either float or bfloat16
+  auto is_dtype_supported = [](const at::Tensor &x) {
+    return ((x.scalar_type() == c10::ScalarType::Float) ||
+            (x.scalar_type() == c10::ScalarType::BFloat16));
+  };
+  auto is_tensor_3d = [](const at::Tensor &x) { return (x.dim() == 3); };
+
+  const bool are_tensor_dtypes_valid =
+      is_dtype_supported(input) && is_dtype_supported(weight) &&
+      ((bias.defined() && is_dtype_supported(bias)) || !bias.defined()) &&
+      is_dtype_supported(result);
+  const bool are_tensor_shapes_valid =
+      is_tensor_3d(input) && is_tensor_3d(weight) &&
+      ((bias.defined() && is_tensor_3d(bias)) || !bias.defined()) &&
+      is_tensor_3d(result);
+
+  if (are_tensor_dtypes_valid && are_tensor_shapes_valid) {
+    return true;
+  }
+  return false;
+}
+
+inline void zendnn_direct_kernel(const at::Tensor &input,
+                                 const at::Tensor &weight,
+                                 const at::Tensor &bias,
+                                 const at::Tensor &result, const float &beta,
+                                 const float &alpha,
+                                 const int64_t &post_op_id = INT64_MIN) {
+
+  // TODO
+  // Check if we can use tensor.strided() instead
+  bool isStrideAValid = is_stride_valid(input);
+  bool isStrideBValid = is_stride_valid(weight);
+
+  // TODO
+  // Check if we can use contiguous irrespective of the condition
+  at::Tensor input_ = isStrideAValid ? input : input.contiguous();
+  at::Tensor weight_ = isStrideBValid ? weight : weight.contiguous();
+
+  bool transA = is_transposed(input_);
+  bool transB = is_transposed(weight_);
+  int batch_A = input_.size(0);
+  int batch_B = weight_.size(0);
+  int M = input_.size(1);
+  int K = input_.size(2);
+  int N = weight_.size(2);
+
+  auto stridesA = input_.strides();
+  auto stridesB = weight_.strides();
+  auto stridesC = result.strides();
+  int lda, ldb, ldc;
+
+  if (transA) {
+    lda = stridesA[2];
+  } else {
+    lda = stridesA[1];
+  }
+
+  if (transB) {
+    ldb = stridesB[2];
+  } else {
+    ldb = stridesB[1];
+  }
+
+  ldc = stridesC[1];
+
+  void *input_ptr = input_.data_ptr();
+  void *weight_ptr = weight_.data_ptr();
+  void *bias_ptr = nullptr;
+  if (bias.defined()) {
+    bias_ptr = bias.data_ptr();
+  }
+  void *result_ptr = result.data_ptr();
+
+  // The new kernel supports the elementwise post-ops which are list here
+  ActivationPostOp zendnn_post_op = ActivationPostOp::NONE;
+
+  switch (post_op_id) {
+  case UNARY_POST_OP::RELU:
+    zendnn_post_op = ActivationPostOp::RELU;
+    break;
+  case UNARY_POST_OP::GELU_TANH:
+    zendnn_post_op = ActivationPostOp::GELU_TANH;
+    break;
+  case UNARY_POST_OP::SIGMOID:
+    zendnn_post_op = ActivationPostOp::SIGMOID;
+    break;
+  case UNARY_POST_OP::SILU:
+    zendnn_post_op = ActivationPostOp::SILU;
+    break;
+  default:
+    zendnn_post_op = ActivationPostOp::NONE;
+    break;
+  }
+
+  zendnn_data_type_t input_datatype = zendnn_f32;
+  zendnn_data_type_t weight_datatype = zendnn_f32;
+  zendnn_data_type_t bias_datatype = zendnn_f32;
+  zendnn_data_type_t result_datatype = zendnn_f32;
+
+  if (input.scalar_type() == c10::ScalarType::BFloat16) {
+    input_datatype = zendnn_bf16;
+  }
+  if (weight.scalar_type() == c10::ScalarType::BFloat16) {
+    weight_datatype = zendnn_bf16;
+  }
+  if (bias.defined() && bias.scalar_type() == c10::ScalarType::BFloat16) {
+    bias_datatype = zendnn_bf16;
+  }
+  if (result.scalar_type() == c10::ScalarType::BFloat16) {
+    result_datatype = zendnn_bf16;
+  }
+
+  data_types tensor_datatypes(input_datatype, weight_datatype, bias_datatype,
+                              result_datatype);
+
+  zendnn_custom_op::zendnn_matmul_direct(
+      input_ptr, weight_ptr, result_ptr, bias_ptr, alpha, beta, M, N, K, transA,
+      transB, lda, ldb, ldc, false /* weight_const */, tensor_datatypes,
+      zendnn_post_op, batch_A, batch_B);
+}
 } // namespace zentorch
