@@ -25,10 +25,8 @@ from ._custom_op_replacement import (
     eb_group_mlp_group_fusion,
     qkv_fusion,
 )
-from ._eltwise_fusions import (
-    zentorch_eltwise_unary_fusions,
-    zentorch_eltwise_binary_fusions,
-)
+from ._eltwise_unary_fusions import zentorch_eltwise_unary_fusions
+from ._eltwise_binary_fusions import zentorch_eltwise_binary_fusions
 from ._graph_preprocess_matcher import preprocess_graph_pass
 from ._fusion_matcher import fusions_graph_pass
 
