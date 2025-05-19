@@ -1,8 +1,3 @@
-/******************************************************************************
-* Copyright (c) 2023-2025 Advanced Micro Devices, Inc.
-* All rights reserved.
-******************************************************************************/
-
 # Examples
 Given below are some examples for running inference for various models with zentorch. Note that you may need to install additional packages in your environment if not already present. Assuming you have installed zentorch plugin in your environment, you can install the rest of the packages by running:
 ```bash

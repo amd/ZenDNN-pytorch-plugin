@@ -358,22 +358,41 @@ def replace_with_zentorch_ops(gm):
 
                 match.replace_by_example(repl, [*args])
 
-            # RoPE deepseek is only present in IPEX 2.6 or above
-            if hasattr(ipex_ops, "rotary_position_embedding_deepseek"):
-                rope_deepseek_args = [Arg() for _ in range(9)]
+            # TODO: Re-enable the deepseek rope replacements when the models
+            # using these kernels are added to testing.
+            # # RoPE deepseek is only present in IPEX 2.6 or above
+            # if hasattr(ipex_ops, "rotary_position_embedding_deepseek"):
+            #     rope_deepseek_args = [Arg() for _ in range(9)]
 
-                @register_graph_pattern(
-                    CallFunction(
-                        ipex_ops.rotary_position_embedding_deepseek, *rope_deepseek_args
-                    ),
-                    pass_dict=pass_pattern,
-                )
-                def rope_deepseek_replacement(match, *args):
-                    def repl(*args):
-                        counters["zentorch"]["zentorch_rope_deepseek"] += 1
-                        return zt_ops.zentorch_rope_deepseek(*args)
+            #     @register_graph_pattern(
+            #         CallFunction(
+            #             ipex_ops.rotary_position_embedding_deepseek, *rope_deepseek_args
+            #         ),
+            #         pass_dict=pass_pattern,
+            #     )
+            #     def rope_deepseek_replacement(match, *args):
+            #         def repl(*args):
+            #             counters["zentorch"]["zentorch_rope_deepseek"] += 1
+            #             return zt_ops.zentorch_rope_deepseek(*args)
 
-                    match.replace_by_example(repl, [*args])
+            #         match.replace_by_example(repl, [*args])
+
+            # # RoPE deepseek_v2 is only present in IPEX 2.7 or above
+            # if hasattr(ipex_ops, "rotary_position_embedding_deepseek_v2"):
+            #     rope_deepseek_v2_args = [Arg() for _ in range(8)]
+
+            #     @register_graph_pattern(
+            #         CallFunction(
+            #             ipex_ops.rotary_position_embedding_deepseek_v2, *rope_deepseek_v2_args
+            #         ),
+            #         pass_dict=pass_pattern,
+            #     )
+            #     def rope_deepseek_v2_replacement(match, *args):
+            #         def repl(*args):
+            #             counters["zentorch"]["zentorch_rope_deepseek_v2"] += 1
+            #             return zt_ops.zentorch_rope_deepseek_v2(*args)
+
+            #         match.replace_by_example(repl, [*args])
 
         GraphTransformObserver(gm, "pass_pattern").apply_graph_pass(pass_pattern.apply)
     gm.graph.lint()

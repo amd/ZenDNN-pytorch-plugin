@@ -3,8 +3,8 @@
 # All rights reserved.
 #
 # Was sourced from
-# https://github.com/intel/intel-extension-for-pytorch/blob/v2.6.0%2Bcpu/tests/cpu/test_rope.py
-# IPEX commit ID: 18eeefa
+# https://github.com/intel/intel-extension-for-pytorch/blob/v2.7.0%2Bcpu/tests/cpu/test_rope.py
+# IPEX commit ID: 30ecffa
 # ******************************************************************************
 
 import unittest
@@ -354,6 +354,8 @@ class Test_Fused_Rope(Zentorch_TestCase):
                 q_clone = q.clone()
                 kv_clone = kv.clone()
                 k_pe_clone = k_pe.clone()
+                q_clone2 = q.clone()
+                k_pe_clone2 = k_pe.clone()
                 q_ref, k_ref, v_ref = deepseek_rope(
                     q,
                     kv,
@@ -378,9 +380,23 @@ class Test_Fused_Rope(Zentorch_TestCase):
                     qk_nope_head_dim,
                     qk_rope_head_dim,
                 )
+                q_z2, k_pe_z2 = (
+                    torch.ops.zentorch.zentorch_rope_deepseek_v2(
+                        q_clone2,
+                        k_pe_clone2,
+                        sincos,
+                        position_ids,
+                        num_head,
+                        q_head_dim,
+                        qk_nope_head_dim,
+                        qk_rope_head_dim,
+                    )
+                )
                 upcast_and_assert(q_ref.transpose(1, 2), q_z, atol=prec)
                 upcast_and_assert(k_ref.transpose(1, 2), k_z, atol=prec)
                 upcast_and_assert(v_ref.transpose(1, 2), v_z, atol=prec)
+                upcast_and_assert(q_ref.transpose(1, 2), q_z2, atol=prec)
+                upcast_and_assert(k_ref.transpose(1, 2)[:, :, :1, qk_nope_head_dim:], k_pe_z2, atol=prec)
 
 
 if __name__ == "__main__":
