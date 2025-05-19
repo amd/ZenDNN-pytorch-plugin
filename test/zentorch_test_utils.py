@@ -870,4 +870,4 @@ class Test_Data(metaclass=Singleton):
     # TODO ZENAI-1522
     # Change str_type -> str_type.lower()
     def get_torch_type(self, str_type):
-        return self.dtypes[str_type]
+        return self.dtypes[str_type.lower()]
