@@ -349,43 +349,51 @@ class Test_Qlinear(QLinearTestCase):
             in str(context.exception)
         )
 
-        with self.assertRaises(RuntimeError) as context:
-            torch.ops.zentorch.zentorch_qlinear(
-                self.data.x_for_qlinear["float32"][input_dim],
-                self.data.y_int8[q_weight_idx],
-                self.data.bias_for_qlinear[bias_opt_idx],
-                self.data.y_scales["per_channel"],  # per-channel scales not supported
-                get_comp_zero_points(
-                    self.data.x_zero_points["per_tensor"]["float32"][
-                        q_zero_points_dtype
-                    ]
-                ),
-                self.data.y_scales[q_granularity_val],
-                get_comp_zero_points(self.data.y_zero_points[q_granularity_val]),
-                output_dtype=self.data.x_for_qlinear["float32"][input_dim].dtype,
+        # Skip qlinear test for n=1 because when self.data.y_scales["per_channel"].numel() == 1,
+        # it refers to per-tensor input scales, which is a valid configuration, and thus we skip
+        # this test for this valid scenario.
+        if self.data.y_scales["per_channel"].numel() != 1:
+            with self.assertRaises(RuntimeError) as context:
+                torch.ops.zentorch.zentorch_qlinear(
+                    self.data.x_for_qlinear["float32"][input_dim],
+                    self.data.y_int8[q_weight_idx],
+                    self.data.bias_for_qlinear[bias_opt_idx],
+                    self.data.y_scales["per_channel"],  # per-channel scales not supported
+                    get_comp_zero_points(
+                        self.data.x_zero_points["per_tensor"]["float32"][
+                            q_zero_points_dtype
+                        ]
+                    ),
+                    self.data.y_scales[q_granularity_val],
+                    get_comp_zero_points(self.data.y_zero_points[q_granularity_val]),
+                    output_dtype=self.data.x_for_qlinear["float32"][input_dim].dtype,
+                )
+            self.assertTrue(
+                "unsupported number of elements for input_scales "
+                "with respect to input tensor" in str(context.exception)
             )
-        self.assertTrue(
-            "unsupported number of elements for input_scales "
-            "with respect to input tensor" in str(context.exception)
-        )
 
-        with self.assertRaises(RuntimeError) as context:
-            torch.ops.zentorch.zentorch_qlinear(
-                self.data.x_for_qlinear["float32"][input_dim],
-                self.data.y_int8[q_weight_idx],
-                self.data.bias_for_qlinear[bias_opt_idx],
-                self.data.x_scales["per_tensor"],
-                self.data.y_zero_points["per_channel"].to(
-                    torch.int32
-                ),  # wrong num of zero points
-                self.data.y_scales[q_granularity_val],
-                get_comp_zero_points(self.data.y_zero_points[q_granularity_val]),
-                output_dtype=self.data.x_for_qlinear["float32"][input_dim].dtype,
+        # Skip qlinear test for n=1 because when self.data.y_zero_points["per_channel"].numel() == 1,
+        # it refers to per-tensor input zero points, which is also a valid configuration, and therefore
+        #  we skip this test for this valid scenario.
+        if self.data.y_zero_points["per_channel"].numel() != 1:
+            with self.assertRaises(RuntimeError) as context:
+                torch.ops.zentorch.zentorch_qlinear(
+                    self.data.x_for_qlinear["float32"][input_dim],
+                    self.data.y_int8[q_weight_idx],
+                    self.data.bias_for_qlinear[bias_opt_idx],
+                    self.data.x_scales["per_tensor"],
+                    self.data.y_zero_points["per_channel"].to(
+                        torch.int32
+                    ),  # wrong num of zero points
+                    self.data.y_scales[q_granularity_val],
+                    get_comp_zero_points(self.data.y_zero_points[q_granularity_val]),
+                    output_dtype=self.data.x_for_qlinear["float32"][input_dim].dtype,
+                )
+            self.assertTrue(
+                "only supporting per-tensor quantization for input"
+                in str(context.exception)
             )
-        self.assertTrue(
-            "only supporting per-tensor quantization for input"
-            in str(context.exception)
-        )
 
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_qlinear(

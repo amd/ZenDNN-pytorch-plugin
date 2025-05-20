@@ -65,10 +65,7 @@ class Range:
 b_range = Range(1, 10)
 m_range = Range(1, 10)
 k_range = Range(1, 10)
-
-# TODO ZENAI-1079
-# n=1 fails in op_tests/test_qlinear.py for test_qlinear_incorrect_sizes
-n_range = Range(2, 10)
+n_range = Range(1, 10)
 
 p_range = Range(1, 11)
 q_range = Range(1, 11)
