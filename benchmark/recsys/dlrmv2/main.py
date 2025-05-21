@@ -79,7 +79,7 @@ def sub_process(
         for _ in range(num_warmups):
             _ = dlrm_wrap(model, densex, index, offset)
     end = time.time()
-    print(f"warmed up in sub_process {i} in :{(end-start):.4f} seconds", flush=True)
+    print(f"warmed up in sub_process {i} in :{(end - start):.4f} seconds", flush=True)
 
     if enable_profiling:
         print("Running Profiled run")
@@ -223,14 +223,14 @@ if __name__ == "__main__":
         calculate_accuracy(result_tensor)
         print(
             "throughput = "
-            f"{num_of_queries*args.batch_size/(end_time-start_time)}"
+            f"{num_of_queries * args.batch_size / (end_time - start_time)}"
             " Samples per second",
             flush=True,
         )
     else:
         print(
             "throughput = "
-            f"{num_of_queries*args.batch_size/(end_time-start_time)}"
+            f"{num_of_queries * args.batch_size / (end_time - start_time)}"
             " Samples per second",
             flush=True,
         )

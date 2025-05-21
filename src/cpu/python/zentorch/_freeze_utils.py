@@ -5,7 +5,8 @@
 
 import torch
 import contextlib
-from ._freezing import freeze
+from ._freezing import _freeze
+from ._utils import is_version_compatible_import
 
 
 @contextlib.contextmanager
@@ -16,7 +17,13 @@ def freezing_enabled():
     previous_freeze_path = torch._inductor.freezing.freeze
     # monkey patch pytorch freeze
     torch._inductor.config.freezing = True
-    torch._inductor.freezing.freeze = freeze
+    if is_version_compatible_import(["_inductor", "freezing"], ["freeze"]):
+        # PT 2.6
+        # TODO: remove this if block when dropping support for PT 2.6
+        torch._inductor.freezing.freeze = _freeze
+    else:
+        # PT 2.7 or above
+        torch._inductor.freezing._freeze = _freeze
     yield
     # reset to the previous values
     torch._inductor.config.freezing = previous_freeze_config

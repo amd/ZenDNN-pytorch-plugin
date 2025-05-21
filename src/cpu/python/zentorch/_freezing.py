@@ -16,19 +16,19 @@ from torch._inductor.compile_fx import fake_tensor_prop
 from torch._inductor.pattern_matcher import stable_topological_sort
 from torch._inductor.fx_passes.post_grad import view_to_reshape
 from torch._functorch.compile_utils import fx_graph_cse
-from typing import List, Tuple
 from ._logging import get_logger
 from ._optimize import optimize
 from ._utils import is_version_compatible_import
-
-if is_version_compatible_import(["_inductor", "constant_folding"], ["constant_fold"]):
-    from torch._inductor.constant_folding import constant_fold
+from torch._inductor.constant_folding import constant_fold
+from torch.fx._utils import lazy_format_graph_code
+if is_version_compatible_import(["_inductor", "freezing_utils"], ["record_has_frozen_params"]):
+    # record_has_frozen_params() is only present in PT 2.7 or above
+    from torch._inductor.freezing_utils import record_has_frozen_params
 else:
-    from torch._inductor.freezing import constant_fold  # for PT 2.1.x
-if is_version_compatible_import(["fx", "_utils"], ["lazy_format_graph_code"]):
-    from torch.fx._utils import lazy_format_graph_code
-else:
-    from torch._dynamo.utils import lazy_format_graph_code  # for PT 2.1.x, 2.2.x, 2.3.x
+    # TODO: remove this else block when dropping support for PT 2.6
+    def record_has_frozen_params(gm):
+        # adding a new attribute is supported
+        gm._has_frozen_params = True
 
 logger = get_logger(__name__)
 
@@ -39,11 +39,11 @@ logger = get_logger(__name__)
 # in forward_compiler_freezing to avoid unnecessary/inapplicable
 # optimizations in native (like mkldnn); selectively porting
 # constant_fold logic also results in multiple downstream errors.
-def freeze(
+def _freeze(
     dynamo_gm: torch.fx.GraphModule,
     aot_autograd_gm: torch.fx.GraphModule,
-    example_inputs: List[torch._subclasses.FakeTensor],
-) -> Tuple[torch.fx.GraphModule, List[int]]:
+    example_inputs: list[torch._subclasses.FakeTensor],
+) -> tuple[torch.fx.GraphModule, list[int]]:
     logger.info("Optimizing the model with zentorch ops.")
     zen_gm = optimize(aot_autograd_gm)
     # we do view to reshape to avoid lowering exception
@@ -90,4 +90,5 @@ def freeze(
 
     logger.debug("%s", lazy_format_graph_code("FROZEN GRAPH", zen_gm))
 
+    record_has_frozen_params(zen_gm)
     return zen_gm, preserved_arg_indices
