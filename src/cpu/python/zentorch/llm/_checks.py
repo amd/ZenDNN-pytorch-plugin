@@ -57,8 +57,8 @@ def essential_checks(model, dtype):
         if is_well_supported_model:
             installed_ipex_version = get_installed_ipex_version()
             if installed_ipex_version:
-                # Zentorch will work with IPEX of atleast 2.3
-                min_version = TorchVersion("2.3")
+                # Zentorch will work with IPEX of atleast 2.6
+                min_version = TorchVersion("2.6")
                 installed_ipex_version = TorchVersion(installed_ipex_version)
 
                 if installed_ipex_version >= min_version:

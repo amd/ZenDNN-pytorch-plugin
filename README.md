@@ -161,10 +161,10 @@ Build setup downloads the ZenDNN, AOCL BLIS and FBGEMM repos into `third_party` 
 conda create -n pt-zentorch python=3.10 -y
 conda activate pt-zentorch
 ```
-#### 2.2.2.2. Install PyTorch v2.6.0
+#### 2.2.2.2. Install PyTorch v2.7.0
 ```bash
 # Pip command
-pip install torch==2.6.0 --index-url https://download.pytorch.org/whl/cpu
+pip install torch==2.7.0 --index-url https://download.pytorch.org/whl/cpu
 ```
 
 >Note: The CPU version of torch/pytorch only supports CPU version of torchvision.
@@ -269,7 +269,7 @@ python -c 'import zentorch; print("\n".join([f"{i+1:3}. {item}" for i, item in e
 If a model id other than the listed above are passed, zentorch.llm.optimize will not apply the above specific optimizations to the model and a warning will be displayed as follows: “Complete set of optimizations are currently unavailable for this model.” Control will pass to the zentorch custom backend to torch.compile for applying optimizations.
 
 For leveraging the best performance of zentorch_llm_optimize, user has to install IPEX corresponding to the PyTorch version that is installed in the environment.
-The PyTorch version for performance execution of supported LLMs should be greater than or equal to 2.3.0. Recommended version for optimal performance is using PyTorch 2.6.
+The PyTorch version for performance execution of supported LLMs should be greater than or equal to 2.6.0. Recommended version for optimal performance is using PyTorch 2.7.
 zentorch.llm.optimize requires the dtype to be torch.dtype. Please make sure you pass a valid torch.dtype (such as torch.bfloat16) to optimize your model.
 
 ### Case #1. If output is generated through a call to direct `model`, optimize it as below:

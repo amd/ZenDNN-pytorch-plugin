@@ -13,16 +13,16 @@ import subprocess
 import torch
 import warnings
 
-if parse(__version__) < parse("2.2"):
+if parse(__version__) < parse("2.6"):
     raise ImportError(
         "zentorch Plugin requires torch version \
-     2.2 or higher. Please upgrade your torch version \
+     2.6 or higher. Please upgrade your torch version \
         and retry the build."
     )
 
-if parse(__version__) < parse("2.6"):
+if parse(__version__) < parse("2.7"):
     warnings.warn(
-        "Consider upgrading to torch version 2.6 for improved performance.",
+        "Consider upgrading to torch version 2.7 for improved performance.",
         stacklevel=1,
     )
 
@@ -129,16 +129,16 @@ def get_required_ipex_version(pt_version):
         ".".join([torch_major_version, torch_minor_version])
     )
 
-    # Check for minimum torch version of 2.3. This is required for
+    # Check for minimum torch version of 2.6. This is required for
     # intel_extension_for_pytorch to work under the hood.
-    if torch_major_minor_version >= TorchVersion("2.3.0"):
+    if torch_major_minor_version >= TorchVersion("2.6.0"):
         required_ipex_version = ".".join(
             [torch_major_version, torch_minor_version, "0"]
         )
 
         # Behaviour of tilda in the installation process
-        # "torch~=2.1" installs PT 2.3. i.e Latest in 2.x
-        # "torch~=2.1.1" installs PT 2.1.2 i.e Latest in 2.1.x
+        # "torch~=2.x" installs PT 2.7. i.e Latest in 2.x
+        # "torch~=2.6.x" installs PT 2.6.0 i.e Latest in 2.6.x
         return f"intel_extension_for_pytorch~={required_ipex_version}"
 
 
