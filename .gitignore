@@ -7,3 +7,4 @@ src/cpu/python/zentorch/_build_info.py
 __pycache__
 benchmark/recsys/dlrmv2-mlperf/mlperf.conf
 benchmark/recsys/dlrmv2-mlperf/output
+.hypothesis
