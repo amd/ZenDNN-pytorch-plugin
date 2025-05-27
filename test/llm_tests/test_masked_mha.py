@@ -18,7 +18,12 @@ import sys
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent))
-from llm_utils import Zentorch_TestCase, run_tests, skip_test_pt_2_3, zentorch  # noqa: 402
+from llm_utils import ( # noqa: 402
+    Zentorch_TestCase,
+    run_tests,
+    skip_test_pt_2_3,
+    zentorch,
+)  # noqa: 402
 
 N = 2
 batch_size_list = [2**i for i in range(N)]
@@ -245,44 +250,57 @@ class Test_Masked_MHA(Zentorch_TestCase):
             head_dim=head_size,
         )
         torch._dynamo.reset()
-        mha = torch.compile(mha, backend="zentorch")
+        # Wrap the entire test in no_grad to ensure no gradients are computed
+        with torch.no_grad():
+            mha = torch.compile(mha, backend="zentorch")
+            mha.eval()  # Ensure model is in eval mode
 
-        # first token decode
-        input_t = torch.randn(
-            batch_size,
-            first_seq_len,
-            head_num * head_size,
-            dtype=torch.float32,
-        )
-        key_cache_iakv = torch.randn(
-            max_seq_len,
-            beam_size * batch_size,
-            head_num,
-            head_size,
-            dtype=torch.float32,
-        )
-        value_cache_iakv = torch.randn(
-            max_seq_len,
-            beam_size * batch_size,
-            head_num,
-            head_size,
-            dtype=torch.float32,
-        )
-        beam_idx = torch.zeros(max_seq_len, beam_size * batch_size, dtype=torch.int64)
-        # create attention mask and causal mask
-        attention_mask = torch.zeros(
-            batch_size, 1, first_seq_len, first_seq_len, dtype=torch.float32
-        )
-        casual_mask = torch.full(
-            (first_seq_len, first_seq_len), -1e6, dtype=input_t.dtype
-        )
-        casual_mask = casual_mask.triu(1)
-        casual_mask = casual_mask.unsqueeze(0).unsqueeze(0)
-        attention_mask = (
-            attention_mask + casual_mask
-        )  # combine the attention mask and causal mask
-        # UT for first token with fp32
-        with torch.inference_mode(), torch.no_grad():
+            # first token decode
+            input_t = torch.randn(
+                batch_size,
+                first_seq_len,
+                head_num * head_size,
+                dtype=torch.float32,
+                requires_grad=False,  # Explicitly disable gradients for input
+            )
+            key_cache_iakv = torch.randn(
+                max_seq_len,
+                beam_size * batch_size,
+                head_num,
+                head_size,
+                dtype=torch.float32,
+                requires_grad=False,
+            )
+            value_cache_iakv = torch.randn(
+                max_seq_len,
+                beam_size * batch_size,
+                head_num,
+                head_size,
+                dtype=torch.float32,
+                requires_grad=False,
+            )
+            beam_idx = torch.zeros(
+                max_seq_len, beam_size * batch_size, dtype=torch.int64
+            )
+            # create attention mask and causal mask
+            attention_mask = torch.zeros(
+                batch_size,
+                1,
+                first_seq_len,
+                first_seq_len,
+                dtype=torch.float32,
+                requires_grad=False,
+            )
+            casual_mask = torch.full(
+                (first_seq_len, first_seq_len), -1e6, dtype=input_t.dtype
+            )
+            casual_mask = casual_mask.triu(1)
+            casual_mask = casual_mask.unsqueeze(0).unsqueeze(0)
+            attention_mask = (
+                attention_mask + casual_mask
+            )  # combine the attention mask and causal mask
+
+            # UT for first token with fp32
             naive_output, _, key_cache, value_cache, _ = mha(
                 input_t, None, None, max_seq_len, attention_mask, None, None
             )
@@ -302,8 +320,7 @@ class Test_Masked_MHA(Zentorch_TestCase):
                 True,
                 torch.tensor(offset),
             )
-            # self.assertEqual(naive_output,
-            # indirect_access_kv_cache_output)
+
             key_cache = key_cache.repeat_interleave(beam_size, dim=0)
             value_cache = value_cache.repeat_interleave(beam_size, dim=0)
             for i in range(batch_size):
@@ -329,79 +346,88 @@ class Test_Masked_MHA(Zentorch_TestCase):
             key_cache = torch.index_select(key_cache, 0, beam_idx_t)
             value_cache = torch.index_select(value_cache, 0, beam_idx_t)
 
-        # # #UT for first token with bf16
-        if zentorch._C.is_bf16_supported():
-            input_t_bf16 = input_t.bfloat16()
-            key_cache_iakv_bf16 = key_cache_iakv.bfloat16()
-            value_cache_iakv_bf16 = value_cache_iakv.bfloat16()
-            attention_mask_bf16 = attention_mask.bfloat16()
-            with torch.inference_mode(), torch.no_grad(), torch.autocast(
-                device_type="cpu",
-                enabled=True,
-                dtype=torch.bfloat16,
-            ):
-                (
-                    naive_output_bf16,
-                    _,
-                    key_cache_bf16,
-                    value_cache_bf16,
-                    _,
-                ) = mha(
-                    input_t_bf16,
-                    None,
-                    None,
-                    max_seq_len,
-                    attention_mask_bf16,
-                    None,
-                    None,
-                )
-                (
-                    indirect_access_kv_cache_output_bf16,
-                    _,
-                    key_cache_iakv_bf16,
-                    value_cache_iakv_bf16,
-                    beam_idx,
-                ) = mha(
-                    input_t_bf16,
-                    key_cache_iakv_bf16,
-                    value_cache_iakv_bf16,
-                    max_seq_len,
-                    attention_mask_bf16,
-                    beam_idx,
-                    True,
-                    torch.tensor(offset),
-                )
-                self.assertEqual(
-                    naive_output_bf16,
-                    indirect_access_kv_cache_output_bf16,
-                    prec=2e-2,
-                )
-                key_cache_bf16 = key_cache_bf16.repeat_interleave(beam_size, dim=0)
-                value_cache_bf16 = value_cache_bf16.repeat_interleave(beam_size, dim=0)
-                for i in range(batch_size):
-                    self.assertEqual(
-                        key_cache_bf16.transpose(0, 1)[:, i * beam_size, :, :],  # no qa
-                        key_cache_iakv_bf16[0:first_seq_len, i * beam_size, :, :],
+            # UT for first token with bf16
+            if zentorch._C.is_bf16_supported():
+                input_t_bf16 = input_t.bfloat16()
+                key_cache_iakv_bf16 = key_cache_iakv.bfloat16()
+                value_cache_iakv_bf16 = value_cache_iakv.bfloat16()
+                attention_mask_bf16 = attention_mask.bfloat16()
+                with torch.autocast(
+                    device_type="cpu",
+                    enabled=True,
+                    dtype=torch.bfloat16,
+                ):
+                    (
+                        naive_output_bf16,
+                        _,
+                        key_cache_bf16,
+                        value_cache_bf16,
+                        _,
+                    ) = mha(
+                        input_t_bf16,
+                        None,
+                        None,
+                        max_seq_len,
+                        attention_mask_bf16,
+                        None,
+                        None,
+                    )
+                    (
+                        indirect_access_kv_cache_output_bf16,
+                        _,
+                        key_cache_iakv_bf16,
+                        value_cache_iakv_bf16,
+                        beam_idx,
+                    ) = mha(
+                        input_t_bf16,
+                        key_cache_iakv_bf16,
+                        value_cache_iakv_bf16,
+                        max_seq_len,
+                        attention_mask_bf16,
+                        beam_idx,
+                        True,
+                        torch.tensor(offset),
                     )
                     self.assertEqual(
-                        value_cache_bf16.transpose(0, 1)[:, i * beam_size, :, :],
-                        value_cache_iakv_bf16[0:first_seq_len, i * beam_size, :, :],
+                        naive_output_bf16,
+                        indirect_access_kv_cache_output_bf16,
+                        prec=2e-2,
                     )
-                key_cache_bf16 = torch.index_select(key_cache_bf16, 0, beam_idx_t)
-                value_cache_bf16 = torch.index_select(value_cache_bf16, 0, beam_idx_t)
+                    key_cache_bf16 = key_cache_bf16.repeat_interleave(beam_size, dim=0)
+                    value_cache_bf16 = value_cache_bf16.repeat_interleave(
+                        beam_size, dim=0
+                    )
+                    for i in range(batch_size):
+                        self.assertEqual(
+                            key_cache_bf16.transpose(0, 1)[:, i * beam_size, :, :],
+                            key_cache_iakv_bf16[0:first_seq_len, i * beam_size, :, :],
+                        )
+                        self.assertEqual(
+                            value_cache_bf16.transpose(0, 1)[:, i * beam_size, :, :],
+                            value_cache_iakv_bf16[0:first_seq_len, i * beam_size, :, :],
+                        )
+                    key_cache_bf16 = torch.index_select(key_cache_bf16, 0, beam_idx_t)
+                    value_cache_bf16 = torch.index_select(
+                        value_cache_bf16, 0, beam_idx_t
+                    )
 
-        offset = offset + first_seq_len
-        # UT for next token with fp32
-        input_t = torch.randn(
-            beam_size * batch_size,
-            1,
-            head_num * head_size,
-            dtype=torch.float32,
-        )
-        attention_mask = torch.zeros(
-            beam_size * batch_size, 1, 1, offset + 1, dtype=torch.float32
-        )
-        with torch.inference_mode(), torch.no_grad():
+            offset = offset + first_seq_len
+            # UT for next token with fp32
+            input_t = torch.randn(
+                beam_size * batch_size,
+                1,
+                head_num * head_size,
+                dtype=torch.float32,
+                requires_grad=False,
+            )
+            attention_mask = torch.zeros(
+                beam_size * batch_size,
+                1,
+                1,
+                offset + 1,
+                dtype=torch.float32,
+                requires_grad=False,
+            )
             naive_output, _, key_cache, value_cache, _ = mha(
                 input_t,
                 key_cache,
@@ -427,6 +453,7 @@ class Test_Masked_MHA(Zentorch_TestCase):
                 True,
                 torch.tensor(offset),
             )
+
             self.assertEqual(naive_output, indirect_access_kv_cache_output)
             self.assertEqual(
                 key_cache.transpose(0, 1)[offset],
@@ -436,90 +463,97 @@ class Test_Masked_MHA(Zentorch_TestCase):
                 value_cache.transpose(0, 1)[offset],
                 value_cache_iakv[offset, :, :, :],
             )
-        # #UT for next token with bf16
-        if zentorch._C.is_bf16_supported():
-            input_t_bf16 = input_t.bfloat16()
-            attention_mask_bf16 = attention_mask.bfloat16()
-            with torch.inference_mode(), torch.no_grad(), torch.autocast(
-                device_type="cpu",
-                enabled=True,
-                dtype=torch.bfloat16,
-            ):
-                (
-                    naive_output_bf16,
-                    _,
-                    key_cache_bf16,
-                    value_cache_bf16,
-                    _,
-                ) = mha(
-                    input_t_bf16,
-                    key_cache_bf16,
-                    value_cache_bf16,
-                    max_seq_len,
-                    attention_mask_bf16,
-                    None,
-                    None,
-                )
-                (
-                    indirect_access_kv_cache_output_bf16,
-                    _,
-                    key_cache_iakv_bf16,
-                    value_cache_iakv_bf16,
-                    beam_idx,
-                ) = mha(
-                    input_t_bf16,
-                    key_cache_iakv_bf16,
-                    value_cache_iakv_bf16,
-                    max_seq_len,
-                    attention_mask_bf16,
-                    beam_idx,
-                    True,
-                    torch.tensor(offset),
-                )
-                self.assertEqual(
-                    naive_output_bf16,
-                    indirect_access_kv_cache_output_bf16,
-                    prec=0.05,
-                )
-                self.assertEqual(
-                    key_cache_bf16.transpose(0, 1)[offset],
-                    key_cache_iakv_bf16[offset, :, :, :],
-                )
-                self.assertEqual(
-                    value_cache_bf16.transpose(0, 1)[offset],
-                    value_cache_iakv_bf16[offset, :, :, :],
-                )
-                if beam_size == 4:
-                    beam_idx_t = torch.tensor([1, 3, 0, 0]).repeat(batch_size)
-                    for i in range(1, batch_size):
-                        beam_idx_t[i * beam_size : i * beam_size + beam_size] = (
-                            beam_idx_t[i * beam_size : i * beam_size + beam_size]
-                            + i * beam_size
-                        )
-                elif beam_size == 1:
-                    beam_idx_t = torch.arange(batch_size)
-                beam_idx[offset] = beam_idx_t
-                offset = offset + 1
-                # reorder cache for naive impelementation
+            # UT for next token with bf16
+            if zentorch._C.is_bf16_supported():
+                input_t_bf16 = input_t.bfloat16()
+                attention_mask_bf16 = attention_mask.bfloat16()
+                with torch.autocast(
+                    device_type="cpu",
+                    enabled=True,
+                    dtype=torch.bfloat16,
+                ):
+                    (
+                        naive_output_bf16,
+                        _,
+                        key_cache_bf16,
+                        value_cache_bf16,
+                        _,
+                    ) = mha(
+                        input_t_bf16,
+                        key_cache_bf16,
+                        value_cache_bf16,
+                        max_seq_len,
+                        attention_mask_bf16,
+                        None,
+                        None,
+                    )
+                    (
+                        indirect_access_kv_cache_output_bf16,
+                        _,
+                        key_cache_iakv_bf16,
+                        value_cache_iakv_bf16,
+                        beam_idx,
+                    ) = mha(
+                        input_t_bf16,
+                        key_cache_iakv_bf16,
+                        value_cache_iakv_bf16,
+                        max_seq_len,
+                        attention_mask_bf16,
+                        beam_idx,
+                        True,
+                        torch.tensor(offset),
+                    )
+                    self.assertEqual(
+                        naive_output_bf16,
+                        indirect_access_kv_cache_output_bf16,
+                        prec=0.05,
+                    )
+                    self.assertEqual(
+                        key_cache_bf16.transpose(0, 1)[offset],
+                        key_cache_iakv_bf16[offset, :, :, :],
+                    )
+                    self.assertEqual(
+                        value_cache_bf16.transpose(0, 1)[offset],
+                        value_cache_iakv_bf16[offset, :, :, :],
+                    )
+                    if beam_size == 4:
+                        beam_idx_t = torch.tensor([1, 3, 0, 0]).repeat(batch_size)
+                        for i in range(1, batch_size):
+                            beam_idx_t[i * beam_size : i * beam_size + beam_size] = (
+                                beam_idx_t[i * beam_size : i * beam_size + beam_size]
+                                + i * beam_size
+                            )
+                    elif beam_size == 1:
+                        beam_idx_t = torch.arange(batch_size)
+                    beam_idx[offset] = beam_idx_t
+                    offset = offset + 1
+                    # reorder cache for naive impelementation
+                    key_cache = torch.index_select(key_cache, 0, beam_idx_t)
+                    value_cache = torch.index_select(value_cache, 0, beam_idx_t)
+                    key_cache_bf16 = torch.index_select(key_cache_bf16, 0, beam_idx_t)
+                    value_cache_bf16 = torch.index_select(
+                        value_cache_bf16, 0, beam_idx_t
+                    )
+            else:
                 key_cache = torch.index_select(key_cache, 0, beam_idx_t)
                 value_cache = torch.index_select(value_cache, 0, beam_idx_t)
-                key_cache_bf16 = torch.index_select(key_cache_bf16, 0, beam_idx_t)
-                value_cache_bf16 = torch.index_select(value_cache_bf16, 0, beam_idx_t)
-        else:
-            key_cache = torch.index_select(key_cache, 0, beam_idx_t)
-            value_cache = torch.index_select(value_cache, 0, beam_idx_t)
-            offset = offset + 1
-        # UT for next token with fp32
-        input_t = torch.randn(
-            beam_size * batch_size,
-            1,
-            head_num * head_size,
-            dtype=torch.float32,
-        )
-        attention_mask = torch.zeros(
-            beam_size * batch_size, 1, 1, offset + 1, dtype=torch.float32
-        )
-        with torch.inference_mode(), torch.no_grad():
+                offset = offset + 1
+            # UT for next token with fp32
+            input_t = torch.randn(
+                beam_size * batch_size,
+                1,
+                head_num * head_size,
+                dtype=torch.float32,
+                requires_grad=False,
+            )
+            attention_mask = torch.zeros(
+                beam_size * batch_size,
+                1,
+                1,
+                offset + 1,
+                dtype=torch.float32,
+                requires_grad=False,
+            )
             naive_output, _, key_cache, value_cache, _ = mha(
                 input_t,
                 key_cache,
@@ -555,59 +589,59 @@ class Test_Masked_MHA(Zentorch_TestCase):
                 value_cache.transpose(0, 1)[offset],
                 value_cache_iakv[offset, :, :, :],
             )
-        # #UT for next token with bf16
-        if zentorch._C.is_bf16_supported():
-            input_t_bf16 = input_t.bfloat16()
-            attention_mask_bf16 = attention_mask.bfloat16()
-            with torch.inference_mode(), torch.no_grad(), torch.autocast(
-                device_type="cpu",
-                enabled=True,
-                dtype=torch.bfloat16,
-            ):
-                (
-                    naive_output_bf16,
-                    _,
-                    key_cache_bf16,
-                    value_cache_bf16,
-                    _,
-                ) = mha(
-                    input_t_bf16,
-                    key_cache_bf16,
-                    value_cache_bf16,
-                    max_seq_len,
-                    attention_mask_bf16,
-                    None,
-                    None,
-                )
-                (
-                    indirect_access_kv_cache_output_bf16,
-                    _,
-                    key_cache_iakv_bf16,
-                    value_cache_iakv_bf16,
-                    beam_idx,
-                ) = mha(
-                    input_t_bf16,
-                    key_cache_iakv_bf16,
-                    value_cache_iakv_bf16,
-                    max_seq_len,
-                    attention_mask_bf16,
-                    beam_idx,
-                    True,
-                    torch.tensor(offset),
-                )
-                self.assertEqual(
-                    naive_output_bf16,
-                    indirect_access_kv_cache_output_bf16,
-                    prec=0.05,
-                )
-                self.assertEqual(
-                    key_cache_bf16.transpose(0, 1)[offset],
-                    key_cache_iakv_bf16[offset, :, :, :],
-                )
-                self.assertEqual(
-                    value_cache_bf16.transpose(0, 1)[offset],
-                    value_cache_iakv_bf16[offset, :, :, :],
-                )
+            # UT for next token with bf16
+            if zentorch._C.is_bf16_supported():
+                input_t_bf16 = input_t.bfloat16()
+                attention_mask_bf16 = attention_mask.bfloat16()
+                with torch.autocast(
+                    device_type="cpu",
+                    enabled=True,
+                    dtype=torch.bfloat16,
+                ):
+                    (
+                        naive_output_bf16,
+                        _,
+                        key_cache_bf16,
+                        value_cache_bf16,
+                        _,
+                    ) = mha(
+                        input_t_bf16,
+                        key_cache_bf16,
+                        value_cache_bf16,
+                        max_seq_len,
+                        attention_mask_bf16,
+                        None,
+                        None,
+                    )
+                    (
+                        indirect_access_kv_cache_output_bf16,
+                        _,
+                        key_cache_iakv_bf16,
+                        value_cache_iakv_bf16,
+                        beam_idx,
+                    ) = mha(
+                        input_t_bf16,
+                        key_cache_iakv_bf16,
+                        value_cache_iakv_bf16,
+                        max_seq_len,
+                        attention_mask_bf16,
+                        beam_idx,
+                        True,
+                        torch.tensor(offset),
+                    )
+                    self.assertEqual(
+                        naive_output_bf16,
+                        indirect_access_kv_cache_output_bf16,
+                        prec=0.05,
+                    )
+                    self.assertEqual(
+                        key_cache_bf16.transpose(0, 1)[offset],
+                        key_cache_iakv_bf16[offset, :, :, :],
+                    )
+                    self.assertEqual(
+                        value_cache_bf16.transpose(0, 1)[offset],
+                        value_cache_iakv_bf16[offset, :, :, :],
+                    )
 
     @parameterized.expand(
         product(
