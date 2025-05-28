@@ -29,7 +29,6 @@ from zentorch_test_utils import (  # noqa: 402 # noqa: F401
     skip_test_pt_2_3,
     skip_test_pt_2_4,
     reset_dynamo,
-    set_seed,
     freeze_opt,
     freeze_def_opt,
     test_with_freeze_opt,
@@ -265,7 +264,6 @@ class AddmmTestCase(Zentorch_TestCase):
         matrix_dim_3_Range=matrix_dim_3_range,
         matrix_dim_4_Range=matrix_dim_4_range,
     ):
-        set_seed(seed=SEED)
         dtype = draw(st.sampled_from(dtype_list))
         freeze = draw(st.sampled_from(freeze_list))
         b = draw(st.integers(bRange.get_min(), bRange.get_max()))
@@ -512,7 +510,6 @@ class AddmmTestCase(Zentorch_TestCase):
         mm_add_3D_p_Range=mm_add_3D_p_range,
         mm_add_3D_q_Range=mm_add_3D_q_range,
     ):
-        set_seed(seed=SEED)
         dtype = draw(st.sampled_from(dtype_list))
         mm_add_1D_m = draw(
             st.integers(
@@ -743,7 +740,6 @@ class ConvTestCase(Zentorch_TestCase):
         conv_kw_Range=conv_kw_range,
         conv_dilation2_list=conv_dilation2,
     ):
-        set_seed(seed=SEED)
         dtype = draw(st.sampled_from(dtype_list))
         freeze = draw(st.sampled_from(freeze_list))
         stride = draw(st.sampled_from(stride_list))
@@ -937,7 +933,6 @@ class EmbTestCase(Zentorch_TestCase):
         emb_dRange=emb_d_range,
         emb_mlp_list=emb_mlp_opt,
     ):
-        set_seed(seed=SEED)
         dtype = draw(st.sampled_from(dtype_list))
         freeze = draw(st.sampled_from(freeze_list))
         emb_r = draw(st.integers(emb_rRange.get_min(), emb_rRange.get_max()))
@@ -1118,7 +1113,6 @@ class MMTestCase(Zentorch_TestCase):
         nRange=n_range,
         mm_input_scaler_Range=mm_input_scaler_range,
     ):
-        set_seed(seed=SEED)
         dtype = draw(st.sampled_from(dtype_list))
         freeze = draw(st.sampled_from(freeze_list))
         b = draw(st.integers(bRange.get_min(), bRange.get_max()))
@@ -1355,7 +1349,6 @@ class WOQTestCase(Zentorch_TestCase):
         nRange=n_range,
         woq_qzeros_nonzero_dim_Range=woq_qzeros_nonzero_dim_range,
     ):
-        set_seed(seed=SEED)
         dtype = draw(st.sampled_from(woq_dtypes_list))
         woq_input_dim = draw(st.sampled_from(input_dim_opt_list))
         woq_bias_idx = draw(st.sampled_from(bias_opt_list))
@@ -1697,7 +1690,6 @@ class QLinearTestCase(Zentorch_TestCase):
         matrix_dim_2_Range=matrix_dim_2_range,
         matrix_dim_3_Range=matrix_dim_3_range,
     ):
-        set_seed(seed=SEED)
         constants = HypothesisConstants()
         input_dim = draw(st.sampled_from(input_dim_opt_list))
         q_weight = draw(st.sampled_from(q_weight_list_opt_list))
