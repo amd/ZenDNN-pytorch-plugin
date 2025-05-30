@@ -38,8 +38,6 @@ class CustomBuildExtension(BuildExtension):
             os.environ["ZENTORCH_USE_LOCAL_BLIS"] = "0"
         if "ZENTORCH_USE_LOCAL_ZENDNN" not in os.environ:
             os.environ["ZENTORCH_USE_LOCAL_ZENDNN"] = "0"
-        if "ZENTORCH_USE_LOCAL_FBGEMM" not in os.environ:
-            os.environ["ZENTORCH_USE_LOCAL_FBGEMM"] = "0"
         if "ZENTORCH_USE_LOCAL_LIBXSMM" not in os.environ:
             os.environ["ZENTORCH_USE_LOCAL_LIBXSMM"] = "0"
 
@@ -56,9 +54,13 @@ class CustomBuildExtension(BuildExtension):
             exit(1)
 
         build_type = "Debug" if os.getenv("DEBUG", 0) == "1" else "Release"
+
         # Finding torch cmake path that will be used to find Torch.cmake
         torch_cmake_prefix_path = torch.utils.cmake_prefix_path
         working_dir = os.path.abspath(os.path.dirname(__file__))
+
+        build_shared_libs = "OFF"
+
         cmake_cmd = [
             "cmake",
             "-S",
@@ -66,6 +68,7 @@ class CustomBuildExtension(BuildExtension):
             "-B",
             self.build_temp,
             f"-DCMAKE_BUILD_TYPE={build_type}",
+            f"-DBUILD_SHARED_LIBS={build_shared_libs}",
             f"-DCMAKE_PREFIX_PATH={torch_cmake_prefix_path}",
             f"-DINSTALL_LIB_DIR={self.build_lib}",
         ]
@@ -74,7 +77,8 @@ class CustomBuildExtension(BuildExtension):
         cmake_cmd.append(f"-DCMAKE_CXX_FLAGS={' '.join(zentorch_compile_args)}")
 
         self.spawn(cmake_cmd)
-        self.spawn(["make", "-j", "-C", self.build_temp])
+
+        self.spawn(["make", "-j", str(os.cpu_count()), "-C", self.build_temp])
 
         super().run()
 
@@ -156,10 +160,9 @@ project_root_dir = os.path.abspath(os.path.dirname(__file__))
 sources = [Path(project_root_dir, "src", "cpu", "cpp", "Bindings.cpp")]
 
 include_dirs = [
+    Path(os.environ["ZENDNN_BLIS_PATH"], "include", "LP64"),
     Path(project_root_dir, "third_party", "ZenDNN", "inc"),
-    Path(project_root_dir, "third_party", "FBGEMM", "include"),
-    Path(project_root_dir, "third_party", "libxsmm", "include"),
-    Path(project_root_dir, "third_party", "blis", "include", "amdzen"),
+    Path(project_root_dir, "third_party", "ZenDNN", "third_party", "fbgemm", "include"),
 ]
 
 zentorch_build_version = os.getenv("ZenTorch_BUILD_VERSION", PACKAGE_VERSION)
