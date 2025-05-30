@@ -245,7 +245,58 @@ def replace_with_zentorch_ops(gm):
                 pass_dict=pass_pattern,
             )
             def sdpa_replacement(
-                match: Match, query, key, value, *, dropout_p, is_causal, attn_mask, scale
+                match: Match,
+                query,
+                key,
+                value,
+                dropout_p,
+                is_causal,
+                *,
+                attn_mask,
+                scale
+            ):
+                def repl(query, key, value, dropout_p, is_causal, attn_mask, scale):
+                    counters["zentorch"]["zentorch_sdpa"] += 1
+                    return zt_ops.zentorch_sdpa(
+                        query,
+                        key,
+                        value,
+                        dropout_p=dropout_p,
+                        is_causal=is_causal,
+                        attn_mask=attn_mask,
+                        scale=scale,
+                    )
+
+                match.replace_by_example(
+                    repl,
+                    [query, key, value, dropout_p, is_causal, attn_mask, scale],
+                )
+
+            # dropout_p and is_causal are ambiguous arguments as they can be sent as
+            # either positional or keyword args so we require two registrations
+            @register_graph_pattern(
+                CallFunction(
+                    at_ops._scaled_dot_product_flash_attention_for_cpu,
+                    Arg(),
+                    Arg(),
+                    Arg(),
+                    KeywordArg("dropout_p"),
+                    KeywordArg("is_causal"),
+                    attn_mask=KeywordArg("attn_mask"),
+                    scale=KeywordArg("scale"),
+                ),
+                pass_dict=pass_pattern,
+            )
+            def sdpa_replacement_2(
+                match: Match,
+                query,
+                key,
+                value,
+                dropout_p,
+                is_causal,
+                *,
+                attn_mask,
+                scale
             ):
                 def repl(query, key, value, dropout_p, is_causal, attn_mask, scale):
                     counters["zentorch"]["zentorch_sdpa"] += 1
