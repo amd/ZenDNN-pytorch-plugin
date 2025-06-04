@@ -57,7 +57,8 @@ inline memory::format_tag get_default_format(const memory::dims &adims) {
 }
 
 // create a memory descriptor from aten tensor
-inline memory::desc zen_memory_desc(const at::Tensor &atensor) {
+inline memory::desc zen_memory_desc(const at::Tensor &atensor,
+                                    const bool &is_const = true) {
   // currently supported memory formats are default contiguous
   // and strided tensor formats, for which we have the check below
   memory::desc mem_desc;
@@ -65,12 +66,13 @@ inline memory::desc zen_memory_desc(const at::Tensor &atensor) {
     // Providing stride information while initializing the zen_memory_desc.
     // Otherwise, tensor data will be read in coloumn major format.
     mem_desc = memory::desc(atensor.sizes().vec(), get_ztype_from_aten(atensor),
-                            atensor.strides().vec());
+                            atensor.strides().vec(), is_const);
   } else if (atensor.is_contiguous()) {
     // if the default contiguous format is given,
     // then we proceed with descriptor creation
-    mem_desc = memory::desc(atensor.sizes().vec(), get_ztype_from_aten(atensor),
-                            get_default_format(atensor.sizes().vec()));
+    mem_desc =
+        memory::desc(atensor.sizes().vec(), get_ztype_from_aten(atensor),
+                     get_default_format(atensor.sizes().vec()), is_const);
   } else {
     ZENTORCH_CHECK(
         false, "Only default contiguous and strided formats are supported!");
@@ -81,13 +83,14 @@ inline memory::desc zen_memory_desc(const at::Tensor &atensor) {
 // below function returns memory with aten tensor and mem_desc
 inline memory zen_memory(const at::Tensor &atensor,
                          const memory::desc &mem_desc = memory::desc(),
-                         const engine &aengine = utils::engine::cpu_engine()) {
+                         const engine &aengine = utils::engine::cpu_engine(),
+                         const bool &is_const = true) {
   ZENTORCH_CHECK(atensor.device().is_cpu(), "expects CPU tensor input");
   ZENTORCH_CHECK(atensor.layout() == c10::Layout::Strided,
                  "expects dense tensor input");
 
   const memory::desc &a_mem_desc =
-      mem_desc.is_zero() ? zen_memory_desc(atensor) : mem_desc;
+      mem_desc.is_zero() ? zen_memory_desc(atensor, is_const) : mem_desc;
 
   auto atype = atensor.scalar_type();
   switch (atype) {

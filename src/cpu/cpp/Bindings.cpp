@@ -42,6 +42,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         py::arg("post_op_buffers"), py::arg("beta") = 0.0f,
         py::arg("alpha") = 1.0f,
         py::arg("zentorch_op_name") = "zentorch::zendnn_matmul_impl",
+        py::arg("is_weight_const") = true,
         "Perform matrix multiplication with ZenTorch optimizations.\n\n"
         "Args:\n"
         "    input (torch.Tensor): The input tensor.\n"

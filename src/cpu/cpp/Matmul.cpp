@@ -16,7 +16,8 @@ at::Tensor zentorch_matmul_impl(const at::Tensor &input,
                                 const std::vector<int64_t> &post_op_ids,
                                 const std::vector<at::Tensor> &post_op_buffers,
                                 const float &beta, const float &alpha,
-                                std::string zentorch_op_name) {
+                                std::string zentorch_op_name,
+                                const bool &is_weight_const = true) {
 
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
@@ -27,11 +28,10 @@ at::Tensor zentorch_matmul_impl(const at::Tensor &input,
 
   at::Tensor self_or_result_unsqueezed, input_, weight_, beta_bias;
   memory z_input, z_weight, z_result, z_bias;
-
   std::tie(self_or_result_unsqueezed, input_, weight_, beta_bias) =
       matmul_tensors_to_memory(input, weight, result, bias, beta_bias,
                                post_op_buffers, z_input, z_weight, z_bias,
-                               z_result, beta, alpha);
+                               z_result, beta, alpha, is_weight_const);
 
   zendnn::primitive_attr op_attr;
   post_ops po;
@@ -456,8 +456,10 @@ at::Tensor zentorch_bmm(const at::Tensor &self, const at::Tensor &mat2,
   const float alpha = 1.0f;
 
   LOG(INFO) << "Calling zentorch_matmul_impl from " << __FUNCTION__ << "!\n";
+  // weight in bmm will always be treated as a non-constant
   return zentorch_matmul_impl(self, mat2, empty_bias, out, post_op_ids,
-                              post_op_buffers, beta, alpha, zentorch_op_name);
+                              post_op_buffers, beta, alpha, zentorch_op_name,
+                              false);
 }
 
 // unary-binary fusions and binary fusions will be handle by this

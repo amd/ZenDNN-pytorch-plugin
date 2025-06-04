@@ -292,7 +292,7 @@ matmul_tensors_to_memory(const at::Tensor &mat1, const at::Tensor &mat2,
                          const std::vector<at::Tensor> &post_op_buffers,
                          memory &z_mat1, memory &z_mat2, memory &z_bias,
                          memory &z_result, const float &beta,
-                         const float &alpha) {
+                         const float &alpha, const bool &is_const = true) {
 
   check_valid_dtypes_for_matmul(mat1, mat2, bias, result, post_op_buffers);
   check_valid_sizes_for_matmul(mat1, mat2, bias, result, post_op_buffers);
@@ -319,7 +319,8 @@ matmul_tensors_to_memory(const at::Tensor &mat1, const at::Tensor &mat2,
 
   // convert the aten tensors to zendnn memory
   z_mat1 = zen_memory(mat1_);
-  z_mat2 = zen_memory(mat2_);
+  z_mat2 = zen_memory(mat2_, memory::desc(), utils::engine::cpu_engine(),
+                      is_const); // pass only for weight
   z_result = zen_memory(self_or_result_unsqueezed);
 
   // "addmm", "baddbmm" in pytorch allow bias to be 2-D or 3-D tensor
