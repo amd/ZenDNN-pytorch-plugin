@@ -904,7 +904,17 @@ def qkv_fusion(fx_graph):
             if len(first_node.args) == 2:
                 # take arbitrary shape value for the empty_node being created
                 # from the previous node. HF LLMs have view as the previous node.
-                empty_shape = [list(first_node.args[0].args[1])]
+                # Type checking the arguments for first_node
+                shape = first_node.args[0].args[1]
+                if isinstance(shape, (list, tuple)):
+                    empty_shape = [list(shape)]
+                elif isinstance(shape, int):
+                    empty_shape = [[shape]]
+                else:
+                    raise TypeError(
+                        f"Unexpected type for shape: {type(shape)}. "
+                        "Expected list, tuple, or int."
+                    )
                 empty_node_args = tuple(empty_shape)
                 empty_node = fx_graph.graph.create_node(
                     op="call_function",
