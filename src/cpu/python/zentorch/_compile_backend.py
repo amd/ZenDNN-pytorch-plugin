@@ -28,7 +28,7 @@ else:
 # Torch version less than 2.1 doesn't support removal of decompositions
 
 from torch._decomp import remove_decompositions
-from torch._inductor.decomposition import decompositions
+from torch._inductor.decomposition import decompositions, fast_random_decomps
 from torch._inductor.lowering import make_fallback
 
 torch_version = TorchVersion(torch.__version__)
@@ -189,6 +189,9 @@ def zentorch(model, inputs):
             torch.ops.aten.empty.memory_format,
         ]
         remove_decompositions(decompositions, REMOVE_DECOMP_LIST)
+        # Clear the fast_random_decomps cache to avoid using old decompositions
+        # This is necessary as the fast_random_decomps uses LRU cache
+        fast_random_decomps.cache_clear()
         # PT will throw an error if CI env variable is set
         # This looks like a bug in PT as this check is unnecessary
         # before registering the fallback
