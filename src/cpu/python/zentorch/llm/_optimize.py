@@ -5,6 +5,41 @@
 
 import torch
 from ._checks import essential_checks
+import zentorch._C
+from .._logging import get_logger
+
+# make a logger for this file
+logger = get_logger(__name__)
+
+
+def check_for_shared_params(model):
+    param_dict = {}
+
+    # Get the singleton instance
+    manager = zentorch._C.DataPointerManager.getInstance()
+    manager.clear()
+
+    for name, module in model.named_modules():
+        if hasattr(module, "weight"):
+            data_ptr = module.weight.data_ptr()
+            if data_ptr not in param_dict:
+                param_dict[data_ptr] = []
+            param_dict[data_ptr].append((name, module))
+
+    # Add shared pointers to the manager
+    # ZenDNN already handles reordering the same weight across linear layers.
+    # It keeps a dict which has the shape and data pointer of ordered weights.
+    # It checks if the weight is present in the table then it doesn't reorder
+    # again. Hence we don't add weights shared across layers to the manager.
+    for data_ptr, name_module_pairs in param_dict.items():
+        if len(name_module_pairs) > 1:
+            names = [name for name, module in name_module_pairs]
+            modules = [module for name, module in name_module_pairs]
+            logger.warning("Shared param found: %s, data_ptr: %s", names, hex(data_ptr))
+            for module in modules:
+                if not isinstance(module, torch.nn.Linear):
+                    manager.addPointer(module.weight.data_ptr())
+                    break
 
 
 def optimize(model, dtype=torch.bfloat16):
@@ -26,5 +61,7 @@ def optimize(model, dtype=torch.bfloat16):
         ipex_t.optimize.model_convert_lowering = model_convert_lowering
 
         model = ipex.llm.optimize(model, optimizer=None, dtype=dtype)
+
+    check_for_shared_params(model)
 
     return model
