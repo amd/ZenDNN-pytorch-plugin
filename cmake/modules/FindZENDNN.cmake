@@ -27,7 +27,7 @@ get_filename_component(PLUGIN_PARENT_DIR ${CMAKE_CURRENT_SOURCE_DIR} DIRECTORY)
 IF("$ENV{ZENTORCH_USE_LOCAL_BLIS}" EQUAL 0)
     FetchContent_Declare(blis
     GIT_REPOSITORY https://github.com/amd/blis.git
-    GIT_TAG AOCL-5.1-GA
+    GIT_TAG 5.1
     SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/blis"
     )
     FetchContent_GetProperties(blis)
