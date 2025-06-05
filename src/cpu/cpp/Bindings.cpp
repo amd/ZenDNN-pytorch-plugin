@@ -15,14 +15,34 @@
                 - Our op specific arguments should be at the end of the list.
                 - All ops should have prefix "zentorch_", for example
    zentorch_<corresponding op name>.
+
+// This file should include PYBIND11 operations only for functions intended
+// to be used exclusively from Python.
+// For functions meant for both torch.compile and torch.export use cases,
+// utilize the TORCH_LIBRARY API.
+// Please implement all TORCH_LIBRARY use cases in the file
+// where the function is defined, not in this file.
 */
 
 // needs to be included only once in library.
+#include <pybind11/stl_bind.h>
+
+#include "DataPointerManager.hpp"
+#include "Memory.hpp"
 #include "Ops.hpp"
 #include "Threading.hpp"
 #include "Utils.hpp"
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
+  // Bind the DataPointerManager
+  py::class_<zentorch::DataPointerManager>(m, "DataPointerManager")
+      .def_static("getInstance", &zentorch::DataPointerManager::getInstance,
+                  py::return_value_policy::reference)
+      .def("addPointer", &zentorch::DataPointerManager::addPointer)
+      .def("getPointers", &zentorch::DataPointerManager::getPointers,
+           py::return_value_policy::reference)
+      .def("clear", &zentorch::DataPointerManager::clear);
+
   m.def("show_config", &zentorch::show_config,
         "Show the current configuration of ZenTorch.");
 
