@@ -118,6 +118,7 @@ def model_convert_lowering(
                 "BaichuanForCausalLM",
                 "YuanForCausalLM",
                 "Phi3ForCausalLM",
+                "Phi4MMForCausalLM",
             ]:
                 supported_classes.append(type(_model.model.layers[0].input_layernorm))
             # Out of the following models, zentorch currently supports
