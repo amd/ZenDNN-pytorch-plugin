@@ -6,8 +6,6 @@
 # https://github.com/intel/intel-extension-for-pytorch/blob/v2.3.0%2Bcpu/intel_extension_for_pytorch/transformers/optimize.py
 # ****************************************************************************************************************************
 
-import math
-from torch._dynamo.utils import guard_if_dyn
 from ._checks import essential_checks, get_installed_ipex_version
 from torch.torch_version import TorchVersion
 from .._logging import get_logger
@@ -195,25 +193,8 @@ def model_convert_lowering(
     return _model
 
 
-# Custom version of get_ntk_alpha() for Qwen 7B.
-# Created to resolve symfloat issue with zentorch.
-
-def get_ntk_alpha(self, true_seq_len):
-    # Guard to convert SymNodeVariable to ConstantVariable
-    context_value = math.log(guard_if_dyn(true_seq_len / self.seq_length), 2) + 1
-    ntk_alpha = 2 ** math.ceil(context_value) - 1
-    ntk_alpha = max(ntk_alpha, 1)
-    return ntk_alpha
-
-
 # Customize Model by applying modification based on the architecture
 def customize_model(model):
-    # Replace get_ntk_alpha() from transformers with a custom version.
-    # To mitigate the symfloat error with zentorch.
-    if model.config.architectures[0] == "QWenLMHeadModel":
-        model.transformer.get_ntk_alpha = get_ntk_alpha.__get__(
-            model.transformer, model.transformer.__class__
-        )
     # Over riding forward class of ChatGLM by modifying the Rope op
     # to address the dimensionality error with compile flow.
     if model.config.architectures[0] == "ChatGLMModel":
