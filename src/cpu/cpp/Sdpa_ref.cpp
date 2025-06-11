@@ -82,7 +82,12 @@ std::tuple<at::Tensor, at::Tensor> zentorch_scaled_dot_product_attention_impl(
 
     return std::make_tuple(std::move(output), std::move(logsumexp));
   } else {
-    return (at::_scaled_dot_product_flash_attention_for_cpu(
+    // at::_scaled_dot_product_flash_attention_for_cpu does an extra .contiguous
+    // on the query tensor while we process the query as is in meta registration
+    // and bf16 impl. Leading to a mismatch in stride between meta output and
+    // runtime output.
+    // Hence using native - same as ipex.
+    return (at::native::_scaled_dot_product_flash_attention_cpu(
         query, key, value, dropout_p, is_causal, attn_mask, scale));
   }
 }
