@@ -168,7 +168,7 @@ endif()
 IF("$ENV{ZENTORCH_USE_LOCAL_ZENDNN}" EQUAL 0)
     FetchContent_Declare(ZenDNN
     GIT_REPOSITORY https://github.com/amd/ZenDNN.git
-    GIT_TAG v5.0.2
+    GIT_TAG zendnn-2025-WW24
     SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/ZenDNN"
     )
     FetchContent_GetProperties(ZenDNN)
