@@ -1,8 +1,4 @@
-Third Party Notices for ZenDNN v5.0.2 + PyTorch
-
-This summary and the license information provided below is for reference purposes and is not intended to be a comprehensive list of all copyright notices or license terms and conditions applicable to the Software.
-
-With respect to any license that requires AMD to make available to recipients of object code distributed by AMD pursuant to such license the corresponding source code, and if you desire to receive such source code from AMD, then AMD hereby offers (which offer is valid for as long as required by the applicable license; and we may charge you the cost thereof unless prohibited by the license) to provide you with a copy of such source code; and to accept such offer send a letter requesting such source code (please be specific by identifying the particular Software you are inquiring about (name and version number), to:  Advanced Micro Devices, Inc., Legal Department, Attention: Software Compliance Officer, 2485 Augustine Drive, Santa Clara, CA U.S.A. 95054.
+Third Party Notices for ZenDNN v5.1 + PyTorch
 
 clang-format v-u (Apache-2.0)
 License Text http://spdx.org/licenses/Apache-2.0
@@ -974,3 +970,5 @@ Licensed under the Apache License, Version 2.0 (the "License"); you may not use 
 You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS,WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and limitations under the License.
+
+
