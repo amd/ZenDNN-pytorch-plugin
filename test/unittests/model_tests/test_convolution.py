@@ -59,7 +59,7 @@ class Test_Convolution_Model(ConvTestCase):
             (self.data.conv_input),
             freeze_opt
         )
-        self.assertEqual(counters["zentorch"]["zentorch_convolution"], 1)
+        self.assertEqual(counters["zentorch"]["zentorch_convolution"], 0)
         self.assertEqual(
             model_output,
             zentorch_graph_output,

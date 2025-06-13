@@ -189,7 +189,12 @@ def is_convolution_op_replaceable(match):
         input = match.args[0].args[0].meta["val"]
     else:
         input = match.args[0].meta["val"]
-    weight = match.args[1].meta["val"]
+
+    if match.args[1].target == at_ops.clone.default:
+        weight = match.args[1].args[0].meta["val"]
+    else:
+        weight = match.args[1].meta["val"]
+
     from ._compile_backend import conv_config
 
     # Replace only if torch.grad is disabled as ZenDNN implements
@@ -208,17 +213,18 @@ def is_convolution_op_replaceable(match):
 conv_args = [Arg() for _ in range(9)]
 
 
-@register_graph_pattern(
-    CallFunction(at_ops.convolution, *conv_args),
-    pass_dict=pass_pattern,
-    extra_check=is_convolution_op_replaceable,
-)
-def convolution_replacement(match, *args):
-    def repl(*args):
-        counters["zentorch"]["zentorch_convolution"] += 1
-        return zt_ops.zentorch_convolution(*args)
+# TODO: Add code to conditionally enable
+# @register_graph_pattern(
+#     CallFunction(at_ops.convolution, *conv_args),
+#     pass_dict=pass_pattern,
+#     extra_check=is_convolution_op_replaceable,
+# )
+# def convolution_replacement(match, *args):
+#     def repl(*args):
+#         counters["zentorch"]["zentorch_convolution"] += 1
+#         return zt_ops.zentorch_convolution(*args)
 
-    match.replace_by_example(repl, [*args])
+#     match.replace_by_example(repl, [*args])
 
 
 def replace_with_zentorch_ops(gm):
