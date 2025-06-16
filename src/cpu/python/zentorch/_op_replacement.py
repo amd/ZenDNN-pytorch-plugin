@@ -185,22 +185,22 @@ def baddbmm_replacement(match, add_1, mat_1, mat_2, *, beta, alpha):
 
 # convolution replacement
 def is_convolution_op_replaceable(match):
-    if match.args[0].target == at_ops.clone.default:
-        input = match.args[0].args[0].meta["val"]
-    else:
-        input = match.args[0].meta["val"]
-
-    if match.args[1].target == at_ops.clone.default:
-        weight = match.args[1].args[0].meta["val"]
-    else:
-        weight = match.args[1].meta["val"]
-
     from ._compile_backend import conv_config
 
     # Replace only if torch.grad is disabled as ZenDNN implements
     # Convolution for inference only.
     # Replace only if enable_zentorch_conv_flag is enabled
     if not torch.is_grad_enabled() and conv_config.enable_zentorch_conv_flag:
+        if match.args[0].target == at_ops.clone.default:
+            input = match.args[0].args[0].meta["val"]
+        else:
+            input = match.args[0].meta["val"]
+
+        if match.args[1].target == at_ops.clone.default:
+            weight = match.args[1].args[0].meta["val"]
+        else:
+            weight = match.args[1].meta["val"]
+
         if input.is_contiguous(
             memory_format=torch.channels_last
         ) and weight.is_contiguous(memory_format=torch.channels_last):
@@ -213,18 +213,17 @@ def is_convolution_op_replaceable(match):
 conv_args = [Arg() for _ in range(9)]
 
 
-# TODO: Add code to conditionally enable
-# @register_graph_pattern(
-#     CallFunction(at_ops.convolution, *conv_args),
-#     pass_dict=pass_pattern,
-#     extra_check=is_convolution_op_replaceable,
-# )
-# def convolution_replacement(match, *args):
-#     def repl(*args):
-#         counters["zentorch"]["zentorch_convolution"] += 1
-#         return zt_ops.zentorch_convolution(*args)
+@register_graph_pattern(
+    CallFunction(at_ops.convolution, *conv_args),
+    pass_dict=pass_pattern,
+    extra_check=is_convolution_op_replaceable,
+)
+def convolution_replacement(match, *args):
+    def repl(*args):
+        counters["zentorch"]["zentorch_convolution"] += 1
+        return zt_ops.zentorch_convolution(*args)
 
-#     match.replace_by_example(repl, [*args])
+    match.replace_by_example(repl, [*args])
 
 
 def replace_with_zentorch_ops(gm):
