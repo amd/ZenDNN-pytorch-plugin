@@ -7,7 +7,7 @@ import torch
 from torch._inductor.pattern_matcher import stable_topological_sort
 import os
 import operator
-from ._utils import counters
+from ._utils import counters, find_path
 
 # import the custom logging module
 from ._logging import get_logger
@@ -891,6 +891,17 @@ def qkv_fusion(fx_graph):
 
         # Checking only for K,Q,V pair hence hardcoded to 3
         if len(same_target) == 1 and len(group["nodes"]) == 3:
+            # Checking that the nodes are independent
+            nodes = [group["nodes"][i] for i in range(len(group["nodes"]))]
+            node_names = [str(node) for node in nodes]
+            nodes_are_dependent = (
+                find_path(fx_graph, node_names[0], node_names[1])
+                or find_path(fx_graph, node_names[1], node_names[2])
+                or find_path(fx_graph, node_names[0], node_names[2])
+            )
+            if nodes_are_dependent:
+                logger.info("QKV nodes are not independent of each other, cannot perform fusion")
+                continue
             group_op_args = [[] for _ in range(7)]
             first_node = group["nodes"][0]
 
