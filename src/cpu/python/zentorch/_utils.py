@@ -10,6 +10,12 @@ import collections
 import importlib.util
 from typing import List
 
+# import the custom logging module
+from ._logging import get_logger
+
+# make a logger for this file
+logger = get_logger(__name__)
+
 counters = collections.defaultdict(collections.Counter)
 
 at_ops = torch.ops.aten
@@ -150,3 +156,30 @@ def add_version_suffix(major: str, minor: str, patch: str = 0):
     # +---------------+----------------+-----------------+
 
     return f"{major}.{minor}.{patch}.dev"
+
+
+def find_path(fx_graph, start_node_name, end_node_name):
+    start_node = None
+    end_node = None
+    # Check if the start and end nodes exist in the graph and assign them
+    for node in fx_graph.graph.nodes:
+        if node.name == start_node_name:
+            start_node = node
+        if node.name == end_node_name:
+            end_node = node
+
+    if start_node is None or end_node is None:
+        logger.warning("Invalid start or end node passed to find_path function")
+        return False
+
+    def dfs(current_node, target_node, visited):
+        if current_node == target_node:
+            return True
+        visited.add(current_node)
+
+        return any(user_node not in visited and dfs(user_node, target_node, visited) for user_node in current_node.users)
+
+        return False
+
+    visited = set()
+    return dfs(start_node, end_node, visited)
