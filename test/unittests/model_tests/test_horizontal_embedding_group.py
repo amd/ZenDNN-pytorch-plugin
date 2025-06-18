@@ -44,10 +44,10 @@ class Custom_Model_Emb_Emb_Bag_Diff_Node(nn.Module):
     def __init__(self, num_embeddings):
         super(Custom_Model_Emb_Emb_Bag_Diff_Node, self).__init__()
         self.eb_bags_grp = [
-            torch.nn.EmbeddingBag(num_embeddings, 3, mode="sum"),
-            torch.nn.Embedding(num_embeddings, 3),
-            torch.nn.EmbeddingBag(num_embeddings, 3, mode="sum"),
-            torch.nn.Embedding(num_embeddings, 3),
+            torch.nn.EmbeddingBag(num_embeddings, 16, mode="sum"),
+            torch.nn.Embedding(num_embeddings, 16),
+            torch.nn.EmbeddingBag(num_embeddings, 16, mode="sum"),
+            torch.nn.Embedding(num_embeddings, 16),
         ]
 
     def forward(self, eb_input, eb_offset):
@@ -71,10 +71,10 @@ class Custom_Model_Emb_Emb_Bag_Common_Node(nn.Module):
     def __init__(self, num_embeddings):
         super(Custom_Model_Emb_Emb_Bag_Common_Node, self).__init__()
         self.eb_bags_grp = [
-            torch.nn.EmbeddingBag(num_embeddings, 3, mode="sum"),
-            torch.nn.Embedding(num_embeddings, 3),
-            torch.nn.EmbeddingBag(num_embeddings, 3, mode="sum"),
-            torch.nn.Embedding(num_embeddings, 3),
+            torch.nn.EmbeddingBag(num_embeddings, 16, mode="sum"),
+            torch.nn.Embedding(num_embeddings, 16),
+            torch.nn.EmbeddingBag(num_embeddings, 16, mode="sum"),
+            torch.nn.Embedding(num_embeddings, 16),
         ]
 
     def forward(self, eb_input, eb_offset):
@@ -128,8 +128,10 @@ class Test_Embedding_Group_Model(Zentorch_TestCase):
         compiled_model = torch.compile(zentorch_model, backend="zentorch")
         counters.clear()
         self.assertEqual(counters["zentorch"]["zentorch_embedding"], 0)
+        self.assertEqual(counters["zentorch"]["zentorch_horizontal_embedding_group"], 0)
         compiled_model_output = compiled_model(x)
         self.assertEqual(counters["zentorch"]["zentorch_embedding"], 21)
+        self.assertEqual(counters["zentorch"]["zentorch_horizontal_embedding_group"], 3)
         self.assertEqual(model_output, compiled_model_output)
 
     @parameterized.expand(product(supported_dtypes, freeze_opt))
@@ -152,11 +154,16 @@ class Test_Embedding_Group_Model(Zentorch_TestCase):
         indices = self.data.emb_input
         offsets = self.data.offsets
         native_output = model(indices, offsets)
+        counters.clear()
+        self.assertEqual(counters["zentorch"]["zentorch_horizontal_embedding_group"], 0)
+        self.assertEqual(counters["zentorch"]["zentorch_horizontal_embedding_bag_group"], 0)
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
         compiled_output = test_with_freeze_opt(
             compiled_graph, (indices, offsets), freeze_opt
         )
+        self.assertEqual(counters["zentorch"]["zentorch_horizontal_embedding_group"], 1)
+        self.assertEqual(counters["zentorch"]["zentorch_horizontal_embedding_bag_group"], 1)
         self.assertEqual(native_output, compiled_output)
 
     @parameterized.expand(product(supported_dtypes, freeze_opt))
@@ -167,11 +174,16 @@ class Test_Embedding_Group_Model(Zentorch_TestCase):
         indices = self.data.emb_input
         offsets = self.data.offsets
         native_output = model(indices, offsets)
+        counters.clear()
+        self.assertEqual(counters["zentorch"]["zentorch_horizontal_embedding_group"], 0)
+        self.assertEqual(counters["zentorch"]["zentorch_horizontal_embedding_bag_group"], 0)
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
         compiled_output = test_with_freeze_opt(
             compiled_graph, (indices, offsets), freeze_opt
         )
+        self.assertEqual(counters["zentorch"]["zentorch_horizontal_embedding_group"], 1)
+        self.assertEqual(counters["zentorch"]["zentorch_horizontal_embedding_bag_group"], 1)
         self.assertEqual(native_output, compiled_output)
 
     @parameterized.expand(product(supported_dtypes, freeze_opt))

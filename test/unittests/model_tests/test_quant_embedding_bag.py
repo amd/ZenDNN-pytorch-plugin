@@ -17,6 +17,7 @@ from unittest_utils import (  # noqa: 402
     zentorch,
     run_tests,
     supported_dtypes,
+    reset_dynamo,
 )
 
 
@@ -32,12 +33,7 @@ class Custom_Model_Quant_Embedding_Group(nn.Module):
             offsets,
             4,  # assumes that weights has been quantized to uint4 hence 4 bits
             output_dtype,
-            scale_grad_by_freq=False,
-            mode=0,
-            sparse=False,
-            per_sample_weights=None,
-            include_last_offset=False,
-            padding_idx=-1,
+            include_last_offset=True,
         )
 
         eb2 = torch.ops.zentorch.zentorch_quant_embedding_bag(
@@ -46,12 +42,7 @@ class Custom_Model_Quant_Embedding_Group(nn.Module):
             offsets,
             4,  # assumes that weights has been quantized to uint4 hence 4 bits
             output_dtype,
-            scale_grad_by_freq=False,
-            mode=0,
-            sparse=False,
-            per_sample_weights=None,
-            include_last_offset=False,
-            padding_idx=-1,
+            include_last_offset=True,
         )
         res = torch.cat([eb1, eb2, cat_input], dim=1)
         return res
@@ -65,8 +56,8 @@ class Test_WOQ_Embedding_Bag_Group(Zentorch_TestCase):
     def test_quant_embedding_bag_group(self, dtype):
         torch_type = self.data.get_torch_type(dtype)
         weight = torch.randint(low=0, high=15, size=(4, 16), dtype=torch_type)
-        indices = torch.tensor([1, 2, 3], dtype=torch.long)
-        offsets = torch.tensor([0, 2], dtype=torch.long)
+        indices = torch.tensor([0, 2, 3], dtype=torch.long)
+        offsets = torch.tensor([0, 1, 2], dtype=torch.long)
         # TODO Check with zendnn for decimal place rounding
         scales = torch.rand(weight.size(0), 1).round(decimals=2)
         zero_points = torch.tensor([0, 0, 0, 0], dtype=torch.int32)
@@ -91,19 +82,23 @@ class Test_WOQ_Embedding_Bag_Group(Zentorch_TestCase):
             dequant_weight,
             offsets,
             mode="sum",
+            include_last_offset=True,
         )
         eb2 = torch.nn.functional.embedding_bag(
             indices,
             dequant_weight,
             offsets,
             mode="sum",
+            include_last_offset=True,
         )
-
         ref_result = torch.cat([eb1, eb2, cat_input], dim=1)
+
+        reset_dynamo()
         model = Custom_Model_Quant_Embedding_Group()
         model = torch.compile(model, backend="zentorch")
-        model_result = model(zentorch_packed_weights, indices, offsets,
-                             cat_input, torch_type)
+        model_result = model(
+            zentorch_packed_weights, indices, offsets, cat_input, torch_type
+        )
         self.assertEqual(ref_result, model_result, atol=1e-3, rtol=1e-3)
 
 
