@@ -25,10 +25,15 @@ include(FetchContent)
 get_filename_component(PLUGIN_PARENT_DIR ${CMAKE_CURRENT_SOURCE_DIR} DIRECTORY)
 
 IF("$ENV{ZENTORCH_USE_LOCAL_BLIS}" EQUAL 0)
+    # FetchContent_MakeAvailable auto-configures immediately after cloning, so
+    # we supply a dummy path in FetchContent_Declare to defer configuration.
+    # The actual build for this dependency is performed later in this script.
+
     FetchContent_Declare(blis
     GIT_REPOSITORY https://github.com/amd/blis.git
     GIT_TAG 5.1
     SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/blis"
+    SOURCE_SUBDIR "not-available"
     )
     FetchContent_GetProperties(blis)
     if(NOT blis_POPULATED)
@@ -64,10 +69,15 @@ endif()
 ###############################################################################
 
 IF("$ENV{ZENTORCH_USE_LOCAL_FBGEMM}" EQUAL 0)
+    # FetchContent_MakeAvailable auto-configures immediately after cloning, so
+    # we supply a dummy path in FetchContent_Declare to defer configuration.
+    # The actual build for this dependency is performed later in this script.
+
     FetchContent_Declare(FBGEMM
     GIT_REPOSITORY https://github.com/pytorch/FBGEMM.git
     GIT_TAG v1.2.0
     SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/FBGEMM"
+    SOURCE_SUBDIR "not-available"
     )
     FetchContent_GetProperties(FBGEMM)
     if(NOT FBGEMM_POPULATED)
@@ -122,10 +132,15 @@ endif()
 ###############################################################################
 
 IF("$ENV{ZENTORCH_USE_LOCAL_LIBXSMM}" EQUAL 0)
+    # FetchContent_MakeAvailable auto-configures immediately after cloning, so
+    # we supply a dummy path in FetchContent_Declare to defer configuration.
+    # The actual build for this dependency is performed later in this script.
+
     FetchContent_Declare(libxsmm
     GIT_REPOSITORY https://github.com/libxsmm/libxsmm.git
     GIT_TAG 939f11042fc9ae4bbe975cedb2330d4f9f4bb26e
     SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/libxsmm"
+    SOURCE_SUBDIR "not-available"
     )
     FetchContent_GetProperties(libxsmm)
     if(NOT libxsmm_POPULATED)
@@ -166,10 +181,15 @@ endif()
 ###############################################################################
 
 IF("$ENV{ZENTORCH_USE_LOCAL_ZENDNN}" EQUAL 0)
+    # FetchContent_MakeAvailable auto-configures immediately after cloning, so
+    # we supply a dummy path in FetchContent_Declare to defer configuration.
+    # The actual build for this dependency is performed later in this script.
+
     FetchContent_Declare(ZenDNN
     GIT_REPOSITORY https://github.com/amd/ZenDNN.git
     GIT_TAG zendnn-2025-WW24
     SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/ZenDNN"
+    SOURCE_SUBDIR "not-available"
     )
     FetchContent_GetProperties(ZenDNN)
     if(NOT ZenDNN_POPULATED)
