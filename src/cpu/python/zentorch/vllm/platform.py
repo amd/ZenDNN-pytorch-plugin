@@ -162,20 +162,20 @@ class ZenCPUPlatform(Platform):
             NotImplementedError: If use_v1 or use_mla is True, as these
                 features are not currently supported by ZenTorch-vLLM plugin.
         """
-        # Check for unsupported features
+        # Check for unsupported features - these are not supported by ZenTorch-vLLM plugin.
         if use_v1:
             raise NotImplementedError(
-                "ZenTorch-vLLM plugin does not currently support vLLM V1 attention backend (use_v1=True). "
-                "Please disable V1 attention or use a different platform."
+                "ZenTorch-vLLM plugin does not currently support vLLM V1 "
+                "attention backend (use_v1=True)"
             )
 
         if use_mla:
             raise NotImplementedError(
-                "ZenTorch-vLLM plugin does not currently support Multi-head Latent Attention (use_mla=True). "
-                "Please disable MLA or use a different platform."
+                "ZenTorch-vLLM plugin does not currently support Multi-head "
+                "Latent Attention (use_mla=True)."
             )
 
-        # ZenTorch on CPU currently relies solely on Torch SDPA.
+        # ZenTorch on CPU currently relies solely on TorchSDPA backend.
         # Future ZenTorch-specific attention kernels could be added here.
         logger.info("[zentorch] Using Torch SDPA attention backend.")
         return "vllm.attention.backends.torch_sdpa.TorchSDPABackend"
