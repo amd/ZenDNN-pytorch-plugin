@@ -7,6 +7,7 @@ import unittest
 import torch
 from torch import nn
 import sys
+import copy
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
@@ -24,44 +25,57 @@ from unittest_utils import (  # noqa: 402
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class Custom_Model_Embedding_Bag(nn.Module):
-    def __init__(self, embedding_dim, output_dim, dtype=torch.float):
+    def __init__(
+        self,
+        num_embeddings,
+        embedding_dim,
+        emb_mat,
+        dtype,
+    ):
         super(Custom_Model_Embedding_Bag, self).__init__()
-        self.embedding = nn.EmbeddingBag(10000, embedding_dim, dtype=dtype)
-        self.intermediate = nn.Linear(embedding_dim, output_dim, dtype=dtype)
-        self.output = nn.Linear(output_dim, 1, dtype=dtype)
+        self.embedding = nn.EmbeddingBag(num_embeddings, embedding_dim, dtype=dtype)
+        # overwriting embedding-bag weights
+        with torch.no_grad():
+            self.embedding.weight.copy_(emb_mat)
 
     def forward(self, input):
         embed = self.embedding(input)
-        intermediate = self.intermediate(embed)
-        output = self.output(intermediate)
-        return output
+        return embed
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class Test_Embedding_Bag_Model(EmbTestCase):
     @EmbTestCase.hypothesis_params_emb_itr(
-        dtype_list=supported_dtypes,
-        freeze_list=freeze_opt
+        dtype_list=supported_dtypes, freeze_list=freeze_opt
     )
     @torch.inference_mode()
     def test_embedding_bag_compile_model(self, dtype, freeze_opt):
         new_dtype = DataTypes.get_torch_type(dtype)
-        model = Custom_Model_Embedding_Bag(100, 10, dtype=new_dtype)
-        input = torch.randint(0, 10000, (1, 10))
-        model_output = model(input)
+        model = Custom_Model_Embedding_Bag(
+            self.data.R,
+            self.data.k,
+            self.data.embedding_matrix,
+            new_dtype,
+        )
+        zen_model = copy.deepcopy(model)
+        input = self.data.emb_input.unsqueeze(0)
+        ind_compiled_graph = torch.compile(model, backend="inductor")
+        ind_compiled_graph_output = test_with_freeze_opt(
+            ind_compiled_graph, (input), freeze_opt
+        )
         reset_dynamo()
-        compiled_graph = torch.compile(model, backend="zentorch")
-        compiled_graph_output = test_with_freeze_opt(
-            compiled_graph,
-            (input),
-            freeze_opt
+        zen_compiled_graph = torch.compile(zen_model, backend="zentorch")
+        zen_compiled_graph_output = test_with_freeze_opt(
+            zen_compiled_graph, (input), freeze_opt
         )
         # TODO
         # Increased tolerent for bfloat16 dtype by atol=1e-03, rtol=0.01
         # Getting failure due to higer diff than allowed
         # Change will restore after fix
         # ZENAI-858
-        self.assertEqual(model_output, compiled_graph_output, atol=1e-03, rtol=0.01)
+        self.assertEqual(
+            zen_compiled_graph_output, ind_compiled_graph_output, atol=1e-3, rtol=0.01
+        )
 
 
 if __name__ == "__main__":
