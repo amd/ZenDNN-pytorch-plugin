@@ -19,6 +19,9 @@ from types import ModuleType
 from importlib import import_module
 from typing import Optional
 import sys
+
+from packaging.version import parse as V
+
 from zentorch._logging import get_logger
 
 logger = get_logger(__name__)
@@ -111,6 +114,32 @@ def register() -> Optional[str]:  # noqa: D401
     class path so that it can import the platform.  When executed via the
     *general* group the return value is ignored – that is fine.
     """
+    if "vllm" not in sys.modules:
+        logger.warning(
+            "[zentorch] vllm not found in sys.modules. "
+            "The plugin should be loaded by vLLM. "
+            "ZenTorch platform will not be available."
+        )
+        return None
+
+    vllm_module = sys.modules["vllm"]
+    vllm_version = getattr(vllm_module, "__version__", None)
+
+    if vllm_version is None:
+        logger.warning(
+            "[zentorch] Could not determine vLLM version. "
+            "ZenTorch platform will not be available."
+        )
+        return None
+
+    # NOTE: zentorch-vllm plugin requires vLLM>=0.9.0
+    if V(vllm_version) < V("0.9.0"):
+        logger.warning(
+            "[zentorch] Mismatched vLLM version. "
+            "Found v%s, expected v0.9.0 or greater.",
+            vllm_version,
+        )
+        return None
 
     # Light-weight runtime patch (safe to execute multiple times)
     _apply_paged_attention_patch()

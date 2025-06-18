@@ -27,7 +27,10 @@ class ZenCPUModelRunner(CPUModelRunner):
             if hasattr(torch, "compiler") and hasattr(torch.compiler, "allow_in_graph"):
                 torch.compiler.allow_in_graph(builtins.__import__)
 
-            # Disable MixtralMoE.forward
+            # Disable torch.compile for MixtralMoE.forward since it is not
+            # compatible with torch.compile. This ensures the MoE routing logic
+            # runs in eager mode while the rest of the model can be compiled.
+            # Introduces a graph break at MoE op.
             MixtralMoE.forward = torch.compiler.disable(MixtralMoE.forward)
 
             # Compile the model's forward pass using the ZenTorch backend.
