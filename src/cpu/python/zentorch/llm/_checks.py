@@ -19,6 +19,7 @@ SUPPORTED_MODELS = {
     "LlamaForCausalLM",
     "PhiForCausalLM",
     "Phi3ForCausalLM",
+    "Phi4MMForCausalLM",
     "MistralForCausalLM",
     "GPTNeoXForCausalLM",
     "OPTForCausalLM",

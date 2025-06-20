@@ -177,7 +177,6 @@ def model_convert_lowering(
                 tpp=False,
                 woq=woq,
             )
-
         for supported_mha_class in [
             ipex.transformers.models.reference.modules.attentions._IPEXAttentionRef
         ]:
@@ -220,6 +219,18 @@ def customize_model(model):
         models.MistralModel_forward = (
             MistralModel_forward
         )
+    if model.config.architectures[0] == "Phi4MMForCausalLM":
+        from intel_extension_for_pytorch.transformers.models.reference import (
+            models,
+        )
+        from ._custom_model_forward import PhiOImageEmbedding_forward, PhiOAudioEmbedding_forward
+        models.PhiOImageEmbedding_forward = PhiOImageEmbedding_forward
+        models.PhiOAudioEmbedding_forward = PhiOAudioEmbedding_forward
+        # This is to avoid the graph break in the Phi4MMForCausalLM model
+        # when the set_adapter method is called.
+        # Which in turn calls requires_grad on the adapter weights.
+        from peft.tuners.tuners_utils import BaseTunerLayer
+        BaseTunerLayer.set_adapter = lambda self, adapter_names=None: None
 
     if model.config.architectures[0] == "MixtralForCausalLM":
         from intel_extension_for_pytorch.transformers.models.reference.modules import (
