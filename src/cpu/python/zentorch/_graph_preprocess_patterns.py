@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2024 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -99,6 +99,9 @@ def _bmm_to_mm_pattern_1(arg_0, arg_1):
     return (bmm_0,)
 
 
+# There can be numerical differences in the output of mm and bmm.
+# This pattern replacement is specifically for a model which has mm originally
+# But due to view ops added by Pytorch, mm is replaced with bmm.
 def _bmm_to_mm_replacement_1(arg_0, arg_1):
     counters["zentorch"]["pattern_matcher_bmm_to_mm"] += 1
     squeeze_0 = at_ops.squeeze.dim(arg_0, 1)
@@ -208,7 +211,7 @@ def _get_pattern_with_replacement():
         inference_name = name + "_inference"
         # pre 2.2 PT versions use a different name for fwd-tracer
         # remove the else block when deprecating support for PT <= 2.1.x
-        if is_version_compatible_import(['_inductor', 'pattern_matcher'], ['fwd_only']):
+        if is_version_compatible_import(["_inductor", "pattern_matcher"], ["fwd_only"]):
             from torch._inductor.pattern_matcher import fwd_only
 
             yield inference_name, {
