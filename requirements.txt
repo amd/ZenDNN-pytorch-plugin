@@ -4,6 +4,7 @@ hypothesis
 ninja
 numpy
 parameterized
+packaging
 setuptools>=50.0
 setupext_janitor
 deprecated
