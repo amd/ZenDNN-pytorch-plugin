@@ -1,5 +1,7 @@
 __The latest ZenDNN Plugin for PyTorch* (zentorch) 5.1 is here!__
 
+The ZenDNN PyTorch plugin is called zentorch. Combined with PyTorch's torch.compile, zentorch transforms deep learning pipelines into finely-tuned, AMD-specific engines, delivering unparalleled efficiency and speed for large-scale inference workloads.
+
 This upgrade continues the focus on optimizing inference with Recommender Systems and Large Language Models on AMD EPYC™ CPUs.
 ZenDNN includes AMD EPYC™ enhancements for bfloat16 performance, expanded support for cutting-edge models like Llama 3.1 and 3.2, Microsoft Phi, and more as well as support for INT4 quantized datatype.
 This includes the advanced Activation-Aware Weight Quantization (AWQ) algorithm for LLMs and quantized support for the DLRM-v2 model with int8 weights.
@@ -7,7 +9,7 @@ This includes the advanced Activation-Aware Weight Quantization (AWQ) algorithm 
 Under the hood, ZenDNN’s enhanced AMD-specific optimizations operate at every level. In addition to highly optimized operator microkernels, these include comprehensive graph optimizations including pattern identification, graph reordering, and fusions.
 They also incorporate optimized embedding bag kernels and enhanced zenMatMul matrix splitting strategies which leverage the AMD EPYC™ microarchitecture to deliver enhanced throughput and latency.
 
-The ZenDNN PyTorch plugin is called zentorch. Combined with PyTorch's torch.compile, zentorch transforms deep learning pipelines into finely-tuned, AMD-specific engines, delivering unparalleled efficiency and speed for large-scale inference workloads.
+The vLLM-ZenTorch plugin extends these benefits to the vLLM inference engine, enabling plug-and-play acceleration of large language model inference on AMD EPYC™ CPUs. By integrating ZenTorch with vLLM, users can achieve significant throughput improvements for LLM workloads with zero code changes.
 
 The zentorch 5.1 release plugs seamlessly with PyTorch versions from 2.7 and 2.6, offering a high-performance experience for deep learning on AMD EPYC™ platforms.
 
