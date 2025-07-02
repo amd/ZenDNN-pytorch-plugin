@@ -1,5 +1,5 @@
 datasets
-transformers==4.46.2
+transformers==4.48.0
 scikit-learn
 Pillow
 urllib3

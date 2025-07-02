@@ -7,7 +7,7 @@ import importlib.util as importutil
 import torch
 import subprocess
 
-_all_ = ["transformers", "expecttest==0.1.6", "parameterized"]
+_all_ = ["transformers==4.48.0", "expecttest==0.1.6", "parameterized"]
 
 
 def install_package(cmd):
