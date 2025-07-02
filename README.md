@@ -26,6 +26,7 @@ Table of Contents
   - [HuggingFace NLP models](#43-huggingface-nlp-models)
   - [HuggingFace Generative LLM models](#44-huggingface-generative-llm-models)
   - [Weight only Quantized models](#45-weight-only-quantized-models)
+  - [vLLM Zentorch Plugin](#46-vllm-zentorch-plugin)
 - [Logging and Debugging](#5-logging-and-debugging)
   - [ZenDNN logs](#51-zendnn-logs)
   - [_zentorch_ logs](#52-zentorch-logs)
@@ -196,6 +197,10 @@ python setup.py clean --all
 ```python
 python test/install_requirements.py
 ```
+>Note: Before running any unit tests, export the following environment variable to disable ZenDNN caching:
+```bash
+export ZENDNN_ENABLE_CACHE=0
+```
 
 ## 3.2 Run All Unit Tests
 ```python
@@ -300,7 +305,7 @@ with torch.no_grad():
 
 ## 4.5 Weight only Quantized models
 
-Huggingface models are quantized using [AMD's Quark tool](https://quark.docs.amd.com/latest/install.html).
+Huggingface models are quantized using [AMD's Quark tool](https://github.com/amd/Quark/blob/v0.8/README.md).
 After downloading the zip file, install Quark and follow the below steps:
 
 > zentorch v5.1 is compatible with Quark v0.8. Please make sure you download the right version.
@@ -336,6 +341,12 @@ model = zentorch.load_quantized_model(model, safetensor_path)
 Here, safetensor_path refers to the "<output_dir>" path of the quantized model.
 
 After the loading steps, the model can be executed in a similar fashion as the cases# 1-3 listed in [section 4.4](#44-huggingface-generative-llm-models).
+
+## 4.6 vLLM Zentorch Plugin
+
+The vLLM-ZenTorch plugin enhances the capabilities of the vLLM inference engine, enabling plug-and-play acceleration of large language model inference on AMD EPYC™ CPUs. By incorporating ZenTorch with vLLM, users can experience substantial throughput enhancements for LLM workloads without requiring any modifications to their existing code.
+
+For more details regarding vLLM-ZenTorch Plugin refer to this [Readme](./src/cpu/python/zentorch/vllm/README.md).
 
 # 5. Logging and Debugging
 ## 5.1 ZenDNN logs
