@@ -14,7 +14,7 @@ masked_multihead_self_attention_kernel_impl_512(
     const c10::optional<at::Tensor> &attention_mask /* optional */,
     c10::optional<bool> add_causal_mask /* optional */);
 
-template <typename attention_mask>
+template <typename input_type, typename attention_mask>
 void flash_attention_kernel_impl_512(
     const at::Tensor &output, const at::Tensor &logsumexp,
     const at::Tensor &query, const at::Tensor &key, const at::Tensor &value,

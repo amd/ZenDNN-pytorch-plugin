@@ -28,56 +28,88 @@
 
 #include <blis.h>
 
-#define ZENDNN_MATMUL_ENABLE 1
 namespace zentorch {
 
 using namespace at::vec;
 
+template <typename T>
 inline void zendnn_gemm(int64_t m, int64_t n, int64_t k, float alpha,
-                        at::BFloat16 *a, int64_t lda, at::BFloat16 *b,
-                        int64_t ldb, float beta, float *c, int64_t ldc,
-                        bool TransA, bool TransB) {
-  engine eng = utils::engine::cpu_engine();
-  zendnn::stream engine_stream(eng);
-  using dt = memory::data_type;
-  memory::dims a_dims;
-  memory::dims b_dims;
-  memory::dims c_dims;
-  a_dims = {m, k};
-  b_dims = {k, n};
-  c_dims = {m, n};
-  memory::dims a_strides = TransA ? memory::dims{1, lda} : memory::dims{lda, 1};
-  memory::dims b_strides = TransB ? memory::dims{1, ldb} : memory::dims{ldb, 1};
-  // Create memory descriptors
-  memory::desc a_md = memory::desc({a_dims}, dt::bf16, a_strides);
-  memory::desc c_md = memory::desc({c_dims}, dt::f32, {ldc, 1});
-  memory::desc b_md = memory::desc({b_dims}, dt::bf16, b_strides, false);
-  zendnn::memory b_memory, a_memory, c_memory;
-  a_memory = memory(a_md, eng, a);
-  c_memory = memory(c_md, eng, c);
-  b_memory = memory(b_md, eng, b);
+                        const T *a, int64_t lda, const T *b, int64_t ldb,
+                        float beta, float *c, int64_t ldc, bool TransA,
+                        bool TransB) {
 
-  zendnn::primitive_attr matmul_attr;
-  matmul_attr.set_output_scales(0, {alpha});
-  zendnn::post_ops post_ops;
-  if (beta != 0.0) {
-    post_ops.append_sum(beta);
+  constexpr bool is_input_float = std::is_same_v<T, float>;
+  // Retrieve environment variables
+  const char *zendnn_matmul_direct_env =
+      std::getenv("USE_ZENDNN_SDPA_MATMUL_DIRECT");
+
+  const int zendnn_matmul_direct_env_value =
+      zendnn_matmul_direct_env ? std::atoi(zendnn_matmul_direct_env) : 0;
+  if (zendnn_matmul_direct_env_value) {
+    ActivationPostOp activation_post_op = ActivationPostOp::NONE;
+    // If input is Float, then use Float. Otherwise, use default BF16.
+    zendnn::data_types dt =
+        is_input_float
+            ? zendnn::data_types(zendnn_f32, zendnn_f32, zendnn_f32, zendnn_f32)
+            : zendnn::data_types(zendnn_bf16, zendnn_bf16, zendnn_bf16,
+                                 zendnn_f32);
+    zendnn_custom_op::zendnn_matmul_direct(
+        a, b, c, NULL /* bias */, alpha, beta, m, n, k, TransA, TransB, lda,
+        ldb, ldc, false /* weight_const */, dt, activation_post_op,
+        1 /* batch_A */, 1 /* batch_B */);
+  } else {
+    using dtype = memory::data_type;
+    dtype data_type = is_input_float ? dtype::f32 : dtype::bf16;
+
+    engine eng = utils::engine::cpu_engine();
+    zendnn::stream engine_stream(eng);
+    memory::dims a_dims;
+    memory::dims b_dims;
+    memory::dims c_dims;
+    a_dims = {m, k};
+    b_dims = {k, n};
+    c_dims = {m, n};
+    // Set strides for matrices A and B depending on whether they are
+    // transposed. Transposed matrices use column-major access (stride: {1, lda
+    // or ldb}), while non-transposed use row-major access (stride: {lda or ldb,
+    // 1}).
+    memory::dims a_strides =
+        TransA ? memory::dims{1, lda} : memory::dims{lda, 1};
+    memory::dims b_strides =
+        TransB ? memory::dims{1, ldb} : memory::dims{ldb, 1};
+
+    // Create memory descriptors
+    memory::desc a_md = memory::desc({a_dims}, data_type, a_strides);
+    memory::desc c_md = memory::desc({c_dims}, dtype::f32, {ldc, 1});
+    memory::desc b_md = memory::desc({b_dims}, data_type, b_strides, false);
+    zendnn::memory a_memory, b_memory, c_memory;
+    a_memory = memory(a_md, eng, const_cast<T *>(a));
+    c_memory = memory(c_md, eng, c);
+    b_memory = memory(b_md, eng, const_cast<T *>(b));
+
+    zendnn::primitive_attr matmul_attr;
+    matmul_attr.set_output_scales(0 /* mask */, {alpha});
+    zendnn::post_ops post_ops;
+    if (beta != 0.0) {
+      post_ops.append_sum(beta);
+    }
+    matmul_attr.set_post_ops(post_ops);
+    // Create descriptor for matmul
+    auto matmul_pd1 = zendnn::matmul::desc(a_md, b_md, c_md);
+    // Create primitive descriptor for matmul
+    auto matmul_pd =
+        zendnn::matmul::primitive_desc(matmul_pd1, matmul_attr, eng);
+    auto matmul_prim = matmul(matmul_pd);
+    // Primitive arguments.
+    std::unordered_map<int, memory> matmul_args;
+    matmul_args.insert({ZENDNN_ARG_SRC, a_memory});
+    matmul_args.insert({ZENDNN_ARG_WEIGHTS, b_memory});
+    matmul_args.insert({ZENDNN_ARG_DST, c_memory});
+    // Primitive execution: matrix multiplication.
+    matmul_prim.execute(engine_stream, matmul_args);
+    // Wait for the computation to finalize.
+    engine_stream.wait();
   }
-  matmul_attr.set_post_ops(post_ops);
-  // Create descriptor for matmul
-  auto matmul_pd1 = zendnn::matmul::desc(a_md, b_md, c_md);
-  // Create primitive descriptor for matmul
-  auto matmul_pd = zendnn::matmul::primitive_desc(matmul_pd1, matmul_attr, eng);
-  auto matmul_prim = matmul(matmul_pd);
-  // Primitive arguments.
-  std::unordered_map<int, memory> matmul_args;
-  matmul_args.insert({ZENDNN_ARG_SRC, a_memory});
-  matmul_args.insert({ZENDNN_ARG_WEIGHTS, b_memory});
-  matmul_args.insert({ZENDNN_ARG_DST, c_memory});
-  // Primitive execution: matrix multiplication.
-  matmul_prim.execute(engine_stream, matmul_args);
-  // Wait for the computation to finalize.
-  engine_stream.wait();
 }
 
 // out = val * a + b
@@ -448,24 +480,12 @@ void cpu_flash_attention(const at::Tensor &output, const at::Tensor &logsumexp,
             // Calculate scale * q @ k.T
             omp_set_max_active_levels(1);
             // TODO use of pack and compute API
-            if (ZENDNN_MATMUL_ENABLE) {
-              zendnn_gemm(qBlockSize, kvBlockSize, headSize, 1.0,
-                          (at::BFloat16 *)q_data + i * qStrideB + j * qStrideH +
-                              m * qStrideM,
-                          qStrideM,
-                          (at::BFloat16 *)k_data + i * kStrideB + j * kStrideH +
-                              n * kStrideN,
-                          kStrideN, 0.0, qk_data, kvBlockSize, false, true);
-            } else {
-              aocl_gemm_bf16bf16f32of32(
-                  'r', 'n', 't', qBlockSize, kvBlockSize, headSize, 1.0,
-                  (int16_t *)q_data + i * qStrideB + j * qStrideH +
-                      m * qStrideM,
-                  qStrideM, 'n',
-                  (int16_t *)k_data + i * kStrideB + j * kStrideH +
-                      n * kStrideN,
-                  kStrideN, 'n', 0.0, qk_data, kvBlockSize, NULL);
-            }
+            zendnn_gemm<scalar_t>(
+                qBlockSize, kvBlockSize, headSize, 1.0 /* alpha */,
+                q_data + i * qStrideB + j * qStrideH + m * qStrideM, qStrideM,
+                k_data + i * kStrideB + j * kStrideH + n * kStrideN, kStrideN,
+                0.0 /* beta */, qk_data, kvBlockSize, false /* transA */,
+                true /* transB */);
             // Apply causal mask, fill unused with -inf
             if (is_causal && num_keys - n <= kvSplitSize) {
               for (const auto row : c10::irange(qBlockSize)) {
@@ -528,24 +548,12 @@ void cpu_flash_attention(const at::Tensor &output, const at::Tensor &logsumexp,
             // Calculate Softmax(q @ k.T) @ v
             omp_set_max_active_levels(1);
             // TODO use of pack and compute API
-            if (ZENDNN_MATMUL_ENABLE) {
-              zendnn_gemm(qBlockSize, headSize, kvBlockSize, 1.0,
-                          (at::BFloat16 *)conditional_data_ptr(qk_data,
-                                                               qk_reduced_data),
-                          kvBlockSize,
-                          (at::BFloat16 *)v_data + i * vStrideB + j * vStrideH +
-                              n * vStrideN,
-                          vStrideN, n == 0 ? 0.0 : 1.0, dst_data, headSize,
-                          false, false);
-            } else {
-              aocl_gemm_bf16bf16f32of32(
-                  'r', 'n', 'n', qBlockSize, headSize, kvBlockSize, 1.0,
-                  (int16_t *)conditional_data_ptr(qk_data, qk_reduced_data),
-                  kvBlockSize, 'n',
-                  (int16_t *)v_data + i * vStrideB + j * vStrideH +
-                      n * vStrideN,
-                  vStrideN, 'n', n == 0 ? 0.0 : 1.0, dst_data, headSize, NULL);
-            }
+            zendnn_gemm<scalar_t>(
+                qBlockSize, headSize, kvBlockSize, 1.0 /* alpha */,
+                conditional_data_ptr(qk_data, qk_reduced_data), kvBlockSize,
+                v_data + i * vStrideB + j * vStrideH + n * vStrideN, vStrideN,
+                n == 0 ? 0.0 : 1.0 /* beta */, dst_data, headSize,
+                false /* transA */, false /* transB */);
           }
           // dst <- dst / sum[row]
           // reorder MHA output with strides
@@ -570,7 +578,7 @@ void cpu_flash_attention(const at::Tensor &output, const at::Tensor &logsumexp,
       });
 }
 
-template <typename attention_mask>
+template <typename input_type, typename attention_mask>
 void flash_attention_kernel_impl_512(
     const at::Tensor &output, const at::Tensor &logsumexp,
     const at::Tensor &query, const at::Tensor &key, const at::Tensor &value,
@@ -582,25 +590,32 @@ void flash_attention_kernel_impl_512(
   // These values are based on limited heuristics based on zen architecture
   // TODO Try different splits based on zen caches
   if (q_seq_len >= 768) {
-    cpu_flash_attention<at::BFloat16, attention_mask, 256, 512>(
-        output, logsumexp, query, key, value, dropout_p, is_causal, attn_mask,
-        scale);
+    cpu_flash_attention<input_type, attention_mask, 256 /* q_split_size */,
+                        512 /* kv_split_size */>(output, logsumexp, query, key,
+                                                 value, dropout_p, is_causal,
+                                                 attn_mask, scale);
   } else if (q_seq_len >= 192) {
-    cpu_flash_attention<at::BFloat16, attention_mask, 64, 512>(
-        output, logsumexp, query, key, value, dropout_p, is_causal, attn_mask,
-        scale);
+    cpu_flash_attention<input_type, attention_mask, 64 /* q_split_size */,
+                        512 /* kv_split_size */>(output, logsumexp, query, key,
+                                                 value, dropout_p, is_causal,
+                                                 attn_mask, scale);
   } else {
-    cpu_flash_attention<at::BFloat16, attention_mask, 32, 512>(
-        output, logsumexp, query, key, value, dropout_p, is_causal, attn_mask,
-        scale);
+    cpu_flash_attention<input_type, attention_mask, 32 /* q_split_size */,
+                        512 /* kv_split_size */>(output, logsumexp, query, key,
+                                                 value, dropout_p, is_causal,
+                                                 attn_mask, scale);
   }
 }
 
-template void flash_attention_kernel_impl_512<float>(
+template void flash_attention_kernel_impl_512<float, float>(
     const at::Tensor &, const at::Tensor &, const at::Tensor &,
     const at::Tensor &, const at::Tensor &, double, bool,
     std::optional<at::Tensor>, std::optional<double>);
-template void flash_attention_kernel_impl_512<at::BFloat16>(
+template void flash_attention_kernel_impl_512<at::BFloat16, at::BFloat16>(
+    const at::Tensor &, const at::Tensor &, const at::Tensor &,
+    const at::Tensor &, const at::Tensor &, double, bool,
+    std::optional<at::Tensor>, std::optional<double>);
+template void flash_attention_kernel_impl_512<at::BFloat16, float>(
     const at::Tensor &, const at::Tensor &, const at::Tensor &,
     const at::Tensor &, const at::Tensor &, double, bool,
     std::optional<at::Tensor>, std::optional<double>);

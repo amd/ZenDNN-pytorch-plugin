@@ -52,30 +52,45 @@ std::tuple<at::Tensor, at::Tensor> zentorch_scaled_dot_product_attention_impl(
           (attn_mask.value().dim() == 2 || attn_mask.value().dim() == 4),
       "zentorch_scaled_dot_product_attention_flash_attention: Attention mask "
       "dim is {2, 4}");
-  // zentorch sdpa is optimized for bfloat16 dtype,
-  //   for other dtype control falls back to native
-
-  if (query.scalar_type() == at::kBFloat16 &&
-      key.scalar_type() == at::kBFloat16 &&
-      value.scalar_type() == at::kBFloat16 && is_avx512_supported()) {
+  // Input validation for tensor types, shapes,attention mask and AVX512
+  // support.
+  if ((dtype == at::kBFloat16 || dtype == at::kFloat) &&
+      is_avx512_supported()) {
     at::Tensor output = at::empty_like(query, query.options()).transpose(1, 2);
     const auto accumulate_dtype = at::toOpMathType(dtype);
     at::Tensor logsumexp = at::empty({batchSize, qSize, num_head},
                                      query.options().dtype(accumulate_dtype));
-
-    // passing type as float when attention mask is None or float
-    if (!attn_mask.has_value() || attn_mask.value().scalar_type() == at::kFloat)
-      flash_attention_kernel_impl_512<float>(output, logsumexp, query, key,
-                                             value, dropout_p, is_causal,
-                                             attn_mask, scale);
-    else if (attn_mask.value().scalar_type() == at::kBFloat16)
-      flash_attention_kernel_impl_512<at::BFloat16>(
+    // Assuming key and value have the same dtype as query
+    if (query.scalar_type() == at::kBFloat16) {
+      ZENTORCH_CHECK(!attn_mask.has_value() ||
+                         attn_mask.value().scalar_type() == at::kFloat ||
+                         attn_mask.value().scalar_type() == at::kBFloat16,
+                     "zentorch_scaled_dot_product_attention_flash_"
+                     "attention: Attention mask "
+                     "is supported for FP32 and BF16 dtype when the query "
+                     "is of type BF16");
+      // passing type as float when attention mask is None or float
+      if (!attn_mask.has_value() ||
+          attn_mask.value().scalar_type() == at::kFloat) {
+        flash_attention_kernel_impl_512<at::BFloat16, float>(
+            output, logsumexp, query, key, value, dropout_p, is_causal,
+            attn_mask, scale);
+      } else {
+        flash_attention_kernel_impl_512<at::BFloat16, at::BFloat16>(
+            output, logsumexp, query, key, value, dropout_p, is_causal,
+            attn_mask, scale);
+      }
+    } else {
+      ZENTORCH_CHECK(
+          !attn_mask.has_value() ||
+              attn_mask.value().scalar_type() == at::kFloat,
+          "zentorch_scaled_dot_product_attention_flash_"
+          "attention: Attention mask "
+          "is supported for FP32 dtype when the query is of type FP32");
+      flash_attention_kernel_impl_512<float, float>(
           output, logsumexp, query, key, value, dropout_p, is_causal, attn_mask,
           scale);
-    else
-      ZENTORCH_CHECK(false, "zentorch_scaled_dot_product_attention_flash_"
-                            "attention: Attention mask "
-                            "is supported for FP32 and BF16 dtype only");
+    }
 
     output = output.transpose(1, 2);
     logsumexp = logsumexp.transpose(1, 2);
