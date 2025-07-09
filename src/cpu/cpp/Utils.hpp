@@ -13,6 +13,7 @@
 #include <vector>
 
 #include <cpuinfo.h>
+#include <torch/all.h>
 #include <zendnn.h>
 #include <zendnn.hpp>
 
@@ -81,6 +82,36 @@ struct stream : public zendnn::stream {
 // Check AVX512 bf16 support
 inline bool zendnn_bf16_device_check() {
   return cpuinfo_initialize() && cpuinfo_has_x86_avx512bf16();
+}
+
+// this infers the zendnn datatype from aten tensor
+inline auto get_zdtype(const at::Tensor &atensor) {
+  auto atype = atensor.scalar_type();
+  switch (atype) {
+  case c10::kByte:
+    return zendnn_data_type_t::zendnn_u8;
+  case c10::kChar:
+    return zendnn_data_type_t::zendnn_s8;
+  case c10::kInt:
+    return zendnn_data_type_t::zendnn_s32;
+  case c10::kFloat:
+    return zendnn_data_type_t::zendnn_f32;
+  case c10::kBFloat16:
+    return zendnn_data_type_t::zendnn_bf16;
+  case c10::kQUInt8:
+    return zendnn_data_type_t::zendnn_u8;
+  case c10::kQInt8:
+    return zendnn_data_type_t::zendnn_s8;
+  default:
+    ZENTORCH_CHECK(false, "Unsupported data type.");
+  }
+}
+
+// Check embedding-bag support, get dtype and emb_dim from weight tensor
+inline bool is_zendnn_embedding_bag_supported(const at::Tensor &weight) {
+  zendnn_data_type_t z_weight_dtype = get_zdtype(weight);
+  unsigned int emb_dim = weight.size(1);
+  return zendnn_custom_op::isEmbeddingBagSupported(z_weight_dtype, emb_dim);
 }
 
 } // namespace utils

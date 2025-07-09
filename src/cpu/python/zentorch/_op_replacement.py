@@ -17,6 +17,7 @@ from torch._inductor.pattern_matcher import (
 from torch._inductor import config
 import functools
 from ._utils import counters
+from .utils import is_zendnn_embedding_bag_supported
 
 # import the custom logging module
 from ._logging import get_logger
@@ -432,6 +433,15 @@ def replace_with_composite_zentorch_ops(fx_graph: torch.fx.GraphModule):
                 "The user of aten embedding bag is not a get-item node."
                 "Cannot remove a non-get-item node from the graph and thus"
                 "cannot replace aten embedding bag with zentorch op."
+            )
+            continue
+
+        if not is_zendnn_embedding_bag_supported(node.args[0].meta["val"]):
+            logger.info(
+                "zentorch embedding-bag is not supported for the combination of "
+                "dtype: %s and embedding dimension: %s.",
+                node.args[0].meta["val"].dtype,
+                node.args[0].meta["val"].shape[1],
             )
             continue
 

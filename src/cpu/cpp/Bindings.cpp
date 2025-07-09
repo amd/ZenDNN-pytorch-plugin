@@ -104,4 +104,10 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         "OCxIC.\n"
         "Returns:\n"
         "    Tensor: Reordered weight tensor.");
-}
+
+  m.def("is_zendnn_embedding_bag_supported",
+        &zendnn::utils::is_zendnn_embedding_bag_supported, py::arg("weight"),
+        "Check if the embedding-bag operation is supported.\n\n"
+        "Args:\n"
+        "    weight (torch.Tensor): The weight tensor.");
+} // End of PYBIND11_MODULE
