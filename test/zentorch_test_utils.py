@@ -85,7 +85,7 @@ conv_dilation2 = [[2, 2]]
 
 emb_r_range = Range(11, 20)
 emb_w_range = Range(1, 15)
-emb_d_range = Range(3, 3)
+emb_d_range = Range(2, 512)
 emb_mlp_opt = [2]
 
 mm_input_scaler_range = Range(100, 100)
