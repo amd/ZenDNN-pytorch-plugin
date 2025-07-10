@@ -223,11 +223,11 @@ if [ "$framework" = "zentorch" ]; then
         if { [ "$precision" = "bf16" ] || [ "$precision" = "woq" ]; };  then
             export ZENDNN_MATMUL_ALGO=BF16:0
         elif [ "$precision" = "fp32" ]; then
-            export ZENDNN_MATMUL_ALGO=FP32:2
+            export ZENDNN_MATMUL_ALGO=FP32:0
         elif [ "$precision" = "bf16_amp" ]; then
             export ZENDNN_MATMUL_ALGO=BF16:4
         elif [ "$precision" = "int8" ]; then
-            export ZENDNN_MATMUL_ALGO=INT8:4
+            export ZENDNN_MATMUL_ALGO=INT8:2
         fi
     fi
 
