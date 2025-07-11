@@ -62,51 +62,51 @@ class Range:
         return self.max
 
 
-b_range = Range(1, 10)
-m_range = Range(1, 10)
-k_range = Range(1, 10)
-n_range = Range(1, 10)
+B_RANGE = Range(1, 10)
+M_RANGE = Range(1, 10)
+K_RANGE = Range(1, 10)
+N_RANGE = Range(1, 10)
 
-p_range = Range(1, 11)
-q_range = Range(1, 11)
-matrix_dim_1_range = Range(60, 60)
-matrix_dim_2_range = Range(40, 40)
-matrix_dim_3_range = Range(30, 30)
-matrix_dim_4_range = Range(50, 50)
+P_RANGE = Range(1, 11)
+Q_RANGE = Range(1, 11)
+MATRIX_DIM_1_RANGE = Range(60, 60)
+MATRIX_DIM_2_RANGE = Range(40, 40)
+MATRIX_DIM_3_RANGE = Range(30, 30)
+MATRIX_DIM_4_RANGE = Range(50, 50)
 
-conv_bs_range = Range(1, 1)  # batch size
-conv_c_range = Range(3, 3)  # number of channels
-conv_h_range = Range(64, 64)  # height
-conv_wd_range = Range(64, 64)  # width
-conv_oc_range = Range(16, 16)  # output channels
-conv_kh_range = Range(3, 3)  # kernel height
-conv_kw_range = Range(3, 3)  # kernel width
-conv_dilation2 = [[2, 2]]
+CONV_BS_RANGE = Range(1, 1)  # batch size
+CONV_C_RANGE = Range(3, 3)  # number of channels
+CONV_H_RANGE = Range(64, 64)  # height
+CONV_WD_RANGE = Range(64, 64)  # width
+CONV_OC_RANGE = Range(16, 16)  # output channels
+CONV_KH_RANGE = Range(3, 3)  # kernel height
+CONV_KW_RANGE = Range(3, 3)  # kernel width
+CONV_DILATION2 = [[2, 2]]
 
-emb_r_range = Range(11, 20)
-emb_w_range = Range(1, 15)
-emb_d_range = Range(2, 512)
-emb_mlp_opt = [2]
+EMB_R_RANGE = Range(11, 20)
+EMB_W_RANGE = Range(1, 15)
+EMB_D_RANGE = Range(2, 512)
+EMB_MLP_OPT = [2]
 
-mm_input_scaler_range = Range(100, 100)
+MM_INPUT_SCALER_RANGE = Range(100, 100)
 
-woq_m_range = Range(1, 10)
-woq_x_range = Range(1, 10)
-woq_y_range = Range(1, 10)
-woq_k_range = Range(3, 10)
-woq_qzeros_nonzero_dim_range = Range(15, 15)
+WOQ_M_RANGE = Range(1, 10)
+WOQ_X_RANGE = Range(1, 10)
+WOQ_Y_RANGE = Range(1, 10)
+WOQ_K_RANGE = Range(3, 10)
+WOQ_QZEROS_NONZERO_DIM_RANGE = Range(15, 15)
 
-mm_add_1D_m_range = Range(148, 148)
-mm_add_1D_k_range = Range(384, 384)
-mm_add_1D_n_range = Range(54, 54)
-mm_add_2D_m_range = Range(256, 256)
-mm_add_2D_k_range = Range(32, 32)
-mm_add_2D_n_range = Range(512, 512)
-mm_add_3D_m_range = Range(256, 256)
-mm_add_3D_k_range = Range(32, 32)
-mm_add_3D_n_range = Range(512, 512)
-mm_add_3D_p_range = Range(4, 4)
-mm_add_3D_q_range = Range(64, 64)
+MM_ADD_1D_M_RANGE = Range(148, 148)
+MM_ADD_1D_K_RANGE = Range(384, 384)
+MM_ADD_1D_N_RANGE = Range(54, 54)
+MM_ADD_2D_M_RANGE = Range(256, 256)
+MM_ADD_2D_K_RANGE = Range(32, 32)
+MM_ADD_2D_N_RANGE = Range(512, 512)
+MM_ADD_3D_M_RANGE = Range(256, 256)
+MM_ADD_3D_K_RANGE = Range(32, 32)
+MM_ADD_3D_N_RANGE = Range(512, 512)
+MM_ADD_3D_P_RANGE = Range(4, 4)
+MM_ADD_3D_Q_RANGE = Range(64, 64)
 
 if has_zentorch and zentorch._C.is_bf16_supported():
     woq_dtypes.append("bfloat16")
