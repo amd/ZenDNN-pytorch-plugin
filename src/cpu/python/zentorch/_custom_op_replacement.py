@@ -891,13 +891,11 @@ def qkv_fusion(fx_graph):
 
         # Checking only for K,Q,V pair hence hardcoded to 3
         if len(same_target) == 1 and len(group["nodes"]) == 3:
-            # Checking that the nodes are independent
-            nodes = [group["nodes"][i] for i in range(len(group["nodes"]))]
-            node_names = [str(node) for node in nodes]
+            # Checking if the nodes are inter-dependent
             nodes_are_dependent = (
-                find_path(fx_graph, node_names[0], node_names[1])
-                or find_path(fx_graph, node_names[1], node_names[2])
-                or find_path(fx_graph, node_names[0], node_names[2])
+                find_path(fx_graph, group["nodes"][0], group["nodes"][1])
+                or find_path(fx_graph, group["nodes"][1], group["nodes"][2])
+                or find_path(fx_graph, group["nodes"][0], group["nodes"][2])
             )
             if nodes_are_dependent:
                 logger.info("QKV nodes are not independent of each other, cannot perform fusion")
