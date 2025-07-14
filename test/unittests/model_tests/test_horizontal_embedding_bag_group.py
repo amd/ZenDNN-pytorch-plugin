@@ -6,20 +6,17 @@
 import unittest
 import torch
 import copy
-from parameterized import parameterized
-from itertools import product
 from torch import nn
 import sys
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
 from unittest_utils import (  # noqa: 402
-    Zentorch_TestCase,
+    EmbTestCase,
     has_zentorch,
     reset_dynamo,
     run_tests,
     supported_dtypes,
-    zentorch,
     freeze_opt,
     test_with_freeze_opt,
 )
@@ -57,11 +54,12 @@ class Custom_Model_Embedding_Bag_Group(nn.Module):
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
-class Test_Embedding_Bag_Group_Model(Zentorch_TestCase):
-    @parameterized.expand(supported_dtypes)
+class Test_Embedding_Bag_Group_Model(EmbTestCase):
+    @EmbTestCase.hypothesis_params_emb_itr(
+        dtype_list=supported_dtypes
+    )
     @torch.inference_mode()
     def test_embedding_bag_group_model(self, dtype):
-        self.data.create_unittest_data(dtype)
         model = Custom_Model_Embedding_Bag_Group(self.data.R)
         zentorch_model = copy.deepcopy(model)
         indices = self.data.emb_input
@@ -73,10 +71,12 @@ class Test_Embedding_Bag_Group_Model(Zentorch_TestCase):
         compiled_model_output = compiled_model(indices, offsets)
         self.assertEqual(model_output, compiled_model_output)
 
-    @parameterized.expand(product(supported_dtypes, freeze_opt))
+    @EmbTestCase.hypothesis_params_emb_itr(
+        dtype_list=supported_dtypes,
+        freeze_list=freeze_opt
+    )
     @torch.inference_mode()
     def test_embedding_bag_group_compile_model(self, dtype, freeze_opt):
-        self.data.create_unittest_data(dtype)
         model = Custom_Model_Embedding_Bag_Group(self.data.R)
         indices = self.data.emb_input
         offset = self.data.offsets

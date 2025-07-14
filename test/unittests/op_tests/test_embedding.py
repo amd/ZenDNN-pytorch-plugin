@@ -5,13 +5,12 @@
 
 import unittest
 import torch
-from parameterized import parameterized
 import sys
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
 from unittest_utils import (  # noqa: 402
-    Zentorch_TestCase,
+    EmbTestCase,
     has_zentorch,
     run_tests,
     supported_dtypes,
@@ -19,10 +18,11 @@ from unittest_utils import (  # noqa: 402
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
-class Test_Embedding(Zentorch_TestCase):
-    @parameterized.expand(supported_dtypes)
+class Test_Embedding(EmbTestCase):
+    @EmbTestCase.hypothesis_params_emb_itr(
+        dtype_list=supported_dtypes
+    )
     def test_embedding(self, dtype):
-        self.data.create_unittest_data(dtype)
         y_eb = torch._C._VariableFunctions.embedding(
             self.data.embedding_matrix, self.data.emb_input
         )
@@ -31,9 +31,10 @@ class Test_Embedding(Zentorch_TestCase):
         )
         self.assertEqual(y_eb, y_ebz)
 
-    @parameterized.expand(supported_dtypes)
+    @EmbTestCase.hypothesis_params_emb_itr(
+        dtype_list=supported_dtypes
+    )
     def test_embedding_sparse_scale(self, dtype):
-        self.data.create_unittest_data(dtype)
         sparse_opt = [True, False]
         scale_grad_opt = [True, False]
 

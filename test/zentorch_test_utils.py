@@ -131,9 +131,13 @@ are not supported on this hardware"
     )
 
 include_last_offset_opt = [True, False]
+INCLUDE_LAST_OFFSET_OPT_DEF = [False]
 scale_grad_opt = [True, False]
+SCALE_GRAD_OPT_DEF = [False]
 mode_opt = [0, 1, 2]
+MODE_OPT_DEF = [0]
 sparse_opt = [True, False]
+SPARSE_OPT_DEF = [False]
 input_dim_opt = [2, 3, 4]
 q_weight_list_opt = [0, 1]
 bias_opt = [0, 1]

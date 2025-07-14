@@ -36,10 +36,14 @@ from zentorch_test_utils import (  # noqa: 402 # noqa: F401
     freeze_def_opt,
     test_with_freeze_opt,
     woq_dtypes,
-    include_last_offset_opt,
-    scale_grad_opt,
     mode_opt,
+    MODE_OPT_DEF,
+    include_last_offset_opt,
+    INCLUDE_LAST_OFFSET_OPT_DEF,
     sparse_opt,
+    SPARSE_OPT_DEF,
+    scale_grad_opt,
+    SCALE_GRAD_OPT_DEF,
     input_dim_opt,
     q_weight_list_opt,
     bias_opt,
@@ -1255,6 +1259,10 @@ class EmbTestCase(Zentorch_TestCase):
             tensor_seed,
             dtype,
             freeze,
+            mode,
+            include_last_offset,
+            sparse,
+            scale_grad,
             R,
             W,
             k,
@@ -1285,6 +1293,10 @@ class EmbTestCase(Zentorch_TestCase):
         emb_wRange=EMB_W_RANGE,
         emb_dRange=EMB_D_RANGE,
         emb_mlp_list=EMB_MLP_OPT,
+        mode_opt_list=MODE_OPT_DEF,
+        include_last_offset_opt_list=INCLUDE_LAST_OFFSET_OPT_DEF,
+        sparse_opt_list=SPARSE_OPT_DEF,
+        scale_grad_opt_list=SCALE_GRAD_OPT_DEF,
         tensor_seed=0,
     ):
         hypStr = ""
@@ -1297,30 +1309,39 @@ class EmbTestCase(Zentorch_TestCase):
         hypStr += f"dtype_list=[{dtype!r}], "
         freeze = draw(st.sampled_from(freeze_list))
         hypStr += f"freeze_list=[{freeze}], "
-        emb_r = draw(st.integers(emb_rRange.get_min(), emb_rRange.get_max()))
-        hypStr += f"emb_rRange=Range({emb_r},{emb_r}), "
-        emb_w = draw(st.integers(emb_wRange.get_min(), emb_wRange.get_max()))
-        hypStr += f"emb_wRange=Range({emb_w},{emb_w}), "
-        emb_d = draw(st.integers(emb_dRange.get_min(), emb_dRange.get_max()))
-        hypStr += f"emb_dRange=Range({emb_d},{emb_d}), "
+        R = draw(st.integers(emb_rRange.get_min(), emb_rRange.get_max()))
+        hypStr += f"emb_rRange=Range({R},{R}), "
+        W = draw(st.integers(emb_wRange.get_min(), emb_wRange.get_max()))
+        hypStr += f"emb_wRange=Range({W},{W}), "
+        k = draw(st.integers(emb_dRange.get_min(), emb_dRange.get_max()))
+        hypStr += f"emb_dRange=Range({k},{k}), "
         emb_mlp = draw(st.sampled_from(emb_mlp_list))
         hypStr += f"emb_mlp_list=[{emb_mlp}] "
+        mode = draw(st.sampled_from(mode_opt_list))
+        hypStr += f"mode=[{mode}] "
+        include_last_offset = draw(st.sampled_from(include_last_offset_opt_list))
+        hypStr += f"include_last_offset=[{include_last_offset}] "
+        sparse = draw(st.sampled_from(sparse_opt_list))
+        hypStr += f"sparse=[{sparse}] "
+        scale_grad = draw(st.sampled_from(scale_grad_opt_list))
+        hypStr += f"scale_grad=[{scale_grad}] "
 
         torch_type = DataTypes.get_torch_type(dtype)
 
-        R = emb_r
-        W = emb_w
-        k = emb_d
-        embedding_matrix = torch.randn(R, k, generator=generator).type(torch_type)
+        embedding_matrix = torch.randn(R, k, generator=generator).type(torch_type)   # Here K value holds the value from emb_d
         emb_input = torch.randint(0, R, (W,), generator=generator)
         offsets = torch.tensor([0, W])
-        mlp_inputs = torch.randn(emb_mlp, k, generator=generator).type(torch_type)
+        mlp_inputs = torch.randn(emb_mlp, k, generator=generator)
 
         return (
             hypStr,
             tensor_seed,
             dtype,
             freeze,
+            mode,
+            include_last_offset,
+            sparse,
+            scale_grad,
             R,
             W,
             k,
@@ -1338,6 +1359,10 @@ class EmbTestCase(Zentorch_TestCase):
         emb_wRange=EMB_W_RANGE,
         emb_dRange=EMB_D_RANGE,
         emb_mlp_list=EMB_MLP_OPT,
+        mode_opt_list=MODE_OPT_DEF,
+        include_last_offset_opt_list=INCLUDE_LAST_OFFSET_OPT_DEF,
+        sparse_opt_list=SPARSE_OPT_DEF,
+        scale_grad_opt_list=SCALE_GRAD_OPT_DEF,
         tensor_seed=0,
     ):
         skip_reason = None
@@ -1362,6 +1387,10 @@ class EmbTestCase(Zentorch_TestCase):
                     emb_wRange=emb_wRange,
                     emb_dRange=emb_dRange,
                     emb_mlp_list=emb_mlp_list,
+                    mode_opt_list=mode_opt_list,
+                    include_last_offset_opt_list=include_last_offset_opt_list,
+                    sparse_opt_list=sparse_opt_list,
+                    scale_grad_opt_list=scale_grad_opt_list,
                     tensor_seed=tensor_seed,
                 )
             )
@@ -1384,6 +1413,10 @@ class EmbTestCase(Zentorch_TestCase):
                         tensor_seed,
                         dtype,
                         freeze,
+                        mode,
+                        include_last_offset,
+                        sparse,
+                        scale_grad,
                         *_) = val
 
                     obj.createDataFromVal(val)
@@ -1392,6 +1425,10 @@ class EmbTestCase(Zentorch_TestCase):
                     test_args = {
                         'dtype': dtype,
                         'freeze_opt': freeze,
+                        'mode' : mode,
+                        'include_last_offset' : include_last_offset,
+                        'sprs_opt' : sparse,
+                        'scale_opt' : scale_grad,
                     }
 
                     # Get the required argument names for the test function

@@ -5,20 +5,17 @@
 
 import unittest
 import torch
-from parameterized import parameterized
-from itertools import product
 from torch import nn
 import sys
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
 from unittest_utils import (  # noqa: 402
-    Zentorch_TestCase,
+    EmbTestCase,
     has_zentorch,
     reset_dynamo,
     run_tests,
     supported_dtypes,
-    zentorch,
     freeze_opt,
     test_with_freeze_opt,
     counters,
@@ -37,8 +34,11 @@ class Custom_Model_Embedding(nn.Module):
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
-class Test_Embedding_Model(Zentorch_TestCase):
-    @parameterized.expand(product(supported_dtypes, freeze_opt))
+class Test_Embedding_Model(EmbTestCase):
+    @EmbTestCase.hypothesis_params_emb_itr(
+        dtype_list=supported_dtypes,
+        freeze_list=freeze_opt
+    )
     @torch.inference_mode()
     def test_embedding_compile_model(self, dtype, freeze_opt):
         new_dtype = self.data.get_torch_type(dtype)

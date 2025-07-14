@@ -4,15 +4,13 @@
 # ******************************************************************************
 
 import unittest
-from itertools import product
 import torch
-from parameterized import parameterized
 import sys
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
 from unittest_utils import (  # noqa: 402
-    Zentorch_TestCase,
+    EmbTestCase,
     has_zentorch,
     include_last_offset_opt,
     mode_opt,
@@ -24,20 +22,18 @@ from unittest_utils import (  # noqa: 402
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
-class Test_Horizontal_Embedding_Bag_Group(Zentorch_TestCase):
-    @parameterized.expand(
-        product(
-            supported_dtypes,
-            mode_opt,
-            include_last_offset_opt,
-            sparse_opt,
-            scale_grad_opt,
-        )
+class Test_Horizontal_Embedding_Bag_Group(EmbTestCase):
+    @EmbTestCase.hypothesis_params_emb_itr(
+        dtype_list=supported_dtypes,
+        mode_opt_list=mode_opt,
+        include_last_offset_opt_list=include_last_offset_opt,
+        sparse_opt_list=sparse_opt,
+        scale_grad_opt_list=scale_grad_opt,
+
     )
     def test_horizontal_embedding_bag_group(
         self, dtype, mode, include_last_offset, sprs_opt, scale_opt
     ):
-        self.data.create_unittest_data(dtype)
         y_eb, _, _, _ = torch._C._VariableFunctions._embedding_bag(
             self.data.embedding_matrix,
             self.data.emb_input,

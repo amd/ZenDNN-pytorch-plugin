@@ -5,13 +5,12 @@
 
 import unittest
 import torch
-from parameterized import parameterized
 import sys
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
 from unittest_utils import (  # noqa: 402
-    Zentorch_TestCase,
+    EmbTestCase,
     has_zentorch,
     run_tests,
     supported_dtypes,
@@ -19,10 +18,11 @@ from unittest_utils import (  # noqa: 402
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
-class Test_Horizontal_Embedding_Group(Zentorch_TestCase):
-    @parameterized.expand(supported_dtypes)
+class Test_Horizontal_Embedding_Group(EmbTestCase):
+    @EmbTestCase.hypothesis_params_emb_itr(
+        dtype_list=supported_dtypes
+    )
     def test_horizontal_embedding_group(self, dtype):
-        self.data.create_unittest_data(dtype)
         y_eb = torch._C._VariableFunctions.embedding(
             self.data.embedding_matrix, self.data.emb_input
         )

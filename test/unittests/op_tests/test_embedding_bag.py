@@ -12,7 +12,7 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
 from unittest_utils import (  # noqa: 402
-    Zentorch_TestCase,
+    EmbTestCase,
     has_zentorch,
     include_last_offset_opt,
     mode_opt,
@@ -24,8 +24,13 @@ from unittest_utils import (  # noqa: 402
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
-class Test_Embedding_Bag(Zentorch_TestCase):
+class Test_Embedding_Bag(EmbTestCase):
     @parameterized.expand(supported_dtypes)
+    # Switching to Hypothesis exposess more issues, so the existing methods are retained.
+    # Please refer ZENAI-1901 for details
+    # @EmbTestCase.hypothesis_params_emb_itr(
+    #     dtype_list=supported_dtypes,
+    # )
     def test_embedding_bag(self, dtype):
 
         self.data.create_unittest_data(dtype)
@@ -61,6 +66,15 @@ class Test_Embedding_Bag(Zentorch_TestCase):
             scale_grad_opt,
         )
     )
+    # Switching to Hypothesis exposes more issues, so the existing methods are retained.
+    # Please refer ZENAI-1902 for details
+    # @EmbTestCase.hypothesis_params_emb_itr(
+    #     dtype_list=supported_dtypes,
+    #     mode_opt_list=mode_opt,
+    #     include_last_offset_opt_list=include_last_offset_opt,
+    #     sparse_opt_list=sparse_opt,
+    #     scale_grad_opt_list=scale_grad_opt,
+    # )
     def test_embedding_bag_sparse_scale_mode(
         self, dtype, mode, include_last_offset, sprs_opt, scale_opt
     ):
