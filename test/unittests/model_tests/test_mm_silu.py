@@ -5,31 +5,30 @@
 
 import unittest
 import torch
-from parameterized import parameterized
-from itertools import product
 from torch import nn
 import sys
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
 from unittest_utils import (  # noqa: 402
-    Zentorch_TestCase,
+    MMTestCase,
     has_zentorch,
     reset_dynamo,
     run_tests,
     supported_dtypes,
-    zentorch,
     freeze_opt,
     test_with_freeze_opt,
 )
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
-class Test_MM_Silu_Model(Zentorch_TestCase):
-    @parameterized.expand(product(supported_dtypes, freeze_opt))
+class Test_MM_Silu_Model(MMTestCase):
+    @MMTestCase.hypothesis_params_mm_itr(
+        dtype_list=supported_dtypes,
+        freeze_list=freeze_opt
+    )
     @torch.inference_mode()
     def test_mm_with_bias_silu_model(self, dtype, freeze_opt):
-        self.data.create_unittest_data(dtype)
         model = nn.Sequential(nn.Linear(self.data.n, self.data.m, bias=True), nn.SiLU())
         if dtype == "bfloat16":
             model = model.bfloat16()
@@ -43,10 +42,12 @@ class Test_MM_Silu_Model(Zentorch_TestCase):
         )
         self.assertEqual(model_output, compiled_graph_output)
 
-    @parameterized.expand(product(supported_dtypes, freeze_opt))
+    @MMTestCase.hypothesis_params_mm_itr(
+        dtype_list=supported_dtypes,
+        freeze_list=freeze_opt
+    )
     @torch.inference_mode()
     def test_mm_without_bias_silu_model(self, dtype, freeze_opt):
-        self.data.create_unittest_data(dtype)
         model = nn.Sequential(
             nn.Linear(self.data.n, self.data.m, bias=False), nn.SiLU()
         )

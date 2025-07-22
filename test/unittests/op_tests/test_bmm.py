@@ -5,13 +5,12 @@
 
 import unittest
 import torch
-from parameterized import parameterized
 import sys
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
 from unittest_utils import (  # noqa: E402
-    Zentorch_TestCase,
+    MMTestCase,
     has_zentorch,
     run_tests,
     skip_test_pt_2_0,
@@ -20,21 +19,23 @@ from unittest_utils import (  # noqa: E402
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
-class Test_BMM_Op(Zentorch_TestCase):
-    @parameterized.expand(supported_dtypes)
+class Test_BMM_Op(MMTestCase):
+    @MMTestCase.hypothesis_params_mm_itr(
+        dtype_list=supported_dtypes
+    )
     @unittest.skipIf(skip_test_pt_2_0, "Skipping test due to PT2.0 instability")
     def test_bmm_variants(self, dtype):
 
-        self.data.create_unittest_data(dtype)
         self.assertEqual(
             torch._C._VariableFunctions.bmm(self.data.x3d, self.data.y3d),
             torch.ops.zentorch.zentorch_bmm(self.data.x3d, self.data.y3d),
         )
 
-    @parameterized.expand(supported_dtypes)
+    @MMTestCase.hypothesis_params_mm_itr(
+        dtype_list=supported_dtypes
+    )
     def test_bmm_unsupported_dims(self, dtype):
 
-        self.data.create_unittest_data(dtype)
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_bmm(self.data.x, self.data.y)
 
@@ -43,10 +44,11 @@ class Test_BMM_Op(Zentorch_TestCase):
             torch.ops.zentorch.zentorch_bmm(self.data.x, self.data.x)
         self.assertTrue("unsupported dims for self and mat2" in str(context.exception))
 
-    @parameterized.expand([("int",)])
+    @MMTestCase.hypothesis_params_mm_itr(
+        dtype_list=['int']
+    )
     def test_bmm_unsupported_dtype(self, dtype):
 
-        self.data.create_unittest_data(dtype)
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_bmm(self.data.x3d, self.data.y3d)
 

@@ -11,7 +11,7 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
 from unittest_utils import (  # noqa: 402
-    Zentorch_TestCase,
+    MMTestCase,
     has_zentorch,
     run_tests,
     skip_test_pt_2_0,
@@ -21,8 +21,13 @@ from unittest_utils import (  # noqa: 402
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
-class Test_Addmm_Op(Zentorch_TestCase):
+class Test_Addmm_Op(MMTestCase):
     @parameterized.expand(supported_dtypes)
+    # Switching to Hypothesis exposes more issues, so the existing methods are retained.
+    # Please refer ZENAI-1947 for details
+    # @MMTestCase.hypothesis_params_mm_itr(
+    #     dtype_list=supported_dtypes
+    # )
     @unittest.skipIf(skip_test_pt_2_0, "Skipping test due to PT2.0 instability")
     def test_addmm_variants(self, dtype):
 
@@ -122,6 +127,11 @@ class Test_Addmm_Op(Zentorch_TestCase):
         )
 
     @parameterized.expand(supported_dtypes)
+    # Switching to Hypothesis exposes more issues, so the existing methods are retained.
+    # Please refer ZENAI-1946 for details
+    # @MMTestCase.hypothesis_params_mm_itr(
+    #     dtype_list=supported_dtypes
+    # )
     @torch.inference_mode()
     def test_addmm_mismatched_dimensions(self, dtype):
         self.data.create_unittest_data(dtype)
@@ -150,10 +160,11 @@ class Test_Addmm_Op(Zentorch_TestCase):
             in str(context.exception)
         )
 
-    @parameterized.expand(["int"])
+    @MMTestCase.hypothesis_params_mm_itr(
+        dtype_list=['int']
+    )
     def test_addmm_unsupported_dtype(self, dtype):
 
-        self.data.create_unittest_data(dtype)
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_addmm(self.data.input, self.data.x, self.data.y)
 
@@ -161,8 +172,10 @@ class Test_Addmm_Op(Zentorch_TestCase):
             "zentorch_matmul only supports Float and BFloat16" in str(context.exception)
         )
 
+    @MMTestCase.hypothesis_params_mm_itr(
+        dtype_list=['float32']
+    )
     def test_float_addmm_bfloat16_postop(self):
-        self.data.create_unittest_data("float32")
         bias_as_postop = self.data.input.clone().to(torch.bfloat16)
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_addmm(bias_as_postop, self.data.x, self.data.y)
@@ -171,8 +184,10 @@ class Test_Addmm_Op(Zentorch_TestCase):
             "zentorch_matmul only supports Float and BFloat16" in str(context.exception)
         )
 
+    @MMTestCase.hypothesis_params_mm_itr(
+        dtype_list=['float32']
+    )
     def test_float_addmm_float_postop(self):
-        self.data.create_unittest_data("float32")
         self.assertEqual(
             torch._C._VariableFunctions.addmm(
                 self.data.input, self.data.x, self.data.y
@@ -182,9 +197,11 @@ class Test_Addmm_Op(Zentorch_TestCase):
             ),
         )
 
+    @MMTestCase.hypothesis_params_mm_itr(
+        dtype_list=['bfloat16']
+    )
     def test_bfloat16_addmm_int_postop(self):
         self.skip_if_bfloat16_unsupported_hardware()
-        self.data.create_unittest_data("bfloat16")
         bias_as_postop = self.data.input.clone().to(torch.int)
         with self.assertRaises(RuntimeError) as context_int:
             torch.ops.zentorch.zentorch_addmm(bias_as_postop, self.data.x, self.data.y)
@@ -194,9 +211,11 @@ class Test_Addmm_Op(Zentorch_TestCase):
             in str(context_int.exception)
         )
 
+    @MMTestCase.hypothesis_params_mm_itr(
+        dtype_list=['bfloat16']
+    )
     def test_bfloat16_addmm_bfloat16_postop(self):
         self.skip_if_bfloat16_unsupported_hardware()
-        self.data.create_unittest_data("bfloat16")
         self.assertEqual(
             torch._C._VariableFunctions.addmm(
                 self.data.input, self.data.x, self.data.y
@@ -206,8 +225,10 @@ class Test_Addmm_Op(Zentorch_TestCase):
             ),
         )
 
+    @MMTestCase.hypothesis_params_mm_itr(
+        dtype_list=['int']
+    )
     def test_int_addmm_postop(self):
-        self.data.create_unittest_data("int")
         bias_as_postop = self.data.input.clone().to(torch.int)
         with self.assertRaises(RuntimeError) as context_int:
             torch.ops.zentorch.zentorch_addmm(bias_as_postop, self.data.x, self.data.y)
@@ -218,6 +239,11 @@ class Test_Addmm_Op(Zentorch_TestCase):
         )
 
     @parameterized.expand(supported_dtypes)
+    # Switching to Hypothesis exposes more issues, so the existing methods are retained.
+    # Please refer ZENAI-1948 for details
+    # @MMTestCase.hypothesis_params_mm_itr(
+    #     dtype_list=supported_dtypes
+    # )
     @unittest.skipIf(skip_test_pt_2_0, "Skipping test due to PT2.0 instability")
     def test_addmm_relu_with_kw(self, dtype):
 
@@ -281,10 +307,11 @@ class Test_Addmm_Op(Zentorch_TestCase):
             ),
         )
 
-    @parameterized.expand(supported_dtypes)
+    @MMTestCase.hypothesis_params_mm_itr(
+        dtype_list=supported_dtypes
+    )
     def test_addmm_with_zero_alpha(self, dtype):
 
-        self.data.create_unittest_data(dtype)
         self.assertEqual(
             torch._C._VariableFunctions.addmm(
                 self.data.input, self.data.x, self.data.y, alpha=0.0
@@ -294,11 +321,12 @@ class Test_Addmm_Op(Zentorch_TestCase):
             ),
         )
 
-    @parameterized.expand(supported_dtypes)
+    @MMTestCase.hypothesis_params_mm_itr(
+        dtype_list=supported_dtypes
+    )
     @unittest.skipIf(skip_test_pt_2_0, "Skipping test due to PT2.0 instability")
     def test_addmm_relu_without_kw(self, dtype):
 
-        self.data.create_unittest_data(dtype)
         # addmm->relu
         self.assertEqual(
             torch._C._VariableFunctions.relu(

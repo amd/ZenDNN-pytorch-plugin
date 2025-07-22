@@ -1537,7 +1537,7 @@ class MMTestCase(Zentorch_TestCase):
             B,
             x3d,
             y3d,
-            input3d,
+            input3d
         ) = val
 
         self.createData(
@@ -1601,7 +1601,6 @@ class MMTestCase(Zentorch_TestCase):
                 mm_input_scaler_Range.get_max()
             )
         )
-        hypStr += f"mm_input_scaler_Range=Range({mm_input_scalar},{mm_input_scalar}), "
 
         torch_type = DataTypes.get_torch_type(dtype)
 

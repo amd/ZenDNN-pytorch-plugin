@@ -5,15 +5,13 @@
 
 import unittest
 import torch
-from parameterized import parameterized
-from itertools import product
 from torch import nn
 import sys
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
 from unittest_utils import (  # noqa: 402
-    Zentorch_TestCase,
+    MMTestCase,
     counters,
     has_zentorch,
     reset_dynamo,
@@ -52,12 +50,14 @@ class Custom_Model_MM_Silu_Mul(nn.Module):
 @unittest.skipIf(
     skip_test_pt_2_1, "Pattern matcher disabled for Torch < 2.2"
 )
-class Test_MM_SiLU_Mul_Model(Zentorch_TestCase):
+class Test_MM_SiLU_Mul_Model(MMTestCase):
 
-    @parameterized.expand(product(supported_dtypes, freeze_opt))
+    @MMTestCase.hypothesis_params_mm_itr(
+        dtype_list=supported_dtypes,
+        freeze_list=freeze_opt
+    )
     @torch.inference_mode()
     def test_mm_silu_mul_with_bias_model(self, dtype, freeze_opt):
-        self.data.create_unittest_data(dtype)
         model = Custom_Model_MM_Silu_Mul(self.data, bias=True)
         model_input = self.data.input.view(1, self.data.m, self.data.n)
         if dtype == "bfloat16" and zentorch._C.is_bf16_supported():
@@ -95,10 +95,12 @@ class Test_MM_SiLU_Mul_Model(Zentorch_TestCase):
         )
         self.assertEqual(model_output, compiled_graph_output)
 
-    @parameterized.expand(product(supported_dtypes, freeze_opt))
+    @MMTestCase.hypothesis_params_mm_itr(
+        dtype_list=supported_dtypes,
+        freeze_list=freeze_opt
+    )
     @torch.inference_mode()
     def test_mm_silu_mul_without_bias_model(self, dtype, freeze_opt):
-        self.data.create_unittest_data(dtype)
         model = Custom_Model_MM_Silu_Mul(self.data, bias=False)
         model_input = self.data.input.view(1, self.data.m, self.data.n)
         if dtype == "bfloat16" and zentorch._C.is_bf16_supported():

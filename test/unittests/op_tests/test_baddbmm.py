@@ -5,13 +5,12 @@
 
 import unittest
 import torch
-from parameterized import parameterized
 import sys
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
 from unittest_utils import (  # noqa: E402
-    Zentorch_TestCase,
+    MMTestCase,
     has_zentorch,
     run_tests,
     skip_test_pt_2_0,
@@ -20,12 +19,13 @@ from unittest_utils import (  # noqa: E402
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
-class Test_Baddbmm_Op(Zentorch_TestCase):
-    @parameterized.expand(supported_dtypes)
+class Test_Baddbmm_Op(MMTestCase):
+    @MMTestCase.hypothesis_params_mm_itr(
+        dtype_list=supported_dtypes
+    )
     @unittest.skipIf(skip_test_pt_2_0, "Skipping test due to PT2.0 instability")
     def test_baddbmm_variants(self, dtype):
 
-        self.data.create_unittest_data(dtype)
         self.assertEqual(
             torch._C._VariableFunctions.baddbmm(
                 self.data.input3d, self.data.x3d, self.data.y3d
@@ -35,10 +35,11 @@ class Test_Baddbmm_Op(Zentorch_TestCase):
             ),
         )
 
-    @parameterized.expand([("int",)])
+    @MMTestCase.hypothesis_params_mm_itr(
+        dtype_list=['int']
+    )
     def test_baddbmm_unsupported_dtype(self, dtype):
 
-        self.data.create_unittest_data(dtype)
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_baddbmm(
                 self.data.input3d, self.data.x3d, self.data.y3d
@@ -48,10 +49,11 @@ class Test_Baddbmm_Op(Zentorch_TestCase):
             "zentorch_matmul only supports Float and BFloat16" in str(context.exception)
         )
 
-    @parameterized.expand(supported_dtypes)
+    @MMTestCase.hypothesis_params_mm_itr(
+        dtype_list=supported_dtypes
+    )
     def test_baddbmm_unsupported_dims(self, dtype):
 
-        self.data.create_unittest_data(dtype)
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_baddbmm(
                 self.data.input3d.reshape((self.data.b * self.data.m), self.data.n),
@@ -70,10 +72,11 @@ class Test_Baddbmm_Op(Zentorch_TestCase):
             "unsupported dims for self, batch1 and batch2" in str(context.exception)
         )
 
-    @parameterized.expand(supported_dtypes)
+    @MMTestCase.hypothesis_params_mm_itr(
+        dtype_list=supported_dtypes
+    )
     @unittest.skipIf(skip_test_pt_2_0, "Skipping test due to PT2.0 instability")
     def test_baddbmm_with_kw(self, dtype):
-        self.data.create_unittest_data(dtype)
         self.assertEqual(
             torch._C._VariableFunctions.baddbmm(
                 self.data.input3d, self.data.x3d, self.data.y3d, alpha=1.4
@@ -105,10 +108,11 @@ class Test_Baddbmm_Op(Zentorch_TestCase):
             rtol=1e-2,
         )
 
-    @parameterized.expand(supported_dtypes)
+    @MMTestCase.hypothesis_params_mm_itr(
+        dtype_list=supported_dtypes
+    )
     def test_baddbmm_with_zero_alpha(self, dtype):
 
-        self.data.create_unittest_data(dtype)
         self.assertEqual(
             torch._C._VariableFunctions.baddbmm(
                 self.data.input3d, self.data.x3d, self.data.y3d, alpha=0.0
@@ -118,8 +122,10 @@ class Test_Baddbmm_Op(Zentorch_TestCase):
             ),
         )
 
+    @MMTestCase.hypothesis_params_mm_itr(
+        dtype_list=['float32']
+    )
     def test_float_baddbmm_bfloat16_postop(self):
-        self.data.create_unittest_data("float32")
         bias_as_postop = self.data.input3d.clone().to(torch.bfloat16)
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_baddbmm(
@@ -130,9 +136,11 @@ class Test_Baddbmm_Op(Zentorch_TestCase):
             "zentorch_matmul only supports Float and BFloat16" in str(context.exception)
         )
 
+    @MMTestCase.hypothesis_params_mm_itr(
+        dtype_list=['bfloat16']
+    )
     def test_bfloat16_baddbmm_int_postop(self):
         self.skip_if_bfloat16_unsupported_hardware()
-        self.data.create_unittest_data("bfloat16")
         bias_as_postop = self.data.input3d.clone().to(torch.int)
         with self.assertRaises(RuntimeError) as context_int:
             torch.ops.zentorch.zentorch_baddbmm(
@@ -144,8 +152,10 @@ class Test_Baddbmm_Op(Zentorch_TestCase):
             in str(context_int.exception)
         )
 
+    @MMTestCase.hypothesis_params_mm_itr(
+        dtype_list=['int']
+    )
     def test_int_baddbmm_postop(self):
-        self.data.create_unittest_data("int")
         bias_as_postop = self.data.x3d.clone().to(torch.int)
         with self.assertRaises(RuntimeError) as context_int:
             torch.ops.zentorch.zentorch_baddbmm(
