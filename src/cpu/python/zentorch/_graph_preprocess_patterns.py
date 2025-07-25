@@ -63,10 +63,8 @@ def _gelu_erf_replacement(arg_0):
 # and squeezing the inputs to 2D to enable mm instead of bmm.
 # Pattern 1 : 2 Expands, 1 from input and 1 from weight
 # will be inputs to bmm node.
-# TODO : check _bmm_to_mm_pattern_2
 # pattern for both args as 3D tensor case. based on that "args_2D",
-# "args_3D" and req_shape_func helpers should be made global and
-# necessary changes needs to added to _bmm_to_mm_pattern_2 pattern as well
+# "args_3D" and req_shape_func helpers should be made global
 
 
 def _bmm_to_mm_pattern_1(arg_0, arg_1):
@@ -109,32 +107,6 @@ def _bmm_to_mm_replacement_1(arg_0, arg_1):
     unsqueeze_0 = at_ops.unsqueeze.default(mm_0, 1)
     return (unsqueeze_0,)
 
-
-# Pattern for subsequent token for ChatGLM3
-# Expand followed by a view for the input,
-# Expand for the weight will be args to bmm.
-# TODO: Validate and remove the pattern after
-# experimenting with 'remove_redundant_view'
-
-
-def _bmm_to_mm_pattern_2(arg_0, arg_1):
-    shape_0 = arg_0.size()
-    shape_1 = arg_1.size()
-    exp_0 = at_ops.expand.default(arg_0, arg_0.size())
-    view_0 = at_ops.view.default(exp_0, arg_0.size())
-    exp_1 = at_ops.expand.default(arg_1, [shape_0[0], shape_1[0], shape_1[1]])
-    bmm_0 = at_ops.bmm.default(view_0, exp_1)
-    return (bmm_0,)
-
-
-def _bmm_to_mm_replacement_2(arg_0, arg_1):
-    counters["zentorch"]["pattern_matcher_bmm_to_mm"] += 1
-    squeeze_0 = at_ops.squeeze.dim(arg_0, 0)
-    mm_0 = at_ops.mm.default(squeeze_0, arg_1)
-    unsqueeze_0 = at_ops.unsqueeze.default(mm_0, 1)
-    return (unsqueeze_0,)
-
-
 # adding patterns completed #
 
 
@@ -152,13 +124,6 @@ def _bmm_to_mm_check_1(match):
     if dim0 <= dim1:
         return False
     if match.kwargs["arg_0"].meta["val"].shape[1] != 1:
-        return False
-    is_dtype_same = _matmul_dtypes_check(match)
-    return is_dtype_same
-
-
-def _bmm_to_mm_check_2(match):
-    if match.kwargs["arg_0"].meta["val"].shape[0] != 1:
         return False
     is_dtype_same = _matmul_dtypes_check(match)
     return is_dtype_same
@@ -196,13 +161,6 @@ def _get_pattern_with_replacement():
             [arg_2(), arg_1()],
             {},
             _bmm_to_mm_check_1,
-        ),
-        (
-            _bmm_to_mm_pattern_2,
-            _bmm_to_mm_replacement_2,
-            [arg_2(), arg_1()],
-            {},
-            _bmm_to_mm_check_2,
         ),
     ]
     for pattern, replacement, args, workaround, extra_check in candidates:
