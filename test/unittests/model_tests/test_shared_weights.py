@@ -95,6 +95,10 @@ class Custom_Model_Linear_Shared_Weights(torch.nn.Module):
         return self.linear1.weight
 
 
+# Fix for Milan unittest failure
+# The below test is to check that shared parameters are handled
+# correctly with MATMUL_ALGO=BF16:1
+@unittest.skipIf(not zentorch._C.is_avx512_supported(), "No bf16 support on hardware")
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class Test_Shared_Weights(Zentorch_TestCase):
     def setUp(self):
