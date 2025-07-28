@@ -11,6 +11,7 @@ from hypothesis import given, settings, Verbosity, seed, strategies as st
 import inspect
 import copy
 from dataclasses import dataclass
+import unittest
 
 sys.path.append(str(Path(__file__).parent.parent))
 
@@ -389,7 +390,15 @@ class AddmmTestCase(Zentorch_TestCase):
         matrix_dim_3_Range=matrix_dim_3_range,
         matrix_dim_4_Range=matrix_dim_4_range,
     ):
+        skip_reason = None
+        if not dtype_list:
+            skip_reason = "dtype_list is empty"
+
         def hypothesis_params_itr_impl(function):
+            if skip_reason:
+                print(f"Skipping test - {function.__name__}: {skip_reason}")
+                return unittest.skipIf(True, skip_reason)(function)
+
             # The @settings() decorator is used to configure Hypothesis test parameters,
             # such as the maximum number of examples, timeout, and verbosity level.
             @settings(
@@ -620,7 +629,15 @@ class AddmmTestCase(Zentorch_TestCase):
         mm_add_3D_p_Range=mm_add_3D_p_range,
         mm_add_3D_q_Range=mm_add_3D_q_range,
     ):
+        skip_reason = None
+        if not dtype_list:
+            skip_reason = "one or more required input lists are empty"
+
         def hypothesis_params_add_xD_itr_impl(function):
+            if skip_reason:
+                print(f"Skipping test - {function.__name__}: {skip_reason}")
+                return unittest.skipIf(True, skip_reason)(function)
+
             @settings(
                 deadline=AddmmTestCase.time_out,
                 max_examples=AddmmTestCase.max_example_per_test,
@@ -808,7 +825,15 @@ class ConvTestCase(Zentorch_TestCase):
         conv_kw_Range=conv_kw_range,
         conv_dilation2_list=conv_dilation2,
     ):
+        skip_reason = None
+        if not dtype_list:
+            skip_reason = "dtype_list is empty"
+
         def hypothesis_params_itr_impl(function):
+            if skip_reason:
+                print(f"Skipping test - {function.__name__}: {skip_reason}")
+                return unittest.skipIf(True, skip_reason)(function)
+
             @settings(
                 deadline=ConvTestCase.time_out,
                 max_examples=ConvTestCase.max_example_per_test,
@@ -971,7 +996,15 @@ class EmbTestCase(Zentorch_TestCase):
         emb_dRange=emb_d_range,
         emb_mlp_list=emb_mlp_opt,
     ):
+        skip_reason = None
+        if not dtype_list:
+            skip_reason = "dtype_list is empty"
+
         def hypothesis_params_itr_impl(function):
+            if skip_reason:
+                print(f"Skipping test - {function.__name__}: {skip_reason}")
+                return unittest.skipIf(True, skip_reason)(function)
+
             @settings(
                 deadline=EmbTestCase.time_out,
                 max_examples=EmbTestCase.max_example_per_test,
@@ -1184,7 +1217,15 @@ class MMTestCase(Zentorch_TestCase):
         nRange=n_range,
         mm_input_scaler_Range=mm_input_scaler_range,
     ):
+        skip_reason = None
+        if not dtype_list:
+            skip_reason = "dtype_list is empty"
+
         def hypothesis_params_itr_impl(function):
+            if skip_reason:
+                print(f"Skipping test - {function.__name__}: {skip_reason}")
+                return unittest.skipIf(True, skip_reason)(function)
+
             @settings(
                 deadline=MMTestCase.time_out,
                 max_examples=MMTestCase.max_example_per_test,
@@ -1482,7 +1523,15 @@ class WOQTestCase(Zentorch_TestCase):
         nRange=n_range,
         woq_qzeros_nonzero_dim_Range=woq_qzeros_nonzero_dim_range,
     ):
+        skip_reason = None
+        if not all([woq_dtypes_list, input_dim_opt_list, bias_opt_list, woq_qzeros_opt_list, scales_dtype_list]):
+            skip_reason = "one or more required input lists are empty"
+
         def hypothesis_params_woq_itr_impl(function):
+            if skip_reason:
+                print(f"Skipping test - {function.__name__}: {skip_reason}")
+                return unittest.skipIf(True, skip_reason)(function)
+
             @settings(
                 deadline=WOQTestCase.time_out,
                 max_examples=WOQTestCase.max_example_per_test,
@@ -1969,7 +2018,16 @@ class QLinearTestCase(Zentorch_TestCase):
         matrix_dim_2_Range=matrix_dim_2_range,
         matrix_dim_3_Range=matrix_dim_3_range,
     ):
+        skip_reason = None
+        if not all([input_dim_opt_list, q_weight_list_opt_list, bias_opt_list, q_granularity_opt_list,
+                    q_zero_points_dtype_opt_list, q_linear_dtype_opt_list, dtype_list]):
+            skip_reason = "one or more required input lists are empty"
+
         def hypothesis_params_qlinear_itr_impl(function):
+            if skip_reason:
+                print(f"Skipping test - {function.__name__}: {skip_reason}")
+                return unittest.skipIf(True, skip_reason)(function)
+
             @settings(
                 deadline=QLinearTestCase.time_out,
                 max_examples=QLinearTestCase.max_example_per_test,
