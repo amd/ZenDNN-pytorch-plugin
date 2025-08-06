@@ -5,15 +5,13 @@
 
 import unittest
 import torch
-from parameterized import parameterized
-from itertools import product
 from torch import nn
 import sys
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
 from unittest_utils import (  # noqa: 402
-    Zentorch_TestCase,
+    AddmmTestCase,
     has_zentorch,
     reset_dynamo,
     run_tests,
@@ -46,12 +44,14 @@ class Custom_Model_Baddbmm_Unsupport(nn.Module):
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
-class Test_Baddbmm_Model(Zentorch_TestCase):
-    @parameterized.expand(product(supported_dtypes, freeze_opt))
+class Test_Baddbmm_Model(AddmmTestCase):
+    @AddmmTestCase.hypothesis_params_addmm_itr(
+        dtype_list=supported_dtypes,
+        freeze_list=freeze_opt
+    )
     @torch.inference_mode()
     def test_baddbmm_model(self, dtype, freeze_opt):
         self.skip_if_bfloat16_path_issue(dtype)
-        self.data.create_unittest_data(dtype)
         model = Custom_Model_Baddbmm().eval()
         for i in range(len(self.data.x2)):
             for j in range(len(self.data.y2)):
@@ -67,11 +67,13 @@ class Test_Baddbmm_Model(Zentorch_TestCase):
                     model_output, compiled_graph_output, atol=1e-5, rtol=1e-3
                 )
 
-    @parameterized.expand(product(supported_dtypes, freeze_opt))
+    @AddmmTestCase.hypothesis_params_addmm_itr(
+        dtype_list=supported_dtypes,
+        freeze_list=freeze_opt
+    )
     @torch.inference_mode()
     def test_baddbmm_unsupport_model(self, dtype, freeze_opt):
         self.skip_if_bfloat16_path_issue(dtype)
-        self.data.create_unittest_data(dtype)
         model = Custom_Model_Baddbmm_Unsupport().eval()
         model_output = model(self.data.M3, self.data.x2[0], self.data.y2[0])
         reset_dynamo()

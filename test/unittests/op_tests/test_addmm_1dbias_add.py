@@ -11,7 +11,7 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
 from unittest_utils import (  # noqa: 402
-    Zentorch_TestCase,
+    AddmmTestCase,
     has_zentorch,
     reset_dynamo,
     run_tests,
@@ -20,8 +20,10 @@ from unittest_utils import (  # noqa: 402
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
-class Test_Addmm_1dbias_Add(Zentorch_TestCase):
-    @parameterized.expand(supported_dtypes)
+class Test_Addmm_1dbias_Add(AddmmTestCase):
+    @AddmmTestCase.hypothesis_params_addmm_itr(
+        dtype_list=supported_dtypes
+    )
     @torch.inference_mode()
     def test_addmm_1dbias_add(self, dtype):
         new_dtype = self.data.get_torch_type(dtype)
@@ -37,7 +39,6 @@ class Test_Addmm_1dbias_Add(Zentorch_TestCase):
         self.assertEqual(output_1, output_2, atol=1e-2, rtol=1e-2)
 
     # Disabling this test case as mixed precision is not supported currently
-    @parameterized.expand(supported_dtypes)
     @unittest.skipIf(True, "ZENTORCH currently doesn't support mixed precision")
     @torch.inference_mode()
     def test_addmm_1dbias_add_mp(self, dtype):
@@ -53,10 +54,11 @@ class Test_Addmm_1dbias_Add(Zentorch_TestCase):
         )
         self.assertEqual(output_1, output_2, atol=1e-2, rtol=1e-2)
 
-    @parameterized.expand(supported_dtypes)
+    @AddmmTestCase.hypothesis_params_addmm_itr(
+        dtype_list=supported_dtypes
+    )
     @torch.inference_mode()
     def test_addmm_1dbias_add_mismatched_dimensions(self, dtype):
-        self.data.create_unittest_data(dtype)
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_addmm_1dbias_add(
                 self.data.input1d,
@@ -73,6 +75,11 @@ class Test_Addmm_1dbias_Add(Zentorch_TestCase):
         )
 
     @parameterized.expand(supported_dtypes)
+    # Switching to Hypothesis exposes more issues, so the existing methods are retained.
+    # Please refer ZENAI-1950 for details
+    # @AddmmTestCase.hypothesis_params_addmm_itr(
+    #     dtype_list=supported_dtypes
+    # )
     @torch.inference_mode()
     def test_addmm_1dbias_add_mismatched_sizes(self, dtype):
         self.data.create_unittest_data(dtype)
@@ -85,10 +92,11 @@ class Test_Addmm_1dbias_Add(Zentorch_TestCase):
             in str(context.exception)
         )
 
-    @parameterized.expand(supported_dtypes)
+    @AddmmTestCase.hypothesis_params_addmm_itr(
+        dtype_list=supported_dtypes
+    )
     @torch.inference_mode()
     def test_addmm_1dbias_add_add_mismatched_dimensions(self, dtype):
-        self.data.create_unittest_data(dtype)
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_addmm_1dbias_add_add(
                 self.data.input1d,
@@ -110,6 +118,11 @@ class Test_Addmm_1dbias_Add(Zentorch_TestCase):
         )
 
     @parameterized.expand(supported_dtypes)
+    # Switching to Hypothesis exposes more issues, so the existing methods are retained.
+    # Please refer ZENAI-1951 for details
+    # @AddmmTestCase.hypothesis_params_addmm_itr(
+    #     dtype_list=supported_dtypes
+    # )
     @torch.inference_mode()
     def test_addmm_1dbias_add_add_mismatched_sizes(self, dtype):
         self.data.create_unittest_data(dtype)
@@ -123,7 +136,9 @@ class Test_Addmm_1dbias_Add(Zentorch_TestCase):
             in str(context.exception)
         )
 
-    @parameterized.expand(supported_dtypes)
+    @AddmmTestCase.hypothesis_params_addmm_itr(
+        dtype_list=supported_dtypes
+    )
     @torch.inference_mode()
     def test_addmm_1dbias_add_add_op_level(self, dtype):
         new_dtype = self.data.get_torch_type(dtype)

@@ -13,7 +13,7 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
 from unittest_utils import (  # noqa: 402
-    Zentorch_TestCase,
+    AddmmTestCase,
     has_zentorch,
     run_tests,
     supported_dtypes,
@@ -24,8 +24,13 @@ from unittest_utils import (  # noqa: 402
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
-class Test_Addmm_1dbias_Relu_Model(Zentorch_TestCase):
+class Test_Addmm_1dbias_Relu_Model(AddmmTestCase):
     @parameterized.expand(supported_dtypes)
+    # Switching to Hypothesis exposes more issues, so the existing methods are retained.
+    # Please refer ZENAI-1971 for details
+    # @AddmmTestCase.hypothesis_params_addmm_itr(
+    #     dtype_list=supported_dtypes
+    # )
     @torch.inference_mode()
     def test_addmm_1dbias_relu_model(self, dtype):
         self.data.create_unittest_data(dtype)

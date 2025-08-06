@@ -14,7 +14,7 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
 from unittest_utils import (  # noqa: 402
-    Zentorch_TestCase,
+    AddmmTestCase,
     counters,
     has_zentorch,
     reset_dynamo,
@@ -94,8 +94,14 @@ class Custom_Model_Addmm_1dbias_Alpha_Beta_View_Add_Add(nn.Module):
 @unittest.skipIf(
     skip_test_pt_2_1, "Pattern matcher disabled for Torch < 2.2"
 )
-class Test_Addmm_1dbias_Add_Model(Zentorch_TestCase):
+class Test_Addmm_1dbias_Add_Model(AddmmTestCase):
     @parameterized.expand(product(supported_dtypes, freeze_opt))
+    # Switching to Hypothesis exposess more issues, so the existing methods are retained.
+    # Please refer ZENAI-1986 for details
+    # @AddmmTestCase.hypothesis_params_addmm_itr(
+    #     dtype_list=supported_dtypes,
+    #     freeze_list=freeze_opt
+    # )
     @torch.inference_mode()
     def test_addmm_1dbias_view_add_with_bias_model(self, dtype, freeze_opt):
         self.data.create_unittest_data(dtype)
@@ -125,6 +131,12 @@ class Test_Addmm_1dbias_Add_Model(Zentorch_TestCase):
                 )
 
     @parameterized.expand(product(supported_dtypes, freeze_opt))
+    # Switching to Hypothesis exposess more issues, so the existing methods are retained.
+    # Please refer ZENAI-1989 for details
+    # @AddmmTestCase.hypothesis_params_addmm_itr(
+    #     dtype_list=supported_dtypes,
+    #     freeze_list=freeze_opt
+    # )
     @torch.inference_mode()
     def test_addmm_1dbias_alpha_beta_view_add_with_bias_model(self, dtype, freeze_opt):
         self.data.create_unittest_data(dtype)
@@ -156,6 +168,12 @@ class Test_Addmm_1dbias_Add_Model(Zentorch_TestCase):
         self.assertEqual(model_output, compiled_graph_output, atol=1e-2, rtol=1e-2)
 
     @parameterized.expand(product(supported_dtypes, freeze_opt))
+    # Switching to Hypothesis exposess more issues, so the existing methods are retained.
+    # Please refer ZENAI-1987 for details
+    # @AddmmTestCase.hypothesis_params_addmm_itr(
+    #     dtype_list=supported_dtypes,
+    #     freeze_list=freeze_opt
+    # )
     @torch.inference_mode()
     def test_addmm_1dbias_view_add_without_bias_model(self, dtype, freeze_opt):
         self.data.create_unittest_data(dtype)
@@ -180,7 +198,10 @@ class Test_Addmm_1dbias_Add_Model(Zentorch_TestCase):
                     model_output, compiled_graph_output, atol=1e-2, rtol=1e-2
                 )
 
-    @parameterized.expand(product(supported_dtypes, freeze_opt))
+    @AddmmTestCase.hypothesis_params_addmm_itr(
+        dtype_list=supported_dtypes,
+        freeze_list=freeze_opt
+    )
     @torch.inference_mode()
     def test_3d_linear_3d_add_model(self, dtype, freeze_opt):
         new_dtype = self.data.get_torch_type(dtype)
@@ -201,6 +222,12 @@ class Test_Addmm_1dbias_Add_Model(Zentorch_TestCase):
         self.assertEqual(model_output, compiled_graph_output, atol=1e-2, rtol=1e-2)
 
     @parameterized.expand(product(supported_dtypes, freeze_opt))
+    # Switching to Hypothesis exposess more issues, so the existing methods are retained.
+    # Please refer ZENAI-1985 for details
+    # @AddmmTestCase.hypothesis_params_addmm_itr(
+    #     dtype_list=supported_dtypes,
+    #     freeze_list=freeze_opt
+    # )
     @torch.inference_mode()
     def test_addmm_1dbias_view_add_add_model(self, dtype, freeze_opt):
         self.data.create_unittest_data(dtype)
@@ -230,6 +257,12 @@ class Test_Addmm_1dbias_Add_Model(Zentorch_TestCase):
                 )
 
     @parameterized.expand(product(supported_dtypes, freeze_opt))
+    # Switching to Hypothesis exposess more issues, so the existing methods are retained.
+    # Please refer ZENAI-1988 for details
+    # @AddmmTestCase.hypothesis_params_addmm_itr(
+    #     dtype_list=supported_dtypes,
+    #     freeze_list=freeze_opt
+    # )
     @torch.inference_mode()
     def test_addmm_1dbias_alpha_beta_view_add_add_model(self, dtype, freeze_opt):
         self.data.create_unittest_data(dtype)

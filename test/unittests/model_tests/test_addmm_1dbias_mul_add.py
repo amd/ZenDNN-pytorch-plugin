@@ -14,7 +14,7 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
 from unittest_utils import (  # noqa: 402
-    Zentorch_TestCase,
+    AddmmTestCase,
     counters,
     has_zentorch,
     reset_dynamo,
@@ -54,12 +54,14 @@ class Custom_Model_Addmm_1dbias_Alpha_Beta_View_Mul_Add(nn.Module):
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 @unittest.skipIf(skip_test_pt_2_1, "Pattern matcher disabled for Torch < 2.2")
-class Test_Addmm_1dbias_Mul_Add_Model(Zentorch_TestCase):
-    @parameterized.expand(product(supported_dtypes, freeze_opt))
+class Test_Addmm_1dbias_Mul_Add_Model(AddmmTestCase):
+    @AddmmTestCase.hypothesis_params_addmm_itr(
+        dtype_list=supported_dtypes,
+        freeze_list=freeze_opt
+    )
     @torch.inference_mode()
     def test_addmm_1dbias_view_mul_add_model(self, dtype, freeze_opt):
         self.skip_if_bfloat16_path_issue(dtype)
-        self.data.create_unittest_data(dtype)
         model = Custom_Model_Addmm_1dbias_View_Mul_Add(
             40, 30, self.data.get_torch_type(dtype)
         ).eval()
@@ -83,6 +85,12 @@ class Test_Addmm_1dbias_Mul_Add_Model(Zentorch_TestCase):
                     model_output, compiled_graph_output, atol=1e-2, rtol=1e-2
                 )
 
+    # Switching to Hypothesis exposes more issues, so the existing methods are retained.
+    # Please refer ZENAI-1966 for details
+    # @AddmmTestCase.hypothesis_params_addmm_itr(
+    #     dtype_list=supported_dtypes,
+    #     freeze_list=freeze_opt
+    # )
     @parameterized.expand(product(supported_dtypes, freeze_opt))
     @torch.inference_mode()
     def test_addmm_1dbias_alpha_beta_view_add_add_model(self, dtype, freeze_opt):

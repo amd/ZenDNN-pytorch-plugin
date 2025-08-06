@@ -641,6 +641,7 @@ class Test_Data(metaclass=Singleton):
         y3d,
         input,
         input3d,
+        input1d,
     ):
         self.b, self.m, self.k, self.n = (b, m, k, n)
         self.M = M
@@ -656,6 +657,7 @@ class Test_Data(metaclass=Singleton):
         self.x3d = x3d
         self.y3d = y3d
         self.input = input
+        self.input1d = input1d
         self.input3d = input3d
 
     # Create data for convolution tests

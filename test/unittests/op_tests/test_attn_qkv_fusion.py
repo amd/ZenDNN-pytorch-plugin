@@ -11,7 +11,7 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
 from unittest_utils import (  # noqa: 402
-    Zentorch_TestCase,
+    AddmmTestCase,
     has_zentorch,
     run_tests,
     supported_dtypes,
@@ -20,8 +20,13 @@ from unittest_utils import (  # noqa: 402
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
-class Test_Attn_QKV_Fusion(Zentorch_TestCase):
+class Test_Attn_QKV_Fusion(AddmmTestCase):
     @parameterized.expand(supported_dtypes)
+    # Switching to Hypothesis exposess more issues, so the existing methods are retained.
+    # Please refer ZENAI-1984 for details
+    # @AddmmTestCase.hypothesis_params_addmm_itr(
+    #     dtype_list=supported_dtypes
+    # )
     @torch.inference_mode()
     def test_addmm_silu_mul_with_same_params(self, dtype):
         self.data.create_unittest_data(dtype)
@@ -73,10 +78,11 @@ class Test_Attn_QKV_Fusion(Zentorch_TestCase):
 
         self.assertEqual(native_output, zentorch_output)
 
-    @parameterized.expand(supported_dtypes)
+    @AddmmTestCase.hypothesis_params_addmm_itr(
+        dtype_list=supported_dtypes
+    )
     def test_attn_qkv_fusion_unsupported_dims_1(self, dtype):
 
-        self.data.create_unittest_data(dtype)
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_attn_qkv_fusion(
                 [self.data.x1[0]] * 3,
@@ -91,10 +97,11 @@ class Test_Attn_QKV_Fusion(Zentorch_TestCase):
             "unsupported dims for self, mat1 and mat2" in str(context.exception)
         )
 
-    @parameterized.expand(supported_dtypes)
+    @AddmmTestCase.hypothesis_params_addmm_itr(
+        dtype_list=supported_dtypes
+    )
     def test_attn_qkv_fusion_unsupported_dims_2(self, dtype):
 
-        self.data.create_unittest_data(dtype)
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_attn_qkv_fusion(
                 [self.data.y2[0]] * 3,
@@ -109,10 +116,11 @@ class Test_Attn_QKV_Fusion(Zentorch_TestCase):
             "unsupported dims for self, mat1 and mat2" in str(context.exception)
         )
 
-    @parameterized.expand(supported_dtypes)
+    @AddmmTestCase.hypothesis_params_addmm_itr(
+        dtype_list=supported_dtypes
+    )
     def test_attn_qkv_fusion_input_shape_compatibility(self, dtype):
 
-        self.data.create_unittest_data(dtype)
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_attn_qkv_fusion(
                 [self.data.M[1]] * 3,
@@ -128,10 +136,12 @@ class Test_Attn_QKV_Fusion(Zentorch_TestCase):
             in str(context.exception)
         )
 
+    @AddmmTestCase.hypothesis_params_addmm_itr(
+        dtype_list=["bfloat16"]
+    )
     @torch.inference_mode()
     def test_bf16_alpha_not_1(self):
         self.skip_if_bfloat16_unsupported_hardware()
-        self.data.create_unittest_data("bfloat16")
         self.assertEqual(
             torch._C._VariableFunctions.addmm(
                 self.data.input1d, self.data.x, self.data.y, alpha=1.7

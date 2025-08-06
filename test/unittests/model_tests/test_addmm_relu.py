@@ -6,15 +6,13 @@
 import copy
 import unittest
 import torch
-from parameterized import parameterized
-from itertools import product
 from torch import nn
 import sys
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
 from unittest_utils import (  # noqa: 402
-    Zentorch_TestCase,
+    AddmmTestCase,
     has_zentorch,
     reset_dynamo,
     run_tests,
@@ -51,12 +49,14 @@ class Custom_Model_Addmm_Relu1(nn.Module):
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
-class Test_Addmm_Relu_Model(Zentorch_TestCase):
-    @parameterized.expand(product(supported_dtypes, freeze_opt))
+class Test_Addmm_Relu_Model(AddmmTestCase):
+    @AddmmTestCase.hypothesis_params_addmm_itr(
+        dtype_list=supported_dtypes,
+        freeze_list=freeze_opt
+    )
     @torch.inference_mode()
     def test_addmm_relu2_model(self, dtype, freeze_opt):
         self.skip_if_bfloat16_path_issue(dtype)
-        self.data.create_unittest_data(dtype)
         model = Custom_Model_Addmm_Relu2().eval()
         for inp in self.data.M:
             for i in range(len(self.data.x1)):
@@ -71,10 +71,12 @@ class Test_Addmm_Relu_Model(Zentorch_TestCase):
                     )
                     self.assertEqual(model_output, compiled_graph_output)
 
-    @parameterized.expand(product(supported_dtypes, freeze_opt))
+    @AddmmTestCase.hypothesis_params_addmm_itr(
+        dtype_list=supported_dtypes,
+        freeze_list=freeze_opt
+    )
     @torch.inference_mode()
     def test_addmm_relu1_model(self, dtype, freeze_opt):
-        self.data.create_unittest_data(dtype)
         model = Custom_Model_Addmm_Relu1(self.data.n, self.data.m).eval()
         if dtype == "bfloat16":
             model = model.bfloat16()
@@ -88,14 +90,16 @@ class Test_Addmm_Relu_Model(Zentorch_TestCase):
         )
         self.assertEqual(model_output, compiled_graph_output)
 
-    @parameterized.expand(product(supported_dtypes, freeze_opt))
+    @AddmmTestCase.hypothesis_params_addmm_itr(
+        dtype_list=supported_dtypes,
+        freeze_list=freeze_opt
+    )
     @torch.inference_mode()
     @unittest.skip("Nan and Inf giving non-deterministic output")
     def test_addmm_relu1_model_with_nan_or_inf(self, dtype, freeze_opt):
         if dtype == "bfloat16":
             self.skipTest("Skipping it since this testcase is not applicable for BF16.")
 
-        self.data.create_unittest_data(dtype)
         model = Custom_Model_Addmm_Relu1(self.data.n, self.data.m).eval()
         # Nan's output is non-deterministic. Skipping Nan
         # self.data.input[0][0] = float("nan")

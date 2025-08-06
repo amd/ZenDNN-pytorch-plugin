@@ -5,13 +5,12 @@
 
 import unittest
 import torch
-from parameterized import parameterized
 import sys
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
 from unittest_utils import (  # noqa: 402
-    Zentorch_TestCase,
+    AddmmTestCase,
     has_zentorch,
     run_tests,
     supported_dtypes,
@@ -19,13 +18,13 @@ from unittest_utils import (  # noqa: 402
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
-class Test_Addmm_1dbias(Zentorch_TestCase):
+class Test_Addmm_1dbias(AddmmTestCase):
 
-    @parameterized.expand(supported_dtypes)
+    @AddmmTestCase.hypothesis_params_addmm_itr(
+        dtype_list=supported_dtypes
+    )
     @torch.inference_mode()
     def test_addmm_1dbias_incorrect_dims(self, dtype):
-
-        self.data.create_unittest_data(dtype)
 
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_addmm_1dbias(

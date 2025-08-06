@@ -13,7 +13,7 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
 from unittest_utils import (  # noqa: 402
-    Zentorch_TestCase,
+    AddmmTestCase,
     has_zentorch,
     reset_dynamo,
     run_tests,
@@ -49,12 +49,14 @@ class Custom_Model_MM_ReLU1(nn.Module):
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
-class Test_MM_RELU_Model(Zentorch_TestCase):
-    @parameterized.expand(product(supported_dtypes, freeze_opt))
+class Test_MM_RELU_Model(AddmmTestCase):
+    @AddmmTestCase.hypothesis_params_addmm_itr(
+        dtype_list=supported_dtypes,
+        freeze_list=freeze_opt
+    )
     @torch.inference_mode()
     def test_mm_relu2_optimize_model(self, dtype, freeze_opt):
 
-        self.data.create_unittest_data(dtype)
         model = Custom_Model_MM_Relu2().eval()
         for i in range(len(self.data.x1)):
             for j in range(len(self.data.y1)):
@@ -71,11 +73,13 @@ class Test_MM_RELU_Model(Zentorch_TestCase):
                 )
                 self.assertEqual(model_output, compiled_graph_output)
 
-    @parameterized.expand(product(supported_dtypes, freeze_opt))
+    @AddmmTestCase.hypothesis_params_addmm_itr(
+        dtype_list=supported_dtypes,
+        freeze_list=freeze_opt
+    )
     @torch.inference_mode()
     def test_mm_relu2_zero_input_optimize_model(self, dtype, freeze_opt):
 
-        self.data.create_unittest_data(dtype)
         model = Custom_Model_MM_Relu2().eval()
         model_output = model(self.data.x1[0] * 0, self.data.y1[0] * 0)
         reset_dynamo()
@@ -90,11 +94,13 @@ class Test_MM_RELU_Model(Zentorch_TestCase):
         )
         self.assertEqual(model_output, compiled_graph_output)
 
-    @parameterized.expand(product(supported_dtypes, freeze_opt))
+    @AddmmTestCase.hypothesis_params_addmm_itr(
+        dtype_list=supported_dtypes,
+        freeze_list=freeze_opt
+    )
     @torch.inference_mode()
     def test_mm_relu2_negative_input_optimize_model(self, dtype, freeze_opt):
 
-        self.data.create_unittest_data(dtype)
         model = Custom_Model_MM_Relu2().eval()
         model_output = model(self.data.x1[0] * -1, self.data.y1[0] * -1)
         reset_dynamo()
@@ -106,6 +112,12 @@ class Test_MM_RELU_Model(Zentorch_TestCase):
         )
         self.assertEqual(model_output, compiled_graph_output)
 
+    # Switching to Hypothesis exposes more issues, so the existing methods are retained.
+    # Please refer ZENAI-2294 for details
+    # @AddmmTestCase.hypothesis_params_addmm_itr(
+    #     dtype_list=supported_dtypes,
+    #     freeze_list=freeze_opt
+    # )
     @parameterized.expand(product(supported_dtypes, freeze_opt))
     @torch.inference_mode()
     def test_mm_relu1_model(self, dtype, freeze_opt):

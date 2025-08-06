@@ -13,7 +13,7 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
 from unittest_utils import (  # noqa: 402
-    Zentorch_TestCase,
+    AddmmTestCase,
     has_zentorch,
     reset_dynamo,
     run_tests,
@@ -117,12 +117,13 @@ class Custom_Model_Addmm_1dbias_Relu_Gelu(nn.Module):
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
-class Test_Addmm_1dbias_Model(Zentorch_TestCase):
-    @parameterized.expand(product(supported_dtypes, freeze_opt))
+class Test_Addmm_1dbias_Model(AddmmTestCase):
+    @AddmmTestCase.hypothesis_params_addmm_itr(
+        dtype_list=supported_dtypes,
+        freeze_list=freeze_opt
+    )
     @torch.inference_mode()
     def test_addmm_1dbias_model(self, dtype, freeze_opt):
-
-        self.data.create_unittest_data(dtype)
 
         model = Custom_Model_Addmm_1dbias(self.data.k, self.data.get_torch_type(dtype))
 
@@ -140,6 +141,12 @@ class Test_Addmm_1dbias_Model(Zentorch_TestCase):
         self.assertEqual(native_output, compiled_output)
 
     @parameterized.expand(product(supported_dtypes, freeze_opt))
+    # Switching to Hypothesis exposes more issues, so the existing methods are retained.
+    # Please refer ZENAI-1973 for details
+    # @AddmmTestCase.hypothesis_params_addmm_itr(
+    #     dtype_list=supported_dtypes,
+    #     freeze_list=freeze_opt
+    # )
     @torch.inference_mode()
     def test_addmm_1dbias_relu_model(self, dtype, freeze_opt):
 
@@ -163,6 +170,12 @@ class Test_Addmm_1dbias_Model(Zentorch_TestCase):
         self.assertEqual(native_output, compiled_output)
 
     @parameterized.expand(product(supported_dtypes, freeze_opt))
+    # Switching to Hypothesis exposes more issues, so the existing methods are retained.
+    # Please refer ZENAI-1972 for details
+    # @AddmmTestCase.hypothesis_params_addmm_itr(
+    #     dtype_list=supported_dtypes,
+    #     freeze_list=freeze_opt
+    # )
     @torch.inference_mode()
     def test_addmm_1dbias_relu_gelu_model(self, dtype, freeze_opt):
 

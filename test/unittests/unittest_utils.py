@@ -368,6 +368,7 @@ class AddmmTestCase(Zentorch_TestCase):
             y3d,
             input,
             input3d,
+            input1d,
         ) = val
         self.createDataAddmm(
             dtype=dtype,
@@ -389,6 +390,7 @@ class AddmmTestCase(Zentorch_TestCase):
             y3d=y3d,
             input=input,
             input3d=input3d,
+            input1d=input1d,
         )
 
     def createDataAddmm(
@@ -411,7 +413,8 @@ class AddmmTestCase(Zentorch_TestCase):
         x3d,
         y3d,
         input,
-        input3d
+        input3d,
+        input1d
     ):
         self.data.create_data_addmm(
             dtype=dtype,
@@ -432,7 +435,8 @@ class AddmmTestCase(Zentorch_TestCase):
             x3d=x3d,
             y3d=y3d,
             input=input,
-            input3d=input3d
+            input3d=input3d,
+            input1d=input1d,
         )
 
     def createDataAddXD(self, dtype, mm_add_1D, mm_add_2D, mm_add_3D):
@@ -548,7 +552,7 @@ class AddmmTestCase(Zentorch_TestCase):
             torch.randn(matrix_dim_3, generator=generator).type(torch_type),
         ]
 
-        T1 = torch.randn(2, matrix_dim_3, matrix_dim_3, generator=generator).type(torch_type)
+        T1 = [torch.randn(2, matrix_dim_3, matrix_dim_3, generator=generator).type(torch_type)]
 
         x1 = [
             torch.randn(matrix_dim_1, matrix_dim_2, generator=generator).type(torch_type),
@@ -601,6 +605,7 @@ class AddmmTestCase(Zentorch_TestCase):
         x3d = torch.randn(b, m, k, generator=generator).type(torch_type)
         y3d = torch.randn(b, k, n, generator=generator).type(torch_type)
         input = torch.randn(m, n, generator=generator).type(torch_type)
+        input1d = torch.randn(n, generator=generator).type(torch_type)
         input3d = torch.randn(b, m, n, generator=generator).type(torch_type)
 
         return (
@@ -626,6 +631,7 @@ class AddmmTestCase(Zentorch_TestCase):
             y3d,
             input,
             input3d,
+            input1d,
         )
 
     @staticmethod

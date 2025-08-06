@@ -11,7 +11,7 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
 from unittest_utils import (  # noqa: 402
-    Zentorch_TestCase,
+    AddmmTestCase,
     has_zentorch,
     run_tests,
     supported_dtypes,
@@ -19,9 +19,14 @@ from unittest_utils import (  # noqa: 402
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
-class Test_Addmm_SiLU_Mul(Zentorch_TestCase):
+class Test_Addmm_SiLU_Mul(AddmmTestCase):
 
     @parameterized.expand(supported_dtypes)
+    # Switching to Hypothesis exposes more issues, so the existing methods are retained.
+    # Please refer ZENAI-1962 for details
+    # @AddmmTestCase.hypothesis_params_addmm_itr(
+    #     dtype_list=supported_dtypes
+    # )
     @torch.inference_mode()
     def test_addmm_silu_mul(self, dtype):
         self.data.create_unittest_data(dtype)
@@ -35,10 +40,11 @@ class Test_Addmm_SiLU_Mul(Zentorch_TestCase):
         )
         self.assertEqual(native_output, zentorch_output)
 
-    @parameterized.expand(supported_dtypes)
+    @AddmmTestCase.hypothesis_params_addmm_itr(
+        dtype_list=supported_dtypes
+    )
     @torch.inference_mode()
     def test_addmm_silu_mul_mismatched_dimensions(self, dtype):
-        self.data.create_unittest_data(dtype)
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_addmm_silu_mul(
                 self.data.input,
@@ -55,6 +61,11 @@ class Test_Addmm_SiLU_Mul(Zentorch_TestCase):
         )
 
     @parameterized.expand(supported_dtypes)
+    # Switching to Hypothesis exposes more issues, so the existing methods are retained.
+    # Please refer ZENAI-1961 for details
+    # @AddmmTestCase.hypothesis_params_addmm_itr(
+    #     dtype_list=supported_dtypes
+    # )
     @torch.inference_mode()
     def test_addmm_silu_mul_mismatched_sizes(self, dtype):
         self.data.create_unittest_data(dtype)

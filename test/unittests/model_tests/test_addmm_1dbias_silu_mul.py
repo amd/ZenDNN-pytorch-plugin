@@ -12,7 +12,7 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
 from unittest_utils import (  # noqa: 402
-    Zentorch_TestCase,
+    AddmmTestCase,
     reset_dynamo,
     counters,
     run_tests,
@@ -48,8 +48,14 @@ class Custom_Model_Addmm_1dbias_Alpha_Beta_SiLU_Mul(nn.Module):
 
 
 @unittest.skipIf(skip_test_pt_2_1, "Pattern matcher disabled for Torch < 2.2")
-class Test_Pattern_Matcher_Test_With_Different_Dtypes_Model(Zentorch_TestCase):
+class Test_Pattern_Matcher_Test_With_Different_Dtypes_Model(AddmmTestCase):
     @parameterized.expand(freeze_opt)
+    # Switching to Hypothesis exposes more issues, so the existing methods are retained.
+    # Please refer ZENAI-1977 for details
+    # @AddmmTestCase.hypothesis_params_addmm_itr(
+    #     dtype_list=["float32"],
+    #     freeze_list=freeze_opt
+    # )
     @torch.inference_mode()
     def test_float32_addmm_1dbias_silu_float32_mul_pattern_model(self, freeze_opt):
         reset_dynamo()
@@ -77,6 +83,12 @@ class Test_Pattern_Matcher_Test_With_Different_Dtypes_Model(Zentorch_TestCase):
         )
 
     @parameterized.expand(freeze_opt)
+    # Switching to Hypothesis exposes more issues, so the existing methods are retained.
+    # Please refer ZENAI-1976 for details
+    # @AddmmTestCase.hypothesis_params_addmm_itr(
+    #     dtype_list=["float32"],
+    #     freeze_list=freeze_opt
+    # )
     @torch.inference_mode()
     def test_float32_addmm_1dbias_alpha_beta_silu_float32_mul_pattern_model(
         self,
@@ -107,11 +119,13 @@ class Test_Pattern_Matcher_Test_With_Different_Dtypes_Model(Zentorch_TestCase):
             counters["zentorch"]["pattern_matcher_addmm_1dbias_silu_mul"], 1
         )
 
-    @parameterized.expand(freeze_opt)
+    @AddmmTestCase.hypothesis_params_addmm_itr(
+        dtype_list=["float32"],
+        freeze_list=freeze_opt
+    )
     @torch.inference_mode()
     def test_float32_addmm_1dbias_silu_bfloat16_mul_pattern_model(self, freeze_opt):
         reset_dynamo()
-        self.data.create_unittest_data("float32")
         model = Custom_Model_Addmm_1dbias_SiLU_Mul(self.data, bias=True)
         mul_tensor = torch.reshape(self.data.x, (1, self.data.m, self.data.k)).to(
             torch.bfloat16
@@ -133,12 +147,14 @@ class Test_Pattern_Matcher_Test_With_Different_Dtypes_Model(Zentorch_TestCase):
             counters["zentorch"]["pattern_matcher_addmm_1dbias_silu_mul"], 0
         )
 
-    @parameterized.expand(freeze_opt)
+    @AddmmTestCase.hypothesis_params_addmm_itr(
+        dtype_list=["bfloat16"],
+        freeze_list=freeze_opt
+    )
     @torch.inference_mode()
     def test_bfloat16_addmm_1dbias_silu_float32_mul_pattern_model(self, freeze_opt):
         reset_dynamo()
         self.skip_if_bfloat16_unsupported_hardware()
-        self.data.create_unittest_data("bfloat16")
         model = Custom_Model_Addmm_1dbias_SiLU_Mul(self.data, bias=True)
 
         mul_tensor = torch.reshape(self.data.x, (1, self.data.m, self.data.k)).to(
@@ -162,6 +178,12 @@ class Test_Pattern_Matcher_Test_With_Different_Dtypes_Model(Zentorch_TestCase):
         )
 
     @parameterized.expand(freeze_opt)
+    # Switching to Hypothesis exposes more issues, so the existing methods are retained.
+    # Please refer ZENAI-1974 for details
+    # @AddmmTestCase.hypothesis_params_addmm_itr(
+    #     dtype_list=["bfloat16"],
+    #     freeze_list=freeze_opt
+    # )
     @torch.inference_mode()
     def test_bfloat16_addmm_1dbias_silu_bfloat16_mul_pattern_model(self, freeze_opt):
         reset_dynamo()
@@ -189,6 +211,12 @@ class Test_Pattern_Matcher_Test_With_Different_Dtypes_Model(Zentorch_TestCase):
         )
 
     @parameterized.expand(freeze_opt)
+    # Switching to Hypothesis exposes more issues, so the existing methods are retained.
+    # Please refer ZENAI-1978 for details
+    # @AddmmTestCase.hypothesis_params_addmm_itr(
+    #     dtype_list=["float32"],
+    #     freeze_list=freeze_opt
+    # )
     @torch.inference_mode()
     def test_float32_mm_silu_float32_mul_pattern_model(self, freeze_opt):
         reset_dynamo()
@@ -211,11 +239,13 @@ class Test_Pattern_Matcher_Test_With_Different_Dtypes_Model(Zentorch_TestCase):
         )
         self.assertEqual(counters["zentorch"]["pattern_matcher_mm_silu_mul"], 1)
 
-    @parameterized.expand(freeze_opt)
+    @AddmmTestCase.hypothesis_params_addmm_itr(
+        dtype_list=["float32"],
+        freeze_list=freeze_opt
+    )
     @torch.inference_mode()
     def test_float32_mm_silu_bfloat16_mul_pattern_model(self, freeze_opt):
         reset_dynamo()
-        self.data.create_unittest_data("float32")
         model = Custom_Model_Addmm_1dbias_SiLU_Mul(self.data, bias=False)
         mul_tensor = torch.reshape(self.data.x, (1, self.data.m, self.data.k)).to(
             torch.bfloat16
@@ -233,12 +263,14 @@ class Test_Pattern_Matcher_Test_With_Different_Dtypes_Model(Zentorch_TestCase):
         )
         self.assertEqual(counters["zentorch"]["pattern_matcher_mm_silu_mul"], 0)
 
-    @parameterized.expand(freeze_opt)
+    @AddmmTestCase.hypothesis_params_addmm_itr(
+        dtype_list=["bfloat16"],
+        freeze_list=freeze_opt
+    )
     @torch.inference_mode()
     def test_bfloat16_mm_silu_float32_mul_pattern_model(self, freeze_opt):
         reset_dynamo()
         self.skip_if_bfloat16_unsupported_hardware()
-        self.data.create_unittest_data("bfloat16")
         model = Custom_Model_Addmm_1dbias_SiLU_Mul(self.data, bias=False)
 
         mul_tensor = torch.reshape(self.data.x, (1, self.data.m, self.data.k)).to(
@@ -258,6 +290,12 @@ class Test_Pattern_Matcher_Test_With_Different_Dtypes_Model(Zentorch_TestCase):
         self.assertEqual(counters["zentorch"]["pattern_matcher_mm_silu_mul"], 0)
 
     @parameterized.expand(freeze_opt)
+    # Switching to Hypothesis introduces more issues in other tests, so the existing methods are retained.
+    # Please refer ZENAI-1975 for details
+    # @AddmmTestCase.hypothesis_params_addmm_itr(
+    #     dtype_list=["bfloat16"],
+    #     freeze_list=freeze_opt
+    # )
     @torch.inference_mode()
     def test_bfloat16_mm_silu_bfloat16_mul_pattern_model(self, freeze_opt):
         reset_dynamo()
