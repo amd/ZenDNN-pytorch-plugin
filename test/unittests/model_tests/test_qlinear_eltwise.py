@@ -5,16 +5,14 @@
 
 import copy
 import unittest
-from itertools import product
 import torch
-from parameterized import parameterized
 from torch import nn
 import sys
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
 from unittest_utils import (  # noqa: 402
-    Zentorch_TestCase,
+    QLinearTestCase,
     counters,
     has_zentorch,
     run_tests,
@@ -64,20 +62,17 @@ class Custom_Model_Qlinear_Eltwise(nn.Module):
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
-class Test_Qlinear_Eltwise_Model(Zentorch_TestCase):
-    @parameterized.expand(
-        product(
-            qlinear_dtypes,
-            q_linear_dtype_opt,
-            input_dim_opt,
-            q_weight_list_opt,
-            bias_opt,
-            q_granularity_opt,
-            q_zero_points_dtype_opt,
-            qlinear_eltwise_map.keys(),
-            ["float32", "bfloat16"],  # o/p dtype is float only in this case
-        ),
-        skip_on_empty=True,
+class Test_Qlinear_Eltwise_Model(QLinearTestCase):
+    @QLinearTestCase.hypothesis_params_qlinear_itr(
+        dtype_list=qlinear_dtypes,
+        q_linear_dtype_opt_list=q_linear_dtype_opt,
+        input_dim_opt_list=input_dim_opt,
+        q_weight_list_opt_list=q_weight_list_opt,
+        bias_opt_list=bias_opt,
+        q_granularity_opt_list=q_granularity_opt,
+        q_zero_points_dtype_opt_list=q_zero_points_dtype_opt,
+        qlinear_eltwise_opt_list=qlinear_eltwise_map.keys(),
+        q_linear_output_dtype_opt_list=["float32", "bfloat16"]  # o/p dtype is float only in this case
     )
     @torch.inference_mode()
     def test_qlinear_eltwise_model(
@@ -92,7 +87,6 @@ class Test_Qlinear_Eltwise_Model(Zentorch_TestCase):
         eltwise_op,
         output_dtype,
     ):
-        self.data.create_unittest_data(dtype)
         if (
             self.data.bias_for_qlinear[bias_opt_idx] is not None
             and input_dtype in ("float32", "bfloat16")

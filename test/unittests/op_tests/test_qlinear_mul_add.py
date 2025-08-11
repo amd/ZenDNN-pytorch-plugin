@@ -4,15 +4,13 @@
 # ******************************************************************************
 
 import unittest
-from itertools import product
 import torch
-from parameterized import parameterized
 import sys
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
 from unittest_utils import (  # noqa: 402
-    Zentorch_TestCase,
+    QLinearTestCase,
     has_zentorch,
     zentorch,
     run_tests,
@@ -29,14 +27,16 @@ from quant_utils import qdq_linear  # noqa: 402
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
-class Test_Qlinear_Binary(Zentorch_TestCase):
+class Test_Qlinear_Binary(QLinearTestCase):
+    @QLinearTestCase.hypothesis_params_qlinear_itr(
+        dtype_list=["float32"]
+    )
     @torch.inference_mode()
     def test_qlinear_unsupported_hardware(self):
         if zentorch._C.is_avx512_supported():
             self.skipTest(
                 "Skipping hardware test, as AVX512 instructions are supported."
             )
-        self.data.create_unittest_data("float32")
 
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_qlinear_mul_add(
@@ -57,18 +57,16 @@ class Test_Qlinear_Binary(Zentorch_TestCase):
         )
 
     # TODO: parameterize in a more self-explanatory way for test-names
-    @parameterized.expand(
-        product(
-            qlinear_dtypes,
-            input_dim_opt,
-            q_weight_list_opt,
-            bias_opt,
-            q_granularity_opt,
-            q_zero_points_dtype_opt,
-            q_linear_dtype_opt,
-            ["float32", "bfloat16"],
-        ),
-        skip_on_empty=True,
+    @QLinearTestCase.hypothesis_params_qlinear_itr(
+        dtype_list=qlinear_dtypes,
+        input_dim_opt_list=input_dim_opt,
+        q_weight_list_opt_list=q_weight_list_opt,
+        bias_opt_list=bias_opt,
+        q_granularity_opt_list=q_granularity_opt,
+        q_zero_points_dtype_opt_list=q_zero_points_dtype_opt,
+        q_linear_dtype_opt_list=q_linear_dtype_opt,
+        q_linear_output_dtype_opt_list=["float32", "bfloat16"]
+
     )
     @torch.inference_mode()
     def test_qlinear_mul_add_op(
@@ -82,7 +80,6 @@ class Test_Qlinear_Binary(Zentorch_TestCase):
         input_dtype,
         output_dtype,
     ):
-        self.data.create_unittest_data(dtype)
         self.skip_if_does_not_support_arg_combination_for_qlinear(
             bias_opt_idx, input_dtype, output_dtype
         )

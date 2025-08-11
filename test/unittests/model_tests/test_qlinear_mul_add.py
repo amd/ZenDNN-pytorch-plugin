@@ -5,9 +5,7 @@
 
 import copy
 import unittest
-from itertools import product
 import torch
-from parameterized import parameterized
 from torch import nn
 import sys
 from pathlib import Path
@@ -15,7 +13,7 @@ import zentorch
 
 sys.path.append(str(Path(__file__).parent.parent))
 from unittest_utils import (  # noqa: 402
-    Zentorch_TestCase,
+    QLinearTestCase,
     counters,
     has_zentorch,
     run_tests,
@@ -70,19 +68,16 @@ class Custom_Model_Qlinear_Mul_Add(nn.Module):
 # temporary fix for Milan unittest failure
 # TODO: Re-factor the unit-test configuration to use dtypes
 # based on the underlying machine capabilities.
-class Test_Qlinear_Mul_Add_Model(Zentorch_TestCase):
-    @parameterized.expand(
-        product(
-            ["float32", "bfloat16"],  # adds missing combinations (not None bias)
-            input_dim_opt,
-            q_weight_list_opt,
-            bias_opt,
-            q_granularity_opt,
-            q_zero_points_dtype_opt,
-            q_linear_dtype_opt,
-            ["float32", "bfloat16"],
-        ),
-        skip_on_empty=True,
+class Test_Qlinear_Mul_Add_Model(QLinearTestCase):
+    @QLinearTestCase.hypothesis_params_qlinear_itr(
+        dtype_list=["float32", "bfloat16"],  # adds missing combinations (not None bias)
+        input_dim_opt_list=input_dim_opt,
+        q_weight_list_opt_list=q_weight_list_opt,
+        bias_opt_list=bias_opt,
+        q_granularity_opt_list=q_granularity_opt,
+        q_zero_points_dtype_opt_list=q_zero_points_dtype_opt,
+        q_linear_dtype_opt_list=q_linear_dtype_opt,
+        q_linear_output_dtype_opt_list=["float32", "bfloat16"]
     )
     @torch.inference_mode()
     def test_qlinear_mul_add_model(
@@ -96,7 +91,6 @@ class Test_Qlinear_Mul_Add_Model(Zentorch_TestCase):
         input_dtype,
         output_dtype,
     ):
-        self.data.create_unittest_data(dtype)
         self.skip_if_does_not_support_arg_combination_for_qlinear(
             bias_opt_idx, input_dtype, output_dtype
         )

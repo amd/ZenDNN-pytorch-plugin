@@ -140,8 +140,11 @@ MODE_OPT_DEF = [0]
 sparse_opt = [True, False]
 SPARSE_OPT_DEF = [False]
 input_dim_opt = [2, 3, 4]
+INPUT_DIM_OPT_DEF = [2]
 q_weight_list_opt = [0, 1]
+Q_WEIGHT_LIST_OPT_DEF = [0]
 bias_opt = [0, 1]
+BIAS_OPT_DEF = [0]
 woq_qzeros_opt = [0, 1]
 group_size_opt = [-1, 1, 2, 3, 4, 5, 7, 8, 10]
 group_size_def_opt = [-1]
@@ -149,9 +152,15 @@ q_granularity_opt = [
     "per_tensor",
     "per_channel",
 ]
+Q_GRANULARITY_OPT_DEF = [
+    "per_tensor"
+]
 q_zero_points_dtype_opt = [
     "int8",
     "uint8",
+]
+Q_ZERO_POINTS_DTYPE_OPT_DEF = [
+    "int8"
 ]
 q_linear_dtype_opt = [
     "float32",
@@ -159,6 +168,7 @@ q_linear_dtype_opt = [
     "int8",
     "uint8",
 ]
+Q_LINEAR_DTYPE_OPT_DEF = ["float32"]
 conv_stride = [[1, 1], [2, 2]]
 conv_stride_def = [[1, 1]]
 conv_padding = [[0, 0], [1, 1]]
@@ -184,6 +194,7 @@ qlinear_eltwise_map = {
     #     zt_ops.zentorch_qlinear_gelu_tanh.default,
     # ),
 }
+QLINEAR_ELTWISE_OPT_DEF = ["relu"]
 
 
 def set_seed(seed=SEED):

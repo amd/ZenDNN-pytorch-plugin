@@ -14,7 +14,7 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
 from unittest_utils import (  # noqa: 402
-    Zentorch_TestCase,
+    QLinearTestCase,
     counters,
     has_zentorch,
     reset_dynamo,
@@ -127,7 +127,7 @@ class Custom_Model_Zentorch_Qlinear_Mix_X3(nn.Module):
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
-class Test_Qlinear_Model(Zentorch_TestCase):
+class Test_Qlinear_Model(QLinearTestCase):
     @parameterized.expand(
         product(
             qlinear_dtypes,
@@ -138,6 +138,15 @@ class Test_Qlinear_Model(Zentorch_TestCase):
         ),
         skip_on_empty=True,
     )
+    # Switching to Hypothesis exposess more issues, so the existing methods are retained.
+    # Please refer ZENAI-1998 for details
+    # @QLinearTestCase.hypothesis_params_qlinear_itr(
+    #     dtype_list=qlinear_dtypes,
+    #     input_dim_opt_list=input_dim_opt,
+    #     bias_opt_list=bias_opt,
+    #     q_granularity_opt_list=q_granularity_opt,
+    #     q_zero_points_dtype_opt_list=q_zero_points_dtype_opt
+    # )
     @torch.inference_mode()
     def test_qlinear_x3(
         self,
@@ -185,15 +194,12 @@ class Test_Qlinear_Model(Zentorch_TestCase):
         self.assertEqual(counters["zentorch"]["optimized_reorder"], 2)
         self.assertEqual(model_output, zentorch_output)
 
-    @parameterized.expand(
-        product(
-            qlinear_dtypes,
-            input_dim_opt,
-            bias_opt,
-            q_granularity_opt,
-            q_zero_points_dtype_opt,
-        ),
-        skip_on_empty=True,
+    @QLinearTestCase.hypothesis_params_qlinear_itr(
+        dtype_list=qlinear_dtypes,
+        input_dim_opt_list=input_dim_opt,
+        bias_opt_list=bias_opt,
+        q_granularity_opt_list=q_granularity_opt,
+        q_zero_points_dtype_opt_list=q_zero_points_dtype_opt
     )
     @torch.inference_mode()
     def test_qlinear_mix_x3(
@@ -204,7 +210,6 @@ class Test_Qlinear_Model(Zentorch_TestCase):
         q_granularity_val,
         q_zero_points_dtype,
     ):
-        self.data.create_unittest_data(dtype)
 
         model = Custom_Model_Zentorch_Qlinear_X3()
         zentorch_model = copy.deepcopy(model)

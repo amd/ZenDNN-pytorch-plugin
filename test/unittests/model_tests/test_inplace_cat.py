@@ -4,9 +4,7 @@
 # ******************************************************************************
 
 import unittest
-from itertools import product
 import torch
-from parameterized import parameterized
 from torch import nn
 import sys
 from pathlib import Path
@@ -15,7 +13,7 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))
 from quant_utils import qdq_linear  # noqa: E402
 from unittest_utils import (  # noqa: 402
-    Zentorch_TestCase,
+    QLinearTestCase,
     has_zentorch,
     run_tests,
     counters,
@@ -110,19 +108,16 @@ class Custom_Model_Linear_Cat(nn.Module):
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
-class Test_Inplace_Cat_Model(Zentorch_TestCase):
-    @parameterized.expand(
-        product(
-            qlinear_dtypes,
-            input_dim_opt,
-            q_weight_list_opt,
-            bias_opt,
-            q_granularity_opt,
-            q_zero_points_dtype_opt,
-            q_linear_dtype_opt,
-            q_linear_dtype_opt,
-        ),
-        skip_on_empty=True,
+class Test_Inplace_Cat_Model(QLinearTestCase):
+    @QLinearTestCase.hypothesis_params_qlinear_itr(
+        dtype_list=qlinear_dtypes,
+        input_dim_opt_list=input_dim_opt,
+        q_weight_list_opt_list=q_weight_list_opt,
+        bias_opt_list=bias_opt,
+        q_granularity_opt_list=q_granularity_opt,
+        q_zero_points_dtype_opt_list=q_zero_points_dtype_opt,
+        q_linear_dtype_opt_list=q_linear_dtype_opt,
+        q_linear_output_dtype_opt_list=q_linear_dtype_opt
     )
     @torch.inference_mode()
     def test_inplace_cat_model(
@@ -136,7 +131,6 @@ class Test_Inplace_Cat_Model(Zentorch_TestCase):
         input_dtype,
         output_dtype,
     ):
-        self.data.create_unittest_data(dtype)
         # adding all the skip conditions (there are 4)
         if (
             self.data.bias_for_qlinear[bias_opt_idx] is None

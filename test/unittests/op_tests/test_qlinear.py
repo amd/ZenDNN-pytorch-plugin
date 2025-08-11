@@ -504,6 +504,7 @@ class Test_Qlinear(QLinearTestCase):
         q_zero_points_dtype_opt_list=q_zero_points_dtype_opt,
         q_linear_dtype_opt_list=q_linear_dtype_opt,
         dtype_list=qlinear_dtypes,
+        q_linear_output_dtype_opt_list=q_linear_dtype_opt,
     )
     @torch.inference_mode()
     def test_qlinear_accuracy(
@@ -567,6 +568,7 @@ class Test_Qlinear(QLinearTestCase):
         q_zero_points_dtype_opt_list=q_zero_points_dtype_opt,
         q_linear_dtype_opt_list=q_linear_dtype_opt,
         dtype_list=qlinear_dtypes,
+        q_linear_output_dtype_opt_list=q_linear_dtype_opt,
     )
     @torch.inference_mode()
     def test_qlinear_accuracy_0dim_scales(

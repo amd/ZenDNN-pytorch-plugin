@@ -27,6 +27,7 @@ from zentorch_test_utils import (  # noqa: 402 # noqa: F401
     supported_dtypes,
     supported_dtypes_def,
     qlinear_dtypes,
+    Q_LINEAR_DTYPE_OPT_DEF,
     skip_test_pt_2_0,
     skip_test_pt_2_1,
     skip_test_pt_2_3,
@@ -45,13 +46,18 @@ from zentorch_test_utils import (  # noqa: 402 # noqa: F401
     scale_grad_opt,
     SCALE_GRAD_OPT_DEF,
     input_dim_opt,
+    INPUT_DIM_OPT_DEF,
     q_weight_list_opt,
+    Q_WEIGHT_LIST_OPT_DEF,
     bias_opt,
+    BIAS_OPT_DEF,
     woq_qzeros_opt,
     group_size_opt,
     group_size_def_opt,
     q_granularity_opt,
+    Q_GRANULARITY_OPT_DEF,
     q_zero_points_dtype_opt,
+    Q_ZERO_POINTS_DTYPE_OPT_DEF,
     q_linear_dtype_opt,
     conv_stride,
     conv_stride_def,
@@ -60,6 +66,7 @@ from zentorch_test_utils import (  # noqa: 402 # noqa: F401
     at_ops,
     zt_ops,
     qlinear_eltwise_map,
+    QLINEAR_ELTWISE_OPT_DEF,
     seq_length_opt,
     batch_size_opt,
     mask_type_opt,
@@ -2216,6 +2223,8 @@ class QLinearTestCase(Zentorch_TestCase):
             q_granularity,
             q_zero_points_dtype,
             q_linear_dtype,
+            q_linear_output_dtype,
+            q_linear_eltwise,
             y_int8_square,
             bias_for_qlinear_square,
             y_scales_square,
@@ -2278,12 +2287,14 @@ class QLinearTestCase(Zentorch_TestCase):
     @st.composite
     def tensor_qlinear_strategy(
         draw,
-        input_dim_opt_list,
-        q_weight_list_opt_list,
-        bias_opt_list,
-        q_granularity_opt_list,
-        q_zero_points_dtype_opt_list,
-        q_linear_dtype_opt_list,
+        input_dim_opt_list=INPUT_DIM_OPT_DEF,
+        q_weight_list_opt_list=Q_WEIGHT_LIST_OPT_DEF,
+        bias_opt_list=BIAS_OPT_DEF,
+        q_granularity_opt_list=Q_GRANULARITY_OPT_DEF,
+        q_zero_points_dtype_opt_list=Q_ZERO_POINTS_DTYPE_OPT_DEF,
+        q_linear_dtype_opt_list=Q_LINEAR_DTYPE_OPT_DEF,
+        q_linear_output_dtype_opt_list=Q_LINEAR_DTYPE_OPT_DEF,
+        qlinear_eltwise_opt_list=QLINEAR_ELTWISE_OPT_DEF,
         dtype_list=qlinear_dtypes,
         freeze_list=freeze_def_opt,
         bRange=B_RANGE,
@@ -2332,6 +2343,10 @@ class QLinearTestCase(Zentorch_TestCase):
         hypStr += f"kRange=Range({k}, {k}), "
         n = draw(st.integers(nRange.get_min(), nRange.get_max()))
         hypStr += f"nRange=Range({n}, {n}), "
+        q_linear_output_dtype = draw(st.sampled_from(q_linear_output_dtype_opt_list))
+        hypStr += f"q_linear_output_dtype=[{q_linear_output_dtype}], "
+        q_linear_eltwise = draw(st.sampled_from(list(qlinear_eltwise_opt_list)))
+        hypStr += f"q_linear_eltwise=[{q_linear_eltwise}], "
         matrix_dim_1 = draw(
             st.integers(
                 matrix_dim_1_Range.get_min(),
@@ -2563,6 +2578,8 @@ class QLinearTestCase(Zentorch_TestCase):
             q_granularity,
             q_zero_points_dtype,
             q_linear_dtype,
+            q_linear_output_dtype,
+            q_linear_eltwise,
             y_int8_square,
             bias_for_qlinear_square,
             y_scales_square,
@@ -2590,13 +2607,15 @@ class QLinearTestCase(Zentorch_TestCase):
 
     @staticmethod
     def hypothesis_params_qlinear_itr(
-        input_dim_opt_list,
-        q_weight_list_opt_list,
-        bias_opt_list,
-        q_granularity_opt_list,
-        q_zero_points_dtype_opt_list,
-        q_linear_dtype_opt_list,
+        input_dim_opt_list=INPUT_DIM_OPT_DEF,
+        q_weight_list_opt_list=Q_WEIGHT_LIST_OPT_DEF,
+        bias_opt_list=BIAS_OPT_DEF,
+        q_granularity_opt_list=Q_GRANULARITY_OPT_DEF,
+        q_zero_points_dtype_opt_list=Q_ZERO_POINTS_DTYPE_OPT_DEF,
+        q_linear_dtype_opt_list=Q_LINEAR_DTYPE_OPT_DEF,
+        q_linear_output_dtype_opt_list=Q_LINEAR_DTYPE_OPT_DEF,
         dtype_list=qlinear_dtypes,
+        qlinear_eltwise_opt_list=QLINEAR_ELTWISE_OPT_DEF,
         freeze_list=freeze_def_opt,
         bRange=B_RANGE,
         mRange=M_RANGE,
@@ -2632,8 +2651,10 @@ class QLinearTestCase(Zentorch_TestCase):
                     q_granularity_opt_list,
                     q_zero_points_dtype_opt_list,
                     q_linear_dtype_opt_list,
+                    q_linear_output_dtype_opt_list=q_linear_output_dtype_opt_list,
                     dtype_list=dtype_list,
                     freeze_list=freeze_list,
+                    qlinear_eltwise_opt_list=qlinear_eltwise_opt_list,
                     bRange=bRange,
                     mRange=mRange,
                     pRange=pRange,
@@ -2665,6 +2686,8 @@ class QLinearTestCase(Zentorch_TestCase):
                         q_granularity,
                         q_zero_points_dtype,
                         q_linear_dtype,
+                        q_linear_output_dtype,
+                        q_linear_eltwise,
                         *_,
                     ) = val
 
@@ -2685,7 +2708,8 @@ class QLinearTestCase(Zentorch_TestCase):
                         "q_granularity_val": q_granularity,
                         "q_zero_points_dtype": q_zero_points_dtype,
                         "input_dtype": q_linear_dtype,
-                        "output_dtype": q_linear_dtype,
+                        "output_dtype": q_linear_output_dtype,
+                        "eltwise_op": q_linear_eltwise,
                         "freeze_opt": freeze,
                     }
 

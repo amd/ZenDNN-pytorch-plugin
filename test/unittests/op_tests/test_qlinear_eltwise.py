@@ -4,15 +4,13 @@
 # ******************************************************************************
 
 import unittest
-from itertools import product
 import torch
-from parameterized import parameterized
 import sys
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
 from unittest_utils import (  # noqa: 402
-    Zentorch_TestCase,
+    QLinearTestCase,
     has_zentorch,
     run_tests,
     qlinear_dtypes,
@@ -29,20 +27,17 @@ from quant_utils import qdq_linear  # noqa: 402
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
-class Test_Qlinear_Eltwise(Zentorch_TestCase):
-    @parameterized.expand(
-        product(
-            qlinear_dtypes,
-            input_dim_opt,
-            q_weight_list_opt,
-            bias_opt,
-            q_granularity_opt,
-            q_zero_points_dtype_opt,
-            q_linear_dtype_opt,
-            q_linear_dtype_opt,
-            qlinear_eltwise_map.keys(),
-        ),
-        skip_on_empty=True,
+class Test_Qlinear_Eltwise(QLinearTestCase):
+    @QLinearTestCase.hypothesis_params_qlinear_itr(
+        dtype_list=qlinear_dtypes,
+        input_dim_opt_list=input_dim_opt,
+        q_weight_list_opt_list=q_weight_list_opt,
+        bias_opt_list=bias_opt,
+        q_granularity_opt_list=q_granularity_opt,
+        q_zero_points_dtype_opt_list=q_zero_points_dtype_opt,
+        q_linear_dtype_opt_list=q_linear_dtype_opt,
+        q_linear_output_dtype_opt_list=q_linear_dtype_opt,
+        qlinear_eltwise_opt_list=qlinear_eltwise_map.keys()
     )
     @torch.inference_mode()
     def test_qlinear_eltwise_fused_op_accuracy(
@@ -57,7 +52,6 @@ class Test_Qlinear_Eltwise(Zentorch_TestCase):
         output_dtype,
         eltwise_op,
     ):
-        self.data.create_unittest_data(dtype)
         self.skip_if_does_not_support_arg_combination_for_qlinear(
             bias_opt_idx, input_dtype, output_dtype
         )
