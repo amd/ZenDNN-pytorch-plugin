@@ -515,6 +515,10 @@ scale_dot_product_for_indirect_access_kv_cache(
   long new_beam_idx[beam_batch][offset + query.size(1) + 1] = {};
   auto prompt_len = b_ptr[(max_cache_size - 2) * beam_batch];
   auto prompt_bs = b_ptr[(max_cache_size - 1) * beam_batch];
+  if (offset == -1) {
+    prompt_len = key_cache.size(1);
+    prompt_bs = bs;
+  }
   auto beam_size = 1;
   if (prompt_bs != 0) {
     beam_size = beam_batch / prompt_bs;
@@ -522,7 +526,7 @@ scale_dot_product_for_indirect_access_kv_cache(
   auto need_update_beam_idx = offset > 0 and beam_size > 1;
   auto kv_head = key.size(2);
   auto group_size = head_num / kv_head;
-  auto seq_len = offset + cur_len;
+  auto seq_len = offset > 0 ? offset + cur_len : prompt_len;
   at::Tensor attn_weights, attn_weights2;
   bool change_attn_w_layout = false;
   auto target_bs = bs;
@@ -579,6 +583,13 @@ scale_dot_product_for_indirect_access_kv_cache(
   auto vcStrideS = value_cache.stride(0);
   auto vcStrideH = value_cache.stride(2);
 
+  if (offset == -1) {
+    kcStrideB = key_cache.stride(0);
+    kcStrideS = key_cache.stride(1);
+    vcStrideB = value_cache.stride(0);
+    vcStrideS = value_cache.stride(1);
+  }
+
   auto attn_w_strideH = attn_weights.stride(1);
 
   auto thread_numbers = omp_get_max_threads();
@@ -628,7 +639,7 @@ scale_dot_product_for_indirect_access_kv_cache(
             for (auto ti = k_start; ti < k_start + block_size; ti++) {
               // caculate the innerproduct for the current token and store the
               // key
-              if (ti == query_ti + offset) {
+              if (offset > 0 && ti == query_ti + offset) {
                 for (auto bbi = 0; bbi < beam_size; bbi++) {
                   auto bi = bsi * beam_size + bbi;
                   auto q_ptr_start =
@@ -682,7 +693,7 @@ scale_dot_product_for_indirect_access_kv_cache(
                                 : bsi * beam_size;
                 // caculate the innerproduct for the current token and store the
                 // key
-                if (ti == query_ti + offset) {
+                if (offset > 0 && ti == query_ti + offset) {
                   auto kc_head_start = k_cache_ptr + ti * kcStrideS +
                                        bi * kcStrideB + kv_hi * kcStrideH;
                   auto k_ptr_start = k_ptr + bi * kStrideB + kv_hi * kStrideH;
@@ -871,7 +882,7 @@ scale_dot_product_for_indirect_access_kv_cache(
           if (change_attn_w_layout) {
             auto attn_w_stride = (bsi * head_num + hi) * attn_w_strideH;
             for (auto vi = v_start; vi < v_start + block_size; vi++) {
-              if (vi == offset) {
+              if (offset > 0 && vi == offset) {
                 for (auto bbi = 0; bbi < beam_size; bbi++) {
                   auto bi = bsi * beam_size + bbi;
                   auto attn_w_query_start = attn_w_ptr + attn_w_stride +
@@ -965,7 +976,7 @@ scale_dot_product_for_indirect_access_kv_cache(
                                 : bsi * beam_size;
                 // caculate the innerproduct for the current token and store the
                 // key
-                if (vi == offset) {
+                if (offset > 0 && vi == offset) {
                   auto v_cache_head_start = v_cache_ptr + vi * vcStrideS +
                                             bi * vcStrideB + kv_hi * vcStrideH;
                   auto v_ptr_start = v_ptr + bi * vStrideB + kv_hi * vStrideH;
@@ -1050,6 +1061,10 @@ scale_dot_product_for_indirect_access_kv_cache_bf16(
   long new_beam_idx[beam_batch][offset + query.size(1) + 1] = {};
   auto prompt_len = b_ptr[(max_cache_size - 2) * beam_batch];
   auto prompt_bs = b_ptr[(max_cache_size - 1) * beam_batch];
+  if (offset == -1) {
+    prompt_len = key_cache.size(1);
+    prompt_bs = bs;
+  }
   auto beam_size = 1;
   if (prompt_bs != 0) {
     beam_size = beam_batch / prompt_bs;
@@ -1057,7 +1072,7 @@ scale_dot_product_for_indirect_access_kv_cache_bf16(
   auto need_update_beam_idx = offset > 0 and beam_size > 1;
   auto kv_head = key.size(2);
   auto group_size = head_num / kv_head;
-  auto seq_len = offset + cur_len;
+  auto seq_len = offset > 0 ? offset + cur_len : prompt_len;
   at::Tensor attn_weights, attn_weights2;
   bool change_attn_w_layout = false;
   auto target_bs = bs;
@@ -1114,6 +1129,13 @@ scale_dot_product_for_indirect_access_kv_cache_bf16(
   auto vcStrideS = value_cache.stride(0);
   auto vcStrideH = value_cache.stride(2);
 
+  if (offset == -1) {
+    kcStrideB = key_cache.stride(0);
+    kcStrideS = key_cache.stride(1);
+    vcStrideB = value_cache.stride(0);
+    vcStrideS = value_cache.stride(1);
+  }
+
   auto attn_w_strideH = attn_weights.stride(1);
 
   auto thread_numbers = omp_get_max_threads();
@@ -1163,7 +1185,7 @@ scale_dot_product_for_indirect_access_kv_cache_bf16(
             for (auto ti = k_start; ti < k_start + block_size; ti++) {
               // caculate the innerproduct for the current token and store the
               // key
-              if (ti == query_ti + offset) {
+              if (offset > 0 && ti == query_ti + offset) {
                 for (auto bbi = 0; bbi < beam_size; bbi++) {
                   auto bi = bsi * beam_size + bbi;
                   auto q_ptr_start =
@@ -1218,7 +1240,7 @@ scale_dot_product_for_indirect_access_kv_cache_bf16(
                                 : bsi * beam_size;
                 // caculate the innerproduct for the current token and store the
                 // key
-                if (ti == query_ti + offset) {
+                if (offset > 0 && ti == query_ti + offset) {
                   auto kc_head_start = k_cache_ptr + ti * kcStrideS +
                                        bi * kcStrideB + kv_hi * kcStrideH;
                   auto k_ptr_start = k_ptr + bi * kStrideB + kv_hi * kStrideH;
@@ -1418,7 +1440,7 @@ scale_dot_product_for_indirect_access_kv_cache_bf16(
           if (change_attn_w_layout) {
             auto attn_w_stride = (bsi * head_num + hi) * attn_w_strideH;
             for (auto vi = v_start; vi < v_start + block_size; vi++) {
-              if (vi == offset) {
+              if (offset > 0 && vi == offset) {
                 for (auto bbi = 0; bbi < beam_size; bbi++) {
                   auto bi = bsi * beam_size + bbi;
                   auto attn_w_query_start = attn_w_ptr + attn_w_stride +
@@ -1540,7 +1562,7 @@ scale_dot_product_for_indirect_access_kv_cache_bf16(
                                 : bsi * beam_size;
                 // caculate the innerproduct for the current token and store the
                 // key
-                if (vi == offset) {
+                if (offset > 0 && vi == offset) {
                   auto v_cache_head_start = v_cache_ptr + vi * vcStrideS +
                                             bi * vcStrideB + kv_hi * vcStrideH;
                   auto v_ptr_start = v_ptr + bi * vStrideB + kv_hi * vStrideH;
