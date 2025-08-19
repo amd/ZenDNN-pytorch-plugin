@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
+ * Copyright (c) 2025 Advanced Micro Devices, Inc.
  * All rights reserved.
  ******************************************************************************/
 
@@ -7,9 +7,35 @@
 
 #include <algorithm>
 
+#include "zendnnl.hpp"
+#include <cpuinfo.h>
+#include <cstdint>
+#include <functional> // For std::reference_wrapper, std::ref, std::cref
+#include <iostream>
+#include <optional> // For std::optional, std::nullopt
+#include <string>
+
 #include "Memory.hpp"
 namespace zentorch {
 using namespace zendnn;
+using namespace zendnnl::interface;
+
+inline at::Tensor get_contiguous_view(const at::Tensor &tensor) {
+  auto stride = tensor.strides();
+  auto sizes = tensor.sizes();
+  bool is_sorted =
+      std::is_sorted(stride.begin(), stride.end(), std::greater<int64_t>());
+  bool is_zero =
+      std::any_of(stride.begin(), stride.end(), [](auto s) { return s == 0; });
+  if (!is_sorted || is_zero) {
+    auto new_tensor = tensor.clone(at::MemoryFormat::Contiguous).view(sizes);
+    LOG(WARNING) << "Tensor is not contiguous. Converting the tensor to a "
+                    "contiguous format in "
+                 << __FILE__ << ": " << __LINE__ << " in " << __FUNCTION__;
+    return new_tensor;
+  }
+  return tensor.view(sizes);
+}
 
 // this function returns the output size for matrix multiplication of two
 // tensors - tensor1 @ tensor2 and also it returns the output size for
@@ -53,13 +79,14 @@ check_valid_sizes_for_matmul(const at::Tensor &mat1, const at::Tensor &mat2,
   const int mat2_dim = mat2.dim();
 
   ZENTORCH_CHECK(
-      ((mat1_dim == 3 &&
-        mat2_dim == 3) || // dimensionality check for matrix multiplication
-       (mat1_dim == 2 &&
-        mat2_dim == 2) || // dimensionality check for matrix multiplication
-       (mat1_dim == 2 && mat2_dim == 1) || // specific case for aten::mv
-       (mat1_dim == 1 && mat2_dim == 1)    // specific case for aten::dot
-       ),
+      // dimensionality check for batched matrix multiplication
+      ((mat1_dim == 3 && mat2_dim == 3) ||
+       // dimensionality check for matrix multiplication
+       (mat1_dim == 2 && mat2_dim == 2) ||
+       // specific case for aten::mv
+       (mat1_dim == 2 && mat2_dim == 1) ||
+       // specific case for aten::dot
+       (mat1_dim == 1 && mat2_dim == 1)),
       "unsupported dims for mat1 and mat2");
 
   // Array access is faster than .size(n)
@@ -69,21 +96,25 @@ check_valid_sizes_for_matmul(const at::Tensor &mat1, const at::Tensor &mat2,
   if (mat1_dim == 2 && mat2_dim == 1) {
     LOG(INFO) << "Special case of aten::mv";
     ZENTORCH_CHECK(
-        post_op_buffers.size() == 0,
+        post_op_buffers.empty(),
         "Post Op support currently unavailable for aten::mv via ZenTorch");
     // TODO
     // Need to understand how to the result is in these cases and need to add a
     // check for the result buffer as well.
+    ZENTORCH_CHECK(mat1_sizes[1] == mat2_sizes[0],
+                   "Tensor shapes incompatible for aten::mv via ZenTorch");
     return;
   }
   if (mat1_dim == 1 && mat2_dim == 1) {
     LOG(INFO) << "Special case of aten::dot";
     ZENTORCH_CHECK(
-        post_op_buffers.size() == 0,
+        post_op_buffers.empty(),
         "Post Op support currently unavailable for aten::dot via ZenTorch");
     // TODO
     // Need to understand how to the result is in these cases and need to add a
     // check for the result buffer as well.
+    ZENTORCH_CHECK(mat1_sizes[0] == mat2_sizes[0],
+                   "Tensor shapes incompatible for aten::dot via ZenTorch");
     return;
   }
 
@@ -115,59 +146,51 @@ check_valid_sizes_for_matmul(const at::Tensor &mat1, const at::Tensor &mat2,
   ZENTORCH_CHECK(result.dim() == mat1_dim,
                  "unsupported dims for mat1, mat2 and "
                  "result buffer");
-  ZENTORCH_CHECK(
-      result.sizes() ==
-          c10::IntArrayRef(get_matmul_and_linear_output_sizes(mat1, mat2)),
-      "unsupported shapes for mat1, mat2 and "
-      "result buffer");
 
   const bool is_bias_defined = bias.numel();
   if (is_bias_defined) {
-    if (bias.dim() == 1) {
-      const auto bias_sizes = bias.sizes();
-      if (mat1_dim == 2) {
-        ZENTORCH_CHECK(
-            bias_sizes[0] == mat2_sizes[1],
-            "input/bias/self shape is incompatible for addition with "
-            "matrix multiplication product (",
-            mat1_sizes[0], "x", mat1_sizes[1], " @ ", mat2_sizes[0], "x",
-            mat2_sizes[1], " != ", mat1_sizes[0], "x", bias_sizes[0], ")");
-      } else if (mat1_dim == 3) {
-        ZENTORCH_CHECK(
-            bias_sizes[0] == mat2_sizes[2],
-            "input/bias/self shape is incompatible for addition with "
-            "matrix multiplication product (",
-            mat1_sizes[0], "x", mat1_sizes[1], "x", mat1_sizes[2], " @ ",
-            mat2_sizes[0], "x", mat2_sizes[1], "x", mat2_sizes[2],
-            " != ", mat1_sizes[0], "x", mat1_sizes[1], "x", bias_sizes[0], ")");
-      }
-    } else {
+    if (bias.dim() != 1) {
       ZENTORCH_CHECK(false, "unsupported dimensions for input/bias/self");
     }
-  }
-
-  if (post_op_buffers.size() != 0) {
-    bool are_postops_dim_compatible = true;
-    bool are_postops_shape_compatible = true;
-
-    for (const at::Tensor &buffer : post_op_buffers) {
-      are_postops_dim_compatible =
-          are_postops_dim_compatible && (buffer.dim() == mat1_dim);
-      are_postops_shape_compatible =
-          are_postops_shape_compatible &&
-          (buffer.sizes() ==
-           c10::IntArrayRef(get_matmul_and_linear_output_sizes(mat1, mat2)));
+    const auto bias_sizes = bias.sizes();
+    if (mat1_dim == 2) {
+      ZENTORCH_CHECK(bias_sizes[0] == mat2_sizes[1],
+                     "input/bias/self shape is incompatible for addition with "
+                     "matrix multiplication product (",
+                     mat1_sizes[0], "x", mat1_sizes[1], " @ ", mat2_sizes[0],
+                     "x", mat2_sizes[1], " != ", mat1_sizes[0], "x",
+                     bias_sizes[0], ")");
+    } else if (mat1_dim == 3) {
+      ZENTORCH_CHECK(bias_sizes[0] == mat2_sizes[2],
+                     "input/bias/self shape is incompatible for addition with "
+                     "matrix multiplication product (",
+                     mat1_sizes[0], "x", mat1_sizes[1], "x", mat1_sizes[2],
+                     " @ ", mat2_sizes[0], "x", mat2_sizes[1], "x",
+                     mat2_sizes[2], " != ", mat1_sizes[0], "x", mat1_sizes[1],
+                     "x", bias_sizes[0], ")");
     }
-
-    ZENTORCH_CHECK(are_postops_dim_compatible,
-                   "unsupported dims for mat1, mat2 and "
-                   "post op buffers");
-    ZENTORCH_CHECK(are_postops_shape_compatible,
-                   "unsupported shapes for mat1, mat2 and "
-                   "post op buffers");
-  } else {
-    LOG(INFO) << "Post Op buffers are not present!\n";
   }
+
+  if (post_op_buffers.empty()) {
+    LOG(INFO) << "Post Op buffers are not present!\n";
+    return;
+  }
+  bool are_postops_dim_compatible = true;
+  bool are_postops_shape_compatible = true;
+
+  for (const at::Tensor &buffer : post_op_buffers) {
+    are_postops_dim_compatible =
+        are_postops_dim_compatible && (buffer.dim() == mat1_dim);
+    are_postops_shape_compatible =
+        are_postops_shape_compatible && (buffer.sizes() == result.sizes());
+  }
+
+  ZENTORCH_CHECK(are_postops_dim_compatible,
+                 "unsupported dims for mat1, mat2 and "
+                 "post op buffers");
+  ZENTORCH_CHECK(are_postops_shape_compatible,
+                 "unsupported shapes for mat1, mat2 and "
+                 "post op buffers");
 }
 
 inline void
@@ -222,39 +245,48 @@ check_valid_dtypes_for_matmul(const at::Tensor &mat1, const at::Tensor &mat2,
                    "avx512bf16");
   }
 
-  if (post_op_buffers.size() != 0) {
-    bool are_postops_fp32 = true;
-    bool are_postops_bf16 = true;
-
-    for (const at::Tensor &buffer : post_op_buffers) {
-      are_postops_fp32 =
-          are_postops_fp32 && (buffer.scalar_type() == c10::ScalarType::Float);
-      are_postops_bf16 = are_postops_bf16 &&
-                         (buffer.scalar_type() == c10::ScalarType::BFloat16);
-    }
-
-    if (are_params_fp32 && !are_params_bf16) {
-      ZENTORCH_CHECK((are_postops_fp32 && !are_postops_bf16),
-                     "zentorch_matmul only supports Float post ops "
-                     "when input matrix is Float");
-    } else if (are_params_bf16 && !are_params_fp32) {
-      ZENTORCH_CHECK((are_postops_bf16 && !are_postops_fp32),
-                     "zentorch_matmul only supports BFloat16 post ops "
-                     "when input matrix is BFloat16");
-    } else {
-      ZENTORCH_CHECK(false, "zentorch_matmul only supports Float and BFloat16 "
-                            "parameters and postops");
-    }
-  } else {
+  if (post_op_buffers.empty()) {
     LOG(INFO) << "Post Op buffers are not present!\n";
+    return;
+  }
+  bool are_postops_fp32 = true;
+  bool are_postops_bf16 = true;
+
+  for (const at::Tensor &buffer : post_op_buffers) {
+    are_postops_fp32 =
+        are_postops_fp32 && (buffer.scalar_type() == c10::ScalarType::Float);
+    are_postops_bf16 =
+        are_postops_bf16 && (buffer.scalar_type() == c10::ScalarType::BFloat16);
+  }
+
+  if (are_params_fp32 && !are_params_bf16) {
+    ZENTORCH_CHECK((are_postops_fp32 && !are_postops_bf16),
+                   "zentorch_matmul only supports Float post ops "
+                   "when input matrix is Float");
+  } else if (are_params_bf16 && !are_params_fp32) {
+    ZENTORCH_CHECK((are_postops_bf16 && !are_postops_fp32),
+                   "zentorch_matmul only supports BFloat16 post ops "
+                   "when input matrix is BFloat16");
+  } else {
+    ZENTORCH_CHECK(false, "zentorch_matmul only supports Float and BFloat16 "
+                          "parameters and postops");
   }
 }
 
+// TODO
+// Check if this and the is_transposed function can be merged into one
 inline bool is_zendnn_optimized_format(const at::Tensor &t) {
-  if (t.is_contiguous())
-    return true;
   const auto sizes = t.sizes();
   const auto strides = t.strides();
+
+  bool is_sorted =
+      std::is_sorted(strides.begin(), strides.end(), std::greater<int64_t>());
+  bool is_zero = std::any_of(strides.begin(), strides.end(),
+                             [](auto s) { return s == 0; });
+  if (!is_zero && is_sorted) {
+    return true;
+  }
+
   // check for transposed tensors
   if (t.dim() == 2) {
     return strides[0] == 1 && strides[1] == sizes[0];
@@ -393,6 +425,7 @@ inline void zentorch_post_ops_selection(
   int post_op_buffers_size = post_op_buffers.size();
   std::vector<memory> z_post_op_buffers(post_op_buffers_size);
   int post_op_buffer_idx = 0;
+  int count_none_activations = 0;
   for (int i = 0; i < post_op_ids_size; i++) {
     int arg_position;
     if (post_op_buffers_size > 0 && post_op_buffer_idx < post_op_buffers_size) {
@@ -442,7 +475,9 @@ inline void zentorch_post_ops_selection(
       po.append_binary(algorithm::binary_mul,
                        z_post_op_buffers[post_op_buffer_idx].get_desc());
       // argument for postop at index=idx in ZenDNN OP primitive.
-      arg_position = ZENDNN_ARG_ATTR_MULTIPLE_POST_OP(i) | ZENDNN_ARG_SRC_1;
+      arg_position =
+          ZENDNN_ARG_ATTR_MULTIPLE_POST_OP(i - count_none_activations) |
+          ZENDNN_ARG_SRC_1;
       execute_args.insert(
           {arg_position, z_post_op_buffers[post_op_buffer_idx]});
       post_op_buffer_idx++;
@@ -452,13 +487,15 @@ inline void zentorch_post_ops_selection(
       po.append_binary(algorithm::binary_add,
                        z_post_op_buffers[post_op_buffer_idx].get_desc());
       // argument for postop at index=idx in ZenDNN OP primitive.
-      arg_position = ZENDNN_ARG_ATTR_MULTIPLE_POST_OP(i) | ZENDNN_ARG_SRC_1;
+      arg_position =
+          ZENDNN_ARG_ATTR_MULTIPLE_POST_OP(i - count_none_activations) |
+          ZENDNN_ARG_SRC_1;
       execute_args.insert(
           {arg_position, z_post_op_buffers[post_op_buffer_idx]});
       post_op_buffer_idx++;
       break;
     default:
-      break;
+      count_none_activations++;
     }
   }
 }
@@ -481,6 +518,9 @@ get_matmul_and_linear_output_strides(const std::vector<int64_t> &output_size) {
   return output_strides;
 }
 
+// TODO
+// Check if this and the is_zendnn_optimized_format function can be merged into
+// one
 inline bool is_transposed(const at::Tensor &t) {
   const auto sizes = t.sizes();
   const auto strides = t.strides();
@@ -510,18 +550,12 @@ inline bool validate_zendnn_direct_kernel_usage(
     const at::Tensor &result, const std::vector<int64_t> &post_op_ids,
     const std::vector<at::Tensor> &post_op_buffers) {
 
-  check_valid_sizes_for_matmul(input, weight, bias, result, {});
-
   // Currently this kernel supports only element-wise post-ops and no binary
   // post ops are supported yet.
   if (post_op_ids.size() > 1 || post_op_buffers.size() > 0) {
     return false;
   }
-  // TODO
-  // As soon as the gelu erf accuracy is resolved, the support will be added
-  if (post_op_ids.size() == 1 && post_op_ids[0] == UNARY_POST_OP::GELU_ERF) {
-    return false;
-  }
+  check_valid_sizes_for_matmul(input, weight, bias, result, {});
 
   // Currently this kernel supports only float32 and bfloat16 datatype and the
   // operator supported is batched matmul.
@@ -562,8 +596,8 @@ inline void zendnn_direct_kernel(const at::Tensor &input,
 
   // TODO
   // Check if we can use contiguous irrespective of the condition
-  at::Tensor input_ = isStrideAValid ? input : input.contiguous();
-  at::Tensor weight_ = isStrideBValid ? weight : weight.contiguous();
+  at::Tensor input_ = isStrideAValid ? input : get_contiguous_view(input);
+  at::Tensor weight_ = isStrideBValid ? weight : get_contiguous_view(weight);
 
   bool transA = is_transposed(input_);
   bool transB = is_transposed(weight_);
@@ -646,5 +680,103 @@ inline void zendnn_direct_kernel(const at::Tensor &input,
       input_ptr, weight_ptr, result_ptr, bias_ptr, alpha, beta, M, N, K, transA,
       transB, lda, ldb, ldc, false /* weight_const */, tensor_datatypes,
       zendnn_post_op, batch_A, batch_B);
+}
+
+// There are two custom group matmul ops which are structurally different, but
+// have a lot of overlap with respect to initialization of tensors and other
+// arguments. These overlaps are covered in the following function called
+// zendnn_matmul_group_impl.
+std::vector<at::Tensor> zendnn_matmul_group_impl(
+    std::vector<at::Tensor> &self_vector, std::vector<at::Tensor> &inputs,
+    const at::TensorList &weights, const at::ArrayRef<double> &betas,
+    const at::ArrayRef<double> &alphas, const at::IntArrayRef &fuse,
+    const bool &is_horizontal, std::string zentorch_op_name);
+
+inline void set_zendnnl_tensor_attributes(
+    const at::Tensor &at_tensor, tensor_t &zendnnl_tensor,
+    const std::string &tensor_name, const data_type_t &tensor_datatype,
+    const std::vector<long unsigned int> &tensor_sizes = {},
+    const std::vector<long unsigned int> &tensor_strides = {}) {
+
+  void *at_tensor_ptr = at_tensor.data_ptr();
+  zendnnl_tensor.set_name(tensor_name)
+      .set_data_type(tensor_datatype)
+      .set_storage(at_tensor_ptr, at_tensor.nbytes());
+
+  if (!(tensor_sizes.empty() || tensor_strides.empty())) {
+    zendnnl_tensor.set_size(tensor_sizes).set_stride(tensor_strides);
+
+    zendnnl_tensor.create();
+    ZENTORCH_CHECK(zendnnl_tensor.check(), "tensor creation of ",
+                   zendnnl_tensor.get_name(), " failed.");
+    return;
+  }
+
+  std::vector<long unsigned int> at_tensor_sizes(at_tensor.sizes().begin(),
+                                                 at_tensor.sizes().end());
+  std::vector<long unsigned int> at_tensor_strides(at_tensor.strides().begin(),
+                                                   at_tensor.strides().end());
+
+  zendnnl_tensor.set_size(at_tensor_sizes).set_stride(at_tensor_strides);
+
+  zendnnl_tensor.create();
+  ZENTORCH_CHECK(zendnnl_tensor.check(), "tensor creation of ",
+                 zendnnl_tensor.get_name(), " failed.");
+}
+
+inline void set_matmul_context_attributes(
+    matmul_context_t &matmul_context, tensor_t &weights,
+    const std::vector<int64_t> &post_op_ids, const float &alpha,
+    std::optional<std::reference_wrapper<tensor_t>> bias_opt_ref =
+        std::nullopt) {
+  matmul_context.set_param("weights", weights);
+  matmul_context.set_alpha(alpha);
+
+  if (bias_opt_ref.has_value()) {
+    tensor_t &bias = bias_opt_ref->get();
+    matmul_context.set_param("bias", bias);
+  }
+
+  for (int64_t fuse : post_op_ids) {
+    switch (fuse) {
+    case UNARY_POST_OP::RELU: {
+      auto post_op = post_op_t{post_op_type_t::relu};
+      matmul_context.set_post_op(post_op);
+      break;
+    }
+    case UNARY_POST_OP::GELU_TANH: {
+      auto post_op = post_op_t{post_op_type_t::gelu_tanh};
+      matmul_context.set_post_op(post_op);
+      break;
+    }
+    case UNARY_POST_OP::GELU_ERF: {
+      auto post_op = post_op_t{post_op_type_t::gelu_erf};
+      matmul_context.set_post_op(post_op);
+      break;
+    }
+    case UNARY_POST_OP::SIGMOID: {
+      auto post_op = post_op_t{post_op_type_t::sigmoid};
+      matmul_context.set_post_op(post_op);
+      break;
+    }
+    case UNARY_POST_OP::SILU: {
+      auto post_op = post_op_t{post_op_type_t::swish};
+      matmul_context.set_post_op(post_op);
+      break;
+    }
+    case BINARY_POST_OP::MUL: {
+      auto post_op = post_op_t{post_op_type_t::binary_mul};
+      matmul_context.set_post_op(post_op);
+      break;
+    }
+    case BINARY_POST_OP::ADD: {
+      auto post_op = post_op_t{post_op_type_t::binary_add};
+      matmul_context.set_post_op(post_op);
+      break;
+    }
+    default:
+      break;
+    }
+  }
 }
 } // namespace zentorch

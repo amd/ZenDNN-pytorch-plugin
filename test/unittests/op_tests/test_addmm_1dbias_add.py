@@ -70,7 +70,7 @@ class Test_Addmm_1dbias_Add(AddmmTestCase):
                 ),
             )
         self.assertTrue(
-            "unsupported dims for mat1, mat2 and result buffer"
+            "unsupported dims for mat1, mat2 and post op buffers"
             in str(context.exception)
         )
 
@@ -88,7 +88,7 @@ class Test_Addmm_1dbias_Add(AddmmTestCase):
                 self.data.input1d, self.data.x, self.data.y, self.data.x
             )
         self.assertTrue(
-            "unsupported shapes for mat1, mat2 and result buffer"
+            "unsupported shapes for mat1, mat2 and post op buffers"
             in str(context.exception)
         )
 
