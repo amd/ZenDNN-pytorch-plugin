@@ -36,6 +36,41 @@ pass_pattern = PatternMatcherPass()
 # we will write checks and register_graph_patterns for the following ops
 # embedding replacement
 def is_embedding_op_replacable(match):
+    
+    # checks for the argument "weight"
+    # Extract the weight tensor node (first argument to embedding)
+    weight = match.args[0]
+
+    # Validate weight tensor constraints:
+    # - Must be on CPU device (not CUDA/XLA/etc.)
+    # - Must use strided (dense) layout (not sparse_coo, sparse_csr, mkldnn, etc.)
+    weight_checks = (
+        weight.meta["val"].device.type == "cpu"
+        and weight.meta["val"].layout == torch.strided
+    )
+
+    # checks for the argument "indices"
+    # Extract the indices tensor node (second argument to embedding)
+    indices = match.args[1]
+
+    # Validate indices tensor constraints:
+    # - Must be on CPU device (embedding lookup happens on CPU)
+    # - Must use strided (dense) layout (not sparse)
+    # - Must be 1D tensor (shape: [num_indices])
+    #   Note: Some embedding ops support 2D+ indices; this enforces 1D only
+    indices_checks = (
+        indices.meta["val"].device.type == "cpu"
+        and indices.meta["val"].layout == torch.strided
+        and indices.meta["val"].ndim == 1
+    )
+
+    combined_checks = weight_checks and indices_checks
+
+    if not combined_checks:
+        logger.debug("Cannot replace aten embedding with zentorch embedding.")
+        return False
+
+    # Return True only if both weight and indices satisfy all constraints
     return is_zendnn_embedding_bag_supported(match.args[0].meta["val"]) and match.args[1].meta["val"].ndim == 1
 
 
@@ -395,7 +430,9 @@ def replace_with_zentorch_ops(fx_graph):
 
             #         match.replace_by_example(repl, [*args])
 
-        GraphTransformObserver(fx_graph, "pass_pattern").apply_gm_pass(pass_pattern.apply)
+        GraphTransformObserver(fx_graph, "pass_pattern").apply_gm_pass(
+            pass_pattern.apply
+        )
     fx_graph.lint()
     return fx_graph
 

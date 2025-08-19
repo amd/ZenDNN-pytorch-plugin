@@ -49,7 +49,7 @@ list(REMOVE_ITEM ZENTORCH_CPP_SOURCES "${CMAKE_SOURCE_DIR}/src/cpu/cpp/Bindings.
 
 add_library(zentorch SHARED ${ZENTORCH_CPP_SOURCES})
 
-add_dependencies(CPUkernels amdZenDNN)
+add_dependencies(CPUkernels amdZenDNN zendnnl::zendnnl_archive)
 add_dependencies(zentorch amdZenDNN CPUkernels zendnnl::zendnnl_archive)
 
 

@@ -5,7 +5,7 @@
 
 #pragma once
 
-#include "EmbedUtils.hpp"
+#include "EmbeddingUtils.hpp"
 
 namespace zentorch {
 

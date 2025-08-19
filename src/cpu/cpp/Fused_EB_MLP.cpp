@@ -3,7 +3,7 @@
  * All rights reserved.
  ******************************************************************************/
 
-#include "EmbedUtils.hpp"
+#include "EmbeddingUtils.hpp"
 #include "MatmulUtils.hpp"
 #include "Memory.hpp"
 

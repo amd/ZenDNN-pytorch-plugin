@@ -26,7 +26,10 @@ set_target_properties(CPUkernels PROPERTIES
 
 target_include_directories(CPUkernels PUBLIC
                            ${TORCH_INCLUDE_DIRS}
-                           ${ZENDNN_INCLUDE_DIR})
+                           ${ZENDNN_INCLUDE_DIR}
+                           ${ZENDNNL_LIBRARY_INC_DIR})
+
+target_link_libraries(CPUkernels PUBLIC zendnnl::zendnnl_archive)
 
 LIST(APPEND MHA_LIBRARIES ${CMAKE_CURRENT_BINARY_DIR}/lib/libCPUkernels.a)
 set(MHA_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src/cpu/cpp/kernels/")

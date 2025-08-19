@@ -5,20 +5,12 @@
 
 #pragma once
 
-#include <algorithm>
-
-#include "zendnnl.hpp"
-#include <cpuinfo.h>
-#include <cstdint>
-#include <functional> // For std::reference_wrapper, std::ref, std::cref
-#include <iostream>
-#include <optional> // For std::optional, std::nullopt
-#include <string>
-
 #include "Memory.hpp"
-namespace zentorch {
+
 using namespace zendnn;
 using namespace zendnnl::interface;
+
+namespace zentorch {
 
 inline at::Tensor get_contiguous_view(const at::Tensor &tensor) {
   auto stride = tensor.strides();
@@ -680,48 +672,6 @@ inline void zendnn_direct_kernel(const at::Tensor &input,
       input_ptr, weight_ptr, result_ptr, bias_ptr, alpha, beta, M, N, K, transA,
       transB, lda, ldb, ldc, false /* weight_const */, tensor_datatypes,
       zendnn_post_op, batch_A, batch_B);
-}
-
-// There are two custom group matmul ops which are structurally different, but
-// have a lot of overlap with respect to initialization of tensors and other
-// arguments. These overlaps are covered in the following function called
-// zendnn_matmul_group_impl.
-std::vector<at::Tensor> zendnn_matmul_group_impl(
-    std::vector<at::Tensor> &self_vector, std::vector<at::Tensor> &inputs,
-    const at::TensorList &weights, const at::ArrayRef<double> &betas,
-    const at::ArrayRef<double> &alphas, const at::IntArrayRef &fuse,
-    const bool &is_horizontal, std::string zentorch_op_name);
-
-inline void set_zendnnl_tensor_attributes(
-    const at::Tensor &at_tensor, tensor_t &zendnnl_tensor,
-    const std::string &tensor_name, const data_type_t &tensor_datatype,
-    const std::vector<long unsigned int> &tensor_sizes = {},
-    const std::vector<long unsigned int> &tensor_strides = {}) {
-
-  void *at_tensor_ptr = at_tensor.data_ptr();
-  zendnnl_tensor.set_name(tensor_name)
-      .set_data_type(tensor_datatype)
-      .set_storage(at_tensor_ptr, at_tensor.nbytes());
-
-  if (!(tensor_sizes.empty() || tensor_strides.empty())) {
-    zendnnl_tensor.set_size(tensor_sizes).set_stride(tensor_strides);
-
-    zendnnl_tensor.create();
-    ZENTORCH_CHECK(zendnnl_tensor.check(), "tensor creation of ",
-                   zendnnl_tensor.get_name(), " failed.");
-    return;
-  }
-
-  std::vector<long unsigned int> at_tensor_sizes(at_tensor.sizes().begin(),
-                                                 at_tensor.sizes().end());
-  std::vector<long unsigned int> at_tensor_strides(at_tensor.strides().begin(),
-                                                   at_tensor.strides().end());
-
-  zendnnl_tensor.set_size(at_tensor_sizes).set_stride(at_tensor_strides);
-
-  zendnnl_tensor.create();
-  ZENTORCH_CHECK(zendnnl_tensor.check(), "tensor creation of ",
-                 zendnnl_tensor.get_name(), " failed.");
 }
 
 inline void set_matmul_context_attributes(

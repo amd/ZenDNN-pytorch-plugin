@@ -258,13 +258,8 @@ at::Tensor zendnnl_matmul_impl(const at::Tensor &input,
     }
   }
 
-  data_type_t datatype = data_type_t::f32;
-  if (input_.scalar_type() == at::ScalarType::BFloat16) {
-    datatype = data_type_t::bf16;
-  }
-
   tensor_t mat2_tensor = tensor_t();
-  set_zendnnl_tensor_attributes(weight_, mat2_tensor, "weights", datatype);
+  set_zendnnl_tensor_attributes(weight_, mat2_tensor, "weights");
 
   auto matmul_context = matmul_context_t();
 
@@ -274,10 +269,10 @@ at::Tensor zendnnl_matmul_impl(const at::Tensor &input,
     tensor_t bias_tensor = tensor_t();
     auto bias_numel = bias.numel();
     if (weight_.dim() == 2) {
-      set_zendnnl_tensor_attributes(beta_bias, bias_tensor, "bias", datatype,
+      set_zendnnl_tensor_attributes(beta_bias, bias_tensor, "bias",
                                     {1, bias_numel}, {bias_numel, 1});
     } else if (weight_.dim() == 3) {
-      set_zendnnl_tensor_attributes(beta_bias, bias_tensor, "bias", datatype,
+      set_zendnnl_tensor_attributes(beta_bias, bias_tensor, "bias",
                                     {1, 1, bias_numel},
                                     {bias_numel, bias_numel, 1});
     } else {
@@ -303,11 +298,10 @@ at::Tensor zendnnl_matmul_impl(const at::Tensor &input,
                  matmul_operator.get_name(), " creation failed.");
 
   tensor_t input_tensor = tensor_t();
-  set_zendnnl_tensor_attributes(input_, input_tensor, "matmul_input", datatype);
+  set_zendnnl_tensor_attributes(input_, input_tensor, "matmul_input");
 
   tensor_t output_tensor = tensor_t();
-  set_zendnnl_tensor_attributes(result, output_tensor, "matmul_output",
-                                datatype);
+  set_zendnnl_tensor_attributes(result, output_tensor, "matmul_output");
 
   matmul_operator.set_input("matmul_input", input_tensor)
       .set_output("matmul_output", output_tensor);
@@ -321,7 +315,7 @@ at::Tensor zendnnl_matmul_impl(const at::Tensor &input,
       std::string tensor_name =
           "binary_input" + std::to_string(op_id - count_none_activations);
       set_zendnnl_tensor_attributes(post_op_buffers[post_op_buffer_tracker++],
-                                    binary_tensor, tensor_name, datatype);
+                                    binary_tensor, tensor_name);
       matmul_operator.set_input(
           matmul_context.get_post_op(op_id - count_none_activations)
               .binary_mul_params.tensor_name,
@@ -333,7 +327,7 @@ at::Tensor zendnnl_matmul_impl(const at::Tensor &input,
       std::string tensor_name =
           "binary_input" + std::to_string(op_id - count_none_activations);
       set_zendnnl_tensor_attributes(post_op_buffers[post_op_buffer_tracker++],
-                                    binary_tensor, tensor_name, datatype);
+                                    binary_tensor, tensor_name);
       matmul_operator.set_input(
           matmul_context.get_post_op(op_id - count_none_activations)
               .binary_add_params.tensor_name,

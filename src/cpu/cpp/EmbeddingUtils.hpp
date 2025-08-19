@@ -6,25 +6,15 @@
 
 #include "Memory.hpp"
 
+using namespace zendnn;
+using namespace zendnnl::interface;
+
 namespace zentorch {
 
-using namespace zendnn;
-
-// The following overloaded function is called when the tensors are being
-// checked for the embedding op. Embedding op has only two tensors that need to
-// be checked for device and layout. So, the implementation below suffices.
-inline void zen_embed_tensor_check(const at::Tensor &weight,
-                                   const at::Tensor &indices) {
+inline void zen_embedding_weight_check(const at::Tensor &weight) {
   const bool is_weight_bf16 =
       (weight.scalar_type() == c10::ScalarType::BFloat16);
   const bool is_weight_fp32 = (weight.scalar_type() == c10::ScalarType::Float);
-  // check if all the input tensors are on cpu device
-  ZENTORCH_CHECK(weight.device().is_cpu() && indices.device().is_cpu(),
-                 "ZenDNN Embedding expects CPU tensor inputs!");
-  // check if all the input tensors are dense format
-  ZENTORCH_CHECK((weight.layout() == c10::Layout::Strided) &&
-                     (indices.layout() == c10::Layout::Strided),
-                 "ZenDNN Embedding expects dense tensor inputs!");
   // check if the device supports AVX512
   if (is_weight_bf16) {
     ZENTORCH_CHECK(utils::zendnn_bf16_device_check(),
@@ -36,9 +26,6 @@ inline void zen_embed_tensor_check(const at::Tensor &weight,
                  "zentorch_embedding only supports Float and BFloat16");
 }
 
-// The following overloaded function is called when the tensors are being
-// checked for the embeddingbag op. Embedding op has three tensors that need to
-// be checked for device and layout. So, the implementation below suffices.
 inline void zen_embed_tensor_check(const at::Tensor &weight,
                                    const at::Tensor &indices,
                                    const at::Tensor &offsets) {
@@ -139,9 +126,10 @@ eb_tensors_to_memory(const at::Tensor &weight, const at::Tensor &indices,
 // Same as the previous function in terms of operation, just works with two
 // tensors instead of four.
 inline std::tuple<at::Tensor, at::Tensor>
-embed_tensors_to_memory(const at::Tensor &weight, const at::Tensor &indices,
-                        memory &z_weight, memory &z_indices, memory &z_dst) {
-  zen_embed_tensor_check(weight, indices);
+embedding_tensors_to_memory(const at::Tensor &weight, const at::Tensor &indices,
+                            memory &z_weight, memory &z_indices,
+                            memory &z_dst) {
+  zen_embedding_weight_check(weight);
 
   at::Tensor cindices = indices.toType(c10::kInt).contiguous();
 

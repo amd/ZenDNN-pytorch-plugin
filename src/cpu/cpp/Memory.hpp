@@ -7,9 +7,20 @@
 
 #include "DataPointerManager.hpp"
 #include "Utils.hpp"
+
+#include <algorithm>
+#include <cpuinfo.h>
+#include <cstdint>
+#include <functional> // For std::reference_wrapper, std::ref, std::cref
+#include <iostream>
+#include <optional> // For std::optional, std::nullopt
+#include <string>
 #include <torch/all.h>
 
+#include "zendnnl.hpp"
+
 using namespace zendnn;
+using namespace zendnnl::interface;
 
 namespace zentorch {
 
@@ -32,6 +43,29 @@ inline auto get_ztype_from_aten(const at::Tensor &atensor) {
     return ZenDType::u8;
   case c10::kQInt8:
     return ZenDType::s8;
+  default:
+    ZENTORCH_CHECK(false, "Unsupported data type.");
+  }
+}
+
+// this infers the zendnnl datatype from aten tensor
+inline auto get_zendnnl_dtype(const at::Tensor &atensor) {
+  auto atype = atensor.scalar_type();
+  switch (atype) {
+  case c10::kByte:
+    return data_type_t::u8;
+  case c10::kChar:
+    return data_type_t::s8;
+  case c10::kInt:
+    return data_type_t::s32;
+  case c10::kFloat:
+    return data_type_t::f32;
+  case c10::kBFloat16:
+    return data_type_t::bf16;
+  case c10::kQUInt8:
+    return data_type_t::u8;
+  case c10::kQInt8:
+    return data_type_t::s8;
   default:
     ZENTORCH_CHECK(false, "Unsupported data type.");
   }
@@ -144,6 +178,41 @@ inline memory zen_memory(const at::Tensor &atensor,
   default:
     ZENTORCH_CHECK(false, "Invalid data type, creating zendnn memory failed.");
   }
+}
+
+// This function acts as a bridge between the zentorch frontend and zendnnl
+// backend. It sets the necessary attributes to the zendnnl tensor created in
+// the caller function. The attributes depend on the properties of aten tensor.
+inline void set_zendnnl_tensor_attributes(
+    const at::Tensor &at_tensor, tensor_t &zendnnl_tensor,
+    const std::string &tensor_name,
+    const std::vector<long unsigned int> &tensor_sizes = {},
+    const std::vector<long unsigned int> &tensor_strides = {}) {
+
+  void *at_tensor_ptr = at_tensor.data_ptr();
+  zendnnl_tensor.set_name(tensor_name)
+      .set_data_type(get_zendnnl_dtype(at_tensor))
+      .set_storage(at_tensor_ptr, at_tensor.nbytes());
+
+  if (!(tensor_sizes.empty() || tensor_strides.empty())) {
+    zendnnl_tensor.set_size(tensor_sizes).set_stride(tensor_strides);
+
+    zendnnl_tensor.create();
+    ZENTORCH_CHECK(zendnnl_tensor.check(), "tensor creation of ",
+                   zendnnl_tensor.get_name(), " failed.");
+    return;
+  }
+
+  std::vector<long unsigned int> at_tensor_sizes(at_tensor.sizes().begin(),
+                                                 at_tensor.sizes().end());
+  std::vector<long unsigned int> at_tensor_strides(at_tensor.strides().begin(),
+                                                   at_tensor.strides().end());
+
+  zendnnl_tensor.set_size(at_tensor_sizes).set_stride(at_tensor_strides);
+
+  zendnnl_tensor.create();
+  ZENTORCH_CHECK(zendnnl_tensor.check(), "tensor creation of ",
+                 zendnnl_tensor.get_name(), " failed.");
 }
 
 // The reorder API allows us to transform data between various memory formats
