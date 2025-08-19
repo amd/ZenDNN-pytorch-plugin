@@ -521,6 +521,12 @@ def get_fuse_val(target):
         zt_ops.zentorch_addmm_1dbias_gelu_erf.default,
     ):
         return 3
+    elif target in (
+        zt_ops.zentorch_mm_silu.default,
+        zt_ops.zentorch_addmm_silu.default,
+        zt_ops.zentorch_addmm_1dbias_silu.default,
+    ):
+        return 4
     else:
         return 0
 
@@ -559,9 +565,11 @@ def vertical_mlp_fusion(fx_graph):
         zt_ops.zentorch_addmm_gelu_tanh.default,
         zt_ops.zentorch_addmm_gelu_erf.default,
         zt_ops.zentorch_addmm_1dbias.default,
+        zt_ops.zentorch_addmm_silu.default,
         zt_ops.zentorch_addmm_1dbias_relu.default,
         zt_ops.zentorch_addmm_1dbias_gelu_tanh.default,
         zt_ops.zentorch_addmm_1dbias_gelu_erf.default,
+        zt_ops.zentorch_addmm_1dbias_silu.default,
     }
 
     def return_next_addmm(users):
