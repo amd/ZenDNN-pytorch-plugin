@@ -23,6 +23,7 @@
 #include <ATen/ops/empty.h>
 #endif
 
+#include "../EnvReader.hpp"
 #include "../Memory.hpp"
 #include "zen_cpukernels.hpp"
 
@@ -40,11 +41,9 @@ inline void zendnn_gemm(int64_t m, int64_t n, int64_t k, float alpha,
 
   constexpr bool is_input_float = std::is_same_v<T, float>;
   // Retrieve environment variables
-  const char *zendnn_matmul_direct_env =
-      std::getenv("USE_ZENDNN_SDPA_MATMUL_DIRECT");
+  const int &zendnn_matmul_direct_env_value =
+      EnvReader::getEnvVariableAsInt("USE_ZENDNN_SDPA_MATMUL_DIRECT");
 
-  const int zendnn_matmul_direct_env_value =
-      zendnn_matmul_direct_env ? std::atoi(zendnn_matmul_direct_env) : 0;
   if (zendnn_matmul_direct_env_value) {
     ActivationPostOp activation_post_op = ActivationPostOp::NONE;
     // If input is Float, then use Float. Otherwise, use default BF16.

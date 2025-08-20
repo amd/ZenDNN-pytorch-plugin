@@ -3,6 +3,7 @@
  * All rights reserved.
  ******************************************************************************/
 
+#include "EnvReader.hpp"
 #include "MatmulUtils.hpp"
 #include "Memory.hpp"
 
@@ -26,18 +27,16 @@ at::Tensor zentorch_matmul_impl(const at::Tensor &input,
   // on the certain conditions, the decision of whether to use this kernel or
   // not is made.
 
-  // TODO
-  // Move this check of env variable to a single init functionality
-  const char *env_value = std::getenv("USE_ZENDNN_MATMUL_DIRECT");
-  const int int_env_value = env_value ? std::atoi(env_value) : 0;
+  const int &int_env_value =
+      EnvReader::getEnvVariableAsInt("USE_ZENDNN_MATMUL_DIRECT");
 
-  // "may_i_use_zendnn_direct_kernel" returns a boolean representing whether the
-  // direct kernel will be used or not. If true, then the direct kernel will be
-  // used and the product is stored in the "result" tensor which is then
-  // returned based on the final boolean value "used_zendnn_direct_kernel".
-  // "used_zendnn_direct_kernel" takes its final value based on the env variable
-  // enablement and the return value of "may_i_use_zendnn_direct_kernel"
-  // function.
+  // "validate_zendnn_direct_kernel_usage" returns a boolean representing
+  // whether the direct kernel will be used or not. If true, then the direct
+  // kernel will be used and the product is stored in the "result" tensor which
+  // is then returned based on the final boolean value
+  // "used_zendnn_direct_kernel". "used_zendnn_direct_kernel" takes its final
+  // value based on the env variable enablement and the return value of
+  // "may_i_use_zendnn_direct_kernel" function.
 
   const bool used_zendnn_direct_kernel =
       int_env_value &&

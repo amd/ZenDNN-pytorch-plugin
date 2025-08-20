@@ -61,7 +61,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         py::arg("self_or_result"), py::arg("post_op_ids"),
         py::arg("post_op_buffers"), py::arg("beta") = 0.0f,
         py::arg("alpha") = 1.0f,
-        py::arg("zentorch_op_name") = "zentorch::zendnn_matmul_impl",
+        py::arg("zentorch_op_name") = "zentorch::zentorch_matmul_impl",
         py::arg("is_weight_const") = true,
         "Perform matrix multiplication with ZenTorch optimizations.\n\n"
         "Args:\n"
@@ -74,7 +74,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         "    beta (float, optional): The beta value. Default is 0.0.\n"
         "    alpha (float, optional): The alpha value. Default is 1.0.\n"
         "    zentorch_op_name (str, optional): The operator name. Default is "
-        "'zentorch::zendnn_matmul_impl'."
+        "'zentorch::zentorch_matmul_impl'."
         "Returns:\n"
         "    Tensor: Result of the maxtrix multiplication.");
 
