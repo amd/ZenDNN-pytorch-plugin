@@ -160,6 +160,9 @@ conv_padding = [[0, 0], [1, 1]]
 conv_padding_def = [[0, 0]]
 seq_length_opt = [384, 512]
 batch_size_opt = [1, 4, 8]
+mask_type_opt = ["none", "float", "bfloat16", "bool"]
+num_heads_opt = [12, 16]
+head_dim_opt = [32, 64]
 
 at_ops = torch.ops.aten
 zt_ops = torch.ops.zentorch

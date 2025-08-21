@@ -3,7 +3,7 @@
 # All rights reserved.
 # ******************************************************************************
 
-import unittest
+import math
 import torch
 from parameterized import parameterized
 import sys
@@ -20,12 +20,10 @@ from unittest_utils import (  # noqa: 402
     supported_dtypes,
     seq_length_opt,
     batch_size_opt,
+    mask_type_opt,
+    num_heads_opt,
+    head_dim_opt,
 )
-
-skip_test_pt_2_4 = False
-
-if torch.__version__[:3] < "2.4":
-    skip_test_pt_2_4 = True
 
 
 class Custom_Model_Sdpa(torch.nn.Module):
@@ -33,51 +31,82 @@ class Custom_Model_Sdpa(torch.nn.Module):
         super().__init__(*args, **kwargs)
         self.sdpa = scaled_dot_product_attention
 
-    def forward(self, query, key, value, attention_mask):
-        # Scale= 1/sqrt(hidden_size_per_head) and here we considered head size as 64,
-        # Hence scale 0.125 is used
-        # TODO Update test case with
-        # parameterizing the num_heads and hidden_size_per_head
-        return self.sdpa(query, key, value, attn_mask=attention_mask, scale=0.125)
+    def forward(self, query, key, value, attention_mask, scale):
+        return self.sdpa(query, key, value, attn_mask=attention_mask, scale=scale)
 
 
-@unittest.skipIf(
-    skip_test_pt_2_4, "Skipping test as OP support available from PyTorch 2.4"
-)
 class Test_Sdpa_Model(Zentorch_TestCase):
-    @parameterized.expand(product(supported_dtypes, seq_length_opt, batch_size_opt))
+    @parameterized.expand(
+        product(
+            supported_dtypes,
+            seq_length_opt,
+            batch_size_opt,
+            mask_type_opt,
+            num_heads_opt,
+            head_dim_opt,
+        )
+    )
     @torch.inference_mode()
-    def test_sdpa_model(self, dtype, seq_length, batch_size):
+    def test_sdpa_model(
+        self, dtype, seq_length, batch_size, mask_type, num_heads, head_dim
+    ):
         self.data.create_unittest_data(dtype)
         torch_type = self.data.get_torch_type(dtype)
-        amp_enabled = True if dtype == "bfloat16" else False
+        reset_dynamo()
         native_model = Custom_Model_Sdpa().eval()
         zentorch_model = Custom_Model_Sdpa().eval()
         zentorch_model = torch.compile(zentorch_model, backend="zentorch")
-        with torch.inference_mode(), torch.autocast(
-            device_type="cpu", enabled=amp_enabled
-        ):
+        with torch.inference_mode():
             sdpa_query = torch.randn(
-                batch_size, 16, seq_length, 64, device="cpu", requires_grad=False
+                batch_size,
+                num_heads,
+                seq_length,
+                head_dim,
+                device="cpu",
+                requires_grad=False,
             ).type(torch_type)
             sdpa_key = torch.randn(
-                batch_size, 16, seq_length, 64, device="cpu", requires_grad=False
+                batch_size,
+                num_heads,
+                seq_length,
+                head_dim,
+                device="cpu",
+                requires_grad=False,
             ).type(torch_type)
             sdpa_value = torch.randn(
-                batch_size, 16, seq_length, 64, device="cpu", requires_grad=False
+                batch_size,
+                num_heads,
+                seq_length,
+                head_dim,
+                device="cpu",
+                requires_grad=False,
             ).type(torch_type)
-            sdpa_attention_mask = None
+            if mask_type == "none":
+                sdpa_attention_mask = None
+            else:
+                mask_shape = (batch_size, num_heads, seq_length, seq_length)
+                mask = torch.randint(0, 2, mask_shape, device="cpu").bool()
+                if mask_type == "bfloat16" and dtype == "bfloat16":
+                    sdpa_attention_mask = mask.to(torch.bfloat16)
+                elif mask_type == "bool":
+                    sdpa_attention_mask = mask
+                else:
+                    sdpa_attention_mask = mask.float()
+            # Compute scale for attention: 1/sqrt(head_dim)
+            scale = 1 / math.sqrt(head_dim)
             native_output = native_model(
                 sdpa_query,
                 sdpa_key,
                 sdpa_value,
                 sdpa_attention_mask,
+                scale,
             )
             zentorch_output = zentorch_model(
                 sdpa_query,
                 sdpa_key,
                 sdpa_value,
                 sdpa_attention_mask,
+                scale,
             )
             self.assertEqual(native_output, zentorch_output, atol=1e-3, rtol=1e-2)
 
