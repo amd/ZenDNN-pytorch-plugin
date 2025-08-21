@@ -6,7 +6,6 @@
 import sys
 from pathlib import Path
 import os
-import shutil
 from hypothesis import given, settings, Verbosity, seed, strategies as st
 import inspect
 import copy
@@ -155,14 +154,12 @@ class Zentorch_TestCase(BaseZentorchTestCase):
 
     def setUp(self):
         super().setUp()
-        os.makedirs(os.path.join(path, "data"), exist_ok=True)
         if self.dump_errors:
             os.makedirs("error_dumps", exist_ok=True)
         self.data = Test_Data()
 
     def tearDown(self):
         del self.data
-        shutil.rmtree(os.path.join(path, "data"))
 
     @classmethod
     def create_error_test_hash(cls, outstr):
