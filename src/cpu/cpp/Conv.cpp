@@ -17,6 +17,9 @@ at::Tensor zentorch_conv_impl(
     const bool &transposed, const at::IntArrayRef &output_padding,
     const int64_t &groups, std::string zentorch_op_name) {
 
+  ZENTORCH_CHECK(input.is_contiguous(at::MemoryFormat::ChannelsLast) == true,
+                 "input to convolution is not channels last");
+
   c10::MaybeOwned<at::Tensor> bias_maybe_owned =
       at::borrow_from_optional_tensor(bias_opt);
   const at::Tensor &bias = *bias_maybe_owned;
@@ -37,7 +40,10 @@ at::Tensor zentorch_conv_impl(
   // creating ZenDNN memory using aten tensors
   memory z_src = zen_memory(input, src_desc);
   memory z_weights = zen_memory(weight, t_weights_desc);
-  memory z_bias = zen_memory(bias, bias_desc);
+  memory z_bias;
+  if (bias.defined()) {
+    z_bias = zen_memory(bias, bias_desc);
+  }
   memory z_dst = zen_memory(output, dst_desc);
 
   primitive_attr op_attr;
