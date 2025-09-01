@@ -33,7 +33,7 @@ Follow the zentorch installation steps in the [README](https://github.com/amd/Ze
 Download and install Quark v0.8. Installation instructions can be found [here](https://github.com/amd/Quark/blob/v0.8/README.md).
 We suggest downloading the "zip release".
 
-> zentorch v5.1 is compatible with Quark v0.8. Please make sure you download the right version.
+> zentorch v5.2 is compatible with Quark v0.8. Please make sure you download the right version.
 
 Follow the steps in the README file at "examples/torch/rm" directory to download, prepare and quantize the model.
 

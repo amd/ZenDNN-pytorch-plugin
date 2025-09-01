@@ -1,4 +1,4 @@
-__The latest ZenDNN Plugin for PyTorch* (zentorch) 5.1 is here!__
+__The latest ZenDNN Plugin for PyTorch* (zentorch) 5.2 is here!__
 
 The ZenDNN PyTorch plugin is called zentorch. Combined with PyTorch's torch.compile, zentorch transforms deep learning pipelines into finely-tuned, AMD-specific engines, delivering unparalleled efficiency and speed for large-scale inference workloads.
 
@@ -11,7 +11,7 @@ They also incorporate optimized embedding bag kernels and enhanced zenMatMul mat
 
 The vLLM-ZenTorch plugin extends these benefits to the vLLM inference engine, enabling plug-and-play acceleration of large language model inference on AMD EPYC™ CPUs. By integrating ZenTorch with vLLM, users can achieve significant throughput improvements for LLM workloads with zero code changes.
 
-The zentorch 5.1 release plugs seamlessly with PyTorch versions from 2.7 and 2.6, offering a high-performance experience for deep learning on AMD EPYC™ platforms.
+The zentorch 5.2 release plugs seamlessly with PyTorch versions from 2.8 and 2.7, offering a high-performance experience for deep learning on AMD EPYC™ platforms.
 
 ## Support
 
