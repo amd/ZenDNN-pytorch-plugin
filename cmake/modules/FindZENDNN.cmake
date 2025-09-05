@@ -31,7 +31,7 @@ IF("$ENV{ZENTORCH_USE_LOCAL_BLIS}" EQUAL 0)
 
     FetchContent_Declare(blis
     GIT_REPOSITORY https://github.com/amd/blis.git
-    GIT_TAG AOCL-Weekly-250725
+    GIT_TAG AOCL-Sep2025-b1
     SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/blis"
     SOURCE_SUBDIR "not-available"
     )
