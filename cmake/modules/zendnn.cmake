@@ -4,7 +4,7 @@
 #******************************************************************************
 
 if(NOT DEFINED ZENDNN_TAG)
-  set(ZENDNN_TAG "r5.1_rc1")
+  set(ZENDNN_TAG "zendnn-2025-WW36")
 endif()
 
 string(REGEX MATCH "-D_GLIBCXX_USE_CXX11_ABI=[0-1]" TEMP_ABI_DEFINE "${CMAKE_CXX_FLAGS}")
@@ -77,5 +77,5 @@ if(NOT DEFINED AMDBLIS_ENABLE_THREADING)
 endif()
 
 if(NOT DEFINED AMDBLIS_TAG)
-  set(AMDBLIS_TAG AOCL-LPGEMM-012925)
+  set(AMDBLIS_TAG AOCL-Sep2025-b1)
 endif()
