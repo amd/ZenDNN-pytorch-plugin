@@ -55,6 +55,10 @@ jobs:
       - name: Copy BLIS tarball if needed
         if: env.ZENTORCH_USE_LOCAL_BLIS == '1'
         run: |
+          sudo apt-get update
+          sudo apt-get install -y nfs-common
+          sudo mkdir -p /proj/zendai/datasets
+          sudo mount daytonax1670.amd.com:/home/ext_hdd/datasets /proj/zendai/datasets
           cp /proj/zendai/datasets/ci_zendnn_presub_dependencies/$BLIS_TAR_BALL $WORKSPACE
           tar -xzf $WORKSPACE/$BLIS_TAR_BALL -C $WORKSPACE
 
