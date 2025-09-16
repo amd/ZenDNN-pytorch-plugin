@@ -136,21 +136,23 @@ if [ -f "/usr/local/lib/libjemalloc.so" ]; then
     export LD_PRELOAD=/usr/local/lib/libjemalloc.so:$LD_PRELOAD
     echo "LD_PRELOAD of libjemalloc is success"
 else
-    echo "Downloading & Building jemalloc"
-    conda install autoconf
-    git clone https://github.com/jemalloc/jemalloc.git --quiet
-    cd $(pwd)/jemalloc
-    bash ./autogen.sh > jemalloc_build.log 2>&1
-    make >>jemalloc_build.log 2>&1
-    sudo make install LIBDIR=/usr/local/lib >>jemalloc_build.log 2>&1
-    if [ -f "/usr/local/lib/libjemalloc.so" ]; then
-        export LD_PRELOAD=/usr/local/lib/libjemalloc.so:$LD_PRELOAD
-        echo "Build & LD_PRELOAD of libjemalloc is success"
+    jemalloc_lib=$(find $CONDA_PREFIX -name "libjemalloc.so*" 2>/dev/null | head -1)
+    if [ -n "$jemalloc_lib" ]; then
+        export LD_PRELOAD="$jemalloc_lib:$LD_PRELOAD"
+        echo "LD_PRELOAD of libjemalloc is success"
     else
-        echo "Installing of libjemalloc is failed"
-        echo "Please explicitly install libjemalloc in your environment"
+        echo "Installing jemalloc with conda"
+        conda install -c conda-forge jemalloc -y
+
+        jemalloc_lib=$(find $CONDA_PREFIX -name "libjemalloc.so*" 2>/dev/null | head -1)
+        if [ -n "$jemalloc_lib" ]; then
+            export LD_PRELOAD="$jemalloc_lib:$LD_PRELOAD"
+            echo "Conda installation & LD_PRELOAD of libjemalloc is success"
+        else
+            echo "Installing of libjemalloc is failed"
+            echo "Please explicitly install libjemalloc in your environment"
+        fi
     fi
-    cd ../
 fi
 
 export MALLOC_CONF="oversize_threshold:1,background_thread:true,metadata_thp:auto,dirty_decay_ms:-1,muzzy_decay_ms:-1"
@@ -234,40 +236,42 @@ if [ "$framework" = "zentorch" ]; then
     echo "ZENDNN_MATMUL_ALGO = $ZENDNN_MATMUL_ALGO"
     export ZENDNN_PRIMITIVE_CACHE_CAPACITY=1024
     echo "ZENDNN_PRIMITIVE_CACHE_CAPACITY = $ZENDNN_PRIMITIVE_CACHE_CAPACITY"
-    conda install -c conda-forge $package_name=$package_version=$package_build --no-deps -y
 
     if [ -f "$extracted_path/$condavar/pkgs/$package_name-$package_version-$package_build/lib/libiomp5.so" ]; then
-        echo "Installation Successful of libiomp5.so for framework '$framework' and model '$model'"
         export LD_PRELOAD="$extracted_path/$condavar/pkgs/$package_name-$package_version-$package_build/lib/libiomp5.so:$LD_PRELOAD"
         echo "LD_PRELOAD=$LD_PRELOAD"
-    else
-        echo "Installation Unsuccessful for libiomp5.so for framework '$framework' and model '$model'"
-        echo "Please explicitly install libiomp5.so for framework '$framework' and model '$model' in your conda environment"
-        echo "export LD_PRELOAD=\"$extracted_path/$condavar/pkgs/$package_name-$package_version-$package_build/lib/libiomp5.so:$LD_PRELOAD\""
+    else 
+        conda install -c conda-forge $package_name=$package_version=$package_build --no-deps -y
+
+        if [ -f "$extracted_path/$condavar/pkgs/$package_name-$package_version-$package_build/lib/libiomp5.so" ]; then
+            echo "Installation Successful of libiomp5.so for framework '$framework' and model '$model'"
+            export LD_PRELOAD="$extracted_path/$condavar/pkgs/$package_name-$package_version-$package_build/lib/libiomp5.so:$LD_PRELOAD"
+            echo "LD_PRELOAD=$LD_PRELOAD"
+        else
+            echo "Installation Unsuccessful for libiomp5.so for framework '$framework' and model '$model'"
+            echo "Please explicitly install libiomp5.so for framework '$framework' and model '$model' in your conda environment"
+            echo "export LD_PRELOAD=\"$extracted_path/$condavar/pkgs/$package_name-$package_version-$package_build/lib/libiomp5.so:$LD_PRELOAD\""
+        fi
     fi
 
 # for ipex framework
 else
     export ONEDNN_PRIMITIVE_CACHE_CAPACITY=1024
     echo "ONEDNN_PRIMITIVE_CACHE_CAPACITY = $ONEDNN_PRIMITIVE_CACHE_CAPACITY"
-    pip install intel-openmp
 
-    if pip show intel-openmp > /dev/null 2>&1; then
-        echo "intel-openmp is installed."
-    else
-        echo "intel-openmp is not installed."
-        echo "Please explicitly install intel-openmp in your environment"
-        return
-    fi
-
-    if [ -f "$extracted_path/$condavar/pkgs/$package_name-$package_version-$package_build/lib/libiomp5.so" ]; then
-        echo "Installation Successful of libiomp5.so for framework '$framework' and model '$model'"
+    if [ -f "$extracted_path/$condavar/envs/$CONDA_DEFAULT_ENV/lib/libiomp5.so" ]; then
         export LD_PRELOAD="$extracted_path/$condavar/envs/$CONDA_DEFAULT_ENV/lib/libiomp5.so:$LD_PRELOAD"
         echo "LD_PRELOAD=$LD_PRELOAD"
     else
-        echo "Installation Unsuccessful of libiomp5.so for framework '$framework' and model '$model'"
-        echo "Please explicitly install libiomp5.so for framework '$framework' and model '$model' in your conda environment"
-        echo "export LD_PRELOAD=\"$extracted_path/$condavar/envs/$CONDA_DEFAULT_ENV/lib/libiomp5.so:$LD_PRELOAD\""
+        pip install intel-openmp
+        if pip show intel-openmp > /dev/null 2>&1; then
+            echo "Installation Successful of libiomp5.so for framework '$framework' and model '$model'"
+            export LD_PRELOAD="$extracted_path/$condavar/envs/$CONDA_DEFAULT_ENV/lib/libiomp5.so:$LD_PRELOAD"
+            echo "LD_PRELOAD=$LD_PRELOAD"
+        else
+            echo "Installation Unsuccessful of libiomp5.so for framework '$framework' and model '$model'"
+            echo "Please explicitly install libiomp5.so for framework '$framework' and model '$model' in your conda environment"
+            echo "export LD_PRELOAD=\"$extracted_path/$condavar/envs/$CONDA_DEFAULT_ENV/lib/libiomp5.so:$LD_PRELOAD\""
+        fi
     fi
-
 fi
