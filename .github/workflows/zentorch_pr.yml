@@ -1,4 +1,4 @@
-name: ZenDNN PyTorch Plugin PR CI
+name: ZenDNN PyTorch Plugin CI
 
 on:
   push:
@@ -44,7 +44,7 @@ jobs:
       - name: Clone ZenDNN if needed
         if: env.ZENTORCH_USE_LOCAL_ZENDNN == '1'
         run: |
-          git clone --depth 1 --branch main https://github.com/AMD-Zenai/ZenDNN.git ZenDNN
+          git clone --depth 1 --branch main https://${{ secrets.ZIAIE_PAT }}@github.com/AMD-Zenai/ZenDNN.git ZenDNN
           if [ "${ZENDNN_REF}" != "" ]; then
             cd ZenDNN
             git fetch origin "${ZENDNN_REF}"
@@ -60,7 +60,7 @@ jobs:
 
       - name: Clone ZenDNN_tools
         run: |
-          git clone --depth 1 --branch main https://github.com/AMD-Zenai/ZenDNN_tools.git ZenDNN_tools
+          git clone --depth 1 --branch main https://${{ secrets.ZIAIE_PAT }}@github.com/AMD-Zenai/ZenDNN_tools.git ZenDNN_tools
 
       - name: Run CI script
         run: |
