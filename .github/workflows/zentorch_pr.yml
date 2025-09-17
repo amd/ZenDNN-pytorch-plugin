@@ -1,0 +1,84 @@
+name: ZenDNN PyTorch Plugin CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      zendnn_ref:
+        description: 'ZenDNN branch or PR ref (optional, e.g. refs/pull/123/head)'
+        required: false
+        default: ''
+      zentorch_use_local_zendnn:
+        description: 'Set to 1 to use local ZenDNN'
+        required: false
+        default: '1'
+      zentorch_use_local_blis:
+        description: 'Set to 1 to use local BLIS'
+        required: false
+        default: '1'
+  repository_dispatch:
+    types: [zendnn-pr]
+
+jobs:
+  build:
+    runs-on: [zentorch_presub]
+    env:
+      PYTHON_VERSION: '3.10'
+      ZENTORCH_VERSION: '5.2.0'
+      NATIVE_TORCH_VERSION: '2.8.0'
+      UNWANTED_KEYWORDS: 'stackoverflow,MSDN,wiki,microsoft'
+      WORKSPACE: ${{ github.workspace }}
+      ZENTORCH_USE_LOCAL_ZENDNN: ${{ github.event.inputs.zentorch_use_local_zendnn || github.event.client_payload.zentorch_use_local_zendnn || '1' }}
+      ZENTORCH_USE_LOCAL_BLIS: ${{ github.event.inputs.zentorch_use_local_blis || github.event.client_payload.zentorch_use_local_blis || '1' }}
+      BLIS_TAR_BALL: 'AOCL-Sep2025-b1.tar.gz'
+      ZENDNN_REF: ${{ github.event.inputs.zendnn_ref || github.event.client_payload.zendnn_ref || '' }}
+    steps:
+      - name: Checkout ZenDNN_PyTorch_Plugin
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Clone ZenDNN if needed
+        if: env.ZENTORCH_USE_LOCAL_ZENDNN == '1'
+        run: |
+          git clone --depth 1 --branch main https://${{ secrets.ZIAIE_PAT }}@github.com/AMD-Zenai/ZenDNN.git ZenDNN
+          if [ "${ZENDNN_REF}" != "" ]; then
+            cd ZenDNN
+            git fetch origin "${ZENDNN_REF}"
+            git checkout FETCH_HEAD
+            cd ..
+          fi
+
+      - name: Copy BLIS tarball if needed
+        if: env.ZENTORCH_USE_LOCAL_BLIS == '1'
+        run: |
+          apt-get update
+          apt-get install -y nfs-common
+          mkdir -p /proj/zendai/datasets
+          mount daytonax1670.amd.com:/home/ext_hdd/datasets /proj/zendai/datasets
+          cp /proj/zendai/datasets/ci_zendnn_presub_dependencies/$BLIS_TAR_BALL $WORKSPACE
+          tar -xzf $WORKSPACE/$BLIS_TAR_BALL -C $WORKSPACE
+
+      - name: Clone ZenDNN_tools
+        run: |
+          git clone --depth 1 --branch main https://${{ secrets.ZIAIE_PAT }}@github.com/AMD-Zenai/ZenDNN_tools.git ZenDNN_tools
+
+      - name: Run CI script
+        run: |
+          export PYTHON_VERSION=${{ env.PYTHON_VERSION }}
+          export ZENTORCH_VERSION=${{ env.ZENTORCH_VERSION }}
+          export WORKSPACE=${{ env.WORKSPACE }}
+          export ZENTORCH_USE_LOCAL_ZENDNN=${{ env.ZENTORCH_USE_LOCAL_ZENDNN }}
+          export ZENTORCH_USE_LOCAL_BLIS=${{ env.ZENTORCH_USE_LOCAL_BLIS }}
+          export NATIVE_TORCH_VERSION=${{ env.NATIVE_TORCH_VERSION }}
+          export UNWANTED_KEYWORDS=${{ env.UNWANTED_KEYWORDS }}
+          export BLIS_TAR_BALL=${{ env.BLIS_TAR_BALL }}
+          bash ZenDNN_tools/scripts/ci/zendnn_ci_pt_plugin_presub_build.sh
+        shell: bash
+
+      - name: Fail if script failed
+        if: failure()
+        run: exit 1
