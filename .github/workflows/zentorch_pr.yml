@@ -65,13 +65,7 @@ jobs:
 
       - name: Clone ZenDNN_tools
         run: |
-          git clone --depth 1 --branch main https://${{ secrets.ZIAIE_PAT }}@github.com/AMD-Zenai/ZenDNN_tools.git "$PARENT_DIR/ZenDNN_tools"
-
-      - name: Configure Docker
-        run: |
-          nohup dockerd-rootless.sh > ~/docker-rootless.log 2>&1 &
-          export DOCKER_HOST=unix:///run/user/$(id -u)/docker.sock
-          docker ps
+          git clone --depth 1 --branch main https://${{ secrets.ZIAIE_PAT }}@github.com/AMD-Zenai/ZenDNN_tools.git "$PARENT_DIR/ZenDNN_tools"  
 
       - name: Run CI script
         run: |
@@ -89,6 +83,9 @@ jobs:
           git config --global --add safe.directory ${WORKSPACE}/ZenDNN_PyTorch_Plugin
           git config --global --add safe.directory ${WORKSPACE}/ZenDNN
           git config --global --add safe.directory ${WORKSPACE}/blis
+          nohup dockerd-rootless.sh > ~/docker-rootless.log 2>&1 &
+          export DOCKER_HOST=unix:///run/user/$(id -u)/docker.sock
+          docker ps
           bash "$PARENT_DIR/ZenDNN_tools/scripts/ci/zendnn_ci_pt_plugin_presub_build.sh"
         shell: bash
 
