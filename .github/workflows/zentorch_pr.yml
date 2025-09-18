@@ -41,36 +41,39 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Set parent directory
+        run: echo "PARENT_DIR=$(dirname \"$GITHUB_WORKSPACE\")" >> $GITHUB_ENV
+
       - name: Clone ZenDNN if needed
         if: env.ZENTORCH_USE_LOCAL_ZENDNN == '1'
         run: |
-          git clone --depth 1 --branch main https://${{ secrets.ZIAIE_PAT }}@github.com/AMD-Zenai/ZenDNN.git ZenDNN
+          git clone --depth 1 --branch main https://${{ secrets.ZIAIE_PAT }}@github.com/AMD-Zenai/ZenDNN.git "$PARENT_DIR/ZenDNN"
           if [ "${ZENDNN_REF}" != "" ]; then
-            cd ZenDNN
+            cd "$PARENT_DIR/ZenDNN"
             git fetch origin "${ZENDNN_REF}"
             git checkout FETCH_HEAD
-            cd ..
+            cd "$PARENT_DIR"
           fi
 
       - name: Copy BLIS tarball if needed
         if: env.ZENTORCH_USE_LOCAL_BLIS == '1'
         run: |
-          cp /proj/zendai/datasets/ci_zendnn_presub_dependencies/$BLIS_TAR_BALL $WORKSPACE
-          tar -xzf $WORKSPACE/$BLIS_TAR_BALL -C $WORKSPACE
+          cp /proj/zendai/datasets/ci_zendnn_presub_dependencies/$BLIS_TAR_BALL "$PARENT_DIR"
+          tar -xzf "$PARENT_DIR/$BLIS_TAR_BALL" -C "$PARENT_DIR"
 
       - name: Clone ZenDNN_tools
         run: |
-          git clone --depth 1 --branch main https://${{ secrets.ZIAIE_PAT }}@github.com/AMD-Zenai/ZenDNN_tools.git ZenDNN_tools
+          git clone --depth 1 --branch main https://${{ secrets.ZIAIE_PAT }}@github.com/AMD-Zenai/ZenDNN_tools.git "$PARENT_DIR/ZenDNN_tools"
 
       - name: Configure Docker
         run: |
           nohup dockerd-rootless.sh > ~/docker-rootless.log 2>&1 &
           export DOCKER_HOST=unix:///run/user/$(id -u)/docker.sock
           docker ps
-      
+
       - name: Run CI script
         run: |
-          sed -i 's/sudo//g' ZenDNN_tools/scripts/ci/zendnn_ci_pt_plugin_presub_build.sh
+          sed -i 's/sudo//g' "$PARENT_DIR/ZenDNN_tools/scripts/ci/zendnn_ci_pt_plugin_presub_build.sh"
           export PYTHON_VERSION=${{ env.PYTHON_VERSION }}
           export ZENTORCH_VERSION=${{ env.ZENTORCH_VERSION }}
           export WORKSPACE=${{ env.WORKSPACE }}
@@ -79,7 +82,8 @@ jobs:
           export NATIVE_TORCH_VERSION=${{ env.NATIVE_TORCH_VERSION }}
           export UNWANTED_KEYWORDS=${{ env.UNWANTED_KEYWORDS }}
           export BLIS_TAR_BALL=${{ env.BLIS_TAR_BALL }}
-          bash ZenDNN_tools/scripts/ci/zendnn_ci_pt_plugin_presub_build.sh
+          export PARENT_DIR=${PARENT_DIR}
+          bash "$PARENT_DIR/ZenDNN_tools/scripts/ci/zendnn_ci_pt_plugin_presub_build.sh"
         shell: bash
 
       - name: Fail if script failed
