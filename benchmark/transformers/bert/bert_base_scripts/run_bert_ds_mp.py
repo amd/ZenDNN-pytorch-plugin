@@ -210,7 +210,7 @@ def sub_process(
     end = time.time()
 
     print(
-        f"warmed up in sub_process {i_inst} in :{(end-start):.4f} seconds", flush=True
+        f"warmed up in sub_process {i_inst} in :{(end - start):.4f} seconds", flush=True
     )
 
     if enable_profiling:
@@ -432,7 +432,7 @@ if __name__ == "__main__":
     if (system == "vm") & (num_host_cpu == 0):  # AMD:NEW
         print(
             "Error: the number of host CPU for --system='vm' should be greater than 0.",
-            "Use the --num_host_cpu option to specify the number of logical CPUs allocated for Host."
+            "Use the --num_host_cpu option to specify the number of logical CPUs allocated for Host.",
         )  # AMD:NEW
         sys.exit()
 
