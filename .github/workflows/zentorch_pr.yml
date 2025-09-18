@@ -30,7 +30,7 @@ jobs:
       ZENTORCH_VERSION: '5.2.0'
       NATIVE_TORCH_VERSION: '2.8.0'
       UNWANTED_KEYWORDS: 'stackoverflow,MSDN,wiki,microsoft'
-      WORKSPACE: ${{ github.workspace }}
+      # WORKSPACE and PARENT_DIR will be set dynamically in the steps
       ZENTORCH_USE_LOCAL_ZENDNN: ${{ github.event.inputs.zentorch_use_local_zendnn || github.event.client_payload.zentorch_use_local_zendnn || '1' }}
       ZENTORCH_USE_LOCAL_BLIS: ${{ github.event.inputs.zentorch_use_local_blis || github.event.client_payload.zentorch_use_local_blis || '1' }}
       BLIS_TAR_BALL: 'AOCL-Sep2025-b1.tar.gz'
@@ -41,8 +41,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set parent directory
-        run: echo "PARENT_DIR=$(dirname \"$GITHUB_WORKSPACE\")" >> $GITHUB_ENV
+      - name: Set WORKSPACE and PARENT_DIR to parent of repo
+        run: |
+          echo "PARENT_DIR=$(dirname \"$GITHUB_WORKSPACE\")" >> $GITHUB_ENV
+          echo "WORKSPACE=$(dirname \"$GITHUB_WORKSPACE\")" >> $GITHUB_ENV
 
       - name: Clone ZenDNN if needed
         if: env.ZENTORCH_USE_LOCAL_ZENDNN == '1'
@@ -55,7 +57,7 @@ jobs:
             cd "$PARENT_DIR"
           fi
 
-      - name: Copy BLIS tarball if needed
+      - name: Copy and extract BLIS tarball if needed
         if: env.ZENTORCH_USE_LOCAL_BLIS == '1'
         run: |
           cp /proj/zendai/datasets/ci_zendnn_presub_dependencies/$BLIS_TAR_BALL "$PARENT_DIR"
@@ -89,3 +91,11 @@ jobs:
       - name: Fail if script failed
         if: failure()
         run: exit 1
+
+      - name: Cleanup workspace (delete everything from parent dir)
+        if: always()
+        run: |
+          echo "Cleaning up $PARENT_DIR"
+          rm -rf "$PARENT_DIR/ZenDNN" "$PARENT_DIR/ZenDNN_tools" "$PARENT_DIR/$BLIS_TAR_BALL"
+          # Optionally, also remove ZenDNN_PyTorch_Plugin if you want to delete the repo itself
+          # rm -rf "$PARENT_DIR/ZenDNN_PyTorch_Plugin"
