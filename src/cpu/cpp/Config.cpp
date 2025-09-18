@@ -46,10 +46,6 @@ std::string show_config() {
      << "FBGEMM " << FBGEMM_VERSION_TAG << " ( Git Hash " << FBGEMM_VERSION_HASH
      << " )"
      << "\n";
-  ss << "  - "
-     << "LIBXSMM " << LIBXSMM_VERSION_TAG << " ( Git Hash "
-     << LIBXSMM_VERSION_HASH << " )"
-     << "\n";
 
   return ss.str();
 }
