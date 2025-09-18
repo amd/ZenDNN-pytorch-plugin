@@ -56,7 +56,7 @@ jobs:
         if: env.ZENTORCH_USE_LOCAL_BLIS == '1'
         run: |
           cp /proj/zendai/datasets/ci_zendnn_presub_dependencies/$BLIS_TAR_BALL $WORKSPACE
-          tar -xzf $WORKSPACE/$BLIS_TAR_BALL $WORKSPACE
+          tar -xzf $WORKSPACE/$BLIS_TAR_BALL -C $WORKSPACE
 
       - name: Clone ZenDNN_tools
         run: |
