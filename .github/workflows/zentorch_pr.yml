@@ -83,9 +83,6 @@ jobs:
           git config --global --add safe.directory ${WORKSPACE}/ZenDNN_PyTorch_Plugin
           git config --global --add safe.directory ${WORKSPACE}/ZenDNN
           git config --global --add safe.directory ${WORKSPACE}/blis
-          nohup dockerd-rootless.sh > ~/docker-rootless.log 2>&1 &
-          export DOCKER_HOST=unix:///run/user/$(id -u)/docker.sock
-          docker ps
           bash "$PARENT_DIR/ZenDNN_tools/scripts/ci/zendnn_ci_pt_plugin_presub_build.sh"
         shell: bash
 
