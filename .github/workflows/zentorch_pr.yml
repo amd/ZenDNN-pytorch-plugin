@@ -77,7 +77,7 @@ jobs:
           sed -i '/git config --global --add/ s/^/# /' "$PARENT_DIR/ZenDNN_tools/scripts/ci/zendnn_ci_pt_plugin_presub_build.sh"
           sed -i '/docker run/ s/docker run /docker run --user 95777 /; /mkmhub/ s/mkmhub/-v \/proj\/zendai:\/proj\/zendai mkmhub/' "$PARENT_DIR/ZenDNN_tools/scripts/ci/zendnn_ci_pt_plugin_presub_build.sh"
           sed -i 's/^\(conda init bash\|conda config --set auto_activate_base false\|source ~\/.bashrc\)/# \1/' "$PARENT_DIR/ZenDNN_tools/scripts/ci/zendnn_ci_PT_PLUGIN_build.sh"
-          sed -i '1i sudo chown -R z1aiebuild /root/anaconda3/envs/*\nexport PATH=$PATH:/root/anaconda3/bin' "$PARENT_DIR/ZenDNN_tools/scripts/ci/zendnn_ci_PT_PLUGIN_build.sh"
+          sed -i '1i sudo chown -R 95777 /root/anaconda3/envs/*\nexport PATH=$PATH:/root/anaconda3/bin' "$PARENT_DIR/ZenDNN_tools/scripts/ci/zendnn_ci_PT_PLUGIN_build.sh"
           export PYTHON_VERSION=${{ env.PYTHON_VERSION }}
           export BUILD_PYTHON_VERSIONS=${{ env.PYTHON_VERSION }}
           export ZENTORCH_VERSION=${{ env.ZENTORCH_VERSION }}
