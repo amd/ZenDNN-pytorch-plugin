@@ -66,10 +66,6 @@ jobs:
       - name: Clone ZenDNN_tools
         run: |
           git clone --depth 1 --branch main https://${{ secrets.ZIAIE_PAT }}@github.com/AMD-Zenai/ZenDNN_tools.git "$PARENT_DIR/ZenDNN_tools"  
-
-      - name: Fix workspace permissions
-        run: |
-          chmod -R u+w "$PARENT_DIR"
       
       - name: Run CI script
         run: |
