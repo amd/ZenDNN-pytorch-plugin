@@ -29,7 +29,7 @@ def lazy_init():
 
 
 # applies the registered patterns to fx_graph
-def fusions_graph_pass(gm: torch.fx.GraphModule):
+def fusions_graph_pass(fx_graph: torch.fx.Graph) -> torch.fx.Graph:
 
     # In PyTorch versions > 2.1, the arguments in `kwargs` are treated as optional.
     # This allows fusion to work whether `kwargs` are provided or not.
@@ -43,19 +43,18 @@ def fusions_graph_pass(gm: torch.fx.GraphModule):
     sig = inspect.signature(torch._inductor.pattern_matcher.register_replacement)
 
     if "search_fn_pattern" not in sig.parameters:
-        return gm
+        return fx_graph
 
     lazy_init()
     count = 0
     if config.pattern_matcher:
-        count += matcher_pass.apply(gm.graph)
+        count += matcher_pass.apply(fx_graph)
     else:
         logger.info(
             "Inductor config for pattern matching is set to False, "
             "no matcher passes will be run."
         )
     if count:
-        stable_topological_sort(gm.graph)
-        gm.graph.lint()
-        gm.recompile()
-    return gm
+        stable_topological_sort(fx_graph)
+        fx_graph.lint()
+    return fx_graph

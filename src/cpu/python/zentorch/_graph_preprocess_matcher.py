@@ -28,18 +28,17 @@ def lazy_init():
 
 
 # applies the registered patterns to fx_graph
-def preprocess_graph_pass(gm: torch.fx.GraphModule):
+def preprocess_graph_pass(fx_graph: torch.fx.Graph) -> torch.fx.Graph:
     lazy_init()
     count = 0
     if config.pattern_matcher:
-        count += matcher_pass.apply(gm.graph)
+        count += matcher_pass.apply(fx_graph)
     else:
         logger.info(
             "Inductor config for pattern matching is set to False, "
             "no matcher passes will be run."
         )
     if count:
-        stable_topological_sort(gm.graph)
-        gm.graph.lint()
-        gm.recompile()
-    return gm
+        stable_topological_sort(fx_graph)
+        fx_graph.lint()
+    return fx_graph

@@ -13,6 +13,7 @@ from torch._inductor.pattern_matcher import (
     KeywordArg,
     Arg,
     Match,
+    stable_topological_sort,
 )
 from ._logging import get_logger
 
@@ -1518,7 +1519,7 @@ def addmm_view_1dbias_gelu_tanh_replacement(
     match.replace_by_example(repl, [inp, mat_1, mat_2, beta, alpha, approximate, size])
 
 
-def zentorch_eltwise_unary_fusions(gm):
+def zentorch_eltwise_unary_fusions(fx_graph):
     """
     zentorch_op_fusion:
     takes in the fx_graph and fuses some of the native ops
@@ -1530,7 +1531,7 @@ def zentorch_eltwise_unary_fusions(gm):
         subsystem="zentorch_eltwise_unary_fusions",
     )
     if config.pattern_matcher:
-        GraphTransformObserver(gm, "pass_pattern").apply_graph_pass(pass_pattern.apply)
-    gm.graph.lint()
-    gm.recompile()
-    return gm
+        GraphTransformObserver(fx_graph, "pass_pattern").apply_gm_pass(pass_pattern.apply)
+    stable_topological_sort(fx_graph)
+    fx_graph.lint()
+    return fx_graph

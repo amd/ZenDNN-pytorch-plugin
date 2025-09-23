@@ -13,6 +13,7 @@ from torch._inductor.pattern_matcher import (
     KeywordArg,
     Arg,
     Match,
+    stable_topological_sort,
 )
 from torch._inductor import config
 import functools
@@ -227,7 +228,7 @@ def convolution_replacement(match, *args):
     match.replace_by_example(repl, [*args])
 
 
-def replace_with_zentorch_ops(gm):
+def replace_with_zentorch_ops(fx_graph):
     GraphTransformObserver = functools.partial(
         torch.fx.passes.graph_transform_observer.GraphTransformObserver,
         subsystem="replace_with_zentorch_ops",
@@ -394,13 +395,12 @@ def replace_with_zentorch_ops(gm):
 
             #         match.replace_by_example(repl, [*args])
 
-        GraphTransformObserver(gm, "pass_pattern").apply_graph_pass(pass_pattern.apply)
-    gm.graph.lint()
-    gm.recompile()
-    return gm
+        GraphTransformObserver(fx_graph, "pass_pattern").apply_gm_pass(pass_pattern.apply)
+    fx_graph.lint()
+    return fx_graph
 
 
-def replace_with_composite_zentorch_ops(fx_graph: torch.fx.GraphModule):
+def replace_with_composite_zentorch_ops(fx_graph: torch.fx.Graph) -> torch.fx.Graph:
     # TODO
     # As every custom/composite operator would have its own characteristics.
     # As there is no one frame that fits all, we need to have a seperate
@@ -414,7 +414,7 @@ def replace_with_composite_zentorch_ops(fx_graph: torch.fx.GraphModule):
     # Remove this comment when the above TODO is resolved and the code is
     # pushed to pattern matcher based approach.
 
-    for node in fx_graph.graph.nodes:
+    for node in fx_graph.nodes:
         if node.target != at_ops._embedding_bag.default:
             continue
 
@@ -447,9 +447,7 @@ def replace_with_composite_zentorch_ops(fx_graph: torch.fx.GraphModule):
 
         user_node.replace_all_uses_with(node)
         node.target = zt_ops.zentorch_embedding_bag.default
-        fx_graph.graph.erase_node(user_node)
-
-    fx_graph.graph.lint()
-    fx_graph.recompile()
-
+        fx_graph.erase_node(user_node)
+    stable_topological_sort(fx_graph)
+    fx_graph.lint()
     return fx_graph

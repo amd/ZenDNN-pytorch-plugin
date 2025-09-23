@@ -4,7 +4,8 @@
 # ******************************************************************************
 
 import torch
-import zentorch
+from torch._inductor import config
+import zentorch  # noqa: F401
 from transformers import BertTokenizer, BertModel
 from datasets import load_dataset
 
@@ -34,9 +35,9 @@ model.forward = torch.compile(model.forward, backend="zentorch")
 
 # Inference
 print("Running inference")
+config.freezing = True
 with torch.inference_mode(), torch.no_grad(), \
-     torch.amp.autocast("cpu", enabled=True), \
-     zentorch.freezing_enabled():
+     torch.amp.autocast("cpu", enabled=True):
     # Prepare inputs
     inputs = tokenizer(
         dataset["text"][:3], return_tensors="pt", padding=True, truncation=True

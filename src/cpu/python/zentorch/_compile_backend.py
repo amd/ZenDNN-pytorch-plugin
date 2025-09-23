@@ -5,9 +5,11 @@
 
 import torch  # noqa
 import inspect
+from torch._inductor import config
 from torch._dynamo import register_backend
 from ._utils import is_version_compatible_import
 from torch._inductor.compile_fx import compile_fx, compile_fx_inner
+from torch._inductor.custom_graph_pass import CustomGraphPass, get_hash_for_files
 from ._optimize import optimize
 from typing import Callable, List, Optional
 from ._logging import get_logger
@@ -15,6 +17,24 @@ from torch._functorch.aot_autograd import aot_module_simplified
 from torch.torch_version import TorchVersion
 from ._mkldnn import mkldnn_fuse_fx
 from torch._inductor.fx_passes.pre_grad import fuse_conv_bn, remove_identity
+# Make use of existing decompositions functions if Torch version >= 2.1
+# Torch version less than 2.1 doesn't support removal of decompositions
+from torch._decomp import remove_decompositions
+from torch._inductor.decomposition import decompositions, fast_random_decomps
+from torch._inductor.lowering import make_fallback
+
+
+class OptimizePass(CustomGraphPass):
+    def __call__(self, graph: torch.fx.Graph):
+        optimize(graph)
+
+    def uuid(self):
+        # needed for inductor caching
+        return get_hash_for_files((__file__,))
+
+
+optimize_pass = OptimizePass()
+
 
 if is_version_compatible_import(["_dynamo", "utils"], ["is_parameter_freezing"]):
     from torch._dynamo.utils import is_parameter_freezing
@@ -23,13 +43,6 @@ else:
     def is_parameter_freezing():  # for PT 2.4.x or below
         return torch._inductor.config.freezing and not torch.is_grad_enabled()
 
-
-# Make use of existing decompositions functions if Torch version >= 2.1
-# Torch version less than 2.1 doesn't support removal of decompositions
-
-from torch._decomp import remove_decompositions
-from torch._inductor.decomposition import decompositions, fast_random_decomps
-from torch._inductor.lowering import make_fallback
 
 torch_version = TorchVersion(torch.__version__)
 """
@@ -85,10 +98,6 @@ def zentorch_compile_fx_inner(
     user_visible_outputs=frozenset(),
     layout_opt: Optional[bool] = None,
 ):
-    logger.info("Optimizing the model with zentorch ops.")
-    # zentorch optimization starts here
-    zen_gm = optimize(gm)
-    # zentorch optimization ends here
     logger.info("Model is passed to compile_fx_inner.")
     # From PT2.4, compile_fx_inner introduced the optional static_input_idxs
     # argument and deprecated the optional num_fixed argument.
@@ -98,7 +107,7 @@ def zentorch_compile_fx_inner(
     sig = inspect.signature(torch._inductor.compile_fx.compile_fx_inner)
     if "num_fixed" in sig.parameters:
         return compile_fx_inner(
-            zen_gm,
+            gm,
             example_inputs,
             cudagraphs=cudagraphs,
             num_fixed=num_fixed,
@@ -107,7 +116,7 @@ def zentorch_compile_fx_inner(
         )
     else:
         return compile_fx_inner(
-            zen_gm,
+            gm,
             example_inputs,
             cudagraphs=cudagraphs,
             static_input_idxs=static_input_idxs,
@@ -121,6 +130,9 @@ def zentorch_compile(
     example_inputs: List[torch.Tensor],
 ) -> Callable:
     logger.info("Called the zentorch backend.")
+
+    # set the custom hook for optimize
+    config.joint_custom_post_pass = optimize_pass
 
     # Pytorch 2.0 has dynamic_shapes to control dynamic shapes from torch.compile
     # but it got deprecated in Pytorch2.1 and above. Pytorch 2.1 introduced

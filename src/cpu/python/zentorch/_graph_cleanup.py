@@ -15,7 +15,7 @@ logger = get_logger(__name__)
 at_ops = torch.ops.aten
 
 
-def unused_node_elimination(fx_graph: torch.fx.GraphModule):
+def unused_node_elimination(fx_graph: torch.fx.Graph) -> torch.fx.Graph:
 
     # TODO
     # This function will always be under progress as this will undergo
@@ -57,12 +57,12 @@ def unused_node_elimination(fx_graph: torch.fx.GraphModule):
         at_ops.detach.default,
     }
 
-    for node in fx_graph.graph.nodes:
+    for node in fx_graph.nodes:
         if node.target in supported_nodes_for_removal and len(node.users) == 0:
-            fx_graph.graph.erase_node(node)
+            fx_graph.erase_node(node)
         # check for replacing redundant clone ops
         elif node.target == at_ops.clone.default and len(node.kwargs) == 0 and len(node.users) == 1:
             node.replace_all_uses_with(node.args[0])
-            fx_graph.graph.erase_node(node)
+            fx_graph.erase_node(node)
 
     return fx_graph

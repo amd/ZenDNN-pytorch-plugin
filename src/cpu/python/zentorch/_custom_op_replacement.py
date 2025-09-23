@@ -60,9 +60,9 @@ def is_cat_dim_valid_for_folding(node):
     return dim == (tensor_dimensions - 1)
 
 
-def inplace_cat_fusion(fx_g):
+def inplace_cat_fusion(fx_graph):
     nodes_to_remove = []
-    for node in fx_g.graph.nodes:
+    for node in fx_graph.nodes:
         if node.target == torch.ops.aten.cat.default and has_out_variant_for_all_args(
             node
         ):
@@ -72,8 +72,8 @@ def inplace_cat_fusion(fx_g):
 
             # create the output node
             shape = node.meta["tensor_meta"].shape
-            with fx_g.graph.inserting_after(node):
-                get_out_node = fx_g.graph.create_node(
+            with fx_graph.inserting_after(node):
+                get_out_node = fx_graph.create_node(
                     op="call_function",
                     target=torch.ops.aten.empty.memory_format,
                     args=(shape,),
@@ -85,8 +85,8 @@ def inplace_cat_fusion(fx_g):
 
             offset = 0
             for arg in node.args[0]:
-                with fx_g.graph.inserting_after(get_out_node):
-                    as_strided_node = fx_g.graph.create_node(
+                with fx_graph.inserting_after(get_out_node):
+                    as_strided_node = fx_graph.create_node(
                         op="call_function",
                         target=torch.ops.aten.as_strided,
                         args=(
@@ -102,11 +102,11 @@ def inplace_cat_fusion(fx_g):
                 offset += arg.meta["val"].shape[-1]
                 op = getattr(zt_ops, arg.target._opname)
                 counters["zentorch"]["out_variant"] += 1
-                with fx_g.graph.inserting_after(as_strided_node):
+                with fx_graph.inserting_after(as_strided_node):
                     new_args = (
                         as_strided_node,
                     ) + arg.args  # Correctly construct the new_args tuple
-                    out_node = fx_g.graph.create_node(
+                    out_node = fx_graph.create_node(
                         op="call_function",
                         target=op.out,
                         args=new_args,
@@ -119,11 +119,12 @@ def inplace_cat_fusion(fx_g):
             nodes_to_remove.append(node)
 
     for node in nodes_to_remove:
-        fx_g.graph.erase_node(node)
+        fx_graph.erase_node(node)
 
-    fx_g.graph.lint()
-    fx_g.recompile()
-    return fx_g
+    if len(nodes_to_remove) > 0:
+        stable_topological_sort(fx_graph)
+        fx_graph.lint()
+    return fx_graph
 
 
 def collect_grouped_emb_bag_args(group_op, nodes):
@@ -156,7 +157,7 @@ def collect_grouped_emb_bag_args(group_op, nodes):
     return tuple(grouped_args)
 
 
-def emb_ops_horizontal_fusion(fx_g):
+def emb_ops_horizontal_fusion(fx_graph):
     """
     Fuse horizontal parallel embedding operations into group operations.
 
@@ -166,10 +167,10 @@ def emb_ops_horizontal_fusion(fx_g):
     zentorch_horizontal_embedding_bag_group operation.
 
     Args:
-        fx_g: FX graph to optimize
+        fx_graph: FX graph to optimize
 
     Returns:
-        fx_g: Optimized FX graph with fused embedding operations
+        fx_graph: Optimized FX graph with fused embedding operations
     """
     logger.info("Fusing horizontal parallel embedding ops.")
 
@@ -186,7 +187,7 @@ def emb_ops_horizontal_fusion(fx_g):
     current_group = {}
     # Track users of nodes in current group to detect group boundaries
     users_of_current_group = []
-    for node in fx_g.graph.nodes:
+    for node in fx_graph.nodes:
         if node.target in zentorch_embed_ops_dict:
             if node.target not in groups:
                 groups[node.target] = []
@@ -222,8 +223,8 @@ def emb_ops_horizontal_fusion(fx_g):
             group_args = collect_grouped_emb_bag_args(group_target, nodes)
 
             # Create the group operation node
-            with fx_g.graph.inserting_after(nodes[-1]):
-                group_node = fx_g.graph.create_node(
+            with fx_graph.inserting_after(nodes[-1]):
+                group_node = fx_graph.create_node(
                     op="call_function",
                     target=group_target,
                     args=group_args,
@@ -238,9 +239,9 @@ def emb_ops_horizontal_fusion(fx_g):
             # to extract individual results for each original operation
             if ".out" not in group_target.__name__:
                 for idx, node in enumerate(nodes):
-                    with fx_g.graph.inserting_after(group_node):
+                    with fx_graph.inserting_after(group_node):
                         # Create getitem node to extract result at index idx
-                        getitem_node = fx_g.graph.create_node(
+                        getitem_node = fx_graph.create_node(
                             op="call_function",
                             target=operator.getitem,
                             args=(group_node, idx),
@@ -250,16 +251,16 @@ def emb_ops_horizontal_fusion(fx_g):
 
     # Clean up: Remove all original embedding nodes that were fused
     for node in nodes_to_remove:
-        fx_g.graph.erase_node(node)
+        fx_graph.erase_node(node)
 
-    stable_topological_sort(fx_g.graph)
-    fx_g.graph.lint()
-    fx_g.recompile()
-    return fx_g
+    if len(nodes_to_remove) > 0:
+        stable_topological_sort(fx_graph)
+        fx_graph.lint()
+    return fx_graph
 
 
 def group_eb_concat_fusion(fx_graph):
-    for node in fx_graph.graph.nodes:
+    for node in fx_graph.nodes:
         # Currently the support is only added for horizontal quant embedding
         # bag group
         # TODO
@@ -394,9 +395,9 @@ def group_eb_concat_fusion(fx_graph):
                     continue
 
                 cat_node.replace_all_uses_with(node)
-                fx_graph.graph.erase_node(cat_node)
+                fx_graph.erase_node(cat_node)
                 for getitem_node in getitem_nodes:
-                    fx_graph.graph.erase_node(getitem_node)
+                    fx_graph.erase_node(getitem_node)
 
                 new_args = node.args + (
                     cat_dim,
@@ -421,8 +422,7 @@ def group_eb_concat_fusion(fx_graph):
                 )
                 continue
 
-    fx_graph.graph.lint()
-    fx_graph.recompile()
+    fx_graph.lint()
 
     return fx_graph
 
@@ -450,7 +450,7 @@ def qlinear_reorder_optimizations(fx_graph):
     # a better solution for this optimization.
     qlinear_groups = [[]]
     nodes_traversed = set()
-    for node in fx_graph.graph.nodes:
+    for node in fx_graph.nodes:
         if node.target in reorder_qlinear_candidates:
             while node not in nodes_traversed:
                 qlinear_groups[-1].append(node)
@@ -497,8 +497,7 @@ def qlinear_reorder_optimizations(fx_graph):
                     counters["zentorch"]["optimized_reorder"] += 1
                 pred_node = curr_node
 
-    fx_graph.graph.lint()
-    fx_graph.recompile()
+    fx_graph.lint()
     return fx_graph
 
 
@@ -643,7 +642,8 @@ def vertical_mlp_fusion(fx_graph):
             for addmm in group[::-1]:
                 if addmm != last_addmm:
                     fx_graph.graph.erase_node(addmm)
-    fx_graph.recompile()
+    stable_topological_sort(fx_graph)
+    fx_graph.lint()
     return fx_graph
 
 
@@ -653,7 +653,7 @@ def qkv_fusion(fx_graph):
     logger.info("Detecting and executing QKV parallel ops.")
     groups = {}
 
-    for node in fx_graph.graph.nodes:
+    for node in fx_graph.nodes:
         node_name = node.name
         # Pattern check begins with finding the common node
         # for the horizontal matmul pattern
@@ -728,7 +728,7 @@ def qkv_fusion(fx_graph):
                         "Expected list, tuple, or int."
                     )
                 empty_node_args = tuple(empty_shape)
-                empty_node = fx_graph.graph.create_node(
+                empty_node = fx_graph.create_node(
                     op="call_function",
                     target=torch.ops.aten.empty.memory_format,
                     args=(empty_node_args),
@@ -753,7 +753,7 @@ def qkv_fusion(fx_graph):
                 # Update fuse values.
                 group_op_args[5].append(get_fuse_val(node.target))
             # Create zentorch_attn_qkv_fusion node
-            group_node = fx_graph.graph.create_node(
+            group_node = fx_graph.create_node(
                 op="call_function",
                 target=zt_ops.zentorch_attn_qkv_fusion.default,
                 args=tuple(group_op_args),
@@ -766,7 +766,7 @@ def qkv_fusion(fx_graph):
             # Creating getitem nodes to parse the output vector.
             getitem_nodes = []
             for getitem_num in range(3):
-                new_node = fx_graph.graph.create_node(
+                new_node = fx_graph.create_node(
                     op="call_function",
                     target=operator.getitem,
                     args=(group_node, getitem_num),
@@ -775,18 +775,17 @@ def qkv_fusion(fx_graph):
                 getitem_nodes.append(new_node)  # LIST API
             for i, node in enumerate(group["nodes"]):
                 node.replace_all_uses_with(getitem_nodes[i])
-                fx_graph.graph.erase_node(node)
+                fx_graph.erase_node(node)
 
             # sort graph topologically
-            stable_topological_sort(fx_graph.graph)
-            fx_graph.graph.lint()
+            stable_topological_sort(fx_graph)
+            fx_graph.lint()
         else:
             logger.info(
                 "Horizontal Group fusion not possible with the current \
                             combination of addmm/mm layers"
             )
 
-    fx_graph.recompile()
     return fx_graph
 
 
@@ -803,7 +802,7 @@ def eb_group_mlp_group_fusion(fx_graph):
     # The above mentioned fusion happens only when the horizontally fused
     # EmbeddingBag op and the vertically fused MLP op have a common concat node
     concat_nodes = []
-    for node in fx_graph.graph.nodes:
+    for node in fx_graph.nodes:
         if node.target == torch.ops.aten.cat.default:
             concat_nodes.append(node)
 
@@ -811,7 +810,7 @@ def eb_group_mlp_group_fusion(fx_graph):
     # is a doubly linked list, the index of the required_node in a graph makes
     # sense.
     def get_node_index_in_graph(required_node, fx_graph):
-        for idx, node in enumerate(fx_graph.graph.nodes):
+        for idx, node in enumerate(fx_graph.nodes):
             if node == required_node:
                 return idx
 
@@ -898,7 +897,7 @@ def eb_group_mlp_group_fusion(fx_graph):
             # inside the arguments of the get_item, we are assigning the
             # arguments after the replacement of the Group MLP op with the
             # new node.
-            new_node = fx_graph.graph.create_node(
+            new_node = fx_graph.create_node(
                 op="call_function",
                 target=operator.getitem,
                 args=(),
@@ -913,7 +912,7 @@ def eb_group_mlp_group_fusion(fx_graph):
             # changed, we replace all the former's uses with the latter and
             # erase the former.
             group_eb_op.replace_all_uses_with(group_mlp_op)
-            fx_graph.graph.erase_node(group_eb_op)
-
-    fx_graph.recompile()
+            fx_graph.erase_node(group_eb_op)
+    stable_topological_sort(fx_graph)
+    fx_graph.lint()
     return fx_graph

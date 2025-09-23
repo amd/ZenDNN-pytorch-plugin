@@ -13,8 +13,8 @@ from torch._inductor.pattern_matcher import (
     CallFunction,
     Arg,
     Match,
+    stable_topological_sort,
 )
-from torch.fx.passes.utils.fuser_utils import legalize_graph
 
 
 matcher_pass = PatternMatcherPass(pass_name="quantization_replacement_pass")
@@ -66,11 +66,15 @@ def _qint8_dq_addmm_bias_per_tensor_replacement_impl(
                 Arg(),  # input tensor
                 Arg(),  # scale_arg,
                 Arg(),  # zero_point_arg
-                -128, 127, torch.int8
+                -128,
+                127,
+                torch.int8,
             ),
             Arg(),  # same_scale_arg,
             Arg(),  # same_zero_point_arg
-            -128, 127, torch.int8
+            -128,
+            127,
+            torch.int8,
         ),
         CallFunction(  # Weight permute
             torch.ops.aten.permute.default,
@@ -79,21 +83,40 @@ def _qint8_dq_addmm_bias_per_tensor_replacement_impl(
                 Arg(),  # weight tensor
                 Arg(),  # weight scale
                 Arg(),  # weight zero_point
-                -127, 127, torch.int8
+                -127,
+                127,
+                torch.int8,
             ),
-            [1, 0]
-        )
+            [1, 0],
+        ),
     ),
     pass_dict=matcher_pass,
 )
 def qint8_dq_addmm_bias_computed_params_replacement_decorated(
-    match: Match, bias_arg, input_arg, scale_arg, zp_arg, same_scale_arg,
-    same_zp_arg, weight_arg, weight_scale_arg, weight_zp_arg
+    match: Match,
+    bias_arg,
+    input_arg,
+    scale_arg,
+    zp_arg,
+    same_scale_arg,
+    same_zp_arg,
+    weight_arg,
+    weight_scale_arg,
+    weight_zp_arg,
 ):
     match.replace_by_example(
         _qint8_dq_addmm_bias_per_tensor_replacement_impl,
-        [input_arg, weight_arg, bias_arg, scale_arg, zp_arg,
-         same_scale_arg, same_zp_arg, weight_scale_arg, weight_zp_arg]
+        [
+            input_arg,
+            weight_arg,
+            bias_arg,
+            scale_arg,
+            zp_arg,
+            same_scale_arg,
+            same_zp_arg,
+            weight_scale_arg,
+            weight_zp_arg,
+        ],
     )
 
 
@@ -139,11 +162,15 @@ def _qint8_dq_addmm_bias_per_channel_replacement_impl(
                 Arg(),  # input tensor
                 Arg(),  # scale_arg,
                 Arg(),  # zero_point_arg
-                -128, 127, torch.int8
+                -128,
+                127,
+                torch.int8,
             ),
             Arg(),  # same scale_arg,
             Arg(),  # same zero_point_arg
-            -128, 127, torch.int8
+            -128,
+            127,
+            torch.int8,
         ),
         CallFunction(  # Weight to addmm
             torch.ops.aten.permute.default,
@@ -153,22 +180,42 @@ def _qint8_dq_addmm_bias_per_channel_replacement_impl(
                 Arg(),  # weight scale
                 Arg(),  # weight zero_point
                 Arg(),  # axis
-                -127, 127, torch.int8
+                -127,
+                127,
+                torch.int8,
             ),
-            [1, 0]
-        )
+            [1, 0],
+        ),
     ),
     pass_dict=matcher_pass,
 )
 def qint8_dq_addmm_bias_per_channel_replacement_decorated(
-    match: Match, bias_arg, input_arg, scale_arg, zp_arg, same_scale_arg,
-    same_zp_arg, weight_arg, weight_scale_arg, weight_zp_arg, weight_axis_arg
+    match: Match,
+    bias_arg,
+    input_arg,
+    scale_arg,
+    zp_arg,
+    same_scale_arg,
+    same_zp_arg,
+    weight_arg,
+    weight_scale_arg,
+    weight_zp_arg,
+    weight_axis_arg,
 ):
     match.replace_by_example(
         _qint8_dq_addmm_bias_per_channel_replacement_impl,
-        [input_arg, weight_arg, bias_arg, scale_arg, zp_arg,
-         same_scale_arg, same_zp_arg, weight_scale_arg, weight_zp_arg,
-         weight_axis_arg]
+        [
+            input_arg,
+            weight_arg,
+            bias_arg,
+            scale_arg,
+            zp_arg,
+            same_scale_arg,
+            same_zp_arg,
+            weight_scale_arg,
+            weight_zp_arg,
+            weight_axis_arg,
+        ],
     )
 
 
@@ -188,12 +235,10 @@ def _convert_float64_replacement_impl(arg1):
     pass_dict=matcher_pass,
 )
 def convert_float64_replacement_decorated(
-    match: Match, arg1,
+    match: Match,
+    arg1,
 ):
-    match.replace_by_example(
-        _convert_float64_replacement_impl,
-        [arg1]
-    )
+    match.replace_by_example(_convert_float64_replacement_impl, [arg1])
 
 
 def _convert_int64_clamp_max_replacement_impl(
@@ -217,17 +262,18 @@ def _convert_int64_clamp_max_replacement_impl(
     pass_dict=matcher_pass,
 )
 def convert_int64_clamp_max_replacement_decorated(
-    match: Match, arg1, arg2,
+    match: Match,
+    arg1,
+    arg2,
 ):
-    match.replace_by_example(
-        _convert_int64_clamp_max_replacement_impl,
-        [arg1, arg2]
-    )
+    match.replace_by_example(_convert_int64_clamp_max_replacement_impl, [arg1, arg2])
+
 
 # XNNPACKQuantizer patterns end #
 
 
 # X86InductorQuantizer patterns
+
 
 def _qint8_dq_addmm_1dbias_per_tensor_channel_replacement_impl(
     primals_1,  # input_arg
@@ -275,11 +321,15 @@ def _qint8_dq_addmm_1dbias_per_tensor_channel_replacement_impl(
                 Arg(),  # primals_1
                 Arg(),
                 Arg(),
-                0, 255, torch.uint8
+                0,
+                255,
+                torch.uint8,
             ),
             Arg(),
             Arg(),
-            0, 255, torch.uint8
+            0,
+            255,
+            torch.uint8,
         ),
         CallFunction(  # Weight to addmm
             torch.ops.aten.permute.default,
@@ -288,22 +338,41 @@ def _qint8_dq_addmm_1dbias_per_tensor_channel_replacement_impl(
                 Arg(),  # primals_2
                 Arg(),
                 Arg(),
-                0, -128, 127, torch.int8
+                0,
+                -128,
+                127,
+                torch.int8,
             ),
-            [1, 0]
-        )
+            [1, 0],
+        ),
     ),
     pass_dict=matcher_pass,
 )
 def qint8_dq_addmm_1dbias_per_tensor_channel_replacement_decorated(
-    match: Match, bias_arg, input_arg, input_scale_arg, input_zp_arg,
-    same_input_scale_arg, same_input_zp_arg, weight_arg, weight_scale_arg, weight_zp_arg
+    match: Match,
+    bias_arg,
+    input_arg,
+    input_scale_arg,
+    input_zp_arg,
+    same_input_scale_arg,
+    same_input_zp_arg,
+    weight_arg,
+    weight_scale_arg,
+    weight_zp_arg,
 ):
     match.replace_by_example(
         _qint8_dq_addmm_1dbias_per_tensor_channel_replacement_impl,
-        [input_arg, input_scale_arg, input_zp_arg, same_input_scale_arg,
-         same_input_zp_arg, weight_arg, bias_arg, weight_scale_arg,
-         weight_zp_arg]
+        [
+            input_arg,
+            input_scale_arg,
+            input_zp_arg,
+            same_input_scale_arg,
+            same_input_zp_arg,
+            weight_arg,
+            bias_arg,
+            weight_scale_arg,
+            weight_zp_arg,
+        ],
     )
 
 
@@ -360,11 +429,15 @@ def _qint8_dq_addmm_1dbias_view_per_tensor_channel_replacement_impl(
                         Arg(),  # primals_1
                         Arg(),
                         Arg(),
-                        0, 255, torch.uint8
+                        0,
+                        255,
+                        torch.uint8,
                     ),
                     Arg(),
                     Arg(),
-                    0, 255, torch.uint8
+                    0,
+                    255,
+                    torch.uint8,
                 ),
                 Arg(),
             ),
@@ -375,25 +448,47 @@ def _qint8_dq_addmm_1dbias_view_per_tensor_channel_replacement_impl(
                     Arg(),  # primals_2
                     Arg(),
                     Arg(),
-                    0, -128, 127, torch.int8
+                    0,
+                    -128,
+                    127,
+                    torch.int8,
                 ),
-                [1, 0]
-            )
+                [1, 0],
+            ),
         ),
         Arg(),
     ),
     pass_dict=matcher_pass,
 )
 def qint8_dq_addmm_1dbias_view_per_tensor_channel_replacement_decorated(
-    match: Match, bias_arg, input_arg, input_scale_arg, input_zp_arg,
-    same_input_scale_arg, same_input_zp_arg, aten_view_arg, weight_arg,
-    weight_scale_arg, weight_zp_arg, output_aten_arg
+    match: Match,
+    bias_arg,
+    input_arg,
+    input_scale_arg,
+    input_zp_arg,
+    same_input_scale_arg,
+    same_input_zp_arg,
+    aten_view_arg,
+    weight_arg,
+    weight_scale_arg,
+    weight_zp_arg,
+    output_aten_arg,
 ):
     match.replace_by_example(
         _qint8_dq_addmm_1dbias_view_per_tensor_channel_replacement_impl,
-        [input_arg, input_scale_arg, input_zp_arg, same_input_scale_arg,
-         same_input_zp_arg, aten_view_arg, weight_arg, bias_arg,
-         weight_scale_arg, weight_zp_arg, output_aten_arg]
+        [
+            input_arg,
+            input_scale_arg,
+            input_zp_arg,
+            same_input_scale_arg,
+            same_input_zp_arg,
+            aten_view_arg,
+            weight_arg,
+            bias_arg,
+            weight_scale_arg,
+            weight_zp_arg,
+            output_aten_arg,
+        ],
     )
 
 
@@ -441,11 +536,15 @@ def _qint8_dq_addmm_per_tensor_channel_replacement_impl(
                 Arg(),  # primals_1
                 Arg(),
                 Arg(),
-                0, 255, torch.uint8
+                0,
+                255,
+                torch.uint8,
             ),
             Arg(),
             Arg(),
-            0, 255, torch.uint8
+            0,
+            255,
+            torch.uint8,
         ),
         CallFunction(  # Weight to addmm
             torch.ops.aten.permute.default,
@@ -454,22 +553,39 @@ def _qint8_dq_addmm_per_tensor_channel_replacement_impl(
                 Arg(),  # primals_2
                 Arg(),
                 Arg(),
-                0, -128, 127, torch.int8
+                0,
+                -128,
+                127,
+                torch.int8,
             ),
-            [1, 0]
-        )
+            [1, 0],
+        ),
     ),
     pass_dict=matcher_pass,
 )
 def qint8_dq_addmm_per_tensor_channel_replacement_decorated(
-    match: Match, input_arg, input_scale_arg, input_zp_arg,
-    same_input_scale_arg, same_input_zp_arg, weight_arg, weight_scale_arg,
-    weight_zp_arg
+    match: Match,
+    input_arg,
+    input_scale_arg,
+    input_zp_arg,
+    same_input_scale_arg,
+    same_input_zp_arg,
+    weight_arg,
+    weight_scale_arg,
+    weight_zp_arg,
 ):
     match.replace_by_example(
         _qint8_dq_addmm_per_tensor_channel_replacement_impl,
-        [input_arg, input_scale_arg, input_zp_arg, same_input_scale_arg,
-         same_input_zp_arg, weight_arg, weight_scale_arg, weight_zp_arg]
+        [
+            input_arg,
+            input_scale_arg,
+            input_zp_arg,
+            same_input_scale_arg,
+            same_input_zp_arg,
+            weight_arg,
+            weight_scale_arg,
+            weight_zp_arg,
+        ],
     )
 
 
@@ -524,11 +640,15 @@ def _qint8_dq_addmm_view_per_tensor_channel_replacement_impl(
                         Arg(),  # primals_1
                         Arg(),
                         Arg(),
-                        0, 255, torch.uint8
+                        0,
+                        255,
+                        torch.uint8,
                     ),
                     Arg(),
                     Arg(),
-                    0, 255, torch.uint8
+                    0,
+                    255,
+                    torch.uint8,
                 ),
                 Arg(),
             ),
@@ -539,38 +659,61 @@ def _qint8_dq_addmm_view_per_tensor_channel_replacement_impl(
                     Arg(),  # primals_2
                     Arg(),
                     Arg(),
-                    0, -128, 127, torch.int8
+                    0,
+                    -128,
+                    127,
+                    torch.int8,
                 ),
-                [1, 0]
-            )
+                [1, 0],
+            ),
         ),
         Arg(),
     ),
     pass_dict=matcher_pass,
 )
 def qint8_dq_addmm_view_per_tensor_channel_replacement_decorated(
-    match: Match, input_arg, input_scale_arg, input_zp_arg,
-    same_input_scale_arg, same_input_zp_arg, aten_view_arg, weight_arg,
-    weight_scale_arg, weight_zp_arg, output_aten_arg
+    match: Match,
+    input_arg,
+    input_scale_arg,
+    input_zp_arg,
+    same_input_scale_arg,
+    same_input_zp_arg,
+    aten_view_arg,
+    weight_arg,
+    weight_scale_arg,
+    weight_zp_arg,
+    output_aten_arg,
 ):
     match.replace_by_example(
         _qint8_dq_addmm_view_per_tensor_channel_replacement_impl,
-        [input_arg, input_scale_arg, input_zp_arg, same_input_scale_arg,
-         same_input_zp_arg, aten_view_arg, weight_arg,
-         weight_scale_arg, weight_zp_arg, output_aten_arg]
+        [
+            input_arg,
+            input_scale_arg,
+            input_zp_arg,
+            same_input_scale_arg,
+            same_input_zp_arg,
+            aten_view_arg,
+            weight_arg,
+            weight_scale_arg,
+            weight_zp_arg,
+            output_aten_arg,
+        ],
     )
+
 
 # X86InductorQuantizer patterns end #
 
 
-def replace_with_zentorch_qops(gm):
+def replace_with_zentorch_qops(graph):
     if config.pattern_matcher:
         # Quark Quantizer patterns
         # Pattern needs to be registered here to address being missed if Quark
         # is imported after Zentorch.
 
         if "quark" in sys.modules:
-            from quark.torch.quantization.tensor_quantize import ScaledFakeQuantize  # noqa: F401
+            from quark.torch.quantization.tensor_quantize import (  # noqa: F401
+                ScaledFakeQuantize,
+            )
 
             def _quark_scaled_fake_quantize_uint8_replacement_impl(
                 bias,  # bias_arg
@@ -581,11 +724,16 @@ def replace_with_zentorch_qops(gm):
                 weight_scale,  # weight_scale_arg
                 weight_zero_point,  # weight_zp_arg
             ):
-                quantized_weight_tensor = torch.ops.quantized_decomposed.quantize_per_channel.default(
-                    weight_tensor,
-                    weight_scale,
-                    weight_zero_point,
-                    0, -128, 127, torch.int8,
+                quantized_weight_tensor = (
+                    torch.ops.quantized_decomposed.quantize_per_channel.default(
+                        weight_tensor,
+                        weight_scale,
+                        weight_zero_point,
+                        0,
+                        -128,
+                        127,
+                        torch.int8,
+                    )
                 )
                 output = torch.ops.zentorch.zentorch_qlinear.default(
                     input_tensor,
@@ -617,7 +765,7 @@ def replace_with_zentorch_qops(gm):
                         255.0,
                         8,
                         "per_tensor",
-                        "None"
+                        "None",
                     ),
                     CallFunction(
                         torch.ops.aten.permute.default,
@@ -633,23 +781,36 @@ def replace_with_zentorch_qops(gm):
                             127.0,
                             8,
                             "per_channel",
-                            "None"
+                            "None",
                         ),
-                        [1, 0]
-                    )
+                        [1, 0],
+                    ),
                 ),
                 pass_dict=matcher_pass,
             )
             def quark_scaled_fake_quantize_uint8_replacement_decorated(
-                match: Match, bias_arg, input_tensor_arg, input_scale_arg,
-                input_zp_arg, weight_tensor_arg, weight_scale_arg,
-                weight_zp_arg
+                match: Match,
+                bias_arg,
+                input_tensor_arg,
+                input_scale_arg,
+                input_zp_arg,
+                weight_tensor_arg,
+                weight_scale_arg,
+                weight_zp_arg,
             ):
                 match.replace_by_example(
                     _quark_scaled_fake_quantize_uint8_replacement_impl,
-                    [bias_arg, input_tensor_arg, input_scale_arg, input_zp_arg,
-                        weight_tensor_arg, weight_scale_arg, weight_zp_arg]
+                    [
+                        bias_arg,
+                        input_tensor_arg,
+                        input_scale_arg,
+                        input_zp_arg,
+                        weight_tensor_arg,
+                        weight_scale_arg,
+                        weight_zp_arg,
+                    ],
                 )
+
         # Quark Quantizer patterns end #
 
         GraphTransformObserver = functools.partial(
@@ -658,13 +819,11 @@ def replace_with_zentorch_qops(gm):
         )
 
         replacements = GraphTransformObserver(
-            gm,
-            "replace_with_zentorch_qops"
-        ).apply_graph_pass(matcher_pass.apply)
+            graph, "replace_with_zentorch_qops"
+        ).apply_gm_pass(matcher_pass.apply)
 
-        if replacements > 0:
-            legalize_graph(gm)
-            gm.graph.lint()
-            gm.recompile()
+        if replacements is not None:
+            stable_topological_sort(graph)
+            graph.lint()
 
-    return gm
+    return graph

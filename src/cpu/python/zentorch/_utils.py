@@ -4,8 +4,6 @@
 # ******************************************************************************
 
 import torch
-from torch.fx import passes
-from os import environ
 import collections
 import importlib.util
 from typing import List
@@ -111,14 +109,6 @@ def is_version_compatible_import(modules: List[str], functions: List[str]) -> bo
 
     # If all checks pass
     return True
-
-
-def save_graph(fx_graph, graph_name):
-    env_var = "ZENTORCH_SAVE_GRAPH"
-    if env_var in environ and environ[env_var] == "1":
-        g = passes.graph_drawer.FxGraphDrawer(fx_graph, graph_name)
-        with open(f"{graph_name}.svg", "wb") as f:
-            f.write(g.get_dot_graph().create_svg())
 
 
 def add_version_suffix(major: str, minor: str, patch: str = 0):

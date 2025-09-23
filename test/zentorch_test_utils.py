@@ -8,6 +8,7 @@ import random
 import copy
 import numpy as np
 import torch
+from torch._inductor import config
 from packaging.version import parse
 from torch.testing._internal.common_utils import TestCase, run_tests, SEED  # noqa: F401
 
@@ -210,11 +211,8 @@ def reset_dynamo():
 def test_with_freeze_opt(compiled_graph, inputs, freeze_opt):
     if not isinstance(inputs, (tuple, list)):
         inputs = (inputs,)
-    if freeze_opt:
-        with zentorch.freezing_enabled():
-            return compiled_graph(*inputs)
-    else:
-        return compiled_graph(*inputs)
+    config.freezing = freeze_opt
+    return compiled_graph(*inputs)
 
 
 # Singleton class definition

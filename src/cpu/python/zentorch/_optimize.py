@@ -7,7 +7,6 @@ import zentorch._C  # noqa
 
 # import the custom logging module
 from ._logging import get_logger
-from ._utils import save_graph
 
 # import the graph cleanup module
 from ._graph_cleanup import unused_node_elimination
@@ -42,8 +41,6 @@ def optimize(fx_graph):
     with zentorch implementation of respective ops and fusion
     few ops
     """
-    # Dumping of the native graph in svg format
-    save_graph(fx_graph, "native_model")
 
     logger.info("Optimizing the fx_graph with zentorch ops.")
 
@@ -93,8 +90,5 @@ def optimize(fx_graph):
 
     # Horizontal fusion of parallel Group EB op and Group MLP op
     optimized_graph = eb_group_mlp_group_fusion(optimized_graph)
-
-    # Dumping of the optimized graph in svg format
-    save_graph(optimized_graph, "zen_optimized_model")
 
     return optimized_graph

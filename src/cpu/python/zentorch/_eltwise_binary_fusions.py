@@ -23,8 +23,8 @@ add_pattern = (zt_ops.zentorch_bmm.default, zt_ops.zentorch_mm.default)
 
 def zentorch_eltwise_binary_fusions(fx_graph):
     logger.info("Fusing the zentorch binary elementwise ops in fx graph.")
-    # Loop through the nodes in fx_graph.graph
-    for node in fx_graph.graph.nodes:
+    # Loop through the nodes in fx_graph
+    for node in fx_graph.nodes:
         if len(node.users) > 1:  # Output of node is used by other nodes
             continue
         # check the pattern for mm->add or bmm->add
@@ -62,7 +62,7 @@ def zentorch_eltwise_binary_fusions(fx_graph):
                             new_args = (add_tensor, *node.args)
                             node.args = new_args
                             node_next.replace_all_uses_with(node)
-                            fx_graph.graph.erase_node(node_next)
+                            fx_graph.erase_node(node_next)
                             if node.target == zt_ops.zentorch_mm.default:
                                 if is_bias_1d_tensor(fx_graph, node):
                                     node.target = zt_ops.zentorch_addmm_1dbias.default
@@ -75,8 +75,6 @@ def zentorch_eltwise_binary_fusions(fx_graph):
                         "baddbmm in zentorch doesnt support "
                         "non 3 dimentional tensors as of now"
                     )
-    logger.info("Recompiling the fx_graph with fusion changes made.")
 
-    fx_graph.graph.lint()
-    fx_graph.recompile()
+    fx_graph.lint()
     return fx_graph

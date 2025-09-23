@@ -6,8 +6,9 @@
 # Import dependencies
 from dlrm_model import DLRMMLPerf
 import torch
+from torch._inductor import config
 import numpy as np
-import zentorch
+import zentorch  # noqa: F401
 import random
 from sklearn.metrics import roc_auc_score
 
@@ -52,9 +53,9 @@ model = torch.compile(model, backend="zentorch")
 
 # Run Inference
 print("Running inference")
+config.freezing = True
 with torch.inference_mode(), torch.no_grad(), \
-     torch.amp.autocast("cpu", enabled=True), \
-     zentorch.freezing_enabled():
+     torch.amp.autocast("cpu", enabled=True):
     out = model(densex, index, offset)
 
 # Simulating labels
