@@ -14,7 +14,7 @@ from ._logging import get_logger
 from torch._functorch.aot_autograd import aot_module_simplified
 from torch.torch_version import TorchVersion
 from ._mkldnn import mkldnn_fuse_fx
-from torch._inductor.fx_passes.pre_grad import remove_identity
+from torch._inductor.fx_passes.pre_grad import fuse_conv_bn, remove_identity
 
 if is_version_compatible_import(["_dynamo", "utils"], ["is_parameter_freezing"]):
     from torch._dynamo.utils import is_parameter_freezing
@@ -128,13 +128,9 @@ def zentorch_compile(
 
     dynamic = torch._dynamo.config.automatic_dynamic_shapes
 
-    # For freezing enabled, binary_folding_pass in freezing path will take care of batchnorm folding
-    # While for non-freezing, efficient_conv_bn_eval_fx_passes will handle it
-    if not is_parameter_freezing():
-        torch._inductor.config.efficient_conv_bn_eval_fx_passes = True
-
     if not torch.is_grad_enabled():
         gm = remove_identity(gm)
+        gm = fuse_conv_bn(gm)
         if not conv_config.enable_zentorch_conv_flag and not dynamic:
             gm = mkldnn_fuse_fx(gm, example_inputs)
 

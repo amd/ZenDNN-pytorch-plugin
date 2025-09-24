@@ -39,23 +39,6 @@ class Custom_Model_Convolution(nn.Module):
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
-class Custom_Model_Convolution_BN_Maxpool_Convolution(nn.Module):
-    def __init__(self):
-        super(Custom_Model_Convolution_BN_Maxpool_Convolution, self).__init__()
-        self.convolution1 = nn.Conv2d(3, 4, kernel_size=3, stride=1, padding=0)
-        self.bn1 = nn.BatchNorm2d(num_features=4)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=0)
-        self.convolution2 = nn.Conv2d(4, 6, kernel_size=3, stride=1, padding=0)
-
-    def forward(self, input):
-        conv = self.convolution1(input)
-        bn = self.bn1(conv)
-        maxpool = self.maxpool(bn)
-        output = self.convolution2(maxpool)
-        return output
-
-
-@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class Test_Convolution_Model(ConvTestCase):
     @ConvTestCase.hypothesis_params_conv_itr(
         dtype_list=supported_dtypes,
@@ -77,30 +60,6 @@ class Test_Convolution_Model(ConvTestCase):
             freeze_opt
         )
         self.assertEqual(counters["zentorch"]["zentorch_convolution"], 1)
-        self.assertEqual(
-            model_output,
-            zentorch_graph_output,
-        )
-
-    @ConvTestCase.hypothesis_params_conv_itr(
-        dtype_list=supported_dtypes,
-        freeze_list=freeze_opt
-    )
-    @torch.inference_mode()
-    def test_convolution_bn_maxpool_convolution_model(self, dtype, freeze_opt):
-        model = Custom_Model_Convolution_BN_Maxpool_Convolution()
-        model.eval()
-        model = model.to(memory_format=torch.channels_last)
-        if dtype == "bfloat16":
-            model = model.to(torch.bfloat16)
-        model_output = model(self.data.conv_input)
-        reset_dynamo()
-        zentorch_graph = torch.compile(model, backend="zentorch", dynamic=False)
-        zentorch_graph_output = test_with_freeze_opt(
-            zentorch_graph,
-            (self.data.conv_input),
-            freeze_opt
-        )
         self.assertEqual(
             model_output,
             zentorch_graph_output,

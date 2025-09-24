@@ -21,13 +21,7 @@ from ._optimize import optimize
 from ._utils import is_version_compatible_import
 from torch._inductor.constant_folding import constant_fold
 from torch.fx._utils import lazy_format_graph_code
-from torch._inductor.fx_passes.freezing_patterns import binary_folding_pass
-from torch._inductor.fx_passes.binary_folding import binary_folding_init
-from torch._dynamo.utils import counters
-
-if is_version_compatible_import(
-    ["_inductor", "freezing_utils"], ["record_has_frozen_params"]
-):
+if is_version_compatible_import(["_inductor", "freezing_utils"], ["record_has_frozen_params"]):
     # record_has_frozen_params() is only present in PT 2.7 or above
     from torch._inductor.freezing_utils import record_has_frozen_params
 else:
@@ -50,6 +44,10 @@ def _freeze(
     aot_autograd_gm: torch.fx.GraphModule,
     example_inputs: list[torch._subclasses.FakeTensor],
 ) -> tuple[torch.fx.GraphModule, list[int]]:
+    logger.info("Optimizing the model with zentorch ops.")
+    zen_gm = optimize(aot_autograd_gm)
+    # we do view to reshape to avoid lowering exception
+    view_to_reshape(zen_gm)
 
     if tracing_context := torch._guards.TracingContext.try_get():
         fw_metadata = tracing_context.fw_metadata
@@ -63,31 +61,20 @@ def _freeze(
         assert fw_metadata is not None and params_flat is not None
 
         preserved_arg_indices = replace_params_with_constants(
-            aot_autograd_gm, params_flat, fw_metadata
+            zen_gm, params_flat, fw_metadata
         )
     else:
-        inputs = aot_autograd_gm.graph.find_nodes(op="placeholder")
+        inputs = zen_gm.graph.find_nodes(op="placeholder")
         preserved_arg_indices = list(range(len(inputs)))
-
-    aot_example_inputs = [example_inputs[ind] for ind in preserved_arg_indices]
-
-    # binary_folding_pass from inductor freezing path which helps with batchnorm folding
-    binary_folding_passes(aot_autograd_gm, aot_example_inputs)
-
-    fake_tensor_prop(
-        aot_autograd_gm, aot_example_inputs, force_allow_non_fake_inputs=True
-    )
-
-    logger.info("Optimizing the model with zentorch ops.")
-    zen_gm = optimize(aot_autograd_gm)
-    # we do view to reshape to avoid lowering exception
-    view_to_reshape(zen_gm)
 
     # we eliminate commom subexpressions from the graph (CSE)
     logger.info("Running common subexpression elimination on the fx-graph.")
     cse_graph = fx_graph_cse(zen_gm.graph)
     zen_gm.graph = cse_graph
     zen_gm.recompile()
+
+    aot_example_inputs = [example_inputs[ind] for ind in preserved_arg_indices]
+    fake_tensor_prop(zen_gm, aot_example_inputs, force_allow_non_fake_inputs=True)
 
     logger.info("Constant folding the fx-graph.")
     constant_fold(zen_gm)
@@ -105,35 +92,3 @@ def _freeze(
 
     record_has_frozen_params(zen_gm)
     return zen_gm, preserved_arg_indices
-
-
-# NOTE: This is taken from the inductor freezing path where it calls freezing_passes;
-# From the file: torch._inductor.fx_passes.freezing_patterns
-def binary_folding_passes(gm: torch.fx.GraphModule, aot_example_inputs):
-    # as we only require this for batchnorm folding purpose, replaced
-    # lazy_init() with binary_folding_init()
-    binary_folding_init()
-    # We need a few rounds of binary folding to get rid of all the
-    # unnecessary nodes, but may need a good method to chose the rounds number.
-    # works like: conv+binary+binary.
-    binary_folding = counters["inductor"]["binary_folding"]
-    fake_tensor_prop(gm, aot_example_inputs, True)
-
-    # for handling mixed precision inputs
-    torch._inductor.fx_passes.binary_folding.mark_mixed_dtype_allowed_computation_ops(
-        gm
-    )
-    for _ in range(4):
-        constant_fold(gm)
-        # Make sure meta['val'] is properly set for all nodes
-        fake_tensor_prop(gm, aot_example_inputs, True)
-        binary_folding_pass.apply(gm.graph)  # type: ignore[arg-type]
-        # If we don't have binary folding, we don't need to run the pass again.
-        # TODO: remove the need to run fake_tensor_prop on the whole model.
-        if counters["inductor"]["binary_folding"] == binary_folding:
-            break
-        binary_folding = counters["inductor"]["binary_folding"]
-
-    torch._inductor.fx_passes.binary_folding.recover_original_precision_folded_computation_ops(
-        gm
-    )
