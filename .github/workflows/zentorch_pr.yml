@@ -43,7 +43,8 @@ jobs:
 
       - name: Set WORKSPACE and PARENT_DIR to parent of repo
         run: |
-          ifconfig
+          hostname
+          env
           echo "PARENT_DIR=$(dirname "${GITHUB_WORKSPACE}")" >> $GITHUB_ENV
           echo "WORKSPACE=$(dirname "${GITHUB_WORKSPACE}")" >> $GITHUB_ENV
 
