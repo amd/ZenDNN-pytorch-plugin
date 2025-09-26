@@ -44,7 +44,7 @@ jobs:
       - name: Set WORKSPACE and PARENT_DIR to parent of repo
         run: |
           mkdir -p /proj/zendai/datasets
-          mount -t nfs daytonax1670.amd.com:/home/ext_hdd/datasets /proj/zendai/datasets
+          mount -t nfs -o rw daytonax1670.amd.com:/home/ext_hdd/datasets /proj/zendai/datasets
           echo "PARENT_DIR=$(dirname "${GITHUB_WORKSPACE}")" >> $GITHUB_ENV
           echo "WORKSPACE=$(dirname "${GITHUB_WORKSPACE}")" >> $GITHUB_ENV
 
