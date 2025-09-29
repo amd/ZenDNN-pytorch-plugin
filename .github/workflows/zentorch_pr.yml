@@ -48,39 +48,46 @@ jobs:
           WORKSPACE_ROOT="$GITHUB_WORKSPACE"
           echo "WORKSPACE_ROOT=$WORKSPACE_ROOT" >> $GITHUB_ENV
           
-          # Clean up existing directories
-          rm -rf "$WORKSPACE_ROOT/ZenDNN" "$WORKSPACE_ROOT/ZenDNN_tools" "$WORKSPACE_ROOT/blis"
+          # Clean up all existing directories and files
+          echo "Cleaning up existing directories and files..."
+          for item in \
+            "ZenDNN" \
+            "ZenDNN_tools" \
+            "blis" \
+            "ZenDNN_PyTorch_Plugin" \
+            "$BLIS_TAR_BALL"
+          do
+            if [ -e "$WORKSPACE_ROOT/$item" ]; then
+              echo "Removing existing $item"
+              rm -rf "$WORKSPACE_ROOT/$item"
+            fi
+          done
           
           # Set consistent directory variables
           echo "PARENT_DIR=$WORKSPACE_ROOT" >> $GITHUB_ENV
           echo "WORKSPACE=$WORKSPACE_ROOT" >> $GITHUB_ENV
-          
-          # Create necessary directories
-          mkdir -p "$WORKSPACE_ROOT/ZenDNN_tools/scripts/ci"
         shell: bash
 
       - name: Checkout ZenDNN_PyTorch_Plugin
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          path: ZenDNN_PyTorch_Plugin
-
-      - name: Initialize Git Configuration
-        run: |
-          # Initialize git config in the new home directory
-          git config --global init.defaultBranch main
-          git config --global --add safe.directory "*"
-          
-          # Verify git config is working
-          git config --list
-        shell: bash
-        env:
-          GIT_CONFIG_GLOBAL: "${{ env.HOME }}/gitconfig"
 
       - name: Clone ZenDNN if needed
         if: env.ZENTORCH_USE_LOCAL_ZENDNN == '1'
         run: |
+          if [ -d "$WORKSPACE_ROOT/ZenDNN" ]; then
+            echo "Removing existing ZenDNN directory"
+            rm -rf "$WORKSPACE_ROOT/ZenDNN"
+          fi
+          
           git clone --depth 1 --branch main https://${{ secrets.ZIAIE_PAT }}@github.com/AMD-Zenai/ZenDNN.git "$WORKSPACE_ROOT/ZenDNN"
+          
+          if [ ! -d "$WORKSPACE_ROOT/ZenDNN" ]; then
+            echo "Error: ZenDNN directory not created"
+            exit 1
+          fi
+          
           if [ "${ZENDNN_REF}" != "" ]; then
             cd "$WORKSPACE_ROOT/ZenDNN"
             git fetch origin "${ZENDNN_REF}"
@@ -91,13 +98,44 @@ jobs:
       - name: Copy and extract BLIS tarball if needed
         if: env.ZENTORCH_USE_LOCAL_BLIS == '1'
         run: |
+          # Remove existing BLIS directory and tarball if they exist
+          if [ -d "$WORKSPACE_ROOT/blis" ]; then
+            echo "Removing existing blis directory"
+            rm -rf "$WORKSPACE_ROOT/blis"
+          fi
+          if [ -f "$WORKSPACE_ROOT/$BLIS_TAR_BALL" ]; then
+            echo "Removing existing BLIS tarball"
+            rm -f "$WORKSPACE_ROOT/$BLIS_TAR_BALL"
+          fi
+          
+          # Copy and extract new BLIS tarball
+          echo "Copying BLIS tarball..."
           cp /proj/zendai/datasets/ci_zendnn_presub_dependencies/$BLIS_TAR_BALL "$WORKSPACE_ROOT/"
+          
+          if [ ! -f "$WORKSPACE_ROOT/$BLIS_TAR_BALL" ]; then
+            echo "Error: Failed to copy BLIS tarball"
+            exit 1
+          fi
+          
+          echo "Extracting BLIS tarball..."
           tar -xzf "$WORKSPACE_ROOT/$BLIS_TAR_BALL" -C "$WORKSPACE_ROOT/"
+          
+          if [ ! -d "$WORKSPACE_ROOT/blis" ]; then
+            echo "Error: BLIS directory not created after extraction"
+            exit 1
+          fi
         shell: bash
 
       - name: Clone and verify ZenDNN_tools
         run: |
+          # Remove existing ZenDNN_tools directory if it exists
+          if [ -d "$WORKSPACE_ROOT/ZenDNN_tools" ]; then
+            echo "Removing existing ZenDNN_tools directory"
+            rm -rf "$WORKSPACE_ROOT/ZenDNN_tools"
+          fi
+          
           # Clone ZenDNN_tools
+          echo "Cloning ZenDNN_tools..."
           git clone --depth 1 --branch main https://${{ secrets.ZIAIE_PAT }}@github.com/AMD-Zenai/ZenDNN_tools.git "$WORKSPACE_ROOT/ZenDNN_tools"
           
           # Verify the clone and required files
@@ -105,9 +143,6 @@ jobs:
             echo "Error: ZenDNN_tools directory not created"
             exit 1
           fi
-          
-          # Create CI scripts directory if it doesn't exist
-          mkdir -p "$WORKSPACE_ROOT/ZenDNN_tools/scripts/ci"
           
           # Verify script files exist
           required_scripts=(
