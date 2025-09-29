@@ -123,6 +123,17 @@ jobs:
         shell: bash
 
       - name: Run CI script
+        env:
+          PYTHON_VERSION: ${{ env.PYTHON_VERSION }}
+          WORKSPACE: ${{ env.WORKSPACE }}
+          BUILD_PYTHON_VERSIONS: ${{ env.PYTHON_VERSION }}
+          ZENTORCH_VERSION: ${{ env.ZENTORCH_VERSION }}
+          NATIVE_TORCH_VERSION: ${{ env.NATIVE_TORCH_VERSION }}
+          ZENTORCH_USE_LOCAL_ZENDNN: ${{ env.ZENTORCH_USE_LOCAL_ZENDNN }}
+          ZENTORCH_USE_LOCAL_BLIS: ${{ env.ZENTORCH_USE_LOCAL_BLIS }}
+          UNWANTED_KEYWORDS: ${{ env.UNWANTED_KEYWORDS }}
+          BLIS_TAR_BALL: ${{ env.BLIS_TAR_BALL }}
+          GIT_CONFIG_GLOBAL: ${{ env.GIT_CONFIG_DIR }}/gitconfig
         run: |
           script_path="$WORKSPACE_ROOT/ZenDNN_tools/scripts/ci/zendnn_ci_pt_plugin_presub_build.sh"
           plugin_script_path="$WORKSPACE_ROOT/ZenDNN_tools/scripts/ci/zendnn_ci_PT_PLUGIN_build.sh"
