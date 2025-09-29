@@ -153,6 +153,8 @@ jobs:
           sed -i '/mkmhub/ s/mkmhub/-v \/proj\/zendai:\/proj\/zendai -v \/home\/runner:\/home\/runner mkmhub/' "$script_path"
           sed -i '/git config --global --add/ s/^/# /' "$script_path"
           sed -i 's|torch-\$NATIVE_TORCH_VERSION|torch-\$NATIVE_TORCH_VERSION-xco|g' "$script_path"
+          sed -i 's/^\(conda init bash\|conda config --set auto_activate_base false\|source ~\/.bashrc\)/# \1/' "$script_path"
+          sed -i 's|/root/anaconda3/|/proj/zendai_conda/miniforge3/|g' "$script_path"
           
           # Change to appropriate directory
           if [[ "$script_path" == *"/scripts/ci/"* ]]; then
