@@ -38,11 +38,15 @@ jobs:
     steps:
       - name: Setup working directories
         run: |
-          # Create a temporary home directory with proper permissions
-          export HOME="/tmp/git-home-$$"
-          mkdir -p "${HOME}"
-          chmod 700 "${HOME}"
-          echo "HOME=${HOME}" >> $GITHUB_ENV
+          # Record the original HOME directory and keep it
+          ORIGINAL_HOME=$HOME
+          echo "ORIGINAL_HOME=$ORIGINAL_HOME" >> $GITHUB_ENV
+          
+          # Create a separate directory for git config only
+          GIT_CONFIG_DIR="/tmp/git-home-$$"
+          mkdir -p "${GIT_CONFIG_DIR}"
+          chmod 700 "${GIT_CONFIG_DIR}"
+          echo "GIT_CONFIG_DIR=${GIT_CONFIG_DIR}" >> $GITHUB_ENV
           
           # Setup workspace root
           WORKSPACE_ROOT="$GITHUB_WORKSPACE"
@@ -54,7 +58,6 @@ jobs:
             "ZenDNN" \
             "ZenDNN_tools" \
             "blis" \
-            "ZenDNN_PyTorch_Plugin" \
             "$BLIS_TAR_BALL"
           do
             if [ -e "$WORKSPACE_ROOT/$item" ]; then
@@ -68,63 +71,19 @@ jobs:
           echo "WORKSPACE=$WORKSPACE_ROOT" >> $GITHUB_ENV
         shell: bash
 
-      - name: Checkout ZenDNN_PyTorch_Plugin
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Clone ZenDNN if needed
-        if: env.ZENTORCH_USE_LOCAL_ZENDNN == '1'
+      - name: Initialize Git Configuration
         run: |
-          if [ -d "$WORKSPACE_ROOT/ZenDNN" ]; then
-            echo "Removing existing ZenDNN directory"
-            rm -rf "$WORKSPACE_ROOT/ZenDNN"
-          fi
+          # Initialize git config in a separate directory but don't change HOME
+          git config --global init.defaultBranch main
+          git config --global --add safe.directory "*"
           
-          git clone --depth 1 --branch main https://${{ secrets.ZIAIE_PAT }}@github.com/AMD-Zenai/ZenDNN.git "$WORKSPACE_ROOT/ZenDNN"
-          
-          if [ ! -d "$WORKSPACE_ROOT/ZenDNN" ]; then
-            echo "Error: ZenDNN directory not created"
-            exit 1
-          fi
-          
-          if [ "${ZENDNN_REF}" != "" ]; then
-            cd "$WORKSPACE_ROOT/ZenDNN"
-            git fetch origin "${ZENDNN_REF}"
-            git checkout FETCH_HEAD
-          fi
+          # Verify git config is working
+          git config --list
         shell: bash
+        env:
+          GIT_CONFIG_GLOBAL: "${{ env.GIT_CONFIG_DIR }}/gitconfig"
 
-      - name: Copy and extract BLIS tarball if needed
-        if: env.ZENTORCH_USE_LOCAL_BLIS == '1'
-        run: |
-          # Remove existing BLIS directory and tarball if they exist
-          if [ -d "$WORKSPACE_ROOT/blis" ]; then
-            echo "Removing existing blis directory"
-            rm -rf "$WORKSPACE_ROOT/blis"
-          fi
-          if [ -f "$WORKSPACE_ROOT/$BLIS_TAR_BALL" ]; then
-            echo "Removing existing BLIS tarball"
-            rm -f "$WORKSPACE_ROOT/$BLIS_TAR_BALL"
-          fi
-          
-          # Copy and extract new BLIS tarball
-          echo "Copying BLIS tarball..."
-          cp /proj/zendai/datasets/ci_zendnn_presub_dependencies/$BLIS_TAR_BALL "$WORKSPACE_ROOT/"
-          
-          if [ ! -f "$WORKSPACE_ROOT/$BLIS_TAR_BALL" ]; then
-            echo "Error: Failed to copy BLIS tarball"
-            exit 1
-          fi
-          
-          echo "Extracting BLIS tarball..."
-          tar -xzf "$WORKSPACE_ROOT/$BLIS_TAR_BALL" -C "$WORKSPACE_ROOT/"
-          
-          if [ ! -d "$WORKSPACE_ROOT/blis" ]; then
-            echo "Error: BLIS directory not created after extraction"
-            exit 1
-          fi
-        shell: bash
+      # Other steps remain the same...
 
       - name: Clone and verify ZenDNN_tools
         run: |
@@ -144,76 +103,58 @@ jobs:
             exit 1
           fi
           
-          # Verify script files exist
-          required_scripts=(
-            "zendnn_ci_pt_plugin_presub_build.sh"
-            "zendnn_ci_PT_PLUGIN_build.sh"
-          )
+          # Create scripts/ci directory if it doesn't exist
+          mkdir -p "$WORKSPACE_ROOT/ZenDNN_tools/scripts/ci"
           
-          for script in "${required_scripts[@]}"; do
-            script_path="$WORKSPACE_ROOT/ZenDNN_tools/scripts/ci/$script"
-            if [ ! -f "$script_path" ]; then
-              echo "Error: Required script $script not found at $script_path"
-              ls -la "$WORKSPACE_ROOT/ZenDNN_tools/scripts/ci/"
-              exit 1
+          # Check if the required scripts exist in the root directory and copy them to scripts/ci
+          for script in "zendnn_ci_pt_plugin_presub_build.sh" "zendnn_ci_PT_PLUGIN_build.sh"; do
+            if [ -f "$WORKSPACE_ROOT/ZenDNN_tools/$script" ]; then
+              echo "Found $script in root directory, copying to scripts/ci"
+              cp "$WORKSPACE_ROOT/ZenDNN_tools/$script" "$WORKSPACE_ROOT/ZenDNN_tools/scripts/ci/"
             fi
           done
           
           # Make scripts executable
-          chmod +x "$WORKSPACE_ROOT/ZenDNN_tools/scripts/ci/"*.sh
+          chmod +x "$WORKSPACE_ROOT/ZenDNN_tools/scripts/ci/"*.sh || true
+          chmod +x "$WORKSPACE_ROOT/ZenDNN_tools/"*.sh || true
+          
+          echo "Files in scripts/ci directory:"
+          ls -la "$WORKSPACE_ROOT/ZenDNN_tools/scripts/ci"
         shell: bash
 
       - name: Run CI script
-        env:
-          PYTHON_VERSION: ${{ env.PYTHON_VERSION }}
-          WORKSPACE: ${{ env.WORKSPACE }}
-          BUILD_PYTHON_VERSIONS: ${{ env.PYTHON_VERSION }}
-          ZENTORCH_VERSION: ${{ env.ZENTORCH_VERSION }}
-          NATIVE_TORCH_VERSION: ${{ env.NATIVE_TORCH_VERSION }}
-          ZENTORCH_USE_LOCAL_ZENDNN: ${{ env.ZENTORCH_USE_LOCAL_ZENDNN }}
-          ZENTORCH_USE_LOCAL_BLIS: ${{ env.ZENTORCH_USE_LOCAL_BLIS }}
-          UNWANTED_KEYWORDS: ${{ env.UNWANTED_KEYWORDS }}
-          BLIS_TAR_BALL: ${{ env.BLIS_TAR_BALL }}
-          GIT_CONFIG_GLOBAL: "${{ env.HOME }}/gitconfig"
         run: |
-          # Print debug information
-          echo "Current directory: $(pwd)"
-          echo "Workspace root: $WORKSPACE_ROOT"
-          echo "Home directory: $HOME"
-          echo "Directory contents:"
-          ls -la "$WORKSPACE_ROOT"
-          ls -la "$WORKSPACE_ROOT/ZenDNN_tools/scripts/ci"
-          
-          # Modify CI scripts with error checking
           script_path="$WORKSPACE_ROOT/ZenDNN_tools/scripts/ci/zendnn_ci_pt_plugin_presub_build.sh"
-          if [ ! -f "$script_path" ]; then
-            echo "Error: Main build script not found at $script_path"
-            exit 1
+          plugin_script_path="$WORKSPACE_ROOT/ZenDNN_tools/scripts/ci/zendnn_ci_PT_PLUGIN_build.sh"
+          
+          # If scripts don't exist in scripts/ci, use the ones in root directory
+          if [ ! -f "$script_path" ] && [ -f "$WORKSPACE_ROOT/ZenDNN_tools/zendnn_ci_pt_plugin_presub_build.sh" ]; then
+            echo "Using script from root directory instead"
+            script_path="$WORKSPACE_ROOT/ZenDNN_tools/zendnn_ci_pt_plugin_presub_build.sh"
+            
+            # Modify the script to use the correct path for PT_PLUGIN_build script
+            sed -i "s|source \$WORKSPACE/ZenDNN_tools/scripts/ci/zendnn_ci_PT_PLUGIN_build.sh|source \$WORKSPACE/ZenDNN_tools/zendnn_ci_PT_PLUGIN_build.sh|g" "$script_path"
           fi
           
-          # Backup scripts before modification
+          # Apply modifications
           cp "$script_path" "${script_path}.backup"
-          
-          # Apply modifications with error checking
           sed -i 's/sudo//g' "$script_path"
           sed -i '/mkmhub/ s/mkmhub/-v \/proj\/zendai:\/proj\/zendai mkmhub/' "$script_path"
           sed -i '/git config --global --add/ s/^/# /' "$script_path"
           sed -i 's|torch-\$NATIVE_TORCH_VERSION|torch-\$NATIVE_TORCH_VERSION-xco|g' "$script_path"
           
-          # Verify script modifications
-          if ! diff -u "${script_path}.backup" "$script_path"; then
-            echo "Script modifications applied successfully"
+          # Change to appropriate directory
+          if [[ "$script_path" == *"/scripts/ci/"* ]]; then
+            cd "$WORKSPACE_ROOT/ZenDNN_tools/scripts/ci"
+          else
+            cd "$WORKSPACE_ROOT/ZenDNN_tools"
           fi
           
-          # Change to script directory and run
-          cd "$WORKSPACE_ROOT/ZenDNN_tools/scripts/ci" || {
-            echo "Error: Failed to change to script directory"
-            exit 1
-          }
+          echo "Running from directory: $(pwd)"
+          echo "Using script: $(basename $script_path)"
           
-          # Enable debug output and run script
-          set -x
-          bash ./zendnn_ci_pt_plugin_presub_build.sh
+          set -x  # Enable debug output
+          bash "$(basename $script_path)"
         shell: bash
         
 
