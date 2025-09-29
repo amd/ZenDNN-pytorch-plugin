@@ -121,6 +121,13 @@ jobs:
 
       - name: Run CI script
         run: |
+          # Handle HOME directory for git config
+          if [ -z "${HOME}" ] || [ ! -w "${HOME}" ]; then
+            export HOME="/home/runner/_work/_temp/gh_home_$$"
+            mkdir -p "${HOME}"
+          fi
+          echo "Using HOME=${HOME} for git config"
+          
           sed -i 's/sudo//g' "$BASE_DIR/ZenDNN_tools/scripts/ci/zendnn_ci_pt_plugin_presub_build.sh"
           sed -i '/mkmhub/ s/mkmhub/-v \/proj\/zendai:\/proj\/zendai mkmhub/' "$BASE_DIR/ZenDNN_tools/scripts/ci/zendnn_ci_pt_plugin_presub_build.sh"
           sed -i '/git config --global --add/ s/^/# /' "$BASE_DIR/ZenDNN_tools/scripts/ci/zendnn_ci_pt_plugin_presub_build.sh"
@@ -140,10 +147,10 @@ jobs:
           export BLIS_TAR_BALL=${{ env.BLIS_TAR_BALL }}
           export PARENT_DIR=${{ env.PARENT_DIR }}
           
-          # Configure git safe directories
-          git config --global --add safe.directory ${WORKSPACE}/ZenDNN_PyTorch_Plugin
-          git config --global --add safe.directory ${WORKSPACE}/ZenDNN
-          git config --global --add safe.directory ${WORKSPACE}/blis
+          # Configure git safe directories using local config instead of global
+          cd "${WORKSPACE}/ZenDNN_PyTorch_Plugin" && git config safe.directory "${WORKSPACE}/ZenDNN_PyTorch_Plugin"
+          cd "${WORKSPACE}" && git config safe.directory "${WORKSPACE}/ZenDNN"
+          cd "${WORKSPACE}" && git config safe.directory "${WORKSPACE}/blis"
           
           # Run the CI script
           bash "$BASE_DIR/ZenDNN_tools/scripts/ci/zendnn_ci_pt_plugin_presub_build.sh"
