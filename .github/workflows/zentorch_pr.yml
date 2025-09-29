@@ -150,7 +150,7 @@ jobs:
           # Apply modifications
           cp "$script_path" "${script_path}.backup"
           sed -i 's/sudo//g' "$script_path"
-          sed -i '/mkmhub/ s/mkmhub/-v \/proj\/zendai:\/proj\/zendai mkmhub/' "$script_path"
+          sed -i '/mkmhub/ s/mkmhub/-v \/proj\/zendai:\/proj\/zendai -v \/home\/runner:\/home\/runner mkmhub/' "$script_path"
           sed -i '/git config --global --add/ s/^/# /' "$script_path"
           sed -i 's|torch-\$NATIVE_TORCH_VERSION|torch-\$NATIVE_TORCH_VERSION-xco|g' "$script_path"
           
