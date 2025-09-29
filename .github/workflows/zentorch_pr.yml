@@ -119,7 +119,7 @@ jobs:
           find $BASE_DIR -maxdepth 1 | sort
         shell: bash
 
-      - name: Run CI script
+            - name: Run CI script
         run: |
           # Handle HOME directory for git config
           if [ -z "${HOME}" ] || [ ! -w "${HOME}" ]; then
@@ -147,10 +147,10 @@ jobs:
           export BLIS_TAR_BALL=${{ env.BLIS_TAR_BALL }}
           export PARENT_DIR=${{ env.PARENT_DIR }}
           
-          # Configure git safe directories using local config instead of global
-          cd "${WORKSPACE}/ZenDNN_PyTorch_Plugin" && git config safe.directory "${WORKSPACE}/ZenDNN_PyTorch_Plugin"
-          cd "${WORKSPACE}" && git config safe.directory "${WORKSPACE}/ZenDNN"
-          cd "${WORKSPACE}" && git config safe.directory "${WORKSPACE}/blis"
+          # Configure git safe directories using -C option and ignore errors
+          git -C "${WORKSPACE}/ZenDNN_PyTorch_Plugin" config --global --add safe.directory "${WORKSPACE}/ZenDNN_PyTorch_Plugin" || true
+          git -C "${WORKSPACE}/ZenDNN" config --global --add safe.directory "${WORKSPACE}/ZenDNN" || true
+          git -C "${WORKSPACE}/blis" config --global --add safe.directory "${WORKSPACE}/blis" || true
           
           # Run the CI script
           bash "$BASE_DIR/ZenDNN_tools/scripts/ci/zendnn_ci_pt_plugin_presub_build.sh"
