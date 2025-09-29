@@ -119,7 +119,7 @@ jobs:
           find $BASE_DIR -maxdepth 1 | sort
         shell: bash
 
-            - name: Run CI script
+      - name: Run CI script
         run: |
           # Handle HOME directory for git config
           if [ -z "${HOME}" ] || [ ! -w "${HOME}" ]; then
