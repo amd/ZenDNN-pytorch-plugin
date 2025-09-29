@@ -24,7 +24,7 @@ on:
 
 jobs:
   build:
-    runs-on: [zentorch_presub]
+    runs-on: [amd-zenai-arc-xlarge-dind]
     env:
       PYTHON_VERSION: '3.10'
       ZENTORCH_VERSION: '5.2.0'
