@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       zendnn_ref:
-        description: 'ZenDNN branch or PR ref (e.g. refs/pull/123/head)'
+        description: 'ZenDNN branch or PR ref (optional, e.g. refs/pull/123/head)'
         required: false
         default: ''
       zentorch_use_local_zendnn:
@@ -24,198 +24,81 @@ on:
 
 jobs:
   build:
-    runs-on: [amd-zenai-arc-xlarge-dind]
-
+    runs-on: [zentorch_presub]
     env:
       PYTHON_VERSION: '3.10'
       ZENTORCH_VERSION: '5.2.0'
       NATIVE_TORCH_VERSION: '2.8.0'
       UNWANTED_KEYWORDS: 'stackoverflow,MSDN,wiki,microsoft'
+      # WORKSPACE and PARENT_DIR will be set dynamically in the steps
       ZENTORCH_USE_LOCAL_ZENDNN: ${{ github.event.inputs.zentorch_use_local_zendnn || github.event.client_payload.zentorch_use_local_zendnn || '1' }}
       ZENTORCH_USE_LOCAL_BLIS: ${{ github.event.inputs.zentorch_use_local_blis || github.event.client_payload.zentorch_use_local_blis || '1' }}
       BLIS_TAR_BALL: 'AOCL-Sep2025-b1.tar.gz'
       ZENDNN_REF: ${{ github.event.inputs.zendnn_ref || github.event.client_payload.zendnn_ref || '' }}
-
     steps:
-      - name: Checkout repository
+      - name: Checkout ZenDNN_PyTorch_Plugin
         uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          fetch-depth: 0
 
-      - name: Define workspace layout
-        shell: bash
+      - name: Set WORKSPACE and PARENT_DIR to parent of repo
         run: |
-            set -euo pipefail
-            WORKSPACE_PARENT="$(dirname "$GITHUB_WORKSPACE")"
-            echo "WORKSPACE=$WORKSPACE_PARENT" >> "$GITHUB_ENV"
-            echo "PARENT_DIR=$WORKSPACE_PARENT" >> "$GITHUB_ENV"
-            echo "WORKSPACE_ROOT=$GITHUB_WORKSPACE" >> "$GITHUB_ENV"
-            echo "REPO_NAME=$(basename "$GITHUB_WORKSPACE")" >> "$GITHUB_ENV"
-            echo "Planned directory structure:"
-            echo "$WORKSPACE_PARENT/"
-            echo "  $(basename "$GITHUB_WORKSPACE") (repo)"
-            echo "  ZenDNN_tools"
-            echo "  ZenDNN"
-            echo "  blis"
-            echo "  \$BLIS_TAR_BALL"
+          echo "PARENT_DIR=$(dirname "${GITHUB_WORKSPACE}")" >> $GITHUB_ENV
+          echo "WORKSPACE=$(dirname "${GITHUB_WORKSPACE}")" >> $GITHUB_ENV
 
-      - name: Setup isolated global git config (no HOME mutation)
-        shell: bash
+      - name: Clone ZenDNN if needed
+        if: env.ZENTORCH_USE_LOCAL_ZENDNN == '1'
         run: |
-          set -euo pipefail
-          mkdir -p /tmp/git-config
-          touch /tmp/git-config/gitconfig
-          chmod 600 /tmp/git-config/gitconfig
-          echo "GIT_CONFIG_GLOBAL=/tmp/git-config/gitconfig" >> "$GITHUB_ENV"
-          echo "Configured isolated global git config at /tmp/git-config/gitconfig"
-
-      - name: Initialize git configuration
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config --global init.defaultBranch main
-          # Mark current repo safe
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          # Pre-add expected sibling paths (created later) to avoid future safe.directory warnings
-          git config --global --add safe.directory "$(dirname "$GITHUB_WORKSPACE")/ZenDNN_tools" || true
-          git config --global --add safe.directory "$(dirname "$GITHUB_WORKSPACE")/ZenDNN" || true
-          git config --global --add safe.directory "$(dirname "$GITHUB_WORKSPACE")/blis" || true
-          echo "Global git config:"
-          git config --global --list || true
-
-      - name: Prepare clean slate in workspace parent
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "Workspace parent: $WORKSPACE"
-          for item in ZenDNN ZenDNN_tools blis "$BLIS_TAR_BALL"; do
-            if [ -e "$WORKSPACE/$item" ]; then
-              echo "Removing stale $item"
-              rm -rf "$WORKSPACE/$item"
-            fi
-          done
-          echo "Current contents:"
-          ls -1 "$WORKSPACE" || true
-
-      - name: Clone ZenDNN_tools (sibling directory)
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -z "${{ secrets.ZIAIE_PAT }}" ]; then
-            echo "ERROR: Missing secret ZIAIE_PAT"
-            exit 1
+          git clone --depth 1 --branch main https://${{ secrets.ZIAIE_PAT }}@github.com/AMD-Zenai/ZenDNN.git "$PARENT_DIR/ZenDNN"
+          if [ "${ZENDNN_REF}" != "" ]; then
+            cd "$PARENT_DIR/ZenDNN"
+            git fetch origin "${ZENDNN_REF}"
+            git checkout FETCH_HEAD
+            cd "$PARENT_DIR"
           fi
-          git clone --depth 1 --branch main https://${{ secrets.ZIAIE_PAT }}@github.com/AMD-Zenai/ZenDNN_tools.git "$WORKSPACE/ZenDNN_tools"
-          git config --global --add safe.directory "$WORKSPACE/ZenDNN_tools" || true
-          mkdir -p "$WORKSPACE/ZenDNN_tools/scripts/ci"
-          for s in zendnn_ci_pt_plugin_presub_build.sh zendnn_ci_PT_PLUGIN_build.sh; do
-            if [ -f "$WORKSPACE/ZenDNN_tools/$s" ]; then
-              cp "$WORKSPACE/ZenDNN_tools/$s" "$WORKSPACE/ZenDNN_tools/scripts/ci/"
-            fi
-          done
-          chmod +x "$WORKSPACE/ZenDNN_tools"/*.sh || true
-          chmod +x "$WORKSPACE/ZenDNN_tools/scripts/ci/"*.sh || true
-          echo "ZenDNN_tools CI scripts:"
-            ls -1 "$WORKSPACE/ZenDNN_tools/scripts/ci" || true
 
-      - name: Clone ZenDNN (sibling directory)
-        shell: bash
+      - name: Copy and extract BLIS tarball if needed
+        if: env.ZENTORCH_USE_LOCAL_BLIS == '1'
         run: |
-          set -euo pipefail
-          if [ -z "${{ secrets.ZIAIE_PAT }}" ]; then
-            echo "ERROR: Missing secret ZIAIE_PAT"
-            exit 1
-          fi
-          git clone --depth 1 --branch main https://${{ secrets.ZIAIE_PAT }}@github.com/AMD-Zenai/ZenDNN.git "$WORKSPACE/ZenDNN"
-          git config --global --add safe.directory "$WORKSPACE/ZenDNN" || true
-          echo "ZenDNN"
-            ls -1 "$WORKSPACE/ZenDNN" || true
+          cp /proj/zendai/datasets/ci_zendnn_presub_dependencies/$BLIS_TAR_BALL "$PARENT_DIR"
+          tar -xzf "$PARENT_DIR/$BLIS_TAR_BALL" -C "$PARENT_DIR"
 
-      - name: Clone blis (sibling directory)
-        shell: bash
+      - name: Clone ZenDNN_tools
         run: |
-          set -euo pipefail
-          # Copy and extract new BLIS tarball
-          echo "Copying BLIS tarball..."
-          cp /proj/zendai/datasets/ci_zendnn_presub_dependencies/$BLIS_TAR_BALL "$WORKSPACE/"
-          
-          if [ ! -f "$WORKSPACE/$BLIS_TAR_BALL" ]; then
-            echo "Error: Failed to copy BLIS tarball"
-            exit 1
-          fi
-          
-          echo "Extracting BLIS tarball..."
-          tar -xzf "$WORKSPACE/$BLIS_TAR_BALL" -C "$WORKSPACE/"
-          if [ ! -d "$WORKSPACE/blis" ]; then
-            echo "Error: BLIS directory not created after extraction"
-            exit 1
-          fi
-          git config --global --add safe.directory "$WORKSPACE/blis" || true
+          git clone --depth 1 --branch main https://${{ secrets.ZIAIE_PAT }}@github.com/AMD-Zenai/ZenDNN_tools.git "$PARENT_DIR/ZenDNN_tools"  
       
-      - name: Run presub build
-        shell: bash
-        env:
-          WORKSPACE: ${{ env.WORKSPACE }}
-          WORKSPACE_ROOT: ${{ env.WORKSPACE_ROOT }}
-          PYTHON_VERSION: ${{ env.PYTHON_VERSION }}
-          BUILD_PYTHON_VERSIONS: ${{ env.PYTHON_VERSION }}
-          ZENTORCH_VERSION: ${{ env.ZENTORCH_VERSION }}
-          NATIVE_TORCH_VERSION: ${{ env.NATIVE_TORCH_VERSION }}
-          ZENTORCH_USE_LOCAL_ZENDNN: ${{ env.ZENTORCH_USE_LOCAL_ZENDNN }}
-          ZENTORCH_USE_LOCAL_BLIS: ${{ env.ZENTORCH_USE_LOCAL_BLIS }}
-          UNWANTED_KEYWORDS: ${{ env.UNWANTED_KEYWORDS }}
-          BLIS_TAR_BALL: ${{ env.BLIS_TAR_BALL }}
-          ZENDNN_REF: ${{ env.ZENDNN_REF }}
+      - name: Run CI script
         run: |
-          set -euo pipefail
-          script_dir="$WORKSPACE/ZenDNN_tools/scripts/ci"
-          presub="$script_dir/zendnn_ci_pt_plugin_presub_build.sh"
-          plugin="$script_dir/zendnn_ci_PT_PLUGIN_build.sh"
-
-          if [ ! -f "$presub" ]; then
-            echo "ERROR: Presub script missing at $presub"
-            ls -R "$WORKSPACE/ZenDNN_tools" || true
-            exit 1
-          fi
-
-          # Minimal safe adjustments
-          sed -i 's/\bsudo\b//g' "$presub" || true
-          sed -i '/mkmhub/ s/mkmhub/-v \/proj\/zendai:\/proj\/zendai -v \/home\/runner:\/home\/runner mkmhub/' "$presub" || true
-          sed -i '/git config --global --add/ s/^/# /' "$presub" || true
-          sed -i 's|torch-\$NATIVE_TORCH_VERSION|torch-\$NATIVE_TORCH_VERSION-xco|g' "$presub" || true
-          if [ -f "$plugin" ]; then
-            sed -i 's|/root/anaconda3/|/proj/zendai_conda/miniforge3/|g' "$plugin" || true
-            sed -i 's/\bsudo\b//g' "$plugin" || true
-            sed -i 's/^\(conda init bash\|conda config --set auto_activate_base false\|source ~\/.bashrc\)/# \1/' "$plugin" || true
-            sed -i 's|/root/anaconda3/|/proj/zendai_conda/miniforge3/|g' "$plugin" || true
-          fi
-
-          echo "Workspace contents before build:"
-          ls -1 "$WORKSPACE" || true
-
-          cd "$script_dir"
-          set -x
-          bash "$(basename "$presub")"
-
-      - name: Archive wheel artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: zentorch-wheels
-          path: |
-            ${{ env.WORKSPACE }}/ZenDNN_PyTorch_Plugin/dist/*.whl
-
-      - name: Cleanup workspace (remove all created dirs)
-        if: always()
+          sed -i 's/sudo//g' "$PARENT_DIR/ZenDNN_tools/scripts/ci/zendnn_ci_pt_plugin_presub_build.sh"
+          sed -i '/mkmhub/ s/mkmhub/-v \/proj\/zendai:\/proj\/zendai mkmhub/' "$PARENT_DIR/ZenDNN_tools/scripts/ci/zendnn_ci_pt_plugin_presub_build.sh"
+          sed -i '/git config --global --add/ s/^/# /' "$PARENT_DIR/ZenDNN_tools/scripts/ci/zendnn_ci_pt_plugin_presub_build.sh"
+          sed -i 's|torch-\$NATIVE_TORCH_VERSION|torch-\$NATIVE_TORCH_VERSION-xco|g' "$PARENT_DIR/ZenDNN_tools/scripts/ci/zendnn_ci_pt_plugin_presub_build.sh"
+          sed -i 's/^\(conda init bash\|conda config --set auto_activate_base false\|source ~\/.bashrc\)/# \1/' "$PARENT_DIR/ZenDNN_tools/scripts/ci/zendnn_ci_PT_PLUGIN_build.sh"
+          sed -i 's|/root/anaconda3/|/proj/zendai_conda/miniforge3/|g' "$PARENT_DIR/ZenDNN_tools/scripts/ci/zendnn_ci_PT_PLUGIN_build.sh"
+          export PYTHON_VERSION=${{ env.PYTHON_VERSION }}
+          export BUILD_PYTHON_VERSIONS=${{ env.PYTHON_VERSION }}
+          export ZENTORCH_VERSION=${{ env.ZENTORCH_VERSION }}
+          export WORKSPACE=${{ env.WORKSPACE }}
+          export ZENTORCH_USE_LOCAL_ZENDNN=${{ env.ZENTORCH_USE_LOCAL_ZENDNN }}
+          export ZENTORCH_USE_LOCAL_BLIS=${{ env.ZENTORCH_USE_LOCAL_BLIS }}
+          export NATIVE_TORCH_VERSION=${{ env.NATIVE_TORCH_VERSION }}
+          export UNWANTED_KEYWORDS=${{ env.UNWANTED_KEYWORDS }}
+          export BLIS_TAR_BALL=${{ env.BLIS_TAR_BALL }}
+          export PARENT_DIR=${PARENT_DIR}
+          git config --global --add safe.directory ${WORKSPACE}/ZenDNN_PyTorch_Plugin
+          git config --global --add safe.directory ${WORKSPACE}/ZenDNN
+          git config --global --add safe.directory ${WORKSPACE}/blis
+          bash "$PARENT_DIR/ZenDNN_tools/scripts/ci/zendnn_ci_pt_plugin_presub_build.sh"
         shell: bash
+
+      - name: Fail if script failed
+        if: failure()
+        run: exit 1
+
+      - name: Cleanup workspace (delete everything from parent dir)
+        if: always()
         run: |
-          set -euo pipefail
-          echo "Cleaning workspace: $WORKSPACE"
-          ls -1 "$WORKSPACE" || true
-          rm -rf "$WORKSPACE/ZenDNN_PyTorch_Plugin" \
-                 "$WORKSPACE/ZenDNN_tools" \
-                 "$WORKSPACE/ZenDNN" \
-                 "$WORKSPACE/blis" \
-                 "$WORKSPACE/$BLIS_TAR_BALL" || true
-          echo "Remaining (should be empty or system dirs):"
-          ls -1 "$WORKSPACE" || true
+          echo "Cleaning up $PARENT_DIR"
+          rm -rf "$PARENT_DIR/ZenDNN" "$PARENT_DIR/ZenDNN_tools" "$PARENT_DIR/$BLIS_TAR_BALL"
+          # Optionally, also remove ZenDNN_PyTorch_Plugin if you want to delete the repo itself
+          # rm -rf "$PARENT_DIR/ZenDNN_PyTorch_Plugin"
