@@ -79,6 +79,7 @@ jobs:
           # Pre-add expected sibling paths (created later) to avoid future safe.directory warnings
           git config --global --add safe.directory "$(dirname "$GITHUB_WORKSPACE")/ZenDNN_tools" || true
           git config --global --add safe.directory "$(dirname "$GITHUB_WORKSPACE")/ZenDNN" || true
+          git config --global --add safe.directory "$(dirname "$GITHUB_WORKSPACE")/blis" || true
           echo "Global git config:"
           git config --global --list || true
 
@@ -117,6 +118,42 @@ jobs:
           echo "ZenDNN_tools CI scripts:"
             ls -1 "$WORKSPACE/ZenDNN_tools/scripts/ci" || true
 
+      - name: Clone ZenDNN (sibling directory)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${{ secrets.ZIAIE_PAT }}" ]; then
+            echo "ERROR: Missing secret ZIAIE_PAT"
+            exit 1
+          fi
+          git clone --depth 1 --branch main https://${{ secrets.ZIAIE_PAT }}@github.com/AMD-Zenai/ZenDNN.git "$WORKSPACE/ZenDNN"
+          git config --global --add safe.directory "$WORKSPACE/ZenDNN" || true
+          done
+          echo "ZenDNN"
+            ls -1 "$WORKSPACE/ZenDNN" || true
+
+      - name: Clone blis (sibling directory)
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Copy and extract new BLIS tarball
+          echo "Copying BLIS tarball..."
+          cp /proj/zendai/datasets/ci_zendnn_presub_dependencies/$BLIS_TAR_BALL "$WORKSPACE/"
+          
+          if [ ! -f "$WORKSPACE/$BLIS_TAR_BALL" ]; then
+            echo "Error: Failed to copy BLIS tarball"
+            exit 1
+          fi
+          
+          echo "Extracting BLIS tarball..."
+          tar -xzf "$WORKSPACE/$BLIS_TAR_BALL" -C "$WORKSPACE/"
+          if [ ! -d "$WORKSPACE/blis" ]; then
+            echo "Error: BLIS directory not created after extraction"
+            exit 1
+          fi
+          git config --global --add safe.directory "$WORKSPACE/blis" || true
+          done
+      
       - name: Run presub build
         shell: bash
         env:
@@ -145,9 +182,14 @@ jobs:
 
           # Minimal safe adjustments
           sed -i 's/\bsudo\b//g' "$presub" || true
+          sed -i '/mkmhub/ s/mkmhub/-v \/proj\/zendai:\/proj\/zendai -v \/home\/runner:\/home\/runner mkmhub/' "$presub" || true
+          sed -i '/git config --global --add/ s/^/# /' "$presub" || true
+          sed -i 's|torch-\$NATIVE_TORCH_VERSION|torch-\$NATIVE_TORCH_VERSION-xco|g' "$presub" || true
           if [ -f "$plugin" ]; then
             sed -i 's|/root/anaconda3/|/proj/zendai_conda/miniforge3/|g' "$plugin" || true
             sed -i 's/\bsudo\b//g' "$plugin" || true
+            sed -i 's/^\(conda init bash\|conda config --set auto_activate_base false\|source ~\/.bashrc\)/# \1/' "$plugin" || true
+            sed -i 's|/root/anaconda3/|/proj/zendai_conda/miniforge3/|g' "$plugin" || true
           fi
 
           echo "Workspace contents before build:"
