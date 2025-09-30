@@ -128,7 +128,6 @@ jobs:
           fi
           git clone --depth 1 --branch main https://${{ secrets.ZIAIE_PAT }}@github.com/AMD-Zenai/ZenDNN.git "$WORKSPACE/ZenDNN"
           git config --global --add safe.directory "$WORKSPACE/ZenDNN" || true
-          done
           echo "ZenDNN"
             ls -1 "$WORKSPACE/ZenDNN" || true
 
@@ -152,7 +151,6 @@ jobs:
             exit 1
           fi
           git config --global --add safe.directory "$WORKSPACE/blis" || true
-          done
       
       - name: Run presub build
         shell: bash
