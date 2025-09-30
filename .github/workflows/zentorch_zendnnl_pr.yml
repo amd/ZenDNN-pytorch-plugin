@@ -120,8 +120,7 @@ jobs:
           echo "Cleaning up $PARENT_DIR"
           rm -rf "$PARENT_DIR/ZenDNN" "$PARENT_DIR/ZenDNN_tools" "$PARENT_DIR/$BLIS_TAR_BALL" "$PARENT_DIR/ZenDNNL"
           # Optionally, also remove ZenDNN_PyTorch_Plugin if you want to delete the repo itself
-          rm -rf "$PARENT_DIR/ZenDNN_PyTorch_Plugin"
+          rm -rf "$PARENT_DIR/ZenDNN_PyTorch_Plugin/*"
           rm -rf "$PARENT_DIR/*.txt"
           rm -rf "$PARENT_DIR/blis" "$PARENT_DIR/$BLIS_TAR_BALL"
           ls $PARENT_DIR
-          echo "done"
