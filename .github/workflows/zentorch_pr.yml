@@ -25,6 +25,7 @@ on:
 jobs:
   build:
     runs-on: [amd-zenai-arc-xlarge-dind]
+
     env:
       PYTHON_VERSION: '3.10'
       ZENTORCH_VERSION: '5.2.0'
@@ -36,96 +37,117 @@ jobs:
       ZENDNN_REF: ${{ github.event.inputs.zendnn_ref || github.event.client_payload.zendnn_ref || '' }}
 
     steps:
-      - name: Setup working directories
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup working directories (Option A: WORKSPACE = parent of repo)
+        shell: bash
         run: |
-          # Record the original HOME directory and keep it
+          set -euo pipefail
           ORIGINAL_HOME=$HOME
           echo "ORIGINAL_HOME=$ORIGINAL_HOME" >> $GITHUB_ENV
+
+            # Directory that GitHub sets as repo root
+          WORKSPACE_ROOT="$GITHUB_WORKSPACE"
+          echo "WORKSPACE_ROOT=$WORKSPACE_ROOT" >> $GITHUB_ENV
+
+            # Derive parent directory (what upstream scripts expect as $WORKSPACE)
+          PARENT_DIR="$(dirname "$WORKSPACE_ROOT")"
+          echo "PARENT_DIR=$PARENT_DIR" >> $GITHUB_ENV
+          echo "WORKSPACE=$PARENT_DIR" >> $GITHUB_ENV  # Upstream scripts use $WORKSPACE/ZenDNN_PyTorch_Plugin
           
-          # Create a separate directory for git config only
+          REPO_NAME="$(basename "$WORKSPACE_ROOT")"
+          echo "REPO_NAME=$REPO_NAME" >> $GITHUB_ENV
+
+            # Is the script hard-coding repo name? Keep a compatibility var:
+          echo "EXPECTED_REPO_DIR=$WORKSPACE_ROOT" >> $GITHUB_ENV
+
+            # Isolate git config into separate dir (avoid poisoning global home)
           GIT_CONFIG_DIR="/tmp/git-home-$$"
           mkdir -p "${GIT_CONFIG_DIR}"
           chmod 700 "${GIT_CONFIG_DIR}"
           echo "GIT_CONFIG_DIR=${GIT_CONFIG_DIR}" >> $GITHUB_ENV
-          
-          # Setup workspace root
-          WORKSPACE_ROOT="$GITHUB_WORKSPACE"
-          echo "WORKSPACE_ROOT=$WORKSPACE_ROOT" >> $GITHUB_ENV
-          
-          # Clean up all existing directories and files
-          echo "Cleaning up existing directories and files..."
-          for item in \
-            "ZenDNN" \
-            "ZenDNN_tools" \
-            "blis" \
-            "$BLIS_TAR_BALL"
-          do
-            if [ -e "$WORKSPACE_ROOT/$item" ]; then
+
+          echo "Cleaning up stale build-related directories in repo root..."
+          pushd "$WORKSPACE_ROOT" >/dev/null
+          for item in ZenDNN ZenDNN_tools blis "$BLIS_TAR_BALL"; do
+            if [ -e "$item" ]; then
               echo "Removing existing $item"
-              rm -rf "$WORKSPACE_ROOT/$item"
+              rm -rf "$item"
             fi
           done
-          
-          # Set consistent directory variables
-          echo "PARENT_DIR=$WORKSPACE_ROOT" >> $GITHUB_ENV
-          echo "WORKSPACE=$WORKSPACE_ROOT" >> $GITHUB_ENV
-        shell: bash
+          popd >/dev/null
+
+          echo "--- Debug Path Context ---"
+          echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE"
+          echo "WORKSPACE_ROOT=$WORKSPACE_ROOT"
+          echo "WORKSPACE (parent)=$WORKSPACE"
+          echo "Repo name (REPO_NAME)=$REPO_NAME"
+          echo "Listing parent directory:"
+          ls -1 "$WORKSPACE" || true
+          echo "--------------------------"
 
       - name: Initialize Git Configuration
-        run: |
-          # Initialize git config in a separate directory but don't change HOME
-          git config --global init.defaultBranch main
-          git config --global --add safe.directory "*"
-          
-          # Verify git config is working
-          git config --list
         shell: bash
         env:
           GIT_CONFIG_GLOBAL: "${{ env.GIT_CONFIG_DIR }}/gitconfig"
-
-      # Other steps remain the same...
+        run: |
+          set -euo pipefail
+          export GIT_CONFIG_GLOBAL="${GIT_CONFIG_GLOBAL}"
+          git config --global init.defaultBranch main
+          git config --global --add safe.directory "*"
+          echo "Git config file: $GIT_CONFIG_GLOBAL"
+          git config --list || true
 
       - name: Clone and verify ZenDNN_tools
+        shell: bash
         run: |
-          # Remove existing ZenDNN_tools directory if it exists
-          if [ -d "$WORKSPACE_ROOT/ZenDNN_tools" ]; then
+          set -euo pipefail
+          cd "$WORKSPACE_ROOT"
+
+          if [ -d "ZenDNN_tools" ]; then
             echo "Removing existing ZenDNN_tools directory"
-            rm -rf "$WORKSPACE_ROOT/ZenDNN_tools"
+            rm -rf "ZenDNN_tools"
           fi
-          
-          # Clone ZenDNN_tools
+
+          if [ -z "${{ secrets.ZIAIE_PAT }}" ]; then
+            echo "ERROR: Missing required secret ZIAIE_PAT"
+            exit 1
+          fi
+
           echo "Cloning ZenDNN_tools..."
-          git clone --depth 1 --branch main https://${{ secrets.ZIAIE_PAT }}@github.com/AMD-Zenai/ZenDNN_tools.git "$WORKSPACE_ROOT/ZenDNN_tools"
-          
-          # Verify the clone and required files
-          if [ ! -d "$WORKSPACE_ROOT/ZenDNN_tools" ]; then
+          git clone --depth 1 --branch main https://${{ secrets.ZIAIE_PAT }}@github.com/AMD-Zenai/ZenDNN_tools.git ZenDNN_tools
+
+          if [ ! -d "ZenDNN_tools" ]; then
             echo "Error: ZenDNN_tools directory not created"
             exit 1
           fi
-          
-          # Create scripts/ci directory if it doesn't exist
-          mkdir -p "$WORKSPACE_ROOT/ZenDNN_tools/scripts/ci"
-          
-          # Check if the required scripts exist in the root directory and copy them to scripts/ci
+
+          mkdir -p ZenDNN_tools/scripts/ci
+
           for script in "zendnn_ci_pt_plugin_presub_build.sh" "zendnn_ci_PT_PLUGIN_build.sh"; do
-            if [ -f "$WORKSPACE_ROOT/ZenDNN_tools/$script" ]; then
-              echo "Found $script in root directory, copying to scripts/ci"
-              cp "$WORKSPACE_ROOT/ZenDNN_tools/$script" "$WORKSPACE_ROOT/ZenDNN_tools/scripts/ci/"
+            if [ -f "ZenDNN_tools/$script" ]; then
+              echo "Copying $script to scripts/ci/"
+              cp "ZenDNN_tools/$script" "ZenDNN_tools/scripts/ci/"
+            else
+              echo "WARN: Expected script $script not found in root of ZenDNN_tools"
             fi
           done
-          
-          # Make scripts executable
-          chmod +x "$WORKSPACE_ROOT/ZenDNN_tools/scripts/ci/"*.sh || true
-          chmod +x "$WORKSPACE_ROOT/ZenDNN_tools/"*.sh || true
-          
-          echo "Files in scripts/ci directory:"
-          ls -la "$WORKSPACE_ROOT/ZenDNN_tools/scripts/ci"
-        shell: bash
+
+          chmod +x ZenDNN_tools/scripts/ci/*.sh || true
+          chmod +x ZenDNN_tools/*.sh || true
+
+          echo "CI script directory contents:"
+          ls -la ZenDNN_tools/scripts/ci
 
       - name: Run CI script
+        shell: bash
         env:
           PYTHON_VERSION: ${{ env.PYTHON_VERSION }}
-          WORKSPACE: ${{ env.WORKSPACE }}
+          WORKSPACE: ${{ env.WORKSPACE }}            # parent dir
+          WORKSPACE_ROOT: ${{ env.WORKSPACE_ROOT }}  # actual repo dir
           BUILD_PYTHON_VERSIONS: ${{ env.PYTHON_VERSION }}
           ZENTORCH_VERSION: ${{ env.ZENTORCH_VERSION }}
           NATIVE_TORCH_VERSION: ${{ env.NATIVE_TORCH_VERSION }}
@@ -135,41 +157,62 @@ jobs:
           BLIS_TAR_BALL: ${{ env.BLIS_TAR_BALL }}
           GIT_CONFIG_GLOBAL: ${{ env.GIT_CONFIG_DIR }}/gitconfig
         run: |
+          set -euo pipefail
+          echo "--- Runtime Environment Check ---"
+          echo "WORKSPACE (parent expected by scripts): $WORKSPACE"
+          echo "WORKSPACE_ROOT (repo root): $WORKSPACE_ROOT"
+          echo "Contents of WORKSPACE (parent):"
+          ls -1 "$WORKSPACE" || true
+          echo "Looking for repo dir inside parent: $WORKSPACE/$(basename "$WORKSPACE_ROOT")"
+          if [ ! -d "$WORKSPACE/$(basename "$WORKSPACE_ROOT")" ]; then
+            echo "Parent directory does not contain repo dir; creating symlink for compatibility."
+            ln -s "$WORKSPACE_ROOT" "$WORKSPACE/$(basename "$WORKSPACE_ROOT")"
+            ls -l "$WORKSPACE"
+          fi
+          echo "---------------------------------"
+
           script_path="$WORKSPACE_ROOT/ZenDNN_tools/scripts/ci/zendnn_ci_pt_plugin_presub_build.sh"
           plugin_script_path="$WORKSPACE_ROOT/ZenDNN_tools/scripts/ci/zendnn_ci_PT_PLUGIN_build.sh"
-          
-          # If scripts don't exist in scripts/ci, use the ones in root directory
+
           if [ ! -f "$script_path" ] && [ -f "$WORKSPACE_ROOT/ZenDNN_tools/zendnn_ci_pt_plugin_presub_build.sh" ]; then
-            echo "Using script from root directory instead"
+            echo "Using fallback presub script from root"
             script_path="$WORKSPACE_ROOT/ZenDNN_tools/zendnn_ci_pt_plugin_presub_build.sh"
-            
-            # Modify the script to use the correct path for PT_PLUGIN_build script
             sed -i "s|source \$WORKSPACE/ZenDNN_tools/scripts/ci/zendnn_ci_PT_PLUGIN_build.sh|source \$WORKSPACE/ZenDNN_tools/zendnn_ci_PT_PLUGIN_build.sh|g" "$script_path"
           fi
-          
-          # Apply modifications
+
           cp "$script_path" "${script_path}.backup"
-          sed -i 's/sudo//g' "$script_path"
-          sed -i '/mkmhub/ s/mkmhub/-v \/proj\/zendai:\/proj\/zendai -v \/home\/runner:\/home\/runner mkmhub/' "$script_path"
+
+            # Remove sudo for container/user context
+          sed -i 's/\bsudo\b//g' "$script_path"
+
+            # Insert bind mounts (keeping original token line)
+          sed -i '/mkmhub/ s@mkmhub@-v /proj/zendai:/proj/zendai -v /home/runner:/home/runner mkmhub@' "$script_path"
+
+            # Avoid overwriting our git config additions again
           sed -i '/git config --global --add/ s/^/# /' "$script_path"
-          sed -i 's|torch-\$NATIVE_TORCH_VERSION|torch-\$NATIVE_TORCH_VERSION-xco|g' "$script_path"
-          sed -i 's/^\(conda init bash\|conda config --set auto_activate_base false\|source ~\/.bashrc\)/# \1/' "$plugin_script_path"
-          sed -i 's|/root/anaconda3/|/proj/zendai_conda/miniforge3/|g' "$plugin_script_path"
-          
-          # Change to appropriate directory
+
+            # Adjust torch wheel naming tweak
+          sed -i 's|torch-\$NATIVE_TORCH_VERSION|torch-$NATIVE_TORCH_VERSION-xco|g' "$script_path"
+
+            # Plugin script environment adapt
+          if [ -f "$plugin_script_path" ]; then
+            sed -i 's|/root/anaconda3/|/proj/zendai_conda/miniforge3/|g' "$plugin_script_path"
+            sed -i 's/^\(conda init bash\|conda config --set auto_activate_base false\|source ~\/.bashrc\)/# \1/' "$plugin_script_path"
+          else
+            echo "WARN: Plugin script not found at $plugin_script_path"
+          fi
+
+            # Execute from directory containing script (scripts/ci or fallback root)
           if [[ "$script_path" == *"/scripts/ci/"* ]]; then
-            cd "$WORKSPACE_ROOT/ZenDNN_tools/scripts/ci"
+            cd "$(dirname "$script_path")"
           else
             cd "$WORKSPACE_ROOT/ZenDNN_tools"
           fi
-          
-          echo "Running from directory: $(pwd)"
-          echo "Using script: $(basename $script_path)"
-          
-          set -x  # Enable debug output
-          bash "$(basename $script_path)"
-        shell: bash
-        
+
+          echo "Running build script: $script_path"
+          echo "PWD: $(pwd)"
+          set -x
+          bash "$(basename "$script_path")"
 
       - name: Archive build artifacts
         if: always()
@@ -179,14 +222,15 @@ jobs:
           path: |
             ${{ env.WORKSPACE_ROOT }}/ZenDNN_PyTorch_Plugin/dist/*.whl
 
-      - name: Cleanup workspace
+      - name: Cleanup workspace (safe)
         if: always()
-        run: |
-          # Archive artifacts before cleanup
-          mkdir -p /tmp/zentorch_artifacts
-          cp -f ${{ env.WORKSPACE_ROOT }}/*.whl /tmp/zentorch_artifacts/ 2>/dev/null || true
-          
-          # Cleanup
-          rm -rf "$WORKSPACE_ROOT/ZenDNN" "$WORKSPACE_ROOT/ZenDNN_tools" "$WORKSPACE_ROOT/blis" "$WORKSPACE_ROOT/$BLIS_TAR_BALL"
-          rm -rf "$HOME"
         shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/zentorch_artifacts
+          cp -f "${WORKSPACE_ROOT}"/*.whl /tmp/zentorch_artifacts/ 2>/dev/null || true
+          rm -rf "${WORKSPACE_ROOT}/ZenDNN" \
+                 "${WORKSPACE_ROOT}/ZenDNN_tools" \
+                 "${WORKSPACE_ROOT}/blis" \
+                 "${WORKSPACE_ROOT}/${BLIS_TAR_BALL}" || true
+          echo "Cleanup done (HOME preserved)."
