@@ -123,3 +123,4 @@ jobs:
           rm -rf "$PARENT_DIR/ZenDNN_PyTorch_Plugin"
           rm -rf "$PARENT_DIR/*.txt"
           rm -rf "$PARENT_DIR/blis" "$PARENT_DIR/$BLIS_TAR_BALL"
+          ls $PARENT_DIR
