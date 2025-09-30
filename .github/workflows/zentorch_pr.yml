@@ -40,36 +40,30 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+            fetch-depth: 1
 
-      - name: Setup working directories
+      - name: Setup working directories (WORKSPACE = parent, repo root preserved)
         shell: bash
         run: |
           set -euo pipefail
-
           ORIGINAL_HOME=$HOME
           echo "ORIGINAL_HOME=$ORIGINAL_HOME" >> "$GITHUB_ENV"
 
-          # Repo root provided by Actions
           WORKSPACE_ROOT="$GITHUB_WORKSPACE"
           echo "WORKSPACE_ROOT=$WORKSPACE_ROOT" >> "$GITHUB_ENV"
 
-          # Parent directory becomes WORKSPACE (what upstream scripts expect)
           PARENT_DIR="$(dirname "$WORKSPACE_ROOT")"
           echo "PARENT_DIR=$PARENT_DIR" >> "$GITHUB_ENV"
 
-          # Define WORKSPACE for current shell AND future steps
           WORKSPACE="$PARENT_DIR"
           export WORKSPACE
           echo "WORKSPACE=$WORKSPACE" >> "$GITHUB_ENV"
 
           REPO_NAME="$(basename "$WORKSPACE_ROOT")"
-            # For debugging / compatibility
           echo "REPO_NAME=$REPO_NAME" >> "$GITHUB_ENV"
 
           echo "EXPECTED_REPO_DIR=$WORKSPACE_ROOT" >> "$GITHUB_ENV"
 
-          # Isolate git config
           GIT_CONFIG_DIR="/tmp/git-home-$$"
           mkdir -p "${GIT_CONFIG_DIR}"
           chmod 700 "${GIT_CONFIG_DIR}"
@@ -89,8 +83,8 @@ jobs:
           echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE"
           echo "WORKSPACE_ROOT=$WORKSPACE_ROOT"
           echo "WORKSPACE (parent)=$WORKSPACE"
-          echo "Repo name (REPO_NAME)=$REPO_NAME"
-          echo "Listing parent directory:"
+          echo "REPO_NAME=$REPO_NAME"
+          echo "Parent directory listing:"
           ls -1 "$WORKSPACE" || true
           echo "--------------------------"
 
@@ -100,10 +94,9 @@ jobs:
           GIT_CONFIG_GLOBAL: "${{ env.GIT_CONFIG_DIR }}/gitconfig"
         run: |
           set -euo pipefail
-          export GIT_CONFIG_GLOBAL="${GIT_CONFIG_GLOBAL}"
+          export GIT_CONFIG_GLOBAL
           git config --global init.defaultBranch main
           git config --global --add safe.directory "*"
-          echo "Git config file: $GIT_CONFIG_GLOBAL"
           git config --list || true
 
       - name: Clone and verify ZenDNN_tools
@@ -113,46 +106,49 @@ jobs:
           cd "$WORKSPACE_ROOT"
 
           if [ -d "ZenDNN_tools" ]; then
-            echo "Removing existing ZenDNN_tools directory"
-            rm -rf "ZenDNN_tools"
+            echo "Removing existing ZenDNN_tools"
+            rm -rf ZenDNN_tools
           fi
 
           if [ -z "${{ secrets.ZIAIE_PAT }}" ]; then
-            echo "ERROR: Missing required secret ZIAIE_PAT"
+            echo "ERROR: Missing secret ZIAIE_PAT"
             exit 1
           fi
 
-          echo "Cloning ZenDNN_tools..."
+          echo "Cloning ZenDNN_tools into repo root..."
           git clone --depth 1 --branch main https://${{ secrets.ZIAIE_PAT }}@github.com/AMD-Zenai/ZenDNN_tools.git ZenDNN_tools
 
-          if [ ! -d "ZenDNN_tools" ]; then
-            echo "Error: ZenDNN_tools directory not created"
-            exit 1
-          fi
+          test -d ZenDNN_tools || { echo "Clone failed"; exit 1; }
 
           mkdir -p ZenDNN_tools/scripts/ci
-
-          for script in "zendnn_ci_pt_plugin_presub_build.sh" "zendnn_ci_PT_PLUGIN_build.sh"; do
+          for script in zendnn_ci_pt_plugin_presub_build.sh zendnn_ci_PT_PLUGIN_build.sh; do
             if [ -f "ZenDNN_tools/$script" ]; then
-              echo "Copying $script to scripts/ci/"
               cp "ZenDNN_tools/$script" "ZenDNN_tools/scripts/ci/"
             else
-              echo "WARN: Expected script $script not found in root of ZenDNN_tools"
+              echo "WARN: $script missing in root of ZenDNN_tools"
             fi
           done
 
           chmod +x ZenDNN_tools/scripts/ci/*.sh || true
           chmod +x ZenDNN_tools/*.sh || true
 
-          echo "CI script directory contents:"
+          # Provide parent-level fallback for scripts that expect $WORKSPACE/ZenDNN_tools
+          if [ ! -e "$WORKSPACE/ZenDNN_tools" ]; then
+            echo "Creating parent-level symlink: $WORKSPACE/ZenDNN_tools -> $WORKSPACE_ROOT/ZenDNN_tools"
+            ln -s "$WORKSPACE_ROOT/ZenDNN_tools" "$WORKSPACE/ZenDNN_tools"
+          fi
+
+          echo "Listing CI scripts:"
           ls -la ZenDNN_tools/scripts/ci
+          echo "Parent symlink check:"
+          ls -ld "$WORKSPACE/ZenDNN_tools" || true
 
       - name: Run CI script
         shell: bash
         env:
           PYTHON_VERSION: ${{ env.PYTHON_VERSION }}
-          WORKSPACE: ${{ env.WORKSPACE }}            # parent dir
-          WORKSPACE_ROOT: ${{ env.WORKSPACE_ROOT }}  # actual repo dir
+          WORKSPACE: ${{ env.WORKSPACE }}            # parent
+          WORKSPACE_ROOT: ${{ env.WORKSPACE_ROOT }}  # repo root
           BUILD_PYTHON_VERSIONS: ${{ env.PYTHON_VERSION }}
           ZENTORCH_VERSION: ${{ env.ZENTORCH_VERSION }}
           NATIVE_TORCH_VERSION: ${{ env.NATIVE_TORCH_VERSION }}
@@ -164,57 +160,55 @@ jobs:
         run: |
           set -euo pipefail
           echo "--- Runtime Environment Check ---"
-          echo "WORKSPACE (parent expected by scripts): $WORKSPACE"
-          echo "WORKSPACE_ROOT (repo root): $WORKSPACE_ROOT"
-          echo "Contents of WORKSPACE (parent):"
-          ls -1 "$WORKSPACE" || true
-          echo "Looking for repo dir inside parent: $WORKSPACE/$(basename "$WORKSPACE_ROOT")"
-          if [ ! -d "$WORKSPACE/$(basename "$WORKSPACE_ROOT")" ]; then
-            echo "Parent directory does not contain repo dir; creating symlink for compatibility."
-            ln -s "$WORKSPACE_ROOT" "$WORKSPACE/$(basename "$WORKSPACE_ROOT")"
-            ls -l "$WORKSPACE"
-          fi
+          echo "WORKSPACE(parent): $WORKSPACE"
+          echo "WORKSPACE_ROOT(repo): $WORKSPACE_ROOT"
+          echo "Expect plugin scripts under:"
+          echo " - $WORKSPACE_ROOT/ZenDNN_tools/scripts/ci"
+          echo " - $WORKSPACE/ZenDNN_tools/scripts/ci (fallback via symlink)"
+          ls -1 "$WORKSPACE_ROOT/ZenDNN_tools/scripts/ci" || true
+          ls -1 "$WORKSPACE/ZenDNN_tools/scripts/ci" || true
           echo "---------------------------------"
 
           script_path="$WORKSPACE_ROOT/ZenDNN_tools/scripts/ci/zendnn_ci_pt_plugin_presub_build.sh"
           plugin_script_path="$WORKSPACE_ROOT/ZenDNN_tools/scripts/ci/zendnn_ci_PT_PLUGIN_build.sh"
 
           if [ ! -f "$script_path" ] && [ -f "$WORKSPACE_ROOT/ZenDNN_tools/zendnn_ci_pt_plugin_presub_build.sh" ]; then
-            echo "Using fallback presub script from root"
+            echo "Fallback: using presub script from ZenDNN_tools root"
             script_path="$WORKSPACE_ROOT/ZenDNN_tools/zendnn_ci_pt_plugin_presub_build.sh"
             sed -i "s|source \$WORKSPACE/ZenDNN_tools/scripts/ci/zendnn_ci_PT_PLUGIN_build.sh|source \$WORKSPACE/ZenDNN_tools/zendnn_ci_PT_PLUGIN_build.sh|g" "$script_path"
           fi
 
+          # Harden path usage inside script: ensure references include repo folder when needed
+          # (The inconsistent original usage caused earlier path issues)
+          sed -i "s|\$WORKSPACE/ZenDNN_tools|\$WORKSPACE/$(basename "$WORKSPACE_ROOT")/ZenDNN_tools|g" "$script_path" || true
+          # But also keep a defensive symlink so either form works:
+          if [ ! -e "$WORKSPACE/ZenDNN_tools" ]; then
+            ln -s "$WORKSPACE_ROOT/ZenDNN_tools" "$WORKSPACE/ZenDNN_tools"
+          fi
+
           cp "$script_path" "${script_path}.backup"
 
-            # Remove sudo for container/user context
           sed -i 's/\bsudo\b//g' "$script_path"
-
-            # Insert bind mounts (keeping original token line)
           sed -i '/mkmhub/ s@mkmhub@-v /proj/zendai:/proj/zendai -v /home/runner:/home/runner mkmhub@' "$script_path"
-
-            # Avoid overwriting our git config additions again
           sed -i '/git config --global --add/ s/^/# /' "$script_path"
-
-            # Adjust torch wheel naming tweak
           sed -i 's|torch-\$NATIVE_TORCH_VERSION|torch-$NATIVE_TORCH_VERSION-xco|g' "$script_path"
 
-            # Plugin script environment adapt
           if [ -f "$plugin_script_path" ]; then
             sed -i 's|/root/anaconda3/|/proj/zendai_conda/miniforge3/|g' "$plugin_script_path"
             sed -i 's/^\(conda init bash\|conda config --set auto_activate_base false\|source ~\/.bashrc\)/# \1/' "$plugin_script_path"
           else
-            echo "WARN: Plugin script not found at $plugin_script_path"
+            echo "WARN: Missing plugin script at $plugin_script_path"
+            # Try alternate location via parent symlink (in case patching changed usage)
+            alt_plugin="$WORKSPACE/ZenDNN_tools/scripts/ci/zendnn_ci_PT_PLUGIN_build.sh"
+            if [ -f "$alt_plugin" ]; then
+              echo "Found alternate plugin script at $alt_plugin"
+              plugin_script_path="$alt_plugin"
+            fi
           fi
 
-            # Execute from directory containing script (scripts/ci or fallback root)
-          if [[ "$script_path" == *"/scripts/ci/"* ]]; then
-            cd "$(dirname "$script_path")"
-          else
-            cd "$WORKSPACE_ROOT/ZenDNN_tools"
-          fi
-
-          echo "Running build script: $script_path"
+          # Ensure we run from the directory containing presub script
+          cd "$(dirname "$script_path")"
+          echo "Executing build script: $script_path"
           echo "PWD: $(pwd)"
           set -x
           bash "$(basename "$script_path")"
@@ -238,4 +232,4 @@ jobs:
                  "${WORKSPACE_ROOT}/ZenDNN_tools" \
                  "${WORKSPACE_ROOT}/blis" \
                  "${WORKSPACE_ROOT}/${BLIS_TAR_BALL}" || true
-          echo "Cleanup done (HOME preserved)."
+          echo "Cleanup complete (HOME preserved)."
