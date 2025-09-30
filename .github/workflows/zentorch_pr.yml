@@ -42,7 +42,7 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Setup working directories (Option A: WORKSPACE = parent of repo)
+      - name: Setup working directories
         shell: bash
         run: |
           set -euo pipefail
