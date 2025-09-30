@@ -46,33 +46,38 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+
           ORIGINAL_HOME=$HOME
-          echo "ORIGINAL_HOME=$ORIGINAL_HOME" >> $GITHUB_ENV
+          echo "ORIGINAL_HOME=$ORIGINAL_HOME" >> "$GITHUB_ENV"
 
-            # Directory that GitHub sets as repo root
+          # Repo root provided by Actions
           WORKSPACE_ROOT="$GITHUB_WORKSPACE"
-          echo "WORKSPACE_ROOT=$WORKSPACE_ROOT" >> $GITHUB_ENV
+          echo "WORKSPACE_ROOT=$WORKSPACE_ROOT" >> "$GITHUB_ENV"
 
-            # Derive parent directory (what upstream scripts expect as $WORKSPACE)
+          # Parent directory becomes WORKSPACE (what upstream scripts expect)
           PARENT_DIR="$(dirname "$WORKSPACE_ROOT")"
-          echo "PARENT_DIR=$PARENT_DIR" >> $GITHUB_ENV
-          echo "WORKSPACE=$PARENT_DIR" >> $GITHUB_ENV  # Upstream scripts use $WORKSPACE/ZenDNN_PyTorch_Plugin
-          
+          echo "PARENT_DIR=$PARENT_DIR" >> "$GITHUB_ENV"
+
+          # Define WORKSPACE for current shell AND future steps
+          WORKSPACE="$PARENT_DIR"
+          export WORKSPACE
+          echo "WORKSPACE=$WORKSPACE" >> "$GITHUB_ENV"
+
           REPO_NAME="$(basename "$WORKSPACE_ROOT")"
-          echo "REPO_NAME=$REPO_NAME" >> $GITHUB_ENV
+            # For debugging / compatibility
+          echo "REPO_NAME=$REPO_NAME" >> "$GITHUB_ENV"
 
-            # Is the script hard-coding repo name? Keep a compatibility var:
-          echo "EXPECTED_REPO_DIR=$WORKSPACE_ROOT" >> $GITHUB_ENV
+          echo "EXPECTED_REPO_DIR=$WORKSPACE_ROOT" >> "$GITHUB_ENV"
 
-            # Isolate git config into separate dir (avoid poisoning global home)
+          # Isolate git config
           GIT_CONFIG_DIR="/tmp/git-home-$$"
           mkdir -p "${GIT_CONFIG_DIR}"
           chmod 700 "${GIT_CONFIG_DIR}"
-          echo "GIT_CONFIG_DIR=${GIT_CONFIG_DIR}" >> $GITHUB_ENV
+          echo "GIT_CONFIG_DIR=${GIT_CONFIG_DIR}" >> "$GITHUB_ENV"
 
           echo "Cleaning up stale build-related directories in repo root..."
           pushd "$WORKSPACE_ROOT" >/dev/null
-          for item in ZenDNN ZenDNN_tools blis "$BLIS_TAR_BALL"; do
+          for item in ZenDNN ZenDNN_tools blis "${BLIS_TAR_BALL}"; do
             if [ -e "$item" ]; then
               echo "Removing existing $item"
               rm -rf "$item"
