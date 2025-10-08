@@ -20,7 +20,7 @@ on:
         required: false
         default: '1'
   repository_dispatch:
-    types: [zendnn-pr]
+    types: [zendnn-pr , zendnnTools-pr]
 
 jobs:
   build:
