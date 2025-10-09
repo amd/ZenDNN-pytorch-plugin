@@ -1,0 +1,107 @@
+name: ZenDNN PyTorch Plugin CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      zendnn_ref:
+        description: 'ZenDNN branch or PR ref (optional, e.g. refs/pull/123/head)'
+        required: false
+        default: ''
+      zentorch_use_local_zendnn:
+        description: 'Set to 1 to use local ZenDNN'
+        required: false
+        default: '1'
+      zentorch_use_local_blis:
+        description: 'Set to 1 to use local BLIS'
+        required: false
+        default: '1'
+  repository_dispatch:
+    types: [zendnn-pr , zendnnTools-pr]
+
+jobs:
+  build:
+    runs-on: [amd-zenai-arc-xlarge-dind]
+    env:
+      PYTHON_VERSION: '3.10'
+      ZENTORCH_VERSION: '5.2.0'
+      NATIVE_TORCH_VERSION: '2.8.0'
+      UNWANTED_KEYWORDS: 'stackoverflow,MSDN,wiki,microsoft'
+      # WORKSPACE and PARENT_DIR will be set dynamically in the steps
+      ZENTORCH_USE_LOCAL_ZENDNN: ${{ github.event.inputs.zentorch_use_local_zendnn || github.event.client_payload.zentorch_use_local_zendnn || '1' }}
+      ZENTORCH_USE_LOCAL_BLIS: ${{ github.event.inputs.zentorch_use_local_blis || github.event.client_payload.zentorch_use_local_blis || '1' }}
+      BLIS_TAR_BALL: 'AOCL-Sep2025-b1.tar.gz'
+      ZENDNN_REF: ${{ github.event.inputs.zendnn_ref || github.event.client_payload.zendnn_ref || '' }}
+    steps:
+      - name: Checkout ZenDNN_PyTorch_Plugin
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set WORKSPACE and PARENT_DIR to parent of repo
+        run: |
+          echo "PARENT_DIR=$(dirname "${GITHUB_WORKSPACE}")" >> $GITHUB_ENV
+          echo "WORKSPACE=$(dirname "${GITHUB_WORKSPACE}")" >> $GITHUB_ENV
+
+      - name: Clone ZenDNN if needed
+        if: env.ZENTORCH_USE_LOCAL_ZENDNN == '1'
+        run: |
+          git clone --depth 1 --branch main https://${{ secrets.ZIAIE_PAT }}@github.com/AMD-Zenai/ZenDNN.git "$PARENT_DIR/ZenDNN"
+          if [ "${ZENDNN_REF}" != "" ]; then
+            cd "$PARENT_DIR/ZenDNN"
+            git fetch origin "${ZENDNN_REF}"
+            git checkout FETCH_HEAD
+            cd "$PARENT_DIR"
+          fi
+
+      - name: Copy and extract BLIS tarball if needed
+        if: env.ZENTORCH_USE_LOCAL_BLIS == '1'
+        run: |
+          cp /proj/zendai/datasets/ci_zendnn_presub_dependencies/$BLIS_TAR_BALL "$PARENT_DIR"
+          tar -xzf "$PARENT_DIR/$BLIS_TAR_BALL" -C "$PARENT_DIR"
+
+      - name: Clone ZenDNN_tools
+        run: |
+          git clone --depth 1 --branch main https://${{ secrets.ZIAIE_PAT }}@github.com/AMD-Zenai/ZenDNN_tools.git "$PARENT_DIR/ZenDNN_tools"  
+      
+      - name: Run CI script
+        run: |
+          sed -i 's/sudo//g' "$PARENT_DIR/ZenDNN_tools/scripts/ci/zendnn_ci_pt_plugin_presub_build.sh"
+          sed -i '/mkmhub/ s/mkmhub/-v \/proj\/zendai:\/proj\/zendai -v \/home\/runner:\/home\/runner mkmhub/' "$PARENT_DIR/ZenDNN_tools/scripts/ci/zendnn_ci_pt_plugin_presub_build.sh"
+          sed -i '/git config --global --add/ s/^/# /' "$PARENT_DIR/ZenDNN_tools/scripts/ci/zendnn_ci_pt_plugin_presub_build.sh"
+          sed -i 's|torch-\$NATIVE_TORCH_VERSION|torch-\$NATIVE_TORCH_VERSION-xco|g' "$PARENT_DIR/ZenDNN_tools/scripts/ci/zendnn_ci_pt_plugin_presub_build.sh"
+          sed -i 's/^\(conda init bash\|conda config --set auto_activate_base false\|source ~\/.bashrc\)/# \1/' "$PARENT_DIR/ZenDNN_tools/scripts/ci/zendnn_ci_PT_PLUGIN_build.sh"
+          sed -i 's|/root/anaconda3/|/proj/zendai_conda/miniforge3/|g' "$PARENT_DIR/ZenDNN_tools/scripts/ci/zendnn_ci_PT_PLUGIN_build.sh"
+          export PYTHON_VERSION=${{ env.PYTHON_VERSION }}
+          export BUILD_PYTHON_VERSIONS=${{ env.PYTHON_VERSION }}
+          export ZENTORCH_VERSION=${{ env.ZENTORCH_VERSION }}
+          export WORKSPACE=${{ env.WORKSPACE }}
+          export ZENTORCH_USE_LOCAL_ZENDNN=${{ env.ZENTORCH_USE_LOCAL_ZENDNN }}
+          export ZENTORCH_USE_LOCAL_BLIS=${{ env.ZENTORCH_USE_LOCAL_BLIS }}
+          export NATIVE_TORCH_VERSION=${{ env.NATIVE_TORCH_VERSION }}
+          export UNWANTED_KEYWORDS=${{ env.UNWANTED_KEYWORDS }}
+          export BLIS_TAR_BALL=${{ env.BLIS_TAR_BALL }}
+          export PARENT_DIR=${PARENT_DIR}
+          #git config --global --add safe.directory ${WORKSPACE}/ZenDNN_PyTorch_Plugin
+          #git config --global --add safe.directory ${WORKSPACE}/ZenDNN
+          #git config --global --add safe.directory ${WORKSPACE}/blis
+          bash "$PARENT_DIR/ZenDNN_tools/scripts/ci/zendnn_ci_pt_plugin_presub_build.sh"
+        shell: bash
+
+      - name: Fail if script failed
+        if: failure()
+        run: exit 1
+
+      - name: Cleanup workspace (delete everything from parent dir)
+        if: always()
+        run: |
+          echo "Cleaning up $PARENT_DIR"
+          rm -rf "$PARENT_DIR/ZenDNN" "$PARENT_DIR/ZenDNN_tools" "$PARENT_DIR/$BLIS_TAR_BALL" "$PARENT_DIR/ZenDNNL"
+          # Optionally, also remove ZenDNN_PyTorch_Plugin if you want to delete the repo itself
+          rm -rf "$PARENT_DIR/ZenDNN_PyTorch_Plugin/*"
+          rm -rf "$PARENT_DIR/*.txt"
+          rm -rf "$PARENT_DIR/blis" "$PARENT_DIR/$BLIS_TAR_BALL"
+          ls $PARENT_DIR
