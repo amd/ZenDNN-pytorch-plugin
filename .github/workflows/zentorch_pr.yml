@@ -128,7 +128,7 @@ jobs:
           echo "BASE SHA         : $BASE_SHA"
           echo ""
 
-          echo "LAST 20 COMMITS (ZenDNN_tools)"
+          echo "LAST 20 COMMITS (ZenDNN)"
           git log --oneline -20 || echo "No commits found"
          else
          echo "ZenDNN directory not found — skipping."
