@@ -88,7 +88,7 @@ jobs:
         shell: bash
         run: |
          echo "======================================"
-         echo " ZENDTORCH & ZENDNNL & ZENDNN_TOOLS INFO  "
+         echo " ZENDTORCH & ZENDNN & ZENDNNL & ZENDNN_TOOLS INFO  "
          echo "======================================"
 
          git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
@@ -125,7 +125,7 @@ jobs:
          echo ""
 
          echo "COMMITS BETWEEN BASE AND HEAD"
-         git log --oneline origin/$BASE_BRANCH..origin/$SOURCE_BRANCH || echo "No commits found"
+         git log --oneline -20 || echo "No commits found"
            echo "=============================="
          echo "   ZENDNN INFO"
          echo "=============================="
