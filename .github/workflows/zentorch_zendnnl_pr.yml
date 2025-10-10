@@ -55,7 +55,7 @@ jobs:
         if: env.ZENTORCH_USE_LOCAL_ZENDNN == '1'
         run: |
           rm -rf "$PARENT_DIR/ZenDNN"
-          git clone --depth 1 --branch main https://${{ secrets.ZIAIE_PAT }}@github.com/AMD-Zenai/ZenDNN.git "$PARENT_DIR/ZenDNN"
+          git clone  --branch main https://${{ secrets.ZIAIE_PAT }}@github.com/AMD-Zenai/ZenDNN.git "$PARENT_DIR/ZenDNN"
           if [ "${ZENDNN_REF}" != "" ]; then
             cd "$PARENT_DIR/ZenDNN"
             git fetch origin "${ZENDNN_REF}"
@@ -83,7 +83,7 @@ jobs:
       - name: Clone ZenDNN_tools
         run: |
           rm -rf "$PARENT_DIR/ZenDNN_tools"
-          git clone --depth 1 --branch main https://${{ secrets.ZIAIE_PAT }}@github.com/AMD-Zenai/ZenDNN_tools.git "$PARENT_DIR/ZenDNN_tools"  
+          git clone  --branch main https://${{ secrets.ZIAIE_PAT }}@github.com/AMD-Zenai/ZenDNN_tools.git "$PARENT_DIR/ZenDNN_tools"  
       - name: PR INFO
         shell: bash
         run: |
@@ -126,6 +126,31 @@ jobs:
 
          echo "COMMITS BETWEEN BASE AND HEAD"
          git log --oneline origin/$BASE_BRANCH..origin/$SOURCE_BRANCH || echo "No commits found"
+           echo "=============================="
+         echo "   ZENDNN INFO"
+         echo "=============================="
+         if [ -d "$PARENT_DIR/ZenDNN" ]; then
+          cd "$PARENT_DIR/ZenDNN"
+          git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/AMD-Zenai/ZenDNN.git
+          git fetch --all --no-tags || true
+
+          BRANCH=${GITHUB_REF_NAME:-main}
+          HEAD_SHA=$(git rev-parse HEAD)
+          BASE_BRANCH="main"
+          BASE_SHA=$(git rev-parse origin/main || echo "N/A")
+
+          echo "CURRENT BRANCH   : $BRANCH"
+          echo "HEAD SHA         : $HEAD_SHA"
+          echo "BASE BRANCH      : $BASE_BRANCH"
+          echo "BASE SHA         : $BASE_SHA"
+          echo ""
+
+          echo "LAST 20 COMMITS (ZenDNN_tools)"
+          git log --oneline -20 || echo "No commits found"
+         else
+         echo "ZenDNN directory not found — skipping."
+         fi
+
          echo ""
           echo "=============================="
          echo "   ZENDNNL INFO"
