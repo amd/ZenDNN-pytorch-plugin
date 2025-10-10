@@ -107,7 +107,7 @@ jobs:
          echo ""
 
          echo "COMMITS BETWEEN BASE AND HEAD"
-         git log --oneline origin/$BASE_BRANCH..origin/$SOURCE_BRANCH || echo "No commits found"
+          git log --oneline -20 || echo "No commits found"
          echo ""
           echo "=============================="
          echo "   ZENDNN INFO"
