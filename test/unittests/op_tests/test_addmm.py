@@ -97,8 +97,6 @@ class Test_Addmm_Op(MMTestCase):
             ),
         )
 
-        # <- Failure start from here ->
-
         # addmm with scalar input/bias
         self.assertEqual(
             torch._C._VariableFunctions.addmm(
@@ -109,19 +107,19 @@ class Test_Addmm_Op(MMTestCase):
             ),
         )
         new_dtype = self.data.get_torch_type(dtype)
-        # addmm with 2D input (1, n) -> For this, support can be added via per channel, binary add
+        # addmm with 2D input (1, n)
         input_1_n = torch.randn((1, self.data.n), dtype=new_dtype)
         self.assertEqual(
             torch._C._VariableFunctions.addmm(input_1_n, self.data.x, self.data.y),
             torch.ops.zentorch.zentorch_addmm(input_1_n, self.data.x, self.data.y),
         )
-        # addmm with 2D input (m, 1) -> -> For this, we don't know
+        # addmm with 2D input (m, 1)
         input_m_1 = torch.randn((self.data.m, 1), dtype=new_dtype)
         self.assertEqual(
             torch._C._VariableFunctions.addmm(input_m_1, self.data.x, self.data.y),
             torch.ops.zentorch.zentorch_addmm(input_m_1, self.data.x, self.data.y),
         )
-        # addmm with 2D input (1, 1) -> For this, support can be added via per tensor, binary add
+        # addmm with 2D input (1, 1)
         input_1_1 = torch.randn((1, 1), dtype=new_dtype)
         self.assertEqual(
             torch._C._VariableFunctions.addmm(input_1_1, self.data.x, self.data.y),
@@ -152,13 +150,13 @@ class Test_Addmm_Op(MMTestCase):
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_addmm(self.data.x3d, self.data.x, self.data.x)
         self.assertTrue(
-            "Incompatible dimensions/shape for self tensor in addmm op"
+            "Incompatible dimensions/shape for input tensor in addmm op"
             in str(context.exception)
         )
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_addmm(self.data.x, self.data.x, self.data.y)
         self.assertTrue(
-            "Incompatible dimensions/shape for self tensor in addmm op"
+            "Incompatible dimensions/shape for input tensor in addmm op"
             in str(context.exception)
         )
 
