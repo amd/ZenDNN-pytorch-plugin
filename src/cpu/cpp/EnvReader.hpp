@@ -41,6 +41,7 @@ private:
   void initializeVariables() {
     storeEnvVariable("USE_ZENDNN_MATMUL_DIRECT", 0);
     storeEnvVariable("USE_ZENDNN_SDPA_MATMUL_DIRECT", 0);
+    storeEnvVariable("ZENDNN_ZENDNNL", 1); // ZenDNNL is used by default
   }
 
   // Function to convert and store environment variable value as integer
@@ -50,9 +51,29 @@ private:
     const char *env_value = std::getenv(varName.c_str());
     if (env_value) {
       try {
-        envVariables[varName_view] =
-            (std::atoi(env_value) == 1) ? 1 : default_value;
-      } catch (...) {
+        int env_value_int = std::stoi(env_value);
+        if (env_value_int != 0 && env_value_int != 1) {
+          LOG(WARNING) << "Environment value of: " << "'" << varName_view << "'"
+                       << " is not one of allowed values (0 or 1). Execution "
+                       << "will use the default value of " << default_value
+                       << "\n";
+          envVariables[varName_view] = default_value;
+        } else {
+          envVariables[varName_view] = env_value_int;
+        }
+      } catch (const std::invalid_argument &e) {
+        LOG(WARNING)
+            << "Value of environment variable '" << varName_view << "'"
+            << " could not be converted into a compatible format and"
+            << " is invalid. \nExecution will use the default value of "
+            << default_value << "\n";
+        envVariables[varName_view] = default_value;
+      } catch (const std::out_of_range &e) {
+        LOG(WARNING)
+            << "Value of environment variable '" << varName_view << "'"
+            << " is out of range and cannot be converted to a compatible"
+            << " format. \nExecution will use the default value of "
+            << default_value << "\n";
         envVariables[varName_view] = default_value;
       }
     } else {

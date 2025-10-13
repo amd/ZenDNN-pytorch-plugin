@@ -4,11 +4,10 @@
  ******************************************************************************/
 
 #include "Config.hpp"
-
 #include <blis.h>
-#include <zendnn_version.h>
-
 #include <sstream>
+#include <zendnn_version.h>
+#include <zendnnl_version.hpp>
 
 namespace zentorch {
 
@@ -19,6 +18,12 @@ std::string get_zendnn_version() {
   std::ostringstream ss;
   ss << ZENDNN_VERSION_MAJOR << "." << ZENDNN_VERSION_MINOR << "."
      << ZENDNN_VERSION_PATCH;
+  return ss.str();
+}
+
+std::string get_zendnnl_version() {
+  std::ostringstream ss;
+  ss << TO_STRING(ZENDNNL_VERSION);
   return ss.str();
 }
 
@@ -41,6 +46,10 @@ std::string show_config() {
   ss << "  - "
      << "AMD ZENDNN v" << get_zendnn_version() << " ( Git Hash "
      << ZENDNN_LIB_VERSION_HASH << " )"
+     << "\n";
+  ss << "  - "
+     << "AMD ZENDNNL v" << get_zendnnl_version() << " ( Git Hash "
+     << ZENDNNL_LIB_VERSION_HASH << " )"
      << "\n";
   ss << "  - "
      << "FBGEMM " << FBGEMM_VERSION_TAG << " ( Git Hash " << FBGEMM_VERSION_HASH
