@@ -17,16 +17,9 @@ set(ZENDNN_DIR "${ZENDNN_PARENT_DIR}/ZenDNN")
 
 file(MAKE_DIRECTORY ${ZENDNN_PARENT_DIR})
 
-find_package(AMDBLIS REQUIRED)
-
 include(zendnn)
-add_subdirectory(${ZENDNN_DIR})
-add_dependencies(amdZenDNN libamdblis)
 
-set(ZENDNNL_FWK_INJECTED_AMDBLIS ON CACHE BOOL "framework injected amdblis")
-set(ZENDNNL_AMDBLIS_FWK_INJECTED ON CACHE BOOL "framework amdblis-injected")
-include(zendnnl)
-include(ZenDnnlFwkIntegrate)
+add_subdirectory(${ZENDNN_DIR})
 
 get_target_property(ZENDNN_INCLUDE_DIR amdZenDNN INTERFACE_INCLUDE_DIRECTORIES)
 message(STATUS "zendnn includes, ZENDNN_INCLUDE_DIR, ${ZENDNN_INCLUDE_DIR}")
@@ -50,7 +43,7 @@ list(REMOVE_ITEM ZENTORCH_CPP_SOURCES "${CMAKE_SOURCE_DIR}/src/cpu/cpp/Bindings.
 add_library(zentorch SHARED ${ZENTORCH_CPP_SOURCES})
 
 add_dependencies(CPUkernels amdZenDNN)
-add_dependencies(zentorch amdZenDNN CPUkernels zendnnl::zendnnl_archive)
+add_dependencies(zentorch amdZenDNN CPUkernels)
 
 
 # Enable C++17
@@ -63,14 +56,12 @@ target_include_directories(zentorch PUBLIC
                             ${ZENTORCH_INCLUDE_DIR}
                             ${MHA_INCLUDE_DIR}
                             ${TORCH_INCLUDE_DIRS}
-                            ${ZENDNNL_LIBRARY_INC_DIR}
 )
 
 target_link_libraries(zentorch PUBLIC 
                         ${MHA_LIBRARIES} 
                         ${TORCH_LIBRARIES}
                         amdZenDNN
-                        zendnnl::zendnnl_archive
 )
 
 message(STATUS "zentorch PROJECT_NAME, ${PROJECT_NAME}")

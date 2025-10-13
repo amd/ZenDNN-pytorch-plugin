@@ -68,7 +68,7 @@ class Test_Addmm_1dbias_Add(Zentorch_TestCase):
                 ),
             )
         self.assertTrue(
-            "unsupported dims for mat1, mat2 and post op buffers"
+            "unsupported dims for mat1, mat2 and result buffer"
             in str(context.exception)
         )
 
@@ -81,7 +81,7 @@ class Test_Addmm_1dbias_Add(Zentorch_TestCase):
                 self.data.input1d, self.data.x, self.data.y, self.data.x
             )
         self.assertTrue(
-            "unsupported shapes for mat1, mat2 and post op buffers"
+            "unsupported shapes for mat1, mat2 and result buffer"
             in str(context.exception)
         )
 
