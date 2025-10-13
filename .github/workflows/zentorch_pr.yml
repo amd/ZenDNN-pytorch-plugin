@@ -197,3 +197,17 @@ jobs:
           rm -rf "$PARENT_DIR/*.txt"
           rm -rf "$PARENT_DIR/blis" "$PARENT_DIR/$BLIS_TAR_BALL"
           ls $PARENT_DIR
+      - name: Report status back to ZenDNN repo
+        if: always()
+        run: |
+         state="success"
+         if [ "${{ job.status }}" != "success" ]; then
+          state="failure"
+          fi
+
+         curl -X POST \
+          -H "Accept: application/vnd.github.v3+json" \
+          -H "Authorization: token ${{ secrets.ZIAIE_PAT }}" \
+           https://api.github.com/repos/AMD-Zenai/ZenDNN/statuses/${{ github.event.client_payload.zendnn_ref_sha }} \
+           -d "{\"state\":\"${state}\",\"context\":\"ZenDNN TensorFlow Plugin CI\",\"description\":\"TF Plugin CI ${state}\"}"
+
