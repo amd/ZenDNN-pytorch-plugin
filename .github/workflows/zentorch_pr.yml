@@ -180,6 +180,13 @@ jobs:
           #git config --global --add safe.directory ${WORKSPACE}/ZenDNN_PyTorch_Plugin
           #git config --global --add safe.directory ${WORKSPACE}/ZenDNN
           #git config --global --add safe.directory ${WORKSPACE}/blis
+          echo "========= FILE: zendnn_ci_pt_plugin_presub_build.sh ========="
+          cat "$PARENT_DIR/ZenDNN_tools/scripts/ci/zendnn_ci_pt_plugin_presub_build.sh"
+          echo "============================================================="
+
+          echo "========= FILE: zendnn_ci_PT_PLUGIN_build.sh ========="
+          cat "$PARENT_DIR/ZenDNN_tools/scripts/ci/zendnn_ci_PT_PLUGIN_build.sh"
+          echo "======================================================"
           bash "$PARENT_DIR/ZenDNN_tools/scripts/ci/zendnn_ci_pt_plugin_presub_build.sh"
         shell: bash
 
