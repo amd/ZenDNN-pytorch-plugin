@@ -24,7 +24,7 @@ on:
         required: false
         default: '1'
   repository_dispatch:
-    types: [zendnnl-pr]
+    types: [zendnnl-pr , zendnn-pr]
 
 jobs:
   build:
@@ -84,7 +84,7 @@ jobs:
         run: |
           rm -rf "$PARENT_DIR/ZenDNN_tools"
           git clone  --branch main https://${{ secrets.ZIAIE_PAT }}@github.com/AMD-Zenai/ZenDNN_tools.git "$PARENT_DIR/ZenDNN_tools"  
-      - name: PR INFO
+      #- name: PR INFO
         shell: bash
         run: |
          echo "======================================"
