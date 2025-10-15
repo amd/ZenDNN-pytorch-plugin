@@ -255,4 +255,4 @@ jobs:
           -H "Accept: application/vnd.github+json" \
           -H "Authorization: token ${{ secrets.ZIAIE_PAT }}" \
           "https://api.github.com/repos/AMD-Zenai/ZenDNN/statuses/${{ github.event.client_payload.zendnnl_ref_sha }}" \
-          -d "{\"state\":\"${state}\",\"context\":\"${{ github.repository }} CI\",\"description\":\"${{ github.repository }} ${state}\"}"
+          -d "{\"state\":\"${state}\",\"context\":\"${{ github.repository }} ZENDNNL CI\",\"description\":\"${{ github.repository }} ${state}\"}"
