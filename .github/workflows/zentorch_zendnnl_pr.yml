@@ -42,7 +42,7 @@ jobs:
       ZENDNN_REF: ${{ github.event.inputs.zendnn_ref || github.event.client_payload.zendnn_ref || '' }}
       ZENDNNL_REF: ${{ github.event.inputs.zendnnl_ref || github.event.client_payload.zendnnl_ref || '' }}
     steps:
-      - name: Checkout ZenDNN_PyTorch_Plugin
+      - name: heckout ZenDNN_PyTorch_Plugin
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -84,7 +84,7 @@ jobs:
         run: |
           rm -rf "$PARENT_DIR/ZenDNN_tools"
           git clone  --branch main https://${{ secrets.ZIAIE_PAT }}@github.com/AMD-Zenai/ZenDNN_tools.git "$PARENT_DIR/ZenDNN_tools"  
-      #- name: PR INFO
+      - name: PR INFO
         shell: bash
         run: |
          echo "======================================"
