@@ -42,10 +42,10 @@ jobs:
       ZENDNN_REF: ${{ github.event.inputs.zendnn_ref || github.event.client_payload.zendnn_ref || '' }}
       ZENDNNL_REF: ${{ github.event.inputs.zendnnl_ref || github.event.client_payload.zendnnl_ref || '' }}
     steps:
-      - name: heckout ZenDNN_PyTorch_Plugin
+      - name: Checkout ZenDNN_PyTorch_Plugin
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 100
 
       - name: Set WORKSPACE and PARENT_DIR to parent of repo
         run: |
