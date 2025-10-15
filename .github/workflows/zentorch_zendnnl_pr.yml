@@ -1,4 +1,4 @@
-name: ZenDNN PyTorch Plugin ZENDNNL CI
+name: ZenDNN PyTorch ZENDNNL CI
 
 on:
   push:
