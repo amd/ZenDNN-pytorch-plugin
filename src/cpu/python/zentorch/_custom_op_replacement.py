@@ -421,7 +421,7 @@ def group_eb_concat_fusion(fx_graph):
                     "bags is not being used by concat node."
                 )
                 continue
-
+    stable_topological_sort(fx_graph)
     fx_graph.lint()
 
     return fx_graph
@@ -496,7 +496,7 @@ def qlinear_reorder_optimizations(fx_graph):
                     pred_node.kwargs = new_kwargs
                     counters["zentorch"]["optimized_reorder"] += 1
                 pred_node = curr_node
-
+    stable_topological_sort(fx_graph)
     fx_graph.lint()
     return fx_graph
 
@@ -701,7 +701,9 @@ def qkv_fusion(fx_graph):
                 or find_path(fx_graph, group["nodes"][0], group["nodes"][2])
             )
             if nodes_are_dependent:
-                logger.info("QKV nodes are not independent of each other, cannot perform fusion")
+                logger.info(
+                    "QKV nodes are not independent of each other, cannot perform fusion"
+                )
                 continue
             group_op_args = [[] for _ in range(7)]
             first_node = group["nodes"][0]
