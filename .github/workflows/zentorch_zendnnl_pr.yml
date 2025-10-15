@@ -45,7 +45,7 @@ jobs:
       - name: Checkout ZenDNN_PyTorch_Plugin
         uses: actions/checkout@v4
         with:
-          fetch-depth: 100
+          fetch-depth: 0
 
       - name: Set WORKSPACE and PARENT_DIR to parent of repo
         run: |
@@ -83,7 +83,7 @@ jobs:
       - name: Clone ZenDNN_tools
         run: |
           rm -rf "$PARENT_DIR/ZenDNN_tools"
-          git clone  --branch main https://${{ secrets.ZIAIE_PAT }}@github.com/AMD-Zenai/ZenDNN_tools.git "$PARENT_DIR/ZenDNN_tools"  
+          git clone  --branch main https://${{ secrets.ZIAIE_PAT }}@github.com/AMD-Zena/ZenDNN_tools.git "$PARENT_DIR/ZenDNN_tools"  
       - name: PR INFO
         shell: bash
         run: |
