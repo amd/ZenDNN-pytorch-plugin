@@ -69,6 +69,7 @@ if __name__ == "__main__":
         "2.6.0": "torchvision==0.21.0",
         "2.7.0": "torchvision==0.22.0",
         "2.8.0": "torchvision==0.23.0",
+        "2.9.0": "torchvision==0.24.0",
     }
     if importutil.find_spec("torchvision") is not None:
         print("Warning: Torchvision already installed, skipping installing it")
@@ -80,6 +81,6 @@ if __name__ == "__main__":
         print(
             "Couldnot find the valid torchvision version which is \
 compatibility with installed torch version. Supported Torch versions \
-are 2.6.*/2.7.*/2.8.*"
+are 2.6.*/2.7.*/2.8.*/2.9.*"
         )
         exit(1)
