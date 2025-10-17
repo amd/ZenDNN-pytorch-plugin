@@ -24,7 +24,7 @@ on:
         required: false
         default: '1'
   repository_dispatch:
-    types: [zendnnl-pr , zendnn-zentorch-zendnnl-pr , zendnnTools1-zentorch-zendnnl-pr]
+    types: [zendnnl-pr , zendnn-zentorch-zendnnl-pr , zendnnTools-zentorch-zendnnl-pr]
 
 jobs:
   build:
@@ -255,4 +255,17 @@ jobs:
           -H "Accept: application/vnd.github+json" \
           -H "Authorization: token ${{ secrets.ZIAIE_PAT }}" \
           "https://api.github.com/repos/AMD-Zenai/ZenDNN/statuses/${{ github.event.client_payload.zendnnl_ref_sha }}" \
+          -d "{\"state\":\"${state}\",\"context\":\"${{ github.repository }} ZENDNNL CI\",\"description\":\"${{ github.repository }} ${state}\"}"
+
+      - name: Report status back to ZenDNNTOOLS repo
+        if: always()
+        run: |
+         state="success"
+         if [ "${{ job.status }}" != "success" ]; then
+          state="failure"
+         fi
+         curl -s -X POST \
+         -H "Accept: application/vnd.github.v3+json" \
+         -H "Authorization: token ${{ secrets.ZIAIE_PAT }}" \
+          "https://api.github.com/repos/AMD-Zenai/ZenDNN_tools/statuses/${{ github.event.client_payload.zendnntools_ref_sha }}" \
           -d "{\"state\":\"${state}\",\"context\":\"${{ github.repository }} ZENDNNL CI\",\"description\":\"${{ github.repository }} ${state}\"}"
