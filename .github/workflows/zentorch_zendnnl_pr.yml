@@ -24,7 +24,7 @@ on:
         required: false
         default: '1'
   repository_dispatch:
-    types: [zendnnl-pr , zendnn1-pr , zendnnTools1-pr]
+    types: [zendnnl-pr , zendnn-zentorch-zendnnl-pr , zendnnTools1-zentorch-zendnnl-pr]
 
 jobs:
   build:
