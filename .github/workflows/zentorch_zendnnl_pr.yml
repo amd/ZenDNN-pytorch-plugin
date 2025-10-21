@@ -42,6 +42,15 @@ jobs:
       ZENDNN_REF: ${{ github.event.inputs.zendnn_ref || github.event.client_payload.zendnn_ref || '' }}
       ZENDNNL_REF: ${{ github.event.inputs.zendnnl_ref || github.event.client_payload.zendnnl_ref || '' }}
     steps:
+      - name: Clean workspace before checkout
+        run: |
+         echo "Cleaning old workspace data..."
+         ls -al $GITHUB_WORKSPACE || true
+         rm -rf $GITHUB_WORKSPACE/* || true
+         rm -rf $GITHUB_WORKSPACE/.[!.]* || true
+         echo "Workspace cleaned."
+         ls -al $GITHUB_WORKSPACE
+        shell: bash
       - name: Checkout ZenDNN_PyTorch_Plugin
         uses: actions/checkout@v4
         with:
