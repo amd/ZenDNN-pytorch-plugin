@@ -11,6 +11,10 @@ on:
         description: 'ZenDNN branch or PR ref (optional, e.g. refs/pull/123/head)'
         required: false
         default: ''
+      zendnnTorch_ref:
+        description: 'Zentorch branch or PR ref (optional, e.g. refs/pull/123/head)'
+        required: false
+        default: ''
       zentorch_use_local_zendnn:
         description: 'Set to 1 to use local ZenDNN'
         required: false
