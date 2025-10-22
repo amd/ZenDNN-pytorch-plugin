@@ -39,6 +39,7 @@ jobs:
       ZENTORCH_USE_LOCAL_BLIS: ${{ github.event.inputs.zentorch_use_local_blis || github.event.client_payload.zentorch_use_local_blis || '1' }}
       BLIS_TAR_BALL: 'AOCL-Sep2025-b1.tar.gz'
       ZENDNN_REF: ${{ github.event.inputs.zendnn_ref || github.event.client_payload.zendnn_ref || '' }}
+      ZENTORCH_REF: ${{ github.event.inputs.zendnnTorch_ref || github.event.client_payload.zendnnTorch_ref || '' }}
     steps:
       - name: Clean workspace before checkout
         run: |
