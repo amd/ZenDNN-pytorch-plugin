@@ -14,7 +14,7 @@
 # * limitations under the License.
 # *******************************************************************************/
 
-# ZenDNN CODEOWNERS
+# ZenDNN_PyTorch_Plugin CODEOWNERS
 
 # All folders/files except .github
 #*    @AMD-Zenai/zenai_leads @AMD-Zenai/zenai_zentorch_dev
