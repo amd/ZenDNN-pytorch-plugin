@@ -216,6 +216,9 @@ def emb_ops_horizontal_fusion(fx_graph):
     nodes_to_remove = []
     for op, node_groups in groups.items():
         for nodes in node_groups:
+            if len(nodes) < 2:
+                continue  # No fusion needed for single nodes
+
             # Get the target group operation for this embedding type
             group_target = zentorch_embed_ops_dict[op]
 

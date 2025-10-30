@@ -24,6 +24,17 @@ from unittest_utils import (  # noqa: 402
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
+class Custom_Model_Single_Embedding(nn.Module):
+    def __init__(self, num_embeddings):
+        super(Custom_Model_Single_Embedding, self).__init__()
+        self.embedding_1 = torch.nn.Embedding(num_embeddings, 3)
+
+    def forward(self, inputs):
+        output = self.embedding_1(inputs)
+        return output
+
+
+@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class Custom_Model_Embedding(nn.Module):
     def __init__(self, num_embeddings):
         super(Custom_Model_Embedding, self).__init__()
@@ -112,9 +123,7 @@ class Custom_Model_Embedding_Group(nn.Module):
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class Test_Embedding_Group_Model(EmbTestCase):
-    @EmbTestCase.hypothesis_params_emb_itr(
-        dtype_list=supported_dtypes
-    )
+    @EmbTestCase.hypothesis_params_emb_itr(dtype_list=supported_dtypes)
     @torch.inference_mode()
     def test_embedding_group_model(self, dtype):
         model = Custom_Model_Embedding_Group(self.data.R)
@@ -133,8 +142,7 @@ class Test_Embedding_Group_Model(EmbTestCase):
         self.assertEqual(model_output, compiled_model_output)
 
     @EmbTestCase.hypothesis_params_emb_itr(
-        dtype_list=supported_dtypes,
-        freeze_list=freeze_opt
+        dtype_list=supported_dtypes, freeze_list=freeze_opt
     )
     @torch.inference_mode()
     def test_embedding_group_compile_model(self, dtype, freeze_opt):
@@ -147,8 +155,7 @@ class Test_Embedding_Group_Model(EmbTestCase):
         self.assertEqual(native_output, compiled_output)
 
     @EmbTestCase.hypothesis_params_emb_itr(
-        dtype_list=supported_dtypes,
-        freeze_list=freeze_opt
+        dtype_list=supported_dtypes, freeze_list=freeze_opt
     )
     @torch.inference_mode()
     def test_emb_emb_bag_common_node_model(self, dtype, freeze_opt):
@@ -158,19 +165,22 @@ class Test_Embedding_Group_Model(EmbTestCase):
         native_output = model(indices, offsets)
         counters.clear()
         self.assertEqual(counters["zentorch"]["zentorch_horizontal_embedding_group"], 0)
-        self.assertEqual(counters["zentorch"]["zentorch_horizontal_embedding_bag_group"], 0)
+        self.assertEqual(
+            counters["zentorch"]["zentorch_horizontal_embedding_bag_group"], 0
+        )
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
         compiled_output = test_with_freeze_opt(
             compiled_graph, (indices, offsets), freeze_opt
         )
         self.assertEqual(counters["zentorch"]["zentorch_horizontal_embedding_group"], 1)
-        self.assertEqual(counters["zentorch"]["zentorch_horizontal_embedding_bag_group"], 1)
+        self.assertEqual(
+            counters["zentorch"]["zentorch_horizontal_embedding_bag_group"], 1
+        )
         self.assertEqual(native_output, compiled_output)
 
     @EmbTestCase.hypothesis_params_emb_itr(
-        dtype_list=supported_dtypes,
-        freeze_list=freeze_opt
+        dtype_list=supported_dtypes, freeze_list=freeze_opt
     )
     @torch.inference_mode()
     def test_emb_emb_bag_diff_node_model(self, dtype, freeze_opt):
@@ -180,19 +190,22 @@ class Test_Embedding_Group_Model(EmbTestCase):
         native_output = model(indices, offsets)
         counters.clear()
         self.assertEqual(counters["zentorch"]["zentorch_horizontal_embedding_group"], 0)
-        self.assertEqual(counters["zentorch"]["zentorch_horizontal_embedding_bag_group"], 0)
+        self.assertEqual(
+            counters["zentorch"]["zentorch_horizontal_embedding_bag_group"], 0
+        )
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
         compiled_output = test_with_freeze_opt(
             compiled_graph, (indices, offsets), freeze_opt
         )
         self.assertEqual(counters["zentorch"]["zentorch_horizontal_embedding_group"], 1)
-        self.assertEqual(counters["zentorch"]["zentorch_horizontal_embedding_bag_group"], 1)
+        self.assertEqual(
+            counters["zentorch"]["zentorch_horizontal_embedding_bag_group"], 1
+        )
         self.assertEqual(native_output, compiled_output)
 
     @EmbTestCase.hypothesis_params_emb_itr(
-        dtype_list=supported_dtypes,
-        freeze_list=freeze_opt
+        dtype_list=supported_dtypes, freeze_list=freeze_opt
     )
     @torch.inference_mode()
     def test_embedding_model(self, dtype, freeze_opt):
@@ -203,6 +216,24 @@ class Test_Embedding_Group_Model(EmbTestCase):
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
         compiled_output = test_with_freeze_opt(compiled_graph, (indices), freeze_opt)
+        self.assertEqual(native_output, compiled_output)
+
+    @EmbTestCase.hypothesis_params_emb_itr(
+        dtype_list=supported_dtypes, freeze_list=freeze_opt
+    )
+    @torch.inference_mode()
+    def test_single_embedding_compile_model(self, dtype, freeze_opt):
+        model = Custom_Model_Single_Embedding(self.data.R)
+        zentorch_model = copy.deepcopy(model)
+        x = self.data.emb_input
+        model = torch.compile(model, backend="inductor")
+        native_output = model(x)
+        reset_dynamo()
+        counters.clear()
+        compiled_graph = torch.compile(zentorch_model, backend="zentorch")
+        compiled_output = test_with_freeze_opt(compiled_graph, (x), freeze_opt)
+        self.assertEqual(counters["zentorch"]["zentorch_embedding"], 1)
+        self.assertEqual(counters["zentorch"]["zentorch_horizontal_embedding_group"], 0)
         self.assertEqual(native_output, compiled_output)
 
 
