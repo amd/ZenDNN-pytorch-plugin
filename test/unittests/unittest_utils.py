@@ -643,6 +643,7 @@ class AddmmTestCase(Zentorch_TestCase):
         matrix_dim_2_Range=MATRIX_DIM_2_RANGE,
         matrix_dim_3_Range=MATRIX_DIM_3_RANGE,
         matrix_dim_4_Range=MATRIX_DIM_4_RANGE,
+        time_out=None,
         tensor_seed=0,
     ):
         skip_reason = None
@@ -657,7 +658,7 @@ class AddmmTestCase(Zentorch_TestCase):
             # The @settings() decorator is used to configure Hypothesis test parameters,
             # such as the maximum number of examples, timeout, and verbosity level.
             @settings(
-                deadline=AddmmTestCase.time_out,
+                deadline=AddmmTestCase.time_out if time_out is None else time_out,
                 max_examples=AddmmTestCase.max_example_per_test,
                 verbosity=Verbosity.quiet,
             )

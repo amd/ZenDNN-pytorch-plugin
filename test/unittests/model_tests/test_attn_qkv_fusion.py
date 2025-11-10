@@ -199,7 +199,8 @@ class Custom_Model_Attn_QKV_Fusion(nn.Module):
 class Test_Attn_QKV_Fusion_Model(AddmmTestCase):
     @AddmmTestCase.hypothesis_params_addmm_itr(
         dtype_list=supported_dtypes,
-        freeze_list=freeze_opt
+        freeze_list=freeze_opt,
+        time_out=10000  # Timeout in milliseconds, can be changed if it deadline error occured
     )
     @torch.inference_mode()
     def test_attn_qkv_fusion_model(self, dtype, freeze_opt):
