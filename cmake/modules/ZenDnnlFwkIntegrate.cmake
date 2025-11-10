@@ -124,6 +124,13 @@ zendnnl_add_option(NAME ZENDNNL_DEPENDS_ONEDNN
   CACHE_STRING "zendnnl onednn dependency"
   COMMAND_LIST ZNL_CMAKE_ARGS)
 
+# set if zendnnl depends on libxsmm, default is ON.
+zendnnl_add_option(NAME ZENDNNL_DEPENDS_LIBXSMM
+  VALUE ON
+  TYPE BOOL
+  CACHE_STRING "zendnnl libxsmm dependency"
+  COMMAND_LIST ZNL_CMAKE_ARGS)
+
 # set path of amdblis if amdblis is injected. if the framework
 # does not inject it, set it to "" (empty string).
 zendnnl_add_option(NAME ZENDNNL_AMDBLIS_FWK_DIR
@@ -203,6 +210,17 @@ else()
     INCLUDE_ONLY)
 
   target_link_libraries(zendnnl_library INTERFACE nlohmann_json::nlohmann_json)
+
+  if (ZENDNNL_DEPENDS_LIBXSMM)
+    # libxsmm dependency
+    zendnnl_add_dependency(NAME libxsmm
+      PATH "${ZENDNNL_INSTALL_PREFIX}/deps/libxsmm"
+      ARCHIVE_FILE "libxsmm.a"
+      ALIAS "libxsmm::libxsmm"
+      DEPENDS fwk_zendnnl)
+
+    target_link_libraries(zendnnl_library INTERFACE libxsmm::libxsmm)
+  endif()
 
     # aoclutils dependency
   if (DEFINED ENV{ZENDNNL_MANYLINUX_BUILD})
