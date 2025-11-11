@@ -15,6 +15,10 @@ on:
         description: 'ZenDNNL branch or PR ref (optional, e.g. refs/pull/123/head)'
         required: false
         default: ''
+      zentorch_zendnnl_ref:
+        description: 'ZenDNN_PyTorch_ZenDNNL branch or PR ref (optional, e.g. refs/pull/123/head)'
+        required: false
+        default: ''
       zentorch_use_local_zendnn:
         description: 'Set to 1 to use local ZenDNN'
         required: false
@@ -41,6 +45,7 @@ jobs:
       BLIS_TAR_BALL: 'AOCL-Sep2025-b1.tar.gz'
       ZENDNN_REF: ${{ github.event.inputs.zendnn_ref || github.event.client_payload.zendnn_ref || '' }}
       ZENDNNL_REF: ${{ github.event.inputs.zendnnl_ref || github.event.client_payload.zendnnl_ref || '' }}
+      ZENTORCH_ZENDNNL_REF: ${{ github.event.inputs.zentorch_zendnnl_ref || github.event.client_payload.zentorch_zendnnl_ref || '' }}
     steps:
       - name: Clean workspace before checkout
         run: |
@@ -278,3 +283,58 @@ jobs:
          -H "Authorization: token ${{ secrets.ZIAIE_PAT }}" \
           "https://api.github.com/repos/AMD-Zenai/ZenDNN_tools/statuses/${{ github.event.client_payload.zendnntools_ref_sha }}" \
           -d "{\"state\":\"${state}\",\"context\":\"${{ github.repository }} ZENDNNL CI\",\"description\":\"${{ github.repository }} ${state}\"}"
+      - name: Report status back for workflow_dispatch commits
+        if: always() && github.event_name == 'workflow_dispatch'
+        run: |
+          state="success"
+          if [ "${{ job.status }}" != "success" ]; then
+            state="failure"
+          fi
+
+          echo "======================================"
+          echo " WORKFLOW DISPATCH STATUS REPORT"
+          echo "======================================"
+          echo "Final job state     : $state"
+          echo "ZenDNN_REF          : ${{ github.event.inputs.zendnn_ref }}"
+          echo "ZenDNNL_REF         : ${{ github.event.inputs.zendnnl_ref }}"
+          echo "ZenTorch_ZenDNNL_REF: ${{ github.event.inputs.zentorch_zendnnl_ref }}"
+          echo ""
+
+          # --- Report to ZenDNN repo ---
+          if [ -n "${{ github.event.inputs.zendnn_ref }}" ]; then
+            echo "Reporting $state to ZenDNN commit: ${{ github.event.inputs.zendnn_ref }}"
+            curl -s -X POST \
+              -H "Accept: application/vnd.github.v3+json" \
+              -H "Authorization: token ${{ secrets.ZIAIE_PAT }}" \
+              "https://api.github.com/repos/AMD-Zenai/ZenDNN/statuses/${{ github.event.inputs.zendnn_ref }}" \
+              -d "{\"state\":\"${state}\",\"context\":\"ZenDNN_PyTorch_ZenDNNL CI\",\"description\":\"ZenDNN_PyTorch_ZenDNNL workflow_dispatch run ${state}\"}"
+          else
+            echo "Skipping ZenDNN status update — no commit SHA provided."
+          fi
+          echo ""
+
+          # --- Report to ZenDNNL repo ---
+          if [ -n "${{ github.event.inputs.zendnnl_ref }}" ]; then
+            echo "Reporting $state to ZenDNNL commit: ${{ github.event.inputs.zendnnl_ref }}"
+            curl -s -X POST \
+              -H "Accept: application/vnd.github.v3+json" \
+              -H "Authorization: token ${{ secrets.ZIAIE_PAT }}" \
+              "https://api.github.com/repos/AMD-Zenai/ZenDNN/statuses/${{ github.event.inputs.zendnnl_ref }}" \
+              -d "{\"state\":\"${state}\",\"context\":\"ZenDNN_PyTorch_ZenDNNL CI\",\"description\":\"ZenDNN_PyTorch_ZenDNNL workflow_dispatch run ${state}\"}"
+          else
+            echo "Skipping ZenDNNL status update — no commit SHA provided."
+          fi
+          echo ""
+
+          # --- Report to ZenDNN_PyTorch_ZenDNNL (this repo) ---
+          if [ -n "${{ github.event.inputs.zentorch_zendnnl_ref }}" ]; then
+            echo "Reporting $state to ZenDNN_PyTorch_ZenDNNL commit: ${{ github.event.inputs.zentorch_zendnnl_ref }}"
+            curl -s -X POST \
+              -H "Accept: application/vnd.github.v3+json" \
+              -H "Authorization: token ${{ secrets.ZIAIE_PAT }}" \
+              "https://api.github.com/repos/AMD-Zenai/ZenDNN_PyTorch_Plugin/statuses/${{ github.event.inputs.zentorch_zendnnl_ref }}" \
+              -d "{\"state\":\"${state}\",\"context\":\"ZenDNN_PyTorch_ZenDNNL CI\",\"description\":\"ZenDNN_PyTorch_ZenDNNL workflow_dispatch run ${state}\"}"
+          else
+            echo "Skipping ZenDNN_PyTorch_ZenDNNL status update — no commit SHA provided."
+          fi
+
