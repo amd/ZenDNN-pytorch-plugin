@@ -38,7 +38,7 @@ at::Tensor zendnn_matmul_impl(const at::Tensor &input, const at::Tensor &weight,
                                           post_op_ids, post_op_buffers);
   if (use_zendnn_direct_kernel) {
     LOG(INFO) << "Using zendnn direct kernel for matmul";
-    const int64_t &post_op_id =
+    const int64_t post_op_id =
         post_op_ids.size() == 0 ? INT64_MIN : post_op_ids[0];
     zendnn_direct_kernel(input, weight, bias, result, beta, alpha, post_op_id);
     return result;

@@ -5,6 +5,7 @@
 
 import operator
 import sys
+import os
 import torch
 from torch._inductor.pattern_matcher import (
     PatternMatcherPass,
@@ -36,14 +37,16 @@ pass_pattern = PatternMatcherPass()
 # we will write checks and register_graph_patterns for the following ops
 # embedding replacement
 def is_embedding_op_replacable(match):
-    
+    # Constraints for valid tensors:
+    # - Must be on CPU device (not CUDA/XLA/etc.)
+    # - Must use strided (dense) layout (not sparse_coo, sparse_csr, mkldnn, etc.)
+
+    # Any other constraints for the tensors will be explicitly mentioned
+
     # checks for the argument "weight"
     # Extract the weight tensor node (first argument to embedding)
     weight = match.args[0]
 
-    # Validate weight tensor constraints:
-    # - Must be on CPU device (not CUDA/XLA/etc.)
-    # - Must use strided (dense) layout (not sparse_coo, sparse_csr, mkldnn, etc.)
     weight_checks = (
         weight.meta["val"].device.type == "cpu"
         and weight.meta["val"].layout == torch.strided
@@ -54,8 +57,6 @@ def is_embedding_op_replacable(match):
     indices = match.args[1]
 
     # Validate indices tensor constraints:
-    # - Must be on CPU device (embedding lookup happens on CPU)
-    # - Must use strided (dense) layout (not sparse)
     # - Must be 1D tensor (shape: [num_indices])
     #   Note: Some embedding ops support 2D+ indices; this enforces 1D only
     indices_checks = (
@@ -473,12 +474,51 @@ def replace_with_composite_zentorch_ops(fx_graph: torch.fx.Graph) -> torch.fx.Gr
             )
             continue
 
-        if not is_zendnn_embedding_bag_supported(node.args[0].meta["val"]):
+        # Constraints for valid tensors:
+        # - Must be on CPU device (not CUDA/XLA/etc.)
+        # - Must use strided (dense) layout (not sparse_coo, sparse_csr, mkldnn, etc.)
+
+        # Any other constraints for the tensors will be explicitly mentioned
+
+        # checks for the argument "weight"
+        # Extract the weight tensor node (first argument to embedding)
+        weight = node.args[0]
+
+        weight_checks = (
+            weight.meta["val"].device.type == "cpu"
+            and weight.meta["val"].layout == torch.strided
+        )
+
+        # checks for the argument "indices"
+        # Extract the indices tensor node (second argument to embedding)
+        indices = node.args[1]
+
+        indices_checks = (
+            indices.meta["val"].device.type == "cpu"
+            and indices.meta["val"].layout == torch.strided
+        )
+
+        # checks for the argument "offsets"
+        # Extract the offsets tensor node (second argument to embedding)
+        offsets = node.args[1]
+
+        offsets_checks = (
+            offsets.meta["val"].device.type == "cpu"
+            and offsets.meta["val"].layout == torch.strided
+        )
+
+        combined_checks = weight_checks and indices_checks and offsets_checks
+
+        if not combined_checks:
+            logger.debug("Cannot replace aten embedding bag with zentorch embedding bag.")
+            continue
+
+        if os.environ.get("ZENDNN_ZENDNNL", "1") == "0" and not is_zendnn_embedding_bag_supported(weight.meta["val"]):
             logger.info(
                 "zentorch embedding-bag is not supported for the combination of "
                 "dtype: %s and embedding dimension: %s.",
-                node.args[0].meta["val"].dtype,
-                node.args[0].meta["val"].shape[1],
+                weight.meta["val"].dtype,
+                weight.meta["val"].shape[1],
             )
             continue
 

@@ -24,6 +24,22 @@ using namespace zendnnl::interface;
 
 namespace zentorch {
 
+struct TensorStruct {
+  std::reference_wrapper<const at::Tensor> at_tensor;
+  std::reference_wrapper<tensor_t> zendnnl_tensor;
+  std::reference_wrapper<const std::string_view> tensor_name;
+  std::reference_wrapper<const std::vector<unsigned long>> tensor_sizes;
+  std::reference_wrapper<const std::vector<unsigned long>> tensor_strides;
+
+  static inline const std::vector<unsigned long> empty_vector = {};
+
+  TensorStruct(const at::Tensor &t, tensor_t &z, const std::string_view &n,
+               const std::vector<unsigned long> &sz = empty_vector,
+               const std::vector<unsigned long> &st = empty_vector)
+      : at_tensor(t), zendnnl_tensor(z), tensor_name(n), tensor_sizes(sz),
+        tensor_strides(st) {}
+};
+
 // this infers the zendnn datatype from aten tensor
 inline auto get_ztype_from_aten(const at::Tensor &atensor) {
   using ZenDType = typename memory::data_type;
@@ -58,6 +74,8 @@ inline auto get_zendnnl_dtype(const at::Tensor &atensor) {
     return data_type_t::s8;
   case c10::kInt:
     return data_type_t::s32;
+  case c10::kLong:
+    return data_type_t::s64;
   case c10::kFloat:
     return data_type_t::f32;
   case c10::kBFloat16:
@@ -185,12 +203,12 @@ inline memory zen_memory(const at::Tensor &atensor,
 // the caller function. The attributes depend on the properties of aten tensor.
 inline void set_zendnnl_tensor_attributes(
     const at::Tensor &at_tensor, tensor_t &zendnnl_tensor,
-    const std::string &tensor_name,
-    const std::vector<long unsigned int> &tensor_sizes = {},
-    const std::vector<long unsigned int> &tensor_strides = {}) {
+    const std::string_view &tensor_name,
+    const std::vector<unsigned long> &tensor_sizes = {},
+    const std::vector<unsigned long> &tensor_strides = {}) {
 
   void *at_tensor_ptr = at_tensor.data_ptr();
-  zendnnl_tensor.set_name(tensor_name)
+  zendnnl_tensor.set_name(static_cast<std::string>(tensor_name))
       .set_data_type(get_zendnnl_dtype(at_tensor))
       .set_storage(at_tensor_ptr, at_tensor.nbytes());
 
@@ -203,16 +221,35 @@ inline void set_zendnnl_tensor_attributes(
     return;
   }
 
-  std::vector<long unsigned int> at_tensor_sizes(at_tensor.sizes().begin(),
-                                                 at_tensor.sizes().end());
-  std::vector<long unsigned int> at_tensor_strides(at_tensor.strides().begin(),
-                                                   at_tensor.strides().end());
+  std::vector<unsigned long> at_tensor_sizes(at_tensor.sizes().begin(),
+                                             at_tensor.sizes().end());
+  std::vector<unsigned long> at_tensor_strides(at_tensor.strides().begin(),
+                                               at_tensor.strides().end());
 
   zendnnl_tensor.set_size(at_tensor_sizes).set_stride(at_tensor_strides);
 
   zendnnl_tensor.create();
   ZENTORCH_CHECK(zendnnl_tensor.check(), "tensor creation of ",
                  zendnnl_tensor.get_name(), " failed.");
+}
+
+inline void
+create_tensors_for_zendnnl(std::vector<TensorStruct> &tensor_structs) {
+  int num_tensors = tensor_structs.size();
+
+  at::parallel_for(0, num_tensors, 0, [&](int64_t start, int64_t end) {
+    for (int tensor_index = start; tensor_index < end; tensor_index++) {
+      auto &ts = tensor_structs[tensor_index];
+      const at::Tensor &at_tensor = ts.at_tensor.get();
+      tensor_t &zendnnl_tensor = ts.zendnnl_tensor.get();
+      const std::string_view &tensor_name = ts.tensor_name.get();
+      const std::vector<unsigned long> &tensor_sizes = ts.tensor_sizes.get();
+      const std::vector<unsigned long> &tensor_strides =
+          ts.tensor_strides.get();
+      set_zendnnl_tensor_attributes(at_tensor, zendnnl_tensor, tensor_name,
+                                    tensor_sizes, tensor_strides);
+    }
+  });
 }
 
 // The reorder API allows us to transform data between various memory formats

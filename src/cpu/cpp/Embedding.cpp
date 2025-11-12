@@ -45,18 +45,8 @@ at::Tensor zendnnl_embedding_impl(const at::Tensor &weight,
 
   zen_embedding_weight_check(weight);
 
-  // TODO
-  // As soon as the int64 support for indices is added in the zendnnl library,
-  // this conversion will be removed.
-  at::Tensor cindices = indices.toType(c10::kInt).contiguous();
-  tensor_t cindices_tensor = tensor_t();
-  set_zendnnl_tensor_attributes(cindices, cindices_tensor, "indices");
-
-  tensor_t table = tensor_t();
-  set_zendnnl_tensor_attributes(weight, table, "table");
-
   int dim_embedding = weight.sizes()[1];
-  int num_indices = cindices.sizes()[0];
+  int num_indices = indices.sizes()[0];
 
   LOG(INFO) << "Embedding matrix dimensions: " << weight.sizes()[0] << "x"
             << dim_embedding;
@@ -65,26 +55,32 @@ at::Tensor zendnnl_embedding_impl(const at::Tensor &weight,
   // at::detail::empty_strided_cpu instead of at::zero is more efficient
   at::Tensor output = at::detail::empty_strided_cpu(
       {num_indices, dim_embedding}, {dim_embedding, 1}, weight.options());
+
+  tensor_t indices_tensor = tensor_t();
+  tensor_t table = tensor_t();
   tensor_t output_tensor = tensor_t();
-  set_zendnnl_tensor_attributes(output, output_tensor, "output");
 
-  embag_context_t embedding_context = embag_context_t()
-                                          .set_param("table", table)
-                                          .set_padding_index(padding_idx)
-                                          .create();
-  ZENTORCH_CHECK(embedding_context.check(),
-                 "embedding context creation failed");
+  std::vector<TensorStruct> tensor_structs = {
+      {indices, indices_tensor, "indices"},
+      {weight, table, "table"},
+      {output, output_tensor, "output"}};
 
-  embag_operator_t embedding_operator = embag_operator_t()
-                                            .set_name("embedding")
-                                            .set_context(embedding_context)
-                                            .create();
-  ZENTORCH_CHECK(embedding_operator.check(), "operator ",
-                 embedding_operator.get_name(), " creation failed.");
+  create_tensors_for_zendnnl(tensor_structs);
 
-  status_t status = embedding_operator.set_input("indices", cindices_tensor)
-                        .set_output("output", output_tensor)
-                        .execute();
+  embag_context_t embedding_context = embag_context_t();
+  const int64_t mode = -1; /*There is no reduction algo in embdding*/
+  set_embedding_context_attributes(embedding_context, table, mode,
+                                   false /*include_last_offset*/, padding_idx,
+                                   false /*per_sample_weights_defined*/);
+
+  embag_operator_t embedding_operator = embag_operator_t();
+  const std::string operator_name = "embedding";
+  set_embedding_operator_attributes(embedding_operator, operator_name,
+                                    embedding_context, indices_tensor,
+                                    output_tensor);
+
+  LOG(INFO) << "Embedding compute in progress...";
+  status_t status = embedding_operator.execute();
 
   ZENTORCH_CHECK(status == status_t::success, "operator ",
                  embedding_operator.get_name(), " execution failed.");

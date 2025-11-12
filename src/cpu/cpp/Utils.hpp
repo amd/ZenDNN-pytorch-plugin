@@ -33,6 +33,13 @@ inline bool is_avx512_supported() {
          cpuinfo_has_x86_avx512bw();
 }
 
+enum EMBEDDING_BAG_ALGO {
+  // Add unary post ops here
+  SUM = 0,
+  MEAN = 1,
+  MAX = 2
+};
+
 enum UNARY_POST_OP {
   // Add unary post ops here
   POST_OP_NONE,

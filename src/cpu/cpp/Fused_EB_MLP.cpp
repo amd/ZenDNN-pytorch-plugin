@@ -55,7 +55,7 @@ std::vector<at::Tensor> zentorch_fused_eb_mlp(
 
       std::tie(temp_indices[i], temp_offsets[i], per_sample_weights,
                output[i]) =
-          eb_tensors_to_memory(
+          embeddingbag_tensors_to_memory(
               eb_weight[i], eb_indices[i], eb_offsets[i],
               eb_per_sample_weights_opt[i], eb_mode[i], output[i], z_weight[i],
               z_indices[i], z_offsets[i], z_per_sample_weights_opt[i],
