@@ -40,9 +40,11 @@ Table of Contents
 
 ## 1.1. Overview
 
-__The latest ZenDNN Plugin for PyTorch* (zentorch) 5.1 is here!__
+__The latest stable ZenDNN Plugin for PyTorch* (zentorch) [5.1](https://github.com/amd/ZenDNN-pytorch-plugin/tree/r5.1).__
 
-zentorch 5.1 is the PyTorch plugin which comes with ZenDNN 5.1.
+
+__The main branch contains zentorch 5.2 pre-release plugin.__
+zentorch 5.2 pre-release plugin is the PyTorch plugin which comes with ZenDNN 5.2 pre-release.
 This upgrade continues the focus on optimizing inference with Recommender Systems and Large Language Models on AMD EPYC™ CPUs. includes AMD EPYC™ enhancements for bfloat16 performance, expanded support for cutting-edge models like Llama 3.1 and 3.2, Microsoft Phi, and more as well as support for INT4 quantized datatype.
 This includes the advanced Activation-Aware Weight Quantization (AWQ) algorithm for LLMs and quantized support for the DLRM-v2 model with int8 weights.
 
@@ -51,7 +53,7 @@ They also incorporate optimized embedding bag kernels and enhanced zenMatMul mat
 
 Combined with PyTorch's torch.compile, zentorch transforms deep learning pipelines into finely-tuned, AMD-specific engines, delivering unparalleled efficiency and speed for large-scale inference workloads
 
-The zentorch 5.1 release plugs seamlessly with PyTorch versions from 2.7 and 2.6, offering a high-performance experience for deep learning on AMD EPYC™ platforms.
+The zentorch 5.2 pre-release plugin seamlessly works with PyTorch versions including 2.9 and 2.8, offering a high-performance experience for deep learning on AMD EPYC™ platforms.
 
 ## Support
 
@@ -104,8 +106,10 @@ Refer to the [support matrix](https://www.amd.com/en/developer/zendnn.html#getti
 # 2. Installation
 
 _zentorch_ can be installed using binary wheel file or can be built from source itself.
+Only stable releases are available as binary wheel files. The latest stable release is _zentorch_ v5.1.0 which supports PyTorch v2.6.0 and v2.7.0. Zentorch 5.2 pre-release can be built from source and supports PyTorch v2.8.0 and v2.9.0.
 
 ## 2.1. From Binaries
+
 * Create conda or python environment and activate it.
 * Uninstall any existing _zentorch_ installations.
 ```bash
@@ -135,7 +139,8 @@ cd ZENTORCH_v5.1.0_Python_v3.10/
 pip install zentorch-5.1.0-cp310-cp310-manylinux_2_28_x86_64.whl
 ```
 >Notes:
-* Zentorch inherits its Python version compatibility from PyTorch. For Torch 2.7 and 2.6, Zentorch supports Python 3.9 to 3.13. For other versions, please refer to the [PyTorch Release Compatibility Matrix](https://github.com/pytorch/pytorch/blob/main/RELEASE.md#release-compatibility-matrix). This README uses Python 3.10.
+* Zentorch inherits its Python version compatibility from PyTorch. For Torch 2.9 and 2.8, Zentorch supports Python 3.9 to 3.13. For other versions, please refer to the [PyTorch Release Compatibility Matrix](https://github.com/pytorch/pytorch/blob/main/RELEASE.md#release-compatibility-matrix). Please note that Python 3.13T and Python 3.14 are not supported in zentorch.
+This README uses Python 3.10.
 * Dependent packages 'numpy' and 'torch' will be installed by '_zentorch_' if not already present.
 * If you get the error: ImportError: /lib64/libstdc++.so.6: version `GLIBCXX_.a.b.cc' not found (required by <path_to_conda>/envs/<env_name>/lib/python<py_version>/site-packages/zentorch-5.1.0-pyx.y-linux-x86_64.egg/zentorch/_C.cpython-xy-x86_64-linux-gnu.so), export LD_PRELOAD as:
   * export LD_PRELOAD=<path_to_conda>/envs/<env_name>/lib/libstdc++.so.6:$LD_PRELOAD
@@ -146,11 +151,9 @@ Run the following commands:
 git clone https://github.com/amd/ZenDNN-pytorch-plugin.git
 cd ZenDNN-pytorch-plugin
 ```
->Note: The repository defaults to the master branch. To build version 5.1, please checkout the r5.1 branch; otherwise, it will build using the master branch which carries 5.2 tag.
-```bash
-git checkout r5.1
-```
->Note: Build from the master branch generates zentorch 5.2, which supports PyTorch 2.8 and 2.7, whereas zentorch 5.1 supports PyTorch 2.7 and 2.6.
+>Note: The repository defaults to the master branch.
+
+>Note: Build from the master branch generates zentorch 5.2 pre-release plugin.
 
 ### 2.2.1. Preparing third party repositories
 
@@ -188,8 +191,8 @@ python setup.py bdist_wheel
 cd dist
 pip install zentorch-5.2.0-cp310-cp310-linux_x86_64.whl
 ```
->Note: If you build from the r5.1 branch, the generated wheel file will instead be named:
-zentorch-5.1.0-cp310-cp310-linux_x86_64.whl
+>Note: If you build from the main branch, the generated wheel file will instead be named:
+zentorch-5.2.0-cp310-cp310-linux_x86_64.whl
 #### 2.2.2.6. Build Cleanup
 ```bash
 python setup.py clean --all
@@ -278,8 +281,11 @@ python -c 'import zentorch; print("\n".join([f"{i+1:3}. {item}" for i, item in e
 If a model id other than the listed above are passed, zentorch.llm.optimize will not apply the above specific optimizations to the model and a warning will be displayed as follows: “Complete set of optimizations are currently unavailable for this model.” Control will pass to the zentorch custom backend to torch.compile for applying optimizations.
 
 For leveraging the best performance of zentorch_llm_optimize, user has to install IPEX corresponding to the PyTorch version that is installed in the environment.
-The PyTorch version for performance execution of supported LLMs should be greater than or equal to 2.7.0. Recommended version for optimal performance is using PyTorch 2.8.
+The PyTorch version for performance execution of supported LLMs should be equal to 2.8.0. Recommended version for optimal performance is using PyTorch 2.8.
 zentorch.llm.optimize requires the dtype to be torch.dtype. Please make sure you pass a valid torch.dtype (such as torch.bfloat16) to optimize your model.
+
+#### Note: zentorch.llm.optimize is currently only supported with Torch2.8.0+cpu with IPEX2.8.0. Due to missing support for IPEX with PyTorch 2.9+cpu, zentorch.llm.optimize will not be able to leverage the best performance optimizations in this version. zentorch.llm.optimize is deprecated from 5.2 release for pytorch versions above 2.8.0. We recommend running with VLLM-ZenTorch plugin for better performance. Please refer to section 4.6 for more details.
+More details on IPEX releases can be found [here](https://github.com/intel/intel-extension-for-pytorch/releases).
 
 ### Case #1. If output is generated through a call to direct `model`, optimize it as below:
 ```python
@@ -312,7 +318,7 @@ with torch.no_grad():
 Huggingface models are quantized using [AMD's Quark tool](https://github.com/amd/Quark/blob/v0.8/README.md).
 After downloading the zip file, install Quark and follow the below steps:
 
-> zentorch v5.1 is compatible with Quark v0.8. Please make sure you download the right version.
+> zentorch v5.2.0 pre-release plugin is compatible with Quark v0.8. Please make sure you download the right version.
 
 ### 4.5.1 Go to the examples/torch/language_modeling/llm_ptq/ directory
 ### 4.5.2 Install the necessary dependencies
@@ -385,7 +391,7 @@ TORCH_COMPILE_DEBUG=1 python test.py
 For more information about TORCH_COMPILE_DEBUG refer to the official PyTorch documentation available.
 
 # 6. Performance tuning and Benchmarking
-zentorch v5.1 is supported with ZenDNN v5.1. Please see the **Tuning Guidelines** section of ZenDNN User Guide for performance tuning. ZenDNN User Guide can be downloaded from [here](https://developer.amd.com/zendnn)
+zentorch v5.2.0 pre-release plugin is supported with ZenDNN v5.2.0 pre-release plugin. Please see the **Tuning Guidelines** section of ZenDNN User Guide for performance tuning. ZenDNN User Guide can be downloaded from [here](https://developer.amd.com/zendnn)
 
 # 7. Additional Utilities:
 
