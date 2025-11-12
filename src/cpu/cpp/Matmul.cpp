@@ -5,6 +5,7 @@
 
 #include "EnvReader.hpp"
 #include "MatmulUtils.hpp"
+#include "Ops.hpp"
 
 namespace zentorch {
 
@@ -152,12 +153,9 @@ std::vector<at::Tensor> zendnn_matmul_group_impl(
                       inputs[op_id].dim() == 2 &&
                       weights[op_id].dim() == 2), // aten::addmm
                      "unsupported dims for self, mat1 and mat2");
-      std::vector<int64_t> output_sizes =
-          get_matmul_and_linear_output_sizes(inputs[op_id], weights[op_id]);
-      std::vector<int64_t> output_strides =
-          get_matmul_and_linear_output_strides(output_sizes);
-      at::Tensor result = at::detail::empty_strided_cpu(
-          output_sizes, output_strides, inputs[op_id].options());
+
+      at::Tensor result =
+          create_linear_and_matmul_output_tensor(inputs[op_id], weights[op_id]);
       bias_vector[op_id] = self_vector[op_id];
       self_or_result_vector[op_id] = result;
     }
@@ -369,7 +367,7 @@ at::Tensor zentorch_matmul_impl(const at::Tensor &input,
                                 const std::vector<at::Tensor> &post_op_buffers,
                                 const float &beta, const float &alpha,
                                 std::string zentorch_op_name,
-                                const bool &is_weight_const = true) {
+                                const bool &is_weight_const) {
   const int &library = EnvReader::getEnvVariableAsInt(
       "ZENDNN_ZENDNNL"); // 0 would represent ZenDNN and 1 would
                          // represent ZenDNNL. Default library will be ZenDNNL
@@ -395,12 +393,7 @@ at::Tensor zentorch_addmm_1dbias(const at::Tensor &self, const at::Tensor &mat1,
       (self.dim() == 1 && mat1.dim() == 2 && mat2.dim() == 2), // aten::addmm
       "unsupported dims for self, mat1 and mat2");
 
-  std::vector<int64_t> output_sizes =
-      get_matmul_and_linear_output_sizes(mat1, mat2);
-  std::vector<int64_t> output_strides =
-      get_matmul_and_linear_output_strides(output_sizes);
-  at::Tensor result = at::detail::empty_strided_cpu(
-      output_sizes, output_strides, mat1.options());
+  at::Tensor result = create_linear_and_matmul_output_tensor(mat1, mat2);
 
   LOG(INFO) << "Calling zentorch_matmul_impl from " << __FUNCTION__ << "!\n";
 
@@ -424,12 +417,7 @@ at::Tensor zentorch_addmm_1dbias_unary_binary(const at::Tensor &self,
       (self.dim() == 1 && mat1.dim() == 2 && mat2.dim() == 2), // aten::addmm
       "unsupported dims for self, mat1 and mat2");
 
-  std::vector<int64_t> output_sizes =
-      get_matmul_and_linear_output_sizes(mat1, mat2);
-  std::vector<int64_t> output_strides =
-      get_matmul_and_linear_output_strides(output_sizes);
-  at::Tensor result = at::detail::empty_strided_cpu(
-      output_sizes, output_strides, binary_input.options());
+  at::Tensor result = create_linear_and_matmul_output_tensor(mat1, mat2);
 
   std::vector<int64_t> post_op_ids = {fuse1, fuse2};
   std::vector<at::Tensor> post_op_buffers = {binary_input};
@@ -454,19 +442,13 @@ at::Tensor zentorch_addmm_1dbias_binary_binary(
                  "unsupported dims for mat1, mat2, "
                  "binary1_input and binary2_input");
 
-  std::vector<int64_t> output_sizes =
-      get_matmul_and_linear_output_sizes(mat1, mat2);
+  at::Tensor result = create_linear_and_matmul_output_tensor(mat1, mat2);
 
-  ZENTORCH_CHECK((binary1_input.sizes() == c10::IntArrayRef(output_sizes) &&
-                  binary2_input.sizes() == c10::IntArrayRef(output_sizes)),
+  ZENTORCH_CHECK((binary1_input.sizes() == c10::IntArrayRef(result.sizes()) &&
+                  binary2_input.sizes() == c10::IntArrayRef(result.sizes())),
                  "unsupported sizes for mat1, mat2, "
                  "binary1_input and binary2_input");
   ZENTORCH_CHECK((self.dim() == 1), "unsupported dims for self, mat1 and mat2");
-
-  std::vector<int64_t> output_strides =
-      get_matmul_and_linear_output_strides(output_sizes);
-  at::Tensor result = at::detail::empty_strided_cpu(
-      output_sizes, output_strides, binary2_input.options());
 
   std::vector<int64_t> post_op_ids = {fuse1, fuse2};
   std::vector<at::Tensor> post_op_buffers = {binary1_input, binary2_input};
@@ -492,12 +474,7 @@ at::Tensor zentorch_addmm(const at::Tensor &self, const at::Tensor &mat1,
   ZENTORCH_CHECK((mat1.dim() == 2 && mat2.dim() == 2), // aten::addmm
                  "unsupported dims for self, mat1 and mat2");
 
-  std::vector<int64_t> output_sizes =
-      get_matmul_and_linear_output_sizes(mat1, mat2);
-  std::vector<int64_t> output_strides =
-      get_matmul_and_linear_output_strides(output_sizes);
-  at::Tensor result = at::detail::empty_strided_cpu(
-      output_sizes, output_strides, self.options());
+  at::Tensor result = create_linear_and_matmul_output_tensor(mat1, mat2);
 
   at::Tensor add_input;
 
@@ -598,12 +575,7 @@ at::Tensor zentorch_baddbmm(const at::Tensor &self, const at::Tensor &batch1,
   const at::Tensor &batch1_ = get_contiguous_view(batch1);
   const at::Tensor &batch2_ = get_contiguous_view(batch2);
 
-  std::vector<int64_t> output_sizes =
-      get_matmul_and_linear_output_sizes(batch1_, batch2_);
-  std::vector<int64_t> output_strides =
-      get_matmul_and_linear_output_strides(output_sizes);
-  at::Tensor result = at::detail::empty_strided_cpu(
-      output_sizes, output_strides, self_.options());
+  at::Tensor result = create_linear_and_matmul_output_tensor(batch1_, batch2_);
 
   // TODO
   // Currently there is no kernel that supports 3-d bias addition with 3d
@@ -626,12 +598,7 @@ at::Tensor zentorch_mm(const at::Tensor &self, const at::Tensor &mat2,
   ZENTORCH_CHECK((self.dim() == 2 && mat2.dim() == 2), // aten::mm
                  "unsupported dims for self and mat2");
 
-  std::vector<int64_t> output_sizes =
-      get_matmul_and_linear_output_sizes(self, mat2);
-  std::vector<int64_t> output_strides =
-      get_matmul_and_linear_output_strides(output_sizes);
-  at::Tensor result = at::detail::empty_strided_cpu(
-      output_sizes, output_strides, self.options());
+  at::Tensor result = create_linear_and_matmul_output_tensor(self, mat2);
 
   at::Tensor empty_bias;
   return zentorch_matmul_impl(self, mat2, empty_bias, result,
@@ -659,12 +626,7 @@ at::Tensor zentorch_bmm(const at::Tensor &self, const at::Tensor &mat2,
   const at::Tensor &self_ = get_contiguous_view(self);
   const at::Tensor &mat2_ = get_contiguous_view(mat2);
 
-  std::vector<int64_t> output_sizes =
-      get_matmul_and_linear_output_sizes(self, mat2);
-  std::vector<int64_t> output_strides =
-      get_matmul_and_linear_output_strides(output_sizes);
-  at::Tensor result = at::detail::empty_strided_cpu(
-      output_sizes, output_strides, self.options());
+  at::Tensor result = create_linear_and_matmul_output_tensor(self, mat2);
 
   const at::Tensor empty_bias;
   return zentorch_matmul_impl(self_, mat2_, empty_bias, result,
@@ -685,13 +647,7 @@ zentorch_addmm_unary_binary(const at::Tensor &bias, const at::Tensor &mat1,
 
   ZENTORCH_CHECK((mat1.dim() == 2 && mat2.dim() == 2), // aten::addmm
                  "unsupported dims for self, mat1 and mat2");
-
-  std::vector<int64_t> output_sizes =
-      get_matmul_and_linear_output_sizes(mat1, mat2);
-  std::vector<int64_t> output_strides =
-      get_matmul_and_linear_output_strides(output_sizes);
-  at::Tensor result = at::detail::empty_strided_cpu(
-      output_sizes, output_strides, binary_input.options());
+  at::Tensor result = create_linear_and_matmul_output_tensor(mat1, mat2);
 
   float beta_float = beta.to<float>();
   at::Tensor beta_bias = beta_float == 1 ? bias : bias.mul(beta);
@@ -700,7 +656,7 @@ zentorch_addmm_unary_binary(const at::Tensor &bias, const at::Tensor &mat1,
   std::vector<int64_t> post_op_ids = {BINARY_POST_OP::ADD, fuse1, fuse2};
   std::vector<at::Tensor> post_op_buffers;
 
-  if (beta_bias.sizes() == output_sizes) {
+  if (beta_bias.sizes() == result.sizes()) {
     post_op_buffers = {beta_bias, binary_input};
   } else if (beta_bias.dim() == 1) {
     LOG(WARNING)
@@ -724,12 +680,7 @@ at::Tensor zentorch_mm_unary_binary(const at::Tensor &mat1,
   ZENTORCH_CHECK((mat1.dim() == 2 && mat2.dim() == 2),
                  "unsupported dims for mat1 and mat2")
 
-  std::vector<int64_t> output_sizes =
-      get_matmul_and_linear_output_sizes(mat1, mat2);
-  std::vector<int64_t> output_strides =
-      get_matmul_and_linear_output_strides(output_sizes);
-  at::Tensor result = at::detail::empty_strided_cpu(
-      output_sizes, output_strides, binary_input.options());
+  at::Tensor result = create_linear_and_matmul_output_tensor(mat1, mat2);
 
   at::Tensor empty_bias;
   std::vector<int64_t> post_op_ids = {fuse1, fuse2};
@@ -795,12 +746,8 @@ zentorch_attn_qkv_fusion(at::TensorList self, at::TensorList inputs,
   for (int i = 0; i < num_ops; i++) {
     input_vector[i] = inputs[i];
     if (is_zentorch_mm[i] == 1) {
-      std::vector<int64_t> output_sizes =
-          get_matmul_and_linear_output_sizes(inputs[i], weights[i]);
-      std::vector<int64_t> output_strides =
-          get_matmul_and_linear_output_strides(output_sizes);
-      self_vector[i] = at::detail::empty_strided_cpu(
-          output_sizes, output_strides, inputs[i].options());
+      self_vector[i] =
+          create_linear_and_matmul_output_tensor(inputs[i], weights[i]);
     } else {
       self_vector[i] = self[i];
     }

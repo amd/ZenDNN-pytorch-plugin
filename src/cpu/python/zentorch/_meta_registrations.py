@@ -115,6 +115,42 @@ def meta_zentorch_addmm_gelu_erf(
     return bias.new_empty((input.shape[0], weight.shape[-1]))
 
 
+@register_meta("zentorch_linear_unary")
+def meta_zentorch_linear_unary(
+    input, weight, bias=None, is_weight_prepacked=False, post_op="none"
+):
+    out_dim = list(input.size())
+    out_dim[-1] = weight.size(0)
+    return input.new_empty(out_dim)
+
+
+@register_meta("zentorch_linear_binary_binary")
+def meta_zendnn_linear_binary_binary(
+    input,
+    weight,
+    binary_input_1,
+    binary_input_2,
+    bias=None,
+    is_weight_prepacked=False,
+    post_op_1="none",
+    post_op_2="none",
+):
+    return binary_input_2.new_empty(binary_input_2.shape)
+
+
+@register_meta("zentorch_linear_unary_binary")
+def meta_zendnn_linear_unary_binary(
+    input,
+    weight,
+    binary_input,
+    bias=None,
+    is_weight_prepacked=False,
+    post_op_1="none",
+    post_op_2="none",
+):
+    return binary_input.new_empty(binary_input.shape)
+
+
 @register_meta("zentorch_addmm_1dbias")
 def meta_zentorch_addmm_1dbias(
     bias,

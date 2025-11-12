@@ -57,6 +57,16 @@ enum UNARY_POST_OP {
 // unique value.
 enum BINARY_POST_OP { MUL = UNARY_POST_OP::UNARY_OP_COUNT + 1, ADD };
 
+static const std::map<std::string_view, int> post_op_map = {
+    {"None", UNARY_POST_OP::POST_OP_NONE},
+    {"relu", UNARY_POST_OP::RELU},
+    {"gelu_tanh", UNARY_POST_OP::GELU_TANH},
+    {"gelu_erf", UNARY_POST_OP::GELU_ERF},
+    {"silu", UNARY_POST_OP::SILU},
+    {"sigmoid", UNARY_POST_OP::SIGMOID},
+    {"mul", BINARY_POST_OP::MUL},
+    {"add", BINARY_POST_OP::ADD}};
+
 // Each value of QUANT_GRANULARITY enum indicates the mappings for various
 // quantization granularity levels(PER_TENSOR/PER_CHANNEL/PER_GROUP)
 // with the zendnn library's tensor mask values.

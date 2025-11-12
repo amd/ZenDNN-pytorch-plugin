@@ -26,6 +26,7 @@
 
 // needs to be included only once in library.
 #include <pybind11/stl_bind.h>
+#include <torch/extension.h>
 
 #include "DataPointerManager.hpp"
 #include "Ops.hpp"

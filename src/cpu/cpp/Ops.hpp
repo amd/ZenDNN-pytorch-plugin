@@ -7,8 +7,6 @@
 
 #pragma once
 
-#include <torch/extension.h>
-
 namespace zentorch {
 
 at::Tensor

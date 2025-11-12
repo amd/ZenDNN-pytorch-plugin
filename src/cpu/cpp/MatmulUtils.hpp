@@ -21,9 +21,9 @@ inline at::Tensor get_contiguous_view(const at::Tensor &tensor) {
       std::any_of(stride.begin(), stride.end(), [](auto s) { return s == 0; });
   if (!is_sorted || is_zero) {
     auto new_tensor = tensor.clone(at::MemoryFormat::Contiguous).view(sizes);
-    LOG(WARNING) << "Tensor is not contiguous. Converting the tensor to a "
-                    "contiguous format in "
-                 << __FILE__ << ": " << __LINE__ << " in " << __FUNCTION__;
+    LOG(INFO) << "Tensor is not contiguous. Converting the tensor to a "
+                 "contiguous format in "
+              << __FILE__ << ": " << __LINE__ << " in " << __FUNCTION__;
     return new_tensor;
   }
   return tensor.view(sizes);
@@ -508,6 +508,16 @@ get_matmul_and_linear_output_strides(const std::vector<int64_t> &output_size) {
   }
   std::reverse(output_strides.begin(), output_strides.end());
   return output_strides;
+}
+
+inline at::Tensor
+create_linear_and_matmul_output_tensor(const at::Tensor input,
+                                       const at::Tensor weight) {
+  auto output_size = get_matmul_and_linear_output_sizes(input, weight);
+  auto output_strides = get_matmul_and_linear_output_strides(output_size);
+  at::Tensor result = at::detail::empty_strided_cpu(output_size, output_strides,
+                                                    input.options());
+  return result;
 }
 
 // TODO

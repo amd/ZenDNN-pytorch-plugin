@@ -183,7 +183,7 @@ class Test_Addmm_Op(MMTestCase):
             torch.ops.zentorch.zentorch_addmm(bias_as_postop, self.data.x, self.data.y)
 
         self.assertTrue(
-            "zentorch_matmul only supports Float and BFloat16" in str(context.exception)
+            "zentorch_matmul only supports" in str(context.exception)
         )
 
     @MMTestCase.hypothesis_params_mm_itr(
@@ -209,7 +209,7 @@ class Test_Addmm_Op(MMTestCase):
             torch.ops.zentorch.zentorch_addmm(bias_as_postop, self.data.x, self.data.y)
 
         self.assertTrue(
-            "zentorch_matmul only supports Float and BFloat16"
+            "zentorch_matmul only supports BFloat16 post ops"
             in str(context_int.exception)
         )
 
