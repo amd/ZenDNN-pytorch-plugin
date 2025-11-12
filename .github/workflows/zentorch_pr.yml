@@ -116,13 +116,13 @@ jobs:
           git clone  --branch main https://${{ secrets.ZIAIE_PAT }}@github.com/AMD-Zenai/ZenDNN_tools.git "$PARENT_DIR/ZenDNN_tools"  
       - name: Checkout PR tip commit
         if: github.event_name == 'pull_request'
-        working-directory: ZenDNN_PyTorch_Plugin
+        working-directory: ${{ github.workspace }}
         run: |
-         echo "🎯 Checking out PR tip commit..."
+         echo " Checking out PR tip commit..."
          echo "Current commit: $(git rev-parse HEAD)"
          echo "PR HEAD SHA: ${{ github.event.pull_request.head.sha }}"
          git checkout ${{ github.event.pull_request.head.sha }}
-         echo "✅ Now on commit: $(git rev-parse HEAD)"
+         echo " Now on commit: $(git rev-parse HEAD)"
          echo "PR #${{ github.event.pull_request.number }} - ${{ github.event.pull_request.title }}"
       - name: PR INFO
         shell: bash
