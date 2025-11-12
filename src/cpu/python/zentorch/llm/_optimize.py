@@ -4,10 +4,12 @@
 # ******************************************************************************
 
 import torch
-from ._checks import essential_checks
+from ._checks import essential_checks, get_installed_ipex_version
 import zentorch._C
 import zentorch._WOQLinear as WOQLinear
 from .._logging import get_logger
+import sys
+from packaging.version import Version
 
 # make a logger for this file
 logger = get_logger(__name__)
@@ -50,13 +52,37 @@ def check_for_shared_params(model):
 
 def optimize(model, dtype=torch.bfloat16):
     if essential_checks(model, dtype):
-        import intel_extension_for_pytorch as ipex
-        from ._model_conversion_functions import model_convert_lowering, customize_model
+        # Create version objects
+        torch_version = Version(torch.__version__)
+        ipex_version = Version(get_installed_ipex_version())
+
+        if torch_version.major != ipex_version.major or \
+           torch_version.minor != ipex_version.minor:
+            logger.error(
+                "Detected Torch version %s is incompatible with IPEX version %s."
+                "We recommend running with Torch 2.8.0+cpu and IPEX 2.8.0. Exiting.",
+                torch.__version__,
+                ipex_version,
+            )
+            sys.exit()
+
+        try:
+            import intel_extension_for_pytorch as ipex
+        except Exception:
+            logger.error(
+                "Error occurred in importing Intel Extension for PyTorch"
+            )
+            sys.exit()
+
+        from ._model_conversion_functions import (
+            model_convert_lowering,
+            customize_model,
+        )
 
         ipex_t = ipex.transformers
 
         # For masked multihead attention, the meta registration uses dynamic shape outputs
-        # To ensure the dynamic shapes do not cause a greph break
+        # To ensure the dynamic shapes do not cause a graph break
         torch._dynamo.config.capture_dynamic_output_shape_ops = True
         torch._dynamo.config.capture_scalar_outputs = True
         # Runtime over-riding of IPEX model_convert_lowering with ZenTorch
