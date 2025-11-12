@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 from torch.nn.functional import scaled_dot_product_attention
 from itertools import product
+from packaging.version import parse
 
 sys.path.append(str(Path(__file__).parent.parent))
 from unittest_utils import (  # noqa: 402
@@ -108,7 +109,13 @@ class Test_Sdpa_Model(Zentorch_TestCase):
                 sdpa_attention_mask,
                 scale,
             )
-            self.assertEqual(native_output, zentorch_output, atol=1e-3, rtol=1e-2)
+            torch_version = torch.__version__
+            # Parse the version
+            parsed_version = parse(torch_version)
+            if parsed_version.major == 2 and parsed_version.minor < 9:
+                self.assertEqual(native_output, zentorch_output, atol=1e-2, rtol=1e-1)
+            else:
+                self.assertEqual(native_output, zentorch_output, atol=1e-3, rtol=1e-2)
 
 
 if __name__ == "__main__":

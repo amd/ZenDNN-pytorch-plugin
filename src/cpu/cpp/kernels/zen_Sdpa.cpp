@@ -137,6 +137,66 @@ inline void _scale_attn_mask_fusion_kernel(T1 *a, T2 *b, const int &size,
 }
 
 template <typename scalar_t>
+inline Vectorized<scalar_t> fexp_u20(Vectorized<scalar_t> data) {
+  return data.fexp_u20();
+}
+#if defined(CPU_CAPABILITY_AVX512)
+inline Vectorized<float> fexp_u20(Vectorized<float> data) {
+  __m512 values = __m512(data);
+  static __m512 vec_c0 = _mm512_set1_ps(0.00010703434948458272f);
+  static __m512 vec_c1 = _mm512_set1_ps(0.30354260500649682f);
+  static __m512 vec_c2 = _mm512_set1_ps(-0.22433836478672356);
+  static __m512 vec_c3 = _mm512_set1_ps(-0.079204240219773236);
+
+  static __m512 vec_exp_log2ef =
+      (__m512)_mm512_set1_epi32(0x3fb8aa3b); // log2(e)
+
+  static __m512 vec_a = _mm512_set1_ps(std::pow(2, 23) / std::log2(2));
+  static __m512 vec_b = _mm512_set1_ps(std::pow(2, 23) * 127.f);
+
+  static __m512 vec_ln_flt_min = (__m512)_mm512_set1_epi32(0xc2aeac50);
+  static __m512 vec_ln_flt_max = (__m512)_mm512_set1_epi32(0x42b17218);
+  static __m512i vec_infinity = _mm512_set1_epi32(0x7F800000);
+  static __m512i vec_zero = _mm512_setzero_epi32();
+
+  // Fast Exponential Computation on SIMD Architectures
+  // A. Cristiano I. Malossi, Yves Ineichen, Costas Bekas, and Alessandro
+  // Curioni exp(x) = 2**(x * log2(e))
+  //        = 2**xi * 2**xf   - TIPS we are using  the EEEE floating point
+  //        representation with identification to the exponent and the
+  //        mentissa
+  //  2**xf will be approximated to a polynomial of degree 3 computed with
+  //  Horner method
+  // mask for the boundary condition
+  auto min_mask = _mm512_cmp_ps_mask(values, vec_ln_flt_min, _CMP_LT_OS);
+  auto max_mask = _mm512_cmp_ps_mask(values, vec_ln_flt_max, _CMP_GT_OS);
+
+  // transformation with log2(e)
+  auto vec_src = _mm512_mul_ps(values, vec_exp_log2ef);
+  auto vec_fractional = _mm512_sub_ps(vec_src, _mm512_floor_ps(vec_src));
+
+  // compute polynomial using Horner Scheme, for superscalar processor
+  auto vec_res = _mm512_fmadd_ps(vec_fractional, vec_c3, vec_c2);
+  vec_res = _mm512_fmadd_ps(vec_fractional, vec_res, vec_c1);
+  vec_res = _mm512_fmadd_ps(vec_fractional, vec_res, vec_c0);
+
+  vec_src = _mm512_sub_ps(vec_src, vec_res);
+  // the tips is here, headache in perspective
+  auto tmp = _mm512_fmadd_ps(vec_a, vec_src, vec_b);
+  // headache bis - we loose precision with the cast but it "fits", but ok
+  // after f32 -> f16 later
+  __m512i casted_integer = _mm512_cvttps_epi32(tmp);
+  // boundary condition, lower than the min -> 0
+  casted_integer = _mm512_mask_mov_epi32(casted_integer, min_mask, vec_zero);
+  // boundary condition, larger than the max -> +oo
+  casted_integer =
+      _mm512_mask_mov_epi32(casted_integer, max_mask, vec_infinity);
+  // final interpretation to float
+  return _mm512_castsi512_ps(casted_integer);
+}
+#endif
+
+template <typename scalar_t>
 inline Vectorized<scalar_t> exp_u20(Vectorized<scalar_t> data) {
   return data.exp_u20();
 }
@@ -234,7 +294,13 @@ inline void _exp_reduce_sum_fusion_kernel(T1 *a, const int &size, T2 *out,
   for (int64_t i = 0; i < vec_size * (size / vec_size); i += vec_size) {
     auto tmp0 = at::vec::Vectorized<T1>::loadu(a + i);
     auto tmp1 = tmp0 - vec_max;
-    auto tmp2 = exp_u20(tmp1);
+    Vectorized<T1> tmp2;
+    if constexpr (std::is_same_v<T1, float> &&
+                  (std::is_same_v<T2, at::BFloat16>)) {
+      tmp2 = fexp_u20(tmp1);
+    } else {
+      tmp2 = exp_u20(tmp1);
+    }
     vec_tmp_sum += tmp2;
     _store(out + i, tmp2);
   }
