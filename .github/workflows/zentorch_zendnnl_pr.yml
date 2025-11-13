@@ -36,7 +36,7 @@ jobs:
     env:
       PYTHON_VERSION: '3.10'
       ZENTORCH_VERSION: '5.2.0'
-      NATIVE_TORCH_VERSION: '2.8.0'
+      NATIVE_TORCH_VERSION: '2.9.0'
       UNWANTED_KEYWORDS: 'stackoverflow,MSDN,wiki,microsoft'
       CI_ZENDNNL_ENABLE: '1'
       # WORKSPACE and PARENT_DIR will be set dynamically in the steps
