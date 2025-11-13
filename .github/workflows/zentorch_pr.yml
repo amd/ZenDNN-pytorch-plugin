@@ -32,7 +32,7 @@ jobs:
     env:
       PYTHON_VERSION: '3.10'
       ZENTORCH_VERSION: '5.2.0'
-      NATIVE_TORCH_VERSION: '2.8.0'
+      NATIVE_TORCH_VERSION: '2.9.0'
       UNWANTED_KEYWORDS: 'stackoverflow,MSDN,wiki,microsoft'
       # WORKSPACE and PARENT_DIR will be set dynamically in the steps
       ZENTORCH_USE_LOCAL_ZENDNN: ${{ github.event.inputs.zentorch_use_local_zendnn || github.event.client_payload.zentorch_use_local_zendnn || '1' }}
