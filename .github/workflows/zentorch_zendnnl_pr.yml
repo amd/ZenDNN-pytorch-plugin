@@ -46,6 +46,13 @@ jobs:
       ZENDNN_REF: ${{ github.event.inputs.zendnn_ref || github.event.client_payload.zendnn_ref || '' }}
       ZENDNNL_REF: ${{ github.event.inputs.zendnnl_ref || github.event.client_payload.zendnnl_ref || '' }}
       ZENTORCH_ZENDNNL_REF: ${{ github.event.inputs.zentorch_zendnnl_ref || github.event.client_payload.zentorch_zendnnl_ref || '' }}
+      # Add triggering PR information
+      TRIGGERING_PR_NUMBER: ${{ github.event.client_payload.zendnntools_pr_number || '' }}
+      TRIGGERING_PR_TITLE: ${{ github.event.client_payload.zendnntools_pr_title || '' }}
+      TRIGGERING_PR_AUTHOR: ${{ github.event.client_payload.zendnntools_pr_author || '' }}
+      TRIGGERING_PR_URL: ${{ github.event.client_payload.zendnntools_pr_url || '' }}
+      TRIGGERING_REPO: ${{ github.event.client_payload.triggering_repo || '' }}
+      TRIGGERING_EVENT: ${{ github.event.client_payload.triggering_event || '' }}
     steps:
       - name: Clean workspace before checkout
         run: |
@@ -55,6 +62,30 @@ jobs:
          rm -rf $GITHUB_WORKSPACE/.[!.]* || true
          echo "Workspace cleaned."
          ls -al $GITHUB_WORKSPACE
+        shell: bash
+        # Add new step to display triggering information
+      - name: Display Triggering PR Information
+        if: github.event_name == 'repository_dispatch'
+        run: |
+          echo "=============================================="
+          echo "   TRIGGERED BY EXTERNAL REPOSITORY PR"
+          echo "=============================================="
+          echo "🚀 This workflow was triggered by:"
+          echo "   Repository: ${{ env.TRIGGERING_REPO }}"
+          echo "   Event Type: ${{ env.TRIGGERING_EVENT }}"
+          
+          if [ -n "${{ env.TRIGGERING_PR_NUMBER }}" ]; then
+            echo "   PR Number: #${{ env.TRIGGERING_PR_NUMBER }}"
+            echo "   PR Title: ${{ env.TRIGGERING_PR_TITLE }}"
+            echo "   PR Author: ${{ env.TRIGGERING_PR_AUTHOR }}"
+            echo "   PR URL: ${{ env.TRIGGERING_PR_URL }}"
+            echo "   ZenDNN Tools Ref: ${{ github.event.client_payload.zendnntools_ref }}"
+            echo "   ZenDNN Tools SHA: ${{ github.event.client_payload.zendnntools_ref_sha }}"
+          else
+            echo "   Triggered via workflow_dispatch or other event"
+          fi
+          echo "=============================================="
+          echo ""
         shell: bash
       - name: Checkout ZenDNN_PyTorch_Plugin
         uses: actions/checkout@v4
@@ -98,6 +129,16 @@ jobs:
         run: |
           rm -rf "$PARENT_DIR/ZenDNN_tools"
           git clone  --branch main https://${{ secrets.ZIAIE_PAT }}@github.com/AMD-Zenai/ZenDNN_tools.git "$PARENT_DIR/ZenDNN_tools"  
+      - name: Checkout PR tip commit
+        if: github.event_name == 'pull_request'
+        working-directory: ${{ github.workspace }}
+        run: |
+         echo " Checking out PR tip commit..."
+         echo "Current commit: $(git rev-parse HEAD)"
+         echo "PR HEAD SHA: ${{ github.event.pull_request.head.sha }}"
+         git checkout ${{ github.event.pull_request.head.sha }}
+         echo " Now on commit: $(git rev-parse HEAD)"
+         echo "PR #${{ github.event.pull_request.number }} - ${{ github.event.pull_request.title }}"
       - name: PR INFO
         shell: bash
         run: |
