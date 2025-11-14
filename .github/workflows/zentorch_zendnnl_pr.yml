@@ -60,6 +60,13 @@ jobs:
       TRIGGERING_PR_URL: ${{ github.event.client_payload.zendnntools_pr_url || '' }}
       TRIGGERING_REPO: ${{ github.event.client_payload.triggering_repo || '' }}
       TRIGGERING_EVENT: ${{ github.event.client_payload.triggering_event || '' }}
+      # Add ZenDNNL triggering PR information
+      ZENDNNL_TRIGGERING_PR_NUMBER: ${{ github.event.client_payload.zendnnl_pr_number || '' }}
+      ZENDNNL_TRIGGERING_PR_TITLE: ${{ github.event.client_payload.zendnnl_pr_title || '' }}
+      ZENDNNL_TRIGGERING_PR_AUTHOR: ${{ github.event.client_payload.zendnnl_pr_author || '' }}
+      ZENDNNL_TRIGGERING_PR_URL: ${{ github.event.client_payload.zendnnl_pr_url || '' }}
+      ZENDNNL_TRIGGERING_REPO: ${{ github.event.client_payload.triggering_repo || '' }}
+      ZENDNNL_TRIGGERING_EVENT: ${{ github.event.client_payload.triggering_event || '' }}
     steps:
       - name: Clean workspace before checkout
         run: |
@@ -116,6 +123,24 @@ jobs:
            echo "   Repository: AMD-Zenai/ZenDNN_tools"
            echo "   ZenDNN_tools Ref: ${{ github.event.client_payload.zendnntools_ref }}"
            echo "   ZenDNN_tools SHA: ${{ github.event.client_payload.zendnntools_ref_sha }}"
+          fi
+         elif [ "${{ github.event.action }}" = "zendnnl-pr" ]; then
+          # ZenDNNL repository triggered this workflow
+          if [ -n "${{ env.ZENDNNL_TRIGGERING_PR_NUMBER }}" ]; then
+           echo "🟢 TRIGGERED BY ZENDNNL PR:"
+           echo "   Repository: ${{ env.ZENDNNL_TRIGGERING_REPO }}"
+           echo "   PR Number: #${{ env.ZENDNNL_TRIGGERING_PR_NUMBER }}"
+           echo "   PR Title: ${{ env.ZENDNNL_TRIGGERING_PR_TITLE }}"
+           echo "   PR Author: ${{ env.ZENDNNL_TRIGGERING_PR_AUTHOR }}"
+           echo "   PR URL: ${{ env.ZENDNNL_TRIGGERING_PR_URL }}"
+           echo "   Original Event: ${{ env.ZENDNNL_TRIGGERING_EVENT }}"
+           echo "   ZenDNNL Ref: ${{ github.event.client_payload.zendnnl_ref }}"
+           echo "   ZenDNNL SHA: ${{ github.event.client_payload.zendnnl_ref_sha }}"
+          else
+           echo "🟢 TRIGGERED BY ZENDNNL (No PR info - likely push/dispatch)"
+           echo "   Repository: AMD-Zenai/ZenDNN (ZenDNNL branch)"
+           echo "   ZenDNNL Ref: ${{ github.event.client_payload.zendnnl_ref }}"
+           echo "   ZenDNNL SHA: ${{ github.event.client_payload.zendnnl_ref_sha }}"
           fi
          else
           # Unknown or other trigger type
