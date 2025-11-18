@@ -7,12 +7,11 @@
 #include "Ops.hpp"
 
 namespace zentorch {
-inline void
-zentorch_linear_impl(const at::Tensor &input, const at::Tensor &weight,
-                     const at::Tensor &bias, at::Tensor &result,
-                     const std::vector<std::string_view> &post_op_ids,
-                     const std::vector<at::Tensor> &post_op_buffers,
-                     std::string zentorch_op_name) {
+inline void zentorch_linear_impl(
+    const at::Tensor &input, const at::Tensor &weight, const at::Tensor &bias,
+    at::Tensor &result, const std::vector<std::string_view> &post_op_ids,
+    const std::vector<at::Tensor> &post_op_buffers,
+    const bool is_weight_prepacked, std::string zentorch_op_name) {
   // Get appropriately tensors for Linear(2D input, transposed weight, 2D
   // result)
   const at::Tensor &input_2d =
@@ -29,7 +28,8 @@ zentorch_linear_impl(const at::Tensor &input, const at::Tensor &weight,
 
   zentorch_matmul_impl(input_2d, weight, bias, result_2d, post_op_idx,
                        post_op_buffers, beta, 1.0f /* alpha */,
-                       zentorch_op_name);
+                       zentorch_op_name, true /* is_weight_const */,
+                       is_weight_prepacked);
 }
 
 at::Tensor zentorch_linear_unary(const at::Tensor &input,
@@ -49,7 +49,8 @@ at::Tensor zentorch_linear_unary(const at::Tensor &input,
 
   // Perform ZenTorch linear operation
   zentorch_linear_impl(input, weight_transposed, bias_t, result, post_op_ids,
-                       {} /* post_op_buffers */, zentorch_op_name);
+                       {} /* post_op_buffers */, is_weight_prepacked,
+                       zentorch_op_name);
   return result;
 }
 
@@ -71,7 +72,7 @@ at::Tensor zentorch_linear_unary_binary(
       binary_input.view(get_2d_size_for_tensor(binary_input))};
   // Perform ZenTorch linear operation
   zentorch_linear_impl(input, weight_transposed, bias_t, result, post_op_ids,
-                       post_op_buffers, zentorch_op_name);
+                       post_op_buffers, is_weight_prepacked, zentorch_op_name);
   return result;
 }
 
@@ -96,7 +97,7 @@ at::Tensor zentorch_linear_binary_binary(
 
   // Perform ZenTorch linear operation
   zentorch_linear_impl(input, weight_transposed, bias_t, result, post_op_ids,
-                       post_op_buffers, zentorch_op_name);
+                       post_op_buffers, is_weight_prepacked, zentorch_op_name);
 
   return result;
 }

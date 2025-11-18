@@ -56,27 +56,28 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         "Returns:\n"
         "    Bool: True if BF16 is supported, False otherwise.");
 
-  m.def("zentorch_matmul_impl", &zentorch::zentorch_matmul_impl,
-        py::arg("input"), py::arg("weight"), py::arg("bias"),
-        py::arg("self_or_result"), py::arg("post_op_ids"),
-        py::arg("post_op_buffers"), py::arg("beta") = 0.0f,
-        py::arg("alpha") = 1.0f,
-        py::arg("zentorch_op_name") = "zentorch::zentorch_matmul_impl",
-        py::arg("is_weight_const") = true,
-        "Perform matrix multiplication with ZenTorch optimizations.\n\n"
-        "Args:\n"
-        "    input (torch.Tensor): The input tensor.\n"
-        "    weight (torch.Tensor): The weight tensor.\n"
-        "    bias (torch.Tensor): The bias tensor.\n"
-        "    self_or_result (torch.Tensor): The result tensor.\n"
-        "    post_op_ids (List[int]): Post Op IDs.\n"
-        "    post_op_buffers (List[torch.Tensor]): Post Op buffers.\n"
-        "    beta (float, optional): The beta value. Default is 0.0.\n"
-        "    alpha (float, optional): The alpha value. Default is 1.0.\n"
-        "    zentorch_op_name (str, optional): The operator name. Default is "
-        "'zentorch::zentorch_matmul_impl'."
-        "Returns:\n"
-        "    Tensor: Result of the maxtrix multiplication.");
+  m.def(
+      "zentorch_matmul_impl", &zentorch::zentorch_matmul_impl, py::arg("input"),
+      py::arg("weight"), py::arg("bias"), py::arg("self_or_result"),
+      py::arg("post_op_ids"), py::arg("post_op_buffers"),
+      py::arg("beta") = 0.0f, py::arg("alpha") = 1.0f,
+      py::arg("zentorch_op_name") = "zentorch::zentorch_matmul_impl",
+      py::arg("is_weight_const") = true, py::arg("is_weight_prepacked") = false,
+      "Perform matrix multiplication with ZenTorch optimizations.\n\n"
+      "Args:\n"
+      "    input (torch.Tensor): The input tensor.\n"
+      "    weight (torch.Tensor): The weight tensor.\n"
+      "    bias (torch.Tensor): The bias tensor.\n"
+      "    self_or_result (torch.Tensor): The result tensor.\n"
+      "    post_op_ids (List[int]): Post Op IDs.\n"
+      "    post_op_buffers (List[torch.Tensor]): Post Op buffers.\n"
+      "    beta (float, optional): The beta value. Default is 0.0.\n"
+      "    alpha (float, optional): The alpha value. Default is 1.0.\n"
+      "    zentorch_op_name (str, optional): The operator name. Default is "
+      "'zentorch::zentorch_matmul_impl'."
+      "    is_weight_prepacked (bool, optional): True if weight is prepacked.\n"
+      "Returns:\n"
+      "    Tensor: Result of the maxtrix multiplication.");
 
   m.def("zentorch_get_packed_embedding_weight",
         &zentorch::zentorch_get_packed_embedding_weight, py::arg("weight"),

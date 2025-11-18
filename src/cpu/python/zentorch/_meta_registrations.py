@@ -1076,6 +1076,11 @@ def meta_zentorch_weight_reorder_for_matmul(
     return weight.new_empty(weight.size())
 
 
+@register_meta("zentorch_weight_prepack_for_linear")
+def meta_zentorch_weight_prepack_for_linear(weight):
+    return weight.new_empty(weight.size())
+
+
 make_fallback(torch.ops.zentorch.zentorch_addmm)
 make_fallback(torch.ops.zentorch.zentorch_addmm_relu)
 make_fallback(torch.ops.zentorch.zentorch_addmm_silu)
@@ -1126,6 +1131,7 @@ make_fallback(torch.ops.zentorch.zentorch_horizontal_quant_embedding_bag_group)
 make_fallback(torch.ops.zentorch.zentorch_quant_group_eb_mlp_concat_zendnn)
 make_fallback(torch.ops.zentorch.zentorch_quant_group_eb_mlp_concat_fbgemm)
 make_fallback(torch.ops.zentorch.zentorch_weight_reorder_for_matmul)
+make_fallback(torch.ops.zentorch.zentorch_weight_prepack_for_linear)
 if hasattr(torch.ops.zentorch, "zentorch_sdpa"):
     make_fallback(torch.ops.zentorch.zentorch_sdpa)
 if hasattr(torch.ops.zentorch, "zentorch_attention_reshape_and_cache"):

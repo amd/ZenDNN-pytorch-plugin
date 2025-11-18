@@ -204,33 +204,39 @@ inline memory zen_memory(const at::Tensor &atensor,
 inline void set_zendnnl_tensor_attributes(
     const at::Tensor &at_tensor, tensor_t &zendnnl_tensor,
     const std::string_view &tensor_name,
+    const bool &is_weight_prepacked = false,
     const std::vector<unsigned long> &tensor_sizes = {},
     const std::vector<unsigned long> &tensor_strides = {}) {
 
   void *at_tensor_ptr = at_tensor.data_ptr();
+
+  const std::vector<long unsigned int> zendnnl_tensor_sizes =
+      tensor_sizes.empty()
+          ? std::vector<long unsigned int>(at_tensor.sizes().begin(),
+                                           at_tensor.sizes().end())
+          : tensor_sizes;
+  const std::vector<long unsigned int> zendnnl_tensor_strides =
+      tensor_strides.empty()
+          ? std::vector<long unsigned int>(at_tensor.strides().begin(),
+                                           at_tensor.strides().end())
+          : tensor_strides;
+
   zendnnl_tensor.set_name(static_cast<std::string>(tensor_name))
       .set_data_type(get_zendnnl_dtype(at_tensor))
       .set_storage(at_tensor_ptr, at_tensor.nbytes());
 
-  if (!(tensor_sizes.empty() || tensor_strides.empty())) {
-    zendnnl_tensor.set_size(tensor_sizes).set_stride(tensor_strides);
-
-    zendnnl_tensor.create();
-    ZENTORCH_CHECK(zendnnl_tensor.check(), "tensor creation of ",
-                   zendnnl_tensor.get_name(), " failed.");
-    return;
+  if (is_weight_prepacked) {
+    zendnnl_tensor.set_layout(tensor_layout_t::blocked);
   }
 
-  std::vector<unsigned long> at_tensor_sizes(at_tensor.sizes().begin(),
-                                             at_tensor.sizes().end());
-  std::vector<unsigned long> at_tensor_strides(at_tensor.strides().begin(),
-                                               at_tensor.strides().end());
-
-  zendnnl_tensor.set_size(at_tensor_sizes).set_stride(at_tensor_strides);
+  zendnnl_tensor.set_size(zendnnl_tensor_sizes);
+  zendnnl_tensor.set_stride(zendnnl_tensor_strides);
 
   zendnnl_tensor.create();
   ZENTORCH_CHECK(zendnnl_tensor.check(), "tensor creation of ",
-                 zendnnl_tensor.get_name(), " failed.");
+                 zendnnl_tensor.get_name(),
+                 " failed. Size: ", zendnnl_tensor.get_size(),
+                 " Stride: ", zendnnl_tensor.get_stride());
 }
 
 inline void
@@ -247,7 +253,8 @@ create_tensors_for_zendnnl(std::vector<TensorStruct> &tensor_structs) {
       const std::vector<unsigned long> &tensor_strides =
           ts.tensor_strides.get();
       set_zendnnl_tensor_attributes(at_tensor, zendnnl_tensor, tensor_name,
-                                    tensor_sizes, tensor_strides);
+                                    false /*is_weight_prepacked*/, tensor_sizes,
+                                    tensor_strides);
     }
   });
 }

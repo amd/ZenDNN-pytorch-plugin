@@ -6,6 +6,7 @@
 import unittest
 import torch
 import sys
+import os
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
@@ -21,6 +22,23 @@ from unittest_utils import (  # noqa: 402
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class Test_Linear_Unary(MMTestCase):
+
+    def get_and_compare_linear_output(
+        self, ref_output, input, weight, bias=None, post_op="None"
+    ):
+        zen_output = torch.ops.zentorch.zentorch_linear_unary(
+            input, weight, bias, post_op=post_op
+        )
+        self.assertEqual(ref_output, zen_output, atol=1e-2, rtol=1e-2)
+        if os.environ.get("ZENDNN_ZENDNNL", "0") == "1":
+            prepacked_weight = torch.ops.zentorch.zentorch_weight_prepack_for_linear(
+                weight
+            )
+            zen_output_prepacked = torch.ops.zentorch.zentorch_linear_unary(
+                input, prepacked_weight, bias, post_op=post_op, is_weight_prepacked=True
+            )
+            self.assertEqual(ref_output, zen_output_prepacked, atol=1e-2, rtol=1e-2)
+
     @MMTestCase.hypothesis_params_mm_itr(dtype_list=supported_dtypes)
     @unittest.skipIf(skip_test_pt_2_0, "Skipping test due to PT2.0 instability")
     def test_linear_unary_with_bias(self):
@@ -28,20 +46,16 @@ class Test_Linear_Unary(MMTestCase):
         output_1 = torch.nn.functional.linear(
             self.data.x, self.data.y.t(), self.data.input1d
         )
-        output_2 = torch.ops.zentorch.zentorch_linear_unary(
-            self.data.x, self.data.y.t(), self.data.input1d
+        self.get_and_compare_linear_output(
+            output_1, self.data.x, self.data.y.t(), self.data.input1d
         )
-        self.assertEqual(output_1, output_2, atol=1e-2, rtol=1e-2)
 
     @MMTestCase.hypothesis_params_mm_itr(dtype_list=supported_dtypes)
     @unittest.skipIf(skip_test_pt_2_0, "Skipping test due to PT2.0 instability")
     def test_linear_unary_with_no_bias(self):
         reset_dynamo()
         output_1 = torch.nn.functional.linear(self.data.x, self.data.y.t())
-        output_2 = torch.ops.zentorch.zentorch_linear_unary(
-            self.data.x, self.data.y.t()
-        )
-        self.assertEqual(output_1, output_2, atol=1e-2, rtol=1e-2)
+        self.get_and_compare_linear_output(output_1, self.data.x, self.data.y.t())
 
     @MMTestCase.hypothesis_params_mm_itr(dtype_list=supported_dtypes)
     @unittest.skipIf(skip_test_pt_2_0, "Skipping test due to PT2.0 instability")
@@ -50,20 +64,18 @@ class Test_Linear_Unary(MMTestCase):
         output_1 = torch.relu(
             torch.nn.functional.linear(self.data.x, self.data.y.t(), self.data.input1d)
         )
-        output_2 = torch.ops.zentorch.zentorch_linear_unary(
-            self.data.x, self.data.y.t(), self.data.input1d, post_op="relu"
+        self.get_and_compare_linear_output(
+            output_1, self.data.x, self.data.y.t(), self.data.input1d, post_op="relu"
         )
-        self.assertEqual(output_1, output_2, atol=1e-2, rtol=1e-2)
 
     @MMTestCase.hypothesis_params_mm_itr(dtype_list=supported_dtypes)
     @unittest.skipIf(skip_test_pt_2_0, "Skipping test due to PT2.0 instability")
     def test_linear_unary_with_no_bias_relu(self):
         reset_dynamo()
         output_1 = torch.relu(torch.nn.functional.linear(self.data.x, self.data.y.t()))
-        output_2 = torch.ops.zentorch.zentorch_linear_unary(
-            self.data.x, self.data.y.t(), post_op="relu"
+        self.get_and_compare_linear_output(
+            output_1, self.data.x, self.data.y.t(), post_op="relu"
         )
-        self.assertEqual(output_1, output_2, atol=1e-2, rtol=1e-2)
 
     @MMTestCase.hypothesis_params_mm_itr(dtype_list=supported_dtypes)
     @unittest.skipIf(skip_test_pt_2_0, "Skipping test due to PT2.0 instability")
@@ -72,10 +84,13 @@ class Test_Linear_Unary(MMTestCase):
         output_1 = torch.nn.GELU(approximate="tanh")(
             torch.nn.functional.linear(self.data.x, self.data.y.t(), self.data.input1d)
         )
-        output_2 = torch.ops.zentorch.zentorch_linear_unary(
-            self.data.x, self.data.y.t(), self.data.input1d, post_op="gelu_tanh"
+        self.get_and_compare_linear_output(
+            output_1,
+            self.data.x,
+            self.data.y.t(),
+            self.data.input1d,
+            post_op="gelu_tanh",
         )
-        self.assertEqual(output_1, output_2, atol=1e-2, rtol=1e-2)
 
     @MMTestCase.hypothesis_params_mm_itr(dtype_list=supported_dtypes)
     @unittest.skipIf(skip_test_pt_2_0, "Skipping test due to PT2.0 instability")
@@ -84,10 +99,9 @@ class Test_Linear_Unary(MMTestCase):
         output_1 = torch.nn.GELU(approximate="tanh")(
             torch.nn.functional.linear(self.data.x, self.data.y.t())
         )
-        output_2 = torch.ops.zentorch.zentorch_linear_unary(
-            self.data.x, self.data.y.t(), post_op="gelu_tanh"
+        self.get_and_compare_linear_output(
+            output_1, self.data.x, self.data.y.t(), post_op="gelu_tanh"
         )
-        self.assertEqual(output_1, output_2, atol=1e-2, rtol=1e-2)
 
     @MMTestCase.hypothesis_params_mm_itr(dtype_list=supported_dtypes)
     @unittest.skipIf(skip_test_pt_2_0, "Skipping test due to PT2.0 instability")
@@ -96,10 +110,13 @@ class Test_Linear_Unary(MMTestCase):
         output_1 = torch.nn.GELU()(
             torch.nn.functional.linear(self.data.x, self.data.y.t(), self.data.input1d)
         )
-        output_2 = torch.ops.zentorch.zentorch_linear_unary(
-            self.data.x, self.data.y.t(), self.data.input1d, post_op="gelu_erf"
+        self.get_and_compare_linear_output(
+            output_1,
+            self.data.x,
+            self.data.y.t(),
+            self.data.input1d,
+            post_op="gelu_erf",
         )
-        self.assertEqual(output_1, output_2, atol=1e-2, rtol=1e-2)
 
     @MMTestCase.hypothesis_params_mm_itr(dtype_list=supported_dtypes)
     @unittest.skipIf(skip_test_pt_2_0, "Skipping test due to PT2.0 instability")
@@ -108,10 +125,9 @@ class Test_Linear_Unary(MMTestCase):
         output_1 = torch.nn.GELU()(
             torch.nn.functional.linear(self.data.x, self.data.y.t())
         )
-        output_2 = torch.ops.zentorch.zentorch_linear_unary(
-            self.data.x, self.data.y.t(), post_op="gelu_erf"
+        self.get_and_compare_linear_output(
+            output_1, self.data.x, self.data.y.t(), post_op="gelu_erf"
         )
-        self.assertEqual(output_1, output_2, atol=1e-2, rtol=1e-2)
 
     @MMTestCase.hypothesis_params_mm_itr(dtype_list=supported_dtypes)
     @unittest.skipIf(skip_test_pt_2_0, "Skipping test due to PT2.0 instability")
@@ -120,10 +136,9 @@ class Test_Linear_Unary(MMTestCase):
         output_1 = torch.nn.functional.silu(
             torch.nn.functional.linear(self.data.x, self.data.y.t(), self.data.input1d)
         )
-        output_2 = torch.ops.zentorch.zentorch_linear_unary(
-            self.data.x, self.data.y.t(), self.data.input1d, post_op="silu"
+        self.get_and_compare_linear_output(
+            output_1, self.data.x, self.data.y.t(), self.data.input1d, post_op="silu"
         )
-        self.assertEqual(output_1, output_2, atol=1e-2, rtol=1e-2)
 
     @MMTestCase.hypothesis_params_mm_itr(dtype_list=supported_dtypes)
     @unittest.skipIf(skip_test_pt_2_0, "Skipping test due to PT2.0 instability")
@@ -132,10 +147,9 @@ class Test_Linear_Unary(MMTestCase):
         output_1 = torch.nn.functional.silu(
             torch.nn.functional.linear(self.data.x, self.data.y.t())
         )
-        output_2 = torch.ops.zentorch.zentorch_linear_unary(
-            self.data.x, self.data.y.t(), post_op="silu"
+        self.get_and_compare_linear_output(
+            output_1, self.data.x, self.data.y.t(), post_op="silu"
         )
-        self.assertEqual(output_1, output_2, atol=1e-2, rtol=1e-2)
 
     @MMTestCase.hypothesis_params_mm_itr(dtype_list=supported_dtypes)
     @unittest.skipIf(skip_test_pt_2_0, "Skipping test due to PT2.0 instability")
@@ -144,10 +158,9 @@ class Test_Linear_Unary(MMTestCase):
         output_1 = torch.nn.functional.sigmoid(
             torch.nn.functional.linear(self.data.x, self.data.y.t(), self.data.input1d)
         )
-        output_2 = torch.ops.zentorch.zentorch_linear_unary(
-            self.data.x, self.data.y.t(), self.data.input1d, post_op="sigmoid"
+        self.get_and_compare_linear_output(
+            output_1, self.data.x, self.data.y.t(), self.data.input1d, post_op="sigmoid"
         )
-        self.assertEqual(output_1, output_2, atol=1e-2, rtol=1e-2)
 
     @MMTestCase.hypothesis_params_mm_itr(dtype_list=supported_dtypes)
     @unittest.skipIf(skip_test_pt_2_0, "Skipping test due to PT2.0 instability")
@@ -156,10 +169,9 @@ class Test_Linear_Unary(MMTestCase):
         output_1 = torch.nn.functional.sigmoid(
             torch.nn.functional.linear(self.data.x, self.data.y.t())
         )
-        output_2 = torch.ops.zentorch.zentorch_linear_unary(
-            self.data.x, self.data.y.t(), post_op="sigmoid"
+        self.get_and_compare_linear_output(
+            output_1, self.data.x, self.data.y.t(), post_op="sigmoid"
         )
-        self.assertEqual(output_1, output_2, atol=1e-2, rtol=1e-2)
 
 
 if __name__ == "__main__":

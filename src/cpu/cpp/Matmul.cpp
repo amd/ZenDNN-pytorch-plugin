@@ -218,7 +218,7 @@ at::Tensor zendnnl_matmul_impl(const at::Tensor &input,
                                const std::vector<at::Tensor> &post_op_buffers,
                                const float &beta, const float &alpha,
                                std::string zentorch_op_name,
-                               const bool &is_weight_const = true) {
+                               const bool is_weight_prepacked = false) {
 
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
@@ -257,7 +257,8 @@ at::Tensor zendnnl_matmul_impl(const at::Tensor &input,
   }
 
   tensor_t mat2_tensor = tensor_t();
-  set_zendnnl_tensor_attributes(weight_, mat2_tensor, "weights");
+  set_zendnnl_tensor_attributes(weight_, mat2_tensor, "weights",
+                                is_weight_prepacked);
 
   auto matmul_context = matmul_context_t();
 
@@ -268,11 +269,12 @@ at::Tensor zendnnl_matmul_impl(const at::Tensor &input,
     auto bias_numel = bias.numel();
     if (weight_.dim() == 2) {
       set_zendnnl_tensor_attributes(beta_bias, bias_tensor, "bias",
+                                    false /* is_weight_prepacked */,
                                     {1, bias_numel}, {bias_numel, 1});
     } else if (weight_.dim() == 3) {
-      set_zendnnl_tensor_attributes(beta_bias, bias_tensor, "bias",
-                                    {1, 1, bias_numel},
-                                    {bias_numel, bias_numel, 1});
+      set_zendnnl_tensor_attributes(
+          beta_bias, bias_tensor, "bias", false /* is_weight_prepacked */,
+          {1, 1, bias_numel}, {bias_numel, bias_numel, 1});
     } else {
       ZENTORCH_CHECK(false, "Bias shape not supported");
     }
@@ -360,14 +362,12 @@ at::Tensor zendnnl_matmul_impl(const at::Tensor &input,
   return result;
 }
 
-at::Tensor zentorch_matmul_impl(const at::Tensor &input,
-                                const at::Tensor &weight,
-                                const at::Tensor &bias, at::Tensor &result,
-                                const std::vector<int64_t> &post_op_ids,
-                                const std::vector<at::Tensor> &post_op_buffers,
-                                const float &beta, const float &alpha,
-                                std::string zentorch_op_name,
-                                const bool &is_weight_const) {
+at::Tensor zentorch_matmul_impl(
+    const at::Tensor &input, const at::Tensor &weight, const at::Tensor &bias,
+    at::Tensor &result, const std::vector<int64_t> &post_op_ids,
+    const std::vector<at::Tensor> &post_op_buffers, const float &beta,
+    const float &alpha, std::string zentorch_op_name,
+    const bool is_weight_const, const bool is_weight_prepacked) {
   const int &library = EnvReader::getEnvVariableAsInt(
       "ZENDNN_ZENDNNL"); // 0 would represent ZenDNN and 1 would
                          // represent ZenDNNL. Default library will be ZenDNNL
@@ -378,7 +378,7 @@ at::Tensor zentorch_matmul_impl(const at::Tensor &input,
                                   zentorch_op_name, is_weight_const)
              : zendnnl_matmul_impl(input, weight, bias, result, post_op_ids,
                                    post_op_buffers, beta, alpha,
-                                   zentorch_op_name, is_weight_const);
+                                   zentorch_op_name, is_weight_prepacked);
 }
 
 template <UNARY_POST_OP fuse>
