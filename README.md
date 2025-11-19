@@ -166,14 +166,15 @@ Build setup downloads the ZenDNN, AOCL BLIS and FBGEMM repos into `third_party` 
 conda create -n pt-zentorch python=3.10 -y
 conda activate pt-zentorch
 ```
-#### 2.2.2.2. Install PyTorch v2.8.0
+#### 2.2.2.2. Install PyTorch v2.9.0
 ```bash
 # Pip command
-pip install torch==2.8.0 --index-url https://download.pytorch.org/whl/cpu
+pip install torch==2.9.0 --index-url https://download.pytorch.org/whl/cpu
 ```
 
 >Note: The CPU version of torch/pytorch only supports CPU version of torchvision.
-
+>Note: When using LLMs, please install torch==2.8.0.
+>Note: For torch 2.9 and 2.8, zentorch supports Python 3.9 to 3.13.
 >Note: cmake & ninja are required for cpp extension builds, will be installed through build script.
 
 #### 2.2.2.3. Install Dependencies
