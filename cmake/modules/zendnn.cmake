@@ -4,7 +4,7 @@
 #******************************************************************************
 
 if(NOT DEFINED ZENDNN_TAG)
-  set(ZENDNN_TAG "zendnn-2025-WW45")
+  set(ZENDNN_TAG "zendnn-2025-WW46")
 endif()
 
 string(REGEX MATCH "-D_GLIBCXX_USE_CXX11_ABI=[0-1]" TEMP_ABI_DEFINE "${CMAKE_CXX_FLAGS}")
