@@ -139,7 +139,7 @@ cd ZENTORCH_v5.1.0_Python_v3.10/
 pip install zentorch-5.1.0-cp310-cp310-manylinux_2_28_x86_64.whl
 ```
 >Notes:
-* Zentorch inherits its Python version compatibility from PyTorch. For Torch 2.9 and 2.8, Zentorch supports Python 3.9 to 3.13. For other versions, please refer to the [PyTorch Release Compatibility Matrix](https://github.com/pytorch/pytorch/blob/main/RELEASE.md#release-compatibility-matrix). Please note that Python 3.13T and Python 3.14 are not supported in zentorch.
+* Zentorch inherits its Python version compatibility from PyTorch. For torch 2.9, zentorch supports Python 3.10 to 3.13 and for torch 2.8, zentorch supports Python 3.9 to 3.13. For other versions, please refer to the [PyTorch Release Compatibility Matrix](https://github.com/pytorch/pytorch/blob/main/RELEASE.md#release-compatibility-matrix). Please note that Python 3.13T and Python 3.14 are not supported in zentorch.
 This README uses Python 3.10.
 * Dependent packages 'numpy' and 'torch' will be installed by '_zentorch_' if not already present.
 * If you get the error: ImportError: /lib64/libstdc++.so.6: version `GLIBCXX_.a.b.cc' not found (required by <path_to_conda>/envs/<env_name>/lib/python<py_version>/site-packages/zentorch-5.1.0-pyx.y-linux-x86_64.egg/zentorch/_C.cpython-xy-x86_64-linux-gnu.so), export LD_PRELOAD as:
@@ -174,7 +174,8 @@ pip install torch==2.9.0 --index-url https://download.pytorch.org/whl/cpu
 
 >Note: The CPU version of torch/pytorch only supports CPU version of torchvision.
 >Note: When using LLMs, please install torch==2.8.0.
->Note: For torch 2.9 and 2.8, zentorch supports Python 3.9 to 3.13.
+>Note: For torch 2.8, zentorch supports Python 3.9 to 3.13.
+>Note: For torch 2.9, zentorch supports Python 3.10 to 3.13.
 >Note: cmake & ninja are required for cpp extension builds, will be installed through build script.
 
 #### 2.2.2.3. Install Dependencies
