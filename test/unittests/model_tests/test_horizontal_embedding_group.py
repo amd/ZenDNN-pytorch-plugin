@@ -27,7 +27,7 @@ from unittest_utils import (  # noqa: 402
 class Custom_Model_Single_Embedding(nn.Module):
     def __init__(self, num_embeddings):
         super(Custom_Model_Single_Embedding, self).__init__()
-        self.embedding_1 = torch.nn.Embedding(num_embeddings, 3)
+        self.embedding_1 = torch.nn.Embedding(num_embeddings, 16)
 
     def forward(self, inputs):
         output = self.embedding_1(inputs)
@@ -38,8 +38,8 @@ class Custom_Model_Single_Embedding(nn.Module):
 class Custom_Model_Embedding(nn.Module):
     def __init__(self, num_embeddings):
         super(Custom_Model_Embedding, self).__init__()
-        self.embedding_1 = torch.nn.Embedding(num_embeddings, 3)
-        self.embedding_2 = torch.nn.Embedding(num_embeddings, 3)
+        self.embedding_1 = torch.nn.Embedding(num_embeddings, 16)
+        self.embedding_2 = torch.nn.Embedding(num_embeddings, 16)
 
     def forward(self, inputs):
         output = self.embedding_1(inputs) + self.embedding_2(inputs)
@@ -102,9 +102,9 @@ class Custom_Model_Emb_Emb_Bag_Common_Node(nn.Module):
 class Custom_Model_Embedding_Group(nn.Module):
     def __init__(self, num_embeddings):
         super(Custom_Model_Embedding_Group, self).__init__()
-        self.e_bags_grp_0 = [torch.nn.Embedding(num_embeddings, 3) for _ in range(5)]
-        self.e_bags_grp_1 = [torch.nn.Embedding(num_embeddings, 3) for _ in range(10)]
-        self.e_bags_grp_2 = [torch.nn.Embedding(num_embeddings, 3) for _ in range(6)]
+        self.e_bags_grp_0 = [torch.nn.Embedding(num_embeddings, 16) for _ in range(5)]
+        self.e_bags_grp_1 = [torch.nn.Embedding(num_embeddings, 16) for _ in range(10)]
+        self.e_bags_grp_2 = [torch.nn.Embedding(num_embeddings, 16) for _ in range(6)]
 
     def forward(self, e_input):
         e_outputs_grp_0 = [self.e_bags_grp_0[i](e_input) for i in range(5)]

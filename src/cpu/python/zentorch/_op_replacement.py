@@ -36,7 +36,7 @@ pass_pattern = PatternMatcherPass()
 # we will write checks and register_graph_patterns for the following ops
 # embedding replacement
 def is_embedding_op_replacable(match):
-    return match.args[1].meta["val"].ndim == 1
+    return is_zendnn_embedding_bag_supported(match.args[0].meta["val"]) and match.args[1].meta["val"].ndim == 1
 
 
 @register_graph_pattern(

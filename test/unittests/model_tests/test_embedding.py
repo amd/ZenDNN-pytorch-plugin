@@ -42,7 +42,7 @@ class Test_Embedding_Model(EmbTestCase):
     @torch.inference_mode()
     def test_embedding_compile_model(self, dtype, freeze_opt):
         new_dtype = self.data.get_torch_type(dtype)
-        model = Custom_Model_Embedding(100, dtype=new_dtype)
+        model = Custom_Model_Embedding(256, dtype=new_dtype)
         input = torch.randint(0, 10000, (10,))
         model_output = model(input)
         reset_dynamo()
