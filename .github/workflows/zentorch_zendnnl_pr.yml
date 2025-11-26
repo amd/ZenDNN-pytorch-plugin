@@ -375,6 +375,20 @@ jobs:
       
       - name: Run CI script
         run: |
+
+          echo "===== DEBUG INFO START ====="
+
+          echo "---- GIT INFO ----"
+          echo "Branch: $(git rev-parse --abbrev-ref HEAD)"
+          echo "Commit: $(git rev-parse HEAD)"
+          echo "---- WORKSPACE ----"
+          echo "PWD: $PWD"
+          echo "GITHUB_WORKSPACE: $GITHUB_WORKSPACE"
+          echo "ls -R:"
+          ls -R .
+          echo "---- ENV VARS ----"
+          echo "ZENTORCH_USE_LOCAL_ZENDNN = ${ZENTORCH_USE_LOCAL_ZENDNN}"
+          echo "ZENTORCH_USE_LOCAL_BLIS = ${ZENTORCH_USE_LOCAL_BLIS}"
           #sed -i 's/sudo//g' "$PARENT_DIR/ZenDNN_tools/scripts/ci/zendnn_ci_pt_plugin_presub_build.sh"
           #sed -i '/mkmhub/ s/mkmhub/-v \/proj\/zendai:\/proj\/zendai -v \/home\/runner:\/home\/runner mkmhub/' "$PARENT_DIR/ZenDNN_tools/scripts/ci/zendnn_ci_pt_plugin_presub_build.sh"
           #sed -i '/git config --global --add/ s/^/# /' "$PARENT_DIR/ZenDNN_tools/scripts/ci/zendnn_ci_pt_plugin_presub_build.sh"
