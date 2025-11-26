@@ -156,11 +156,16 @@ jobs:
          echo "=============================================="
          echo ""
         shell: bash 
+        
       - name: Checkout ZenDNN_PyTorch_Plugin
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
-
+         ref: ${{ 
+            github.event.action == 'zendnnl-pr' && 'zentorch_zendnnl' ||
+            github.ref
+          }}
+         fetch-depth: 0
+          
       - name: Set WORKSPACE and PARENT_DIR to parent of repo
         run: |
           echo "PARENT_DIR=$(dirname "${GITHUB_WORKSPACE}")" >> $GITHUB_ENV
