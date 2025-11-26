@@ -379,8 +379,7 @@ jobs:
           echo "===== DEBUG INFO START ====="
 
           echo "---- GIT INFO ----"
-          echo "Branch: $(git rev-parse --abbrev-ref HEAD)"
-          echo "Commit: $(git rev-parse HEAD)"
+          echo "Branch: $(git branch --show-current)"
           echo "---- WORKSPACE ----"
           echo "PWD: $PWD"
           echo "GITHUB_WORKSPACE: $GITHUB_WORKSPACE"
