@@ -74,41 +74,12 @@ check_valid_sizes_for_matmul(const at::Tensor &mat1, const at::Tensor &mat2,
       // dimensionality check for batched matrix multiplication
       ((mat1_dim == 3 && mat2_dim == 3) ||
        // dimensionality check for matrix multiplication
-       (mat1_dim == 2 && mat2_dim == 2) ||
-       // specific case for aten::mv
-       (mat1_dim == 2 && mat2_dim == 1) ||
-       // specific case for aten::dot
-       (mat1_dim == 1 && mat2_dim == 1)),
+       (mat1_dim == 2 && mat2_dim == 2)),
       "unsupported dims for mat1 and mat2");
 
   // Array access is faster than .size(n)
   const auto mat1_sizes = mat1.sizes();
   const auto mat2_sizes = mat2.sizes();
-
-  if (mat1_dim == 2 && mat2_dim == 1) {
-    LOG(INFO) << "Special case of aten::mv";
-    ZENTORCH_CHECK(
-        post_op_buffers.empty(),
-        "Post Op support currently unavailable for aten::mv via ZenTorch");
-    // TODO
-    // Need to understand how to the result is in these cases and need to add a
-    // check for the result buffer as well.
-    ZENTORCH_CHECK(mat1_sizes[1] == mat2_sizes[0],
-                   "Tensor shapes incompatible for aten::mv via ZenTorch");
-    return;
-  }
-  if (mat1_dim == 1 && mat2_dim == 1) {
-    LOG(INFO) << "Special case of aten::dot";
-    ZENTORCH_CHECK(
-        post_op_buffers.empty(),
-        "Post Op support currently unavailable for aten::dot via ZenTorch");
-    // TODO
-    // Need to understand how to the result is in these cases and need to add a
-    // check for the result buffer as well.
-    ZENTORCH_CHECK(mat1_sizes[0] == mat2_sizes[0],
-                   "Tensor shapes incompatible for aten::dot via ZenTorch");
-    return;
-  }
 
   // matmul shape compatibility check
   // Eg:

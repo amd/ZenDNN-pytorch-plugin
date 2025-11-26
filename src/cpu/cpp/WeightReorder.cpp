@@ -80,8 +80,8 @@ at::Tensor zentorch_weight_prepack_for_linear(const at::Tensor &weight,
   auto reorder_op =
       reorder_operator_t().set_name("reorder_op").set_context(context).create();
   // Check if reorder operation creation is successful.
-  ZENTORCH_CHECK(reorder_op.check(), "operator ", reorder_op.get_name(),
-                 " creation failed.");
+  ZENTORCH_CHECK(!reorder_op.is_bad_object(), "operator ",
+                 reorder_op.get_name(), " creation failed.");
 
   reorder_op.set_input("reorder_input", zen_reorder_input);
   size_t reorder_bytes = reorder_op.get_reorder_size();

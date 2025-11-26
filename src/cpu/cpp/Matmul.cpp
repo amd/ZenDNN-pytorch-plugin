@@ -294,7 +294,7 @@ at::Tensor zendnnl_matmul_impl(const at::Tensor &input,
                              .set_context(matmul_context);
   matmul_operator.create();
 
-  ZENTORCH_CHECK(matmul_operator.check(), "operator ",
+  ZENTORCH_CHECK(!matmul_operator.is_bad_object(), "operator ",
                  matmul_operator.get_name(), " creation failed.");
 
   tensor_t input_tensor = tensor_t();

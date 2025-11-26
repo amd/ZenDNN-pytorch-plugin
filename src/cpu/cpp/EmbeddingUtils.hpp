@@ -164,7 +164,7 @@ inline void set_embedding_operator_attributes(
   embedding_operator.set_name(operator_name)
       .set_context(embedding_context)
       .create();
-  ZENTORCH_CHECK(embedding_operator.check(), "operator ",
+  ZENTORCH_CHECK(!embedding_operator.is_bad_object(), "operator ",
                  embedding_operator.get_name(), " creation failed.");
 
   embedding_operator.set_input("indices", indices).set_output("output", output);

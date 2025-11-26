@@ -64,7 +64,7 @@ class Range:
 
 
 B_RANGE = Range(1, 10)
-M_RANGE = Range(1, 10)
+M_RANGE = Range(2, 10)
 K_RANGE = Range(2, 10)
 N_RANGE = Range(2, 10)
 
