@@ -56,16 +56,14 @@ at::Tensor zendnnl_embedding_impl(const at::Tensor &weight,
   at::Tensor output = at::detail::empty_strided_cpu(
       {num_indices, dim_embedding}, {dim_embedding, 1}, weight.options());
 
-  tensor_t indices_tensor = tensor_t();
   tensor_t table = tensor_t();
+  set_zendnnl_tensor_attributes(weight, table, "table");
+
+  tensor_t indices_tensor = tensor_t();
+  set_zendnnl_tensor_attributes(indices, indices_tensor, "indices");
+
   tensor_t output_tensor = tensor_t();
-
-  std::vector<TensorStruct> tensor_structs = {
-      {indices, indices_tensor, "indices"},
-      {weight, table, "table"},
-      {output, output_tensor, "output"}};
-
-  create_tensors_for_zendnnl(tensor_structs);
+  set_zendnnl_tensor_attributes(output, output_tensor, "output");
 
   embag_context_t embedding_context = embag_context_t();
   const int64_t mode = -1; /*There is no reduction algo in embdding*/

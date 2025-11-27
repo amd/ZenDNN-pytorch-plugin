@@ -8,37 +8,12 @@
 #include "DataPointerManager.hpp"
 #include "Utils.hpp"
 
-#include <algorithm>
-#include <cpuinfo.h>
-#include <cstdint>
-#include <functional> // For std::reference_wrapper, std::ref, std::cref
-#include <iostream>
-#include <optional> // For std::optional, std::nullopt
-#include <string>
-#include <torch/all.h>
-
 #include "zendnnl.hpp"
 
 using namespace zendnn;
 using namespace zendnnl::interface;
 
 namespace zentorch {
-
-struct TensorStruct {
-  std::reference_wrapper<const at::Tensor> at_tensor;
-  std::reference_wrapper<tensor_t> zendnnl_tensor;
-  std::reference_wrapper<const std::string_view> tensor_name;
-  std::reference_wrapper<const std::vector<unsigned long>> tensor_sizes;
-  std::reference_wrapper<const std::vector<unsigned long>> tensor_strides;
-
-  static inline const std::vector<unsigned long> empty_vector = {};
-
-  TensorStruct(const at::Tensor &t, tensor_t &z, const std::string_view &n,
-               const std::vector<unsigned long> &sz = empty_vector,
-               const std::vector<unsigned long> &st = empty_vector)
-      : at_tensor(t), zendnnl_tensor(z), tensor_name(n), tensor_sizes(sz),
-        tensor_strides(st) {}
-};
 
 // this infers the zendnn datatype from aten tensor
 inline auto get_ztype_from_aten(const at::Tensor &atensor) {
@@ -198,65 +173,100 @@ inline memory zen_memory(const at::Tensor &atensor,
   }
 }
 
-// This function acts as a bridge between the zentorch frontend and zendnnl
-// backend. It sets the necessary attributes to the zendnnl tensor created in
-// the caller function. The attributes depend on the properties of aten tensor.
+// Inner variant: Sets zendnnl tensor attributes from raw pointer and explicit
+// parameters. This is the core implementation that directly configures the
+// zendnnl tensor object with all the necessary metadata for tensor operations
+// in the zendnnl backend.
+//
+// Parameters (all mandatory):
+//   at_tensor_ptr: Raw pointer to the tensor data buffer
+//   zendnnl_dtype: The zendnnl data type
+//   zendnnl_tensor: Reference to the zendnnl tensor object to be configured
+//   tensor_name: Human-readable name for debugging/logging purposes
+//   is_weight_prepacked: Flag indicating if this is a pre-packed weight tensor
+//                        (which requires blocked layout for optimized access)
+//   tensor_sizes: Dimensions of the tensor
+//   tensor_strides: Stride in each dimension
+//   tensor_aligned_sizes: Padded/aligned dimensions
+//   nbytes: Total size of the tensor data in bytes
+
+// This variant of the function must only be used in special cases and where all
+// parameters are known and provided explicitly, since we are working buffer
+// pointers directly. In all the general cases, use the convenience wrapper of
+// the function.
 inline void set_zendnnl_tensor_attributes(
-    const at::Tensor &at_tensor, tensor_t &zendnnl_tensor,
-    const std::string_view &tensor_name,
-    const bool &is_weight_prepacked = false,
-    const std::vector<unsigned long> &tensor_sizes = {},
-    const std::vector<unsigned long> &tensor_strides = {}) {
-
-  void *at_tensor_ptr = at_tensor.data_ptr();
-
-  const std::vector<long unsigned int> zendnnl_tensor_sizes =
-      tensor_sizes.empty()
-          ? std::vector<long unsigned int>(at_tensor.sizes().begin(),
-                                           at_tensor.sizes().end())
-          : tensor_sizes;
-  const std::vector<long unsigned int> zendnnl_tensor_strides =
-      tensor_strides.empty()
-          ? std::vector<long unsigned int>(at_tensor.strides().begin(),
-                                           at_tensor.strides().end())
-          : tensor_strides;
+    void *at_tensor_ptr, const data_type_t &zendnnl_dtype,
+    tensor_t &zendnnl_tensor, const std::string_view &tensor_name,
+    const bool &is_weight_prepacked,
+    const std::vector<unsigned long> &tensor_sizes,
+    const std::vector<unsigned long> &tensor_strides,
+    const std::vector<unsigned long> &tensor_aligned_sizes,
+    const int64_t &nbytes) {
 
   zendnnl_tensor.set_name(static_cast<std::string>(tensor_name))
-      .set_data_type(get_zendnnl_dtype(at_tensor))
-      .set_storage(at_tensor_ptr, at_tensor.nbytes());
+      .set_data_type(zendnnl_dtype)
+      .set_storage(at_tensor_ptr, nbytes);
 
   if (is_weight_prepacked) {
     zendnnl_tensor.set_layout(tensor_layout_t::blocked);
   }
 
-  zendnnl_tensor.set_size(zendnnl_tensor_sizes);
-  zendnnl_tensor.set_stride(zendnnl_tensor_strides);
+  if (!tensor_aligned_sizes.empty()) {
+    zendnnl_tensor.set_aligned_size(tensor_aligned_sizes);
+  }
 
-  zendnnl_tensor.create();
+  zendnnl_tensor.set_size(tensor_sizes).set_stride(tensor_strides).create();
+
   ZENTORCH_CHECK(zendnnl_tensor.check(), "tensor creation of ",
                  zendnnl_tensor.get_name(),
                  " failed. Size: ", zendnnl_tensor.get_size(),
                  " Stride: ", zendnnl_tensor.get_stride());
 }
 
-inline void
-create_tensors_for_zendnnl(std::vector<TensorStruct> &tensor_structs) {
-  int num_tensors = tensor_structs.size();
+// Convenience wrapper that extracts attributes from an aten Tensor
+// and forwards them to the inner variant.
+//
+// This function acts as a bridge between the zentorch frontend (PyTorch) and
+// zendnnl backend. It handles the common case where you have an aten tensor and
+// want to create a corresponding zendnnl tensor with the same properties.
+//
+// Parameters:
+//   at_tensor: PyTorch aten tensor to extract properties from
+//   zendnnl_tensor: Reference to zendnnl tensor object to configure
+//   tensor_name: Name for the tensor (for debugging/logging)
+//   is_weight_prepacked: Whether this is a pre-packed weight
+//   tensor_sizes: Optional override for tensor dimensions (uses
+//   at_tensor.sizes() if empty) tensor_strides: Optional override for strides
+//   (uses at_tensor.strides() if empty) tensor_aligned_sizes: Optional aligned
+//   dimensions for SIMD optimization nbytes: Optional override for byte count
+//   (uses at_tensor.nbytes() if -1)
+inline void set_zendnnl_tensor_attributes(
+    const at::Tensor &at_tensor, tensor_t &zendnnl_tensor,
+    const std::string_view &tensor_name,
+    const bool &is_weight_prepacked = false,
+    const std::vector<unsigned long> &tensor_sizes = {},
+    const std::vector<unsigned long> &tensor_strides = {},
+    const std::vector<unsigned long> &tensor_aligned_sizes = {},
+    const int64_t &nbytes = -1) {
 
-  at::parallel_for(0, num_tensors, 0, [&](int64_t start, int64_t end) {
-    for (int tensor_index = start; tensor_index < end; tensor_index++) {
-      auto &ts = tensor_structs[tensor_index];
-      const at::Tensor &at_tensor = ts.at_tensor.get();
-      tensor_t &zendnnl_tensor = ts.zendnnl_tensor.get();
-      const std::string_view &tensor_name = ts.tensor_name.get();
-      const std::vector<unsigned long> &tensor_sizes = ts.tensor_sizes.get();
-      const std::vector<unsigned long> &tensor_strides =
-          ts.tensor_strides.get();
-      set_zendnnl_tensor_attributes(at_tensor, zendnnl_tensor, tensor_name,
-                                    false /*is_weight_prepacked*/, tensor_sizes,
-                                    tensor_strides);
-    }
-  });
+  void *at_tensor_ptr = at_tensor.data_ptr();
+
+  const std::vector<unsigned long> zendnnl_tensor_sizes =
+      tensor_sizes.empty()
+          ? std::vector<unsigned long>(at_tensor.sizes().begin(),
+                                       at_tensor.sizes().end())
+          : tensor_sizes;
+  const std::vector<unsigned long> zendnnl_tensor_strides =
+      tensor_strides.empty()
+          ? std::vector<unsigned long>(at_tensor.strides().begin(),
+                                       at_tensor.strides().end())
+          : tensor_strides;
+
+  // Delegate to the inner variant with all extracted/provided parameters
+  set_zendnnl_tensor_attributes(
+      at_tensor_ptr, get_zendnnl_dtype(at_tensor), zendnnl_tensor, tensor_name,
+      is_weight_prepacked, zendnnl_tensor_sizes, zendnnl_tensor_strides,
+      tensor_aligned_sizes, nbytes == -1 ? at_tensor.nbytes() : nbytes);
 }
 
 // The reorder API allows us to transform data between various memory formats

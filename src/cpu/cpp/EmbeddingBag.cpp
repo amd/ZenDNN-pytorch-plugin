@@ -98,36 +98,32 @@ zendnnl_embeddingbag_impl(const at::Tensor &weight, const at::Tensor &indices,
             << dim_embedding;
   LOG(INFO) << "Number of embedding bags: " << num_bags;
 
+  tensor_t table = tensor_t();
+  set_zendnnl_tensor_attributes(weight, table, "table");
+
+  tensor_t indices_tensor = tensor_t();
+  set_zendnnl_tensor_attributes(indices, indices_tensor, "indices");
+
+  tensor_t offsets_tensor = tensor_t();
+  set_zendnnl_tensor_attributes(offsets, offsets_tensor, "offsets");
+
   at::Tensor output = at::detail::empty_strided_cpu(
       {num_bags, dim_embedding}, {dim_embedding, 1}, weight.options());
+  tensor_t output_tensor = tensor_t();
+  set_zendnnl_tensor_attributes(output, output_tensor, "output");
 
   c10::MaybeOwned<at::Tensor> per_sample_weights_opt_maybe_owned =
       at::borrow_from_optional_tensor(per_sample_weights_opt);
   [[maybe_unused]] const at::Tensor &per_sample_weights =
       *per_sample_weights_opt_maybe_owned;
-
-  auto per_sample_weights_defined = per_sample_weights.defined();
-
-  tensor_t table = tensor_t();
-  tensor_t output_tensor = tensor_t();
-  tensor_t indices_tensor = tensor_t();
-  tensor_t offsets_tensor = tensor_t();
   [[maybe_unused]] tensor_t per_sample_weights_tensor = tensor_t();
 
-  std::vector<TensorStruct> tensor_structs = {
-      {indices, indices_tensor, "indices"},
-      {offsets, offsets_tensor, "offsets"},
-      {weight, table, "table"},
-      {output, output_tensor, "output"}};
-
-  [[maybe_unused]] const std::string_view tensor_name = "per_sample_weights";
+  auto per_sample_weights_defined = per_sample_weights.defined();
   if (per_sample_weights_defined) {
     LOG(INFO) << "Using the per-sample weights tensor!";
-    tensor_structs.emplace_back(per_sample_weights, per_sample_weights_tensor,
-                                tensor_name);
+    set_zendnnl_tensor_attributes(per_sample_weights, per_sample_weights_tensor,
+                                  "per_sample_weights");
   }
-
-  create_tensors_for_zendnnl(tensor_structs);
 
   embag_context_t embedding_bag_context = embag_context_t();
 

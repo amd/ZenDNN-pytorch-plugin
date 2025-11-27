@@ -211,14 +211,12 @@ std::vector<at::Tensor> zendnn_matmul_group_impl(
   return self_or_result_vector;
 }
 
-at::Tensor zendnnl_matmul_impl(const at::Tensor &input,
-                               const at::Tensor &weight, const at::Tensor &bias,
-                               at::Tensor &result,
-                               const std::vector<int64_t> &post_op_ids,
-                               const std::vector<at::Tensor> &post_op_buffers,
-                               const float &beta, const float &alpha,
-                               std::string zentorch_op_name,
-                               const bool is_weight_prepacked = false) {
+at::Tensor zendnnl_matmul_impl(
+    const at::Tensor &input, const at::Tensor &weight, const at::Tensor &bias,
+    at::Tensor &result, const std::vector<int64_t> &post_op_ids,
+    const std::vector<at::Tensor> &post_op_buffers, const float &beta,
+    const float &alpha, std::string zentorch_op_name,
+    const bool is_weight_const, const bool is_weight_prepacked) {
 
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
@@ -227,6 +225,38 @@ at::Tensor zendnnl_matmul_impl(const at::Tensor &input,
   LOG(INFO) << "result dimensions: " << result.sizes();
   LOG(INFO) << "beta : " << beta << " and alpha : " << alpha;
 
+  // ZenDNNL has implementation for matmul and batched matmul which bypasses the
+  // tensor creation and other over-heads to directly start the matmul
+  // computation. The usage of the kernel is managed by the env variable
+  // "USE_ZENDNN_MATMUL_DIRECT" and when this variable is set to 1 based
+  // on the certain conditions, the decision of whether to use this kernel or
+  // not is made.
+
+  const int int_env_value =
+      EnvReader::getEnvVariableAsInt("USE_ZENDNN_MATMUL_DIRECT");
+
+  const bool bias_defined = bias.numel();
+  const at::Tensor beta_bias =
+      bias_defined ? (beta == 1 ? bias : bias.mul(beta)) : bias;
+
+  // "validate_zendnnl_direct_kernel_usage" returns a boolean representing
+  // whether the direct kernel will be used or not. If true, then the direct
+  // kernel will be used and the product is stored in the "result" tensor which
+  // is then returned based on the final boolean value
+  // "use_zendnnl_direct_kernel". "use_zendnnl_direct_kernel" takes its final
+  // value based on the env variable enablement and the return value of
+  // "validate_zendnnl_direct_kernel_usage" function.
+  const bool use_zendnnl_direct_kernel =
+      int_env_value && validate_zendnnl_direct_kernel_usage(
+                           input, weight, beta_bias, result, post_op_buffers);
+  if (use_zendnnl_direct_kernel) {
+    LOG(INFO) << "Using zendnn direct kernel for matmul";
+    zendnnl_direct_kernel(input, weight, beta_bias, result, alpha, post_op_ids,
+                          post_op_buffers, is_weight_const,
+                          is_weight_prepacked);
+    return result;
+  }
+
   const at::Tensor &input_ = input.dim() == 1 ? input.unsqueeze(0) : input;
   const at::Tensor &weight_ = weight.dim() == 1 ? weight.unsqueeze(1) : weight;
   result = result.dim() == 1 ? result.unsqueeze_(1) : result;
@@ -234,7 +264,6 @@ at::Tensor zendnnl_matmul_impl(const at::Tensor &input,
   check_valid_dtypes_for_matmul(input_, weight_, bias, result, post_op_buffers);
   check_valid_sizes_for_matmul(input_, weight_, bias, result, post_op_buffers);
 
-  const bool bias_defined = bias.numel();
   // If alpha = 0, does not need to actually do gemm computation
   if (alpha == 0) {
     if (beta == 0.0f) {
@@ -260,13 +289,16 @@ at::Tensor zendnnl_matmul_impl(const at::Tensor &input,
   set_zendnnl_tensor_attributes(weight_, mat2_tensor, "weights",
                                 is_weight_prepacked);
 
-  auto matmul_context = matmul_context_t();
+  tensor_t input_tensor = tensor_t();
+  set_zendnnl_tensor_attributes(input_, input_tensor, "matmul_input");
 
-  const at::Tensor beta_bias =
-      bias_defined ? (beta == 1 ? bias : bias.mul(beta)) : bias;
+  tensor_t output_tensor = tensor_t();
+  set_zendnnl_tensor_attributes(result, output_tensor, "matmul_output");
+
+  auto matmul_context = matmul_context_t();
   if (bias_defined) {
     tensor_t bias_tensor = tensor_t();
-    auto bias_numel = bias.numel();
+    auto bias_numel = beta_bias.numel();
     if (weight_.dim() == 2) {
       set_zendnnl_tensor_attributes(beta_bias, bias_tensor, "bias",
                                     false /* is_weight_prepacked */,
@@ -284,64 +316,11 @@ at::Tensor zendnnl_matmul_impl(const at::Tensor &input,
     set_matmul_context_attributes(matmul_context, mat2_tensor, post_op_ids,
                                   alpha);
   }
-  matmul_context.create();
-
-  ZENTORCH_CHECK(matmul_context.check(), "matmul context creation failed.");
 
   // define matmul operator
-  auto matmul_operator = matmul_operator_t()
-                             .set_name("matmul_operator")
-                             .set_context(matmul_context);
-  matmul_operator.create();
-
-  ZENTORCH_CHECK(!matmul_operator.is_bad_object(), "operator ",
-                 matmul_operator.get_name(), " creation failed.");
-
-  tensor_t input_tensor = tensor_t();
-  set_zendnnl_tensor_attributes(input_, input_tensor, "matmul_input");
-
-  tensor_t output_tensor = tensor_t();
-  set_zendnnl_tensor_attributes(result, output_tensor, "matmul_output");
-
-  matmul_operator.set_input("matmul_input", input_tensor)
-      .set_output("matmul_output", output_tensor);
-
-  int post_op_buffer_tracker = 0;
-  int count_none_activations = 0;
-  for (int op_id = 0; op_id < static_cast<int>(post_op_ids.size()); op_id++) {
-    switch (post_op_ids[op_id]) {
-    case BINARY_POST_OP::MUL: {
-      tensor_t binary_tensor = tensor_t();
-      std::string tensor_name =
-          "binary_input" + std::to_string(op_id - count_none_activations);
-      set_zendnnl_tensor_attributes(post_op_buffers[post_op_buffer_tracker++],
-                                    binary_tensor, tensor_name);
-      matmul_operator.set_input(
-          matmul_context.get_post_op(op_id - count_none_activations)
-              .binary_mul_params.tensor_name,
-          binary_tensor);
-      break;
-    }
-    case BINARY_POST_OP::ADD: {
-      tensor_t binary_tensor = tensor_t();
-      std::string tensor_name =
-          "binary_input" + std::to_string(op_id - count_none_activations);
-      set_zendnnl_tensor_attributes(post_op_buffers[post_op_buffer_tracker++],
-                                    binary_tensor, tensor_name);
-      matmul_operator.set_input(
-          matmul_context.get_post_op(op_id - count_none_activations)
-              .binary_add_params.tensor_name,
-          binary_tensor);
-      break;
-    }
-    case UNARY_POST_OP::POST_OP_NONE: {
-      count_none_activations++;
-      break;
-    }
-    default:
-      break;
-    }
-  }
+  auto matmul_operator = matmul_operator_t();
+  set_matmul_operator_attributes(matmul_operator, matmul_context, input_tensor,
+                                 output_tensor, post_op_ids, post_op_buffers);
 
   status_t status = matmul_operator.execute();
 
@@ -378,7 +357,8 @@ at::Tensor zentorch_matmul_impl(
                                   zentorch_op_name, is_weight_const)
              : zendnnl_matmul_impl(input, weight, bias, result, post_op_ids,
                                    post_op_buffers, beta, alpha,
-                                   zentorch_op_name, is_weight_prepacked);
+                                   zentorch_op_name, is_weight_const,
+                                   is_weight_prepacked);
 }
 
 template <UNARY_POST_OP fuse>
@@ -632,7 +612,7 @@ at::Tensor zentorch_bmm(const at::Tensor &self, const at::Tensor &mat2,
   return zentorch_matmul_impl(self_, mat2_, empty_bias, result,
                               {} /*post_op_ids*/, {} /*post_op_buffers*/,
                               0.0f /* beta */, 1.0f /* alpha */,
-                              zentorch_op_name);
+                              zentorch_op_name, false /* is_weight_const */);
 }
 
 // unary-binary fusions and binary fusions will be handle by this

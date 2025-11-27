@@ -5,9 +5,10 @@
 
 #pragma once
 
+#include <algorithm>
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
-#include <functional>
 #include <map>
 #include <string>
 #include <vector>

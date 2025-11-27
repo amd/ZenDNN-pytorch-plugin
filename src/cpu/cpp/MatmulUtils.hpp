@@ -5,12 +5,29 @@
 
 #pragma once
 
+#include <functional> // For std::reference_wrapper, std::ref, std::cref
+#include <optional>   // For std::optional, std::nullopt
+#include <unordered_map>
+
 #include "Memory.hpp"
 
 using namespace zendnn;
 using namespace zendnnl::interface;
 
 namespace zentorch {
+
+// Map from post-op enum values to their corresponding post_op_type_t
+static const std::unordered_map<int64_t, post_op_type_t> post_op_type_map = {
+    // Unary post-ops
+    {UNARY_POST_OP::RELU, post_op_type_t::relu},
+    {UNARY_POST_OP::GELU_TANH, post_op_type_t::gelu_tanh},
+    {UNARY_POST_OP::GELU_ERF, post_op_type_t::gelu_erf},
+    {UNARY_POST_OP::SIGMOID, post_op_type_t::sigmoid},
+    {UNARY_POST_OP::SILU, post_op_type_t::swish},
+
+    // Binary post-ops
+    {BINARY_POST_OP::MUL, post_op_type_t::binary_mul},
+    {BINARY_POST_OP::ADD, post_op_type_t::binary_add}};
 
 inline at::Tensor get_contiguous_view(const at::Tensor &tensor) {
   auto stride = tensor.strides();
@@ -617,6 +634,9 @@ inline void zendnn_direct_kernel(const at::Tensor &input,
   case UNARY_POST_OP::GELU_TANH:
     zendnn_post_op = ActivationPostOp::GELU_TANH;
     break;
+  case UNARY_POST_OP::GELU_ERF:
+    zendnn_post_op = ActivationPostOp::GELU_ERF;
+    break;
   case UNARY_POST_OP::SIGMOID:
     zendnn_post_op = ActivationPostOp::SIGMOID;
     break;
@@ -655,6 +675,174 @@ inline void zendnn_direct_kernel(const at::Tensor &input,
       zendnn_post_op, batch_A, batch_B);
 }
 
+inline bool validate_zendnnl_direct_kernel_usage(
+    const at::Tensor &input, const at::Tensor &weight, const at::Tensor &bias,
+    const at::Tensor &result, const std::vector<at::Tensor> &post_op_buffers) {
+
+  // Currently this kernel supports only float32 and bfloat16 datatype
+  // Define the datatype check as a lambda
+  // The tensors for this kernel have to be either float or bfloat16
+  auto is_dtype_supported = [](const at::Tensor &x) {
+    return ((x.scalar_type() == c10::ScalarType::Float) ||
+            (x.scalar_type() == c10::ScalarType::BFloat16));
+  };
+
+  const bool are_tensor_dtypes_valid =
+      is_dtype_supported(input) && is_dtype_supported(weight) &&
+      ((bias.defined() && is_dtype_supported(bias)) || !bias.defined()) &&
+      is_dtype_supported(result);
+
+  if (!are_tensor_dtypes_valid) {
+    return false;
+  }
+
+  check_valid_dtypes_for_matmul(input, weight, bias, result, post_op_buffers);
+
+  // By the time the control comes to this function, we are working with tensors
+  // that are of 2d or 3d shape and all the tensors are of same shape. So,
+  // creating check with only one of the tensors should suffice for all the
+  // validations.
+  const bool are_tensors_compatible_for_matmul =
+      input.dim() == weight.dim() && input.dim() == result.dim();
+
+  // Bias is optional and can be of 1d when weight is 2d, or 3d when weight is
+  // 3d.
+  const bool is_bias_compatible_for_matmul =
+      bias.defined() ? (weight.dim() == 2 ? bias.dim() == 1 : bias.dim() == 3)
+                     : true;
+
+  if (!(are_tensors_compatible_for_matmul && is_bias_compatible_for_matmul)) {
+    return false;
+  }
+
+  check_valid_sizes_for_matmul(input, weight, bias, result, post_op_buffers);
+
+  return true;
+}
+
+inline void zendnnl_direct_kernel(
+    const at::Tensor &input, const at::Tensor &weight, const at::Tensor &bias,
+    const at::Tensor &result, const float &alpha,
+    const std::vector<int64_t> &post_op_ids,
+    const std::vector<at::Tensor> &post_op_buffers, const bool is_weight_const,
+    const bool is_weight_prepacked) {
+
+  // TODO
+  // Check if we can use tensor.strided() instead of is_stride_valid()
+
+  // TODO
+  // Check if we can use contiguous irrespective of the condition
+  at::Tensor input_ =
+      is_stride_valid(input) ? input : get_contiguous_view(input);
+  at::Tensor weight_ =
+      is_stride_valid(weight) ? weight : get_contiguous_view(weight);
+
+  // By the time the control comes to this function, we are working with tensors
+  // that are of 2d or 3d shape and all the tensors are of same shape. So,
+  // creating check with only one of the tensors should suffice for all the
+  // validations.
+
+  bool is_matmul_2d = input_.dim() == 2;
+
+  bool transA = is_transposed(input_);
+  bool transB = is_transposed(weight_);
+  int batch_A = is_matmul_2d ? 1 : input_.size(0);
+  int batch_B = is_matmul_2d ? 1 : weight_.size(0);
+  int M = is_matmul_2d ? input_.size(0) : input_.size(1);
+  int K = is_matmul_2d ? input_.size(1) : input_.size(2);
+  int N = is_matmul_2d ? weight_.size(1) : weight_.size(2);
+
+  auto stridesA = input_.strides();
+  auto stridesB = weight_.strides();
+  auto stridesC = result.strides();
+  int lda, ldb, ldc;
+
+  if (transA) {
+    lda = is_matmul_2d ? stridesA[1] : stridesA[2];
+  } else {
+    lda = is_matmul_2d ? stridesA[0] : stridesA[1];
+  }
+
+  if (transB) {
+    ldb = is_matmul_2d ? stridesB[1] : stridesB[2];
+  } else {
+    ldb = is_matmul_2d ? stridesB[0] : stridesB[1];
+  }
+
+  ldc = is_matmul_2d ? stridesC[0] : stridesC[1];
+
+  void *input_ptr = input_.data_ptr();
+  void *weight_ptr = weight_.data_ptr();
+  void *bias_ptr = bias.defined() ? bias.data_ptr() : nullptr;
+  void *result_ptr = result.data_ptr();
+
+  zendnnl::lowoha::data_types matmul_dtype;
+  matmul_dtype.src = get_zendnnl_dtype(input);
+  matmul_dtype.wei = get_zendnnl_dtype(weight);
+  matmul_dtype.bias =
+      bias.defined() ? get_zendnnl_dtype(bias) : data_type_t::none;
+  matmul_dtype.dst = get_zendnnl_dtype(result);
+
+  matmul_dtype.compute = data_type_t::none;
+
+  zendnnl::lowoha::lowoha_params params;
+  params.dtypes = matmul_dtype;
+  if (is_weight_prepacked) {
+    params.mem_format_b = 'r';
+  }
+
+  std::vector<long int> result_sizes =
+      std::vector<long int>(result.sizes().begin(), result.sizes().end());
+
+  // Lambda to add unary post-ops
+  auto unary_post_op = [&params, &result_sizes](post_op_type_t op_type) {
+    zendnnl::lowoha::postop post_op;
+    post_op.po_type = op_type;
+    post_op.buff = nullptr;
+    post_op.dtype = data_type_t::none;
+    post_op.dims = result_sizes;
+    params.postop_.push_back(post_op);
+  };
+
+  // Lambda to add binary post-ops
+  auto binary_post_op = [&params,
+                         &result_sizes](post_op_type_t op_type,
+                                        const at::Tensor &post_op_buffer) {
+    zendnnl::lowoha::postop post_op;
+    post_op.po_type = op_type;
+    post_op.buff = post_op_buffer.data_ptr();
+    post_op.dtype = get_zendnnl_dtype(post_op_buffer);
+    auto dims = post_op_buffer.sizes();
+    post_op.dims = std::vector<long int>(dims.begin(), dims.end());
+    params.postop_.push_back(post_op);
+  };
+
+  int post_op_buffer_index = 0;
+  for (const long &post_op_id : post_op_ids) {
+    auto it = post_op_type_map.find(post_op_id);
+    if (it != post_op_type_map.end()) {
+      post_op_type_t op_type = it->second;
+
+      // Check if it's a binary operation
+      if (post_op_id == BINARY_POST_OP::MUL ||
+          post_op_id == BINARY_POST_OP::ADD) {
+        binary_post_op(op_type, post_op_buffers[post_op_buffer_index++]);
+      } else {
+        unary_post_op(op_type);
+      }
+    }
+  }
+
+  zendnnl::lowoha::batch_params_t batch_params;
+  batch_params.Batch_A = batch_A;
+  batch_params.Batch_B = batch_B;
+
+  zendnnl::lowoha::matmul_direct('r' /* layout: row-major */, transA, transB, M,
+                                 N, K, alpha, input_ptr, lda, weight_ptr, ldb,
+                                 bias_ptr, 0.0f /* beta */, result_ptr, ldc,
+                                 is_weight_const, batch_params, params);
+}
+
 inline void set_matmul_context_attributes(
     matmul_context_t &matmul_context, tensor_t &weights,
     const std::vector<int64_t> &post_op_ids, const float &alpha,
@@ -668,41 +856,66 @@ inline void set_matmul_context_attributes(
     matmul_context.set_param("bias", bias);
   }
 
-  for (int64_t fuse : post_op_ids) {
-    switch (fuse) {
-    case UNARY_POST_OP::RELU: {
-      auto post_op = post_op_t{post_op_type_t::relu};
+  for (const long &post_op_id : post_op_ids) {
+    auto it = post_op_type_map.find(post_op_id);
+    if (it != post_op_type_map.end()) {
+      post_op_type_t op_type = it->second;
+      auto post_op = post_op_t{op_type};
       matmul_context.set_post_op(post_op);
-      break;
     }
-    case UNARY_POST_OP::GELU_TANH: {
-      auto post_op = post_op_t{post_op_type_t::gelu_tanh};
-      matmul_context.set_post_op(post_op);
-      break;
-    }
-    case UNARY_POST_OP::GELU_ERF: {
-      auto post_op = post_op_t{post_op_type_t::gelu_erf};
-      matmul_context.set_post_op(post_op);
-      break;
-    }
-    case UNARY_POST_OP::SIGMOID: {
-      auto post_op = post_op_t{post_op_type_t::sigmoid};
-      matmul_context.set_post_op(post_op);
-      break;
-    }
-    case UNARY_POST_OP::SILU: {
-      auto post_op = post_op_t{post_op_type_t::swish};
-      matmul_context.set_post_op(post_op);
-      break;
-    }
+  }
+
+  matmul_context.create();
+  ZENTORCH_CHECK(matmul_context.check(), "matmul context creation failed.");
+}
+
+inline void
+set_matmul_operator_attributes(matmul_operator_t &matmul_operator,
+                               const matmul_context_t &matmul_context,
+                               tensor_t &input_tensor, tensor_t &output_tensor,
+                               const std::vector<int64_t> &post_op_ids,
+                               const std::vector<at::Tensor> &post_op_buffers) {
+
+  matmul_operator.set_name("matmul_operator")
+      .set_context(matmul_context)
+      .create();
+
+  ZENTORCH_CHECK(!matmul_operator.is_bad_object(), "operator ",
+                 matmul_operator.get_name(), " creation failed.");
+
+  matmul_operator.set_input("matmul_input", input_tensor)
+      .set_output("matmul_output", output_tensor);
+
+  int post_op_buffer_tracker = 0;
+  int count_none_activations = 0;
+  for (int op_id = 0; op_id < static_cast<int>(post_op_ids.size()); op_id++) {
+    switch (post_op_ids[op_id]) {
     case BINARY_POST_OP::MUL: {
-      auto post_op = post_op_t{post_op_type_t::binary_mul};
-      matmul_context.set_post_op(post_op);
+      tensor_t binary_tensor = tensor_t();
+      std::string tensor_name =
+          "binary_input" + std::to_string(op_id - count_none_activations);
+      set_zendnnl_tensor_attributes(post_op_buffers[post_op_buffer_tracker++],
+                                    binary_tensor, tensor_name);
+      matmul_operator.set_input(
+          matmul_context.get_post_op(op_id - count_none_activations)
+              .binary_mul_params.tensor_name,
+          binary_tensor);
       break;
     }
     case BINARY_POST_OP::ADD: {
-      auto post_op = post_op_t{post_op_type_t::binary_add};
-      matmul_context.set_post_op(post_op);
+      tensor_t binary_tensor = tensor_t();
+      std::string tensor_name =
+          "binary_input" + std::to_string(op_id - count_none_activations);
+      set_zendnnl_tensor_attributes(post_op_buffers[post_op_buffer_tracker++],
+                                    binary_tensor, tensor_name);
+      matmul_operator.set_input(
+          matmul_context.get_post_op(op_id - count_none_activations)
+              .binary_add_params.tensor_name,
+          binary_tensor);
+      break;
+    }
+    case UNARY_POST_OP::POST_OP_NONE: {
+      count_none_activations++;
       break;
     }
     default:
