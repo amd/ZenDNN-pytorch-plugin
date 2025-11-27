@@ -18,7 +18,6 @@ inline void zentorch_linear_impl(
       input.view(get_2d_size_for_tensor(get_contiguous_view(input)));
   auto result_2d = result.view(get_2d_size_for_tensor(result));
   const float beta = bias.defined() ? 1.0f : 0.0f;
-
   std::vector<int64_t> post_op_idx;
   for (const auto &id : post_op_ids) {
     // This map links string names of post-ops (like "relu", "add") to their
@@ -104,18 +103,18 @@ at::Tensor zentorch_linear_binary_binary(
 
 TORCH_LIBRARY_FRAGMENT(zentorch, m) {
   m.def("zentorch_linear_unary(Tensor input, Tensor weight, Tensor? bias=None, "
-        "*,bool is_weight_prepacked=False, str post_op='None', str "
+        "*, bool is_weight_prepacked=False, str post_op='none', str "
         "zentorch_op_name='zentorch::zentorch_linear_unary') "
         "-> Tensor");
   m.def("zentorch_linear_unary_binary(Tensor input, Tensor weight, Tensor "
-        "binary_input, Tensor? bias=None, *,bool is_weight_prepacked=False, "
-        "str post_op_1='None', str post_op_2='None', str "
+        "binary_input, Tensor? bias=None, *, bool is_weight_prepacked=False, "
+        "str post_op_1='none', str post_op_2='none', str "
         "zentorch_op_name='zentorch::zentorch_linear_unary_binary') "
         "-> Tensor");
   m.def("zentorch_linear_binary_binary(Tensor input, Tensor weight, Tensor "
-        "binary_input_1, Tensor binary_input_2, Tensor? bias=None, *,bool "
-        "is_weight_prepacked=False, str post_op_1='None', str "
-        "post_op_2='None', str "
+        "binary_input_1, Tensor binary_input_2, Tensor? bias=None, *, bool "
+        "is_weight_prepacked=False, str post_op_1='none', str "
+        "post_op_2='none', str "
         "zentorch_op_name='zentorch::zentorch_linear_binary_binary') "
         "-> Tensor");
 }

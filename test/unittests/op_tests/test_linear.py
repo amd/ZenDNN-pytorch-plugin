@@ -24,7 +24,7 @@ from unittest_utils import (  # noqa: 402
 class Test_Linear_Unary(MMTestCase):
 
     def get_and_compare_linear_output(
-        self, ref_output, input, weight, bias=None, post_op="None"
+        self, ref_output, input, weight, bias=None, post_op="none"
     ):
         zen_output = torch.ops.zentorch.zentorch_linear_unary(
             input, weight, bias, post_op=post_op

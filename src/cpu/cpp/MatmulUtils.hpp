@@ -450,6 +450,10 @@ inline void zentorch_post_ops_selection(
       LOG(INFO) << "Setting sigmoid as post op";
       po.append_eltwise(1.0f, algorithm::eltwise_logistic, 1.f, 0.f);
       break;
+    case UNARY_POST_OP::TANH:
+      LOG(INFO) << "Setting tanh as post op";
+      po.append_eltwise(1.0f, algorithm::eltwise_tanh, 1.f, 0.f);
+      break;
     case BINARY_POST_OP::MUL:
       LOG(INFO) << "Setting mul as post op";
       po.append_binary(algorithm::binary_mul,
@@ -639,6 +643,9 @@ inline void zendnn_direct_kernel(const at::Tensor &input,
     break;
   case UNARY_POST_OP::SIGMOID:
     zendnn_post_op = ActivationPostOp::SIGMOID;
+    break;
+  case UNARY_POST_OP::TANH:
+    zendnn_post_op = ActivationPostOp::TANH;
     break;
   case UNARY_POST_OP::SILU:
     zendnn_post_op = ActivationPostOp::SILU;

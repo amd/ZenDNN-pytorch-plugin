@@ -49,22 +49,24 @@ enum UNARY_POST_OP {
   GELU_ERF,
   SILU,
   SIGMOID,
+  TANH,
   // Add unary post op before this,
   // if you add any post op
   // update UNARY_OP_COUNT by that post op.
-  UNARY_OP_COUNT = SIGMOID
+  UNARY_OP_COUNT = TANH
 };
 // Initializing the first enum in BINARY_POST_OP so that all post ops will have
 // unique value.
 enum BINARY_POST_OP { MUL = UNARY_POST_OP::UNARY_OP_COUNT + 1, ADD };
 
 static const std::map<std::string_view, int> post_op_map = {
-    {"None", UNARY_POST_OP::POST_OP_NONE},
+    {"none", UNARY_POST_OP::POST_OP_NONE},
     {"relu", UNARY_POST_OP::RELU},
     {"gelu_tanh", UNARY_POST_OP::GELU_TANH},
     {"gelu_erf", UNARY_POST_OP::GELU_ERF},
     {"silu", UNARY_POST_OP::SILU},
     {"sigmoid", UNARY_POST_OP::SIGMOID},
+    {"tanh", UNARY_POST_OP::TANH},
     {"mul", BINARY_POST_OP::MUL},
     {"add", BINARY_POST_OP::ADD}};
 
