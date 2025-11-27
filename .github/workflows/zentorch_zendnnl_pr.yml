@@ -181,63 +181,18 @@ jobs:
             git checkout FETCH_HEAD
             cd "$PARENT_DIR"
           fi
-      - name: Clone ZenDNNL if needed (with debug)
+      - name: Clone ZenDNNL if needed
         if: env.ZENTORCH_USE_LOCAL_ZENDNN == '1'
         run: |
-         echo "=== ZENDNNL CLONE DEBUG START ==="
-         echo "ZENDNNL_REF: '${ZENDNNL_REF}'"
-         echo "Target directory: $PARENT_DIR/ZenDNNL"
-         rm -rf "$PARENT_DIR/ZenDNNL"
-         echo "Step 1: Cloning zendnnl branch..."
-         if git clone --branch zendnnl https://${{ secrets.ZIAIE_PAT }}@github.com/AMD-Zenai/ZenDNN.git "$PARENT_DIR/ZenDNNL"; then
-           echo "✅ Initial clone successful"
-         else
-          echo "❌ Initial clone failed!"
-          exit 1
-         fi
-         # Check initial state
-         cd "$PARENT_DIR/ZenDNNL"
-         echo "Initial state:"
-         echo "  Current branch: $(git branch --show-current)"
-         echo "  Current commit: $(git rev-parse HEAD)"
-         echo "  Available remote branches:"
-         git branch -r | head -10
-         if [ "${ZENDNNL_REF}" != "" ]; then
-           echo "Step 2: Switching to branch '${ZENDNNL_REF}'..."
-           # Check if branch exists remotely
-           if git ls-remote --exit-code --heads origin "${ZENDNNL_REF}" >/dev/null 2>&1; then
-             echo "✅ Branch '${ZENDNNL_REF}' exists remotely"
-             if git fetch origin "${ZENDNNL_REF}"; then
-               echo "✅ Fetch successful"
-          
-               if git checkout FETCH_HEAD; then
-                 echo "✅ Checkout successful"
-                 echo "Final state:"
-                 echo "  Current commit: $(git rev-parse HEAD)"
-                 echo "  Commit message: $(git log --oneline -1)"
-               else
-                 echo "❌ Checkout failed!"
-                 exit 1
-               fi
-             else
-                echo "❌ Fetch failed!"
-                exit 1
-             fi
-           else
-            echo "❌ Branch '${ZENDNNL_REF}' does not exist remotely!"
-            echo "Available branches matching 'zendnnl':"
-            git ls-remote --heads origin | grep zendnnl || echo "No zendnnl branches found"
-            exit 1
+          rm -rf "$PARENT_DIR/ZenDNNL"
+          git clone  --branch zendnnl https://${{ secrets.ZIAIE_PAT }}@github.com/AMD-Zenai/ZenDNN.git "$PARENT_DIR/ZenDNNL"
+          if [ "${ZENDNNL_REF}" != "" ]; then
+            cd "$PARENT_DIR/ZenDNNL"
+            git fetch origin "${ZENDNNL_REF}"
+            git checkout FETCH_HEAD
+            cd "$PARENT_DIR"
           fi
-         else
-          echo "Step 2: No ZENDNNL_REF specified, staying on zendnnl branch"
-          echo "Final state:"
-          echo "  Current branch: $(git branch --show-current)"
-          echo "  Current commit: $(git rev-parse HEAD)"
-          echo "  Commit message: $(git log --oneline -1)"
-         fi
-         cd "$PARENT_DIR"
-         echo "=== ZENDNNL CLONE DEBUG END ==="
+          
           
       - name: Copy and extract BLIS tarball if needed
         if: env.ZENTORCH_USE_LOCAL_BLIS == '1'
@@ -380,19 +335,6 @@ jobs:
       
       - name: Run CI script
         run: |
-
-          echo "===== DEBUG INFO START ====="
-
-          echo "---- GIT INFO ----"
-          echo "Branch: $(git branch --show-current)"
-          echo "---- WORKSPACE ----"
-          echo "PWD: $PWD"
-          echo "GITHUB_WORKSPACE: $GITHUB_WORKSPACE"
-          echo "ls -R:"
-          ls -R .
-          echo "---- ENV VARS ----"
-          echo "ZENTORCH_USE_LOCAL_ZENDNN = ${ZENTORCH_USE_LOCAL_ZENDNN}"
-          echo "ZENTORCH_USE_LOCAL_BLIS = ${ZENTORCH_USE_LOCAL_BLIS}"
           #sed -i 's/sudo//g' "$PARENT_DIR/ZenDNN_tools/scripts/ci/zendnn_ci_pt_plugin_presub_build.sh"
           #sed -i '/mkmhub/ s/mkmhub/-v \/proj\/zendai:\/proj\/zendai -v \/home\/runner:\/home\/runner mkmhub/' "$PARENT_DIR/ZenDNN_tools/scripts/ci/zendnn_ci_pt_plugin_presub_build.sh"
           #sed -i '/git config --global --add/ s/^/# /' "$PARENT_DIR/ZenDNN_tools/scripts/ci/zendnn_ci_pt_plugin_presub_build.sh"
