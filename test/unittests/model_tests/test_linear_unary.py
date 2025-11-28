@@ -50,6 +50,11 @@ LINEAR_ACTIVATIONS = {
         "kwargs": {},
         "counter": "zentorch_linear_sigmoid",
     },
+    "tanh": {
+        "factory": nn.Tanh,
+        "kwargs": {},
+        "counter": "zentorch_linear_tanh",
+    },
 }
 
 
@@ -116,6 +121,11 @@ class Test_Linear_Unary_Model(AddmmTestCase):
     @torch.inference_mode()
     def test_linear_sigmoid_model(self, dtype, freeze_opt):
         self._run_activation("sigmoid", dtype, freeze_opt)
+
+    @AddmmTestCase.hypothesis_params_addmm_itr(dtype_list=supported_dtypes, freeze_list=freeze_opt)
+    @torch.inference_mode()
+    def test_linear_tanh_model(self, dtype, freeze_opt):
+        self._run_activation("tanh", dtype, freeze_opt)
 
 
 if __name__ == "__main__":

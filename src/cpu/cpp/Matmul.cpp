@@ -754,6 +754,8 @@ TORCH_LIBRARY(zentorch, m) {
         "zentorch_op_name='zentorch::zentorch_mm_gelu_erf') -> Tensor");
   m.def("zentorch_mm_silu(Tensor self, Tensor mat2, *, str "
         "zentorch_op_name='zentorch::zentorch_mm_silu') -> Tensor");
+  m.def("zentorch_mm_tanh(Tensor self, Tensor mat2, *, str "
+        "zentorch_op_name='zentorch::zentorch_mm_tanh') -> Tensor");
   m.def("zentorch_bmm(Tensor self, Tensor mat2, str "
         "zentorch_op_name='zentorch::zentorch_bmm') -> Tensor");
   m.def(
@@ -778,6 +780,11 @@ TORCH_LIBRARY(zentorch, m) {
         "Scalar beta=1, "
         "Scalar alpha=1, str "
         "zentorch_op_name='zentorch::zentorch_addmm_silu') -> "
+        "Tensor");
+  m.def("zentorch_addmm_tanh(Tensor self, Tensor mat1, Tensor mat2, *, "
+        "Scalar beta=1, "
+        "Scalar alpha=1, str "
+        "zentorch_op_name='zentorch::zentorch_addmm_tanh') -> "
         "Tensor");
   // for 1d bias
   m.def("zentorch_addmm_1dbias(Tensor self, Tensor mat1, Tensor mat2, *, "
@@ -815,6 +822,10 @@ TORCH_LIBRARY(zentorch, m) {
         " *, Scalar beta=1, Scalar alpha=1, str "
         "zentorch_op_name='zentorch::zentorch_addmm_1dbias_silu') "
         "-> Tensor");
+  m.def("zentorch_addmm_1dbias_tanh(Tensor self, Tensor mat1, Tensor mat2,"
+        " *, Scalar beta=1, Scalar alpha=1, str "
+        "zentorch_op_name='zentorch::zentorch_addmm_1dbias_tanh') "
+        "-> Tensor");
   m.def("zentorch_baddbmm(Tensor self, Tensor mat1, Tensor mat2, *, Scalar "
         "beta=1, Scalar alpha=1, str "
         "zentorch_op_name='zentorch::zentorch_baddbmm') -> "
@@ -849,12 +860,14 @@ TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
   m.impl("zentorch_mm_gelu_tanh", zentorch_mm<UNARY_POST_OP::GELU_TANH>);
   m.impl("zentorch_mm_gelu_erf", zentorch_mm<UNARY_POST_OP::GELU_ERF>);
   m.impl("zentorch_mm_silu", zentorch_mm<UNARY_POST_OP::SILU>);
+  m.impl("zentorch_mm_tanh", zentorch_mm<UNARY_POST_OP::TANH>);
   m.impl("zentorch_bmm", zentorch_bmm);
   m.impl("zentorch_addmm", zentorch_addmm<UNARY_POST_OP::POST_OP_NONE>);
   m.impl("zentorch_addmm_relu", zentorch_addmm<UNARY_POST_OP::RELU>);
   m.impl("zentorch_addmm_gelu_tanh", zentorch_addmm<UNARY_POST_OP::GELU_TANH>);
   m.impl("zentorch_addmm_gelu_erf", zentorch_addmm<UNARY_POST_OP::GELU_ERF>);
   m.impl("zentorch_addmm_silu", zentorch_addmm<UNARY_POST_OP::SILU>);
+  m.impl("zentorch_addmm_tanh", zentorch_addmm<UNARY_POST_OP::TANH>);
   m.impl("zentorch_addmm_1dbias",
          zentorch_addmm_1dbias<UNARY_POST_OP::POST_OP_NONE>);
   m.impl("zentorch_addmm_1dbias_add",
@@ -874,6 +887,8 @@ TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
          zentorch_addmm_1dbias<UNARY_POST_OP::GELU_ERF>);
   m.impl("zentorch_addmm_1dbias_silu",
          zentorch_addmm_1dbias<UNARY_POST_OP::SILU>);
+  m.impl("zentorch_addmm_1dbias_tanh",
+         zentorch_addmm_1dbias<UNARY_POST_OP::TANH>);
   m.impl("zentorch_baddbmm", zentorch_baddbmm);
   m.impl("zentorch_mm_silu_mul",
          zentorch_mm_unary_binary<UNARY_POST_OP::SILU, BINARY_POST_OP::MUL>);

@@ -24,6 +24,7 @@ static const std::unordered_map<int64_t, post_op_type_t> post_op_type_map = {
     {UNARY_POST_OP::GELU_ERF, post_op_type_t::gelu_erf},
     {UNARY_POST_OP::SIGMOID, post_op_type_t::sigmoid},
     {UNARY_POST_OP::SILU, post_op_type_t::swish},
+    {UNARY_POST_OP::TANH, post_op_type_t::tanh},
 
     // Binary post-ops
     {BINARY_POST_OP::MUL, post_op_type_t::binary_mul},

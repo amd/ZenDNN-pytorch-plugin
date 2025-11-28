@@ -173,6 +173,28 @@ class Test_Linear_Unary(MMTestCase):
             output_1, self.data.x, self.data.y.t(), post_op="sigmoid"
         )
 
+    @MMTestCase.hypothesis_params_mm_itr(dtype_list=supported_dtypes)
+    @unittest.skipIf(skip_test_pt_2_0, "Skipping test due to PT2.0 instability")
+    def test_linear_unary_with_bias_tanh(self):
+        reset_dynamo()
+        output_1 = torch.nn.functional.tanh(
+            torch.nn.functional.linear(self.data.x, self.data.y.t(), self.data.input1d)
+        )
+        self.get_and_compare_linear_output(
+            output_1, self.data.x, self.data.y.t(), self.data.input1d, post_op="tanh"
+        )
+
+    @MMTestCase.hypothesis_params_mm_itr(dtype_list=supported_dtypes)
+    @unittest.skipIf(skip_test_pt_2_0, "Skipping test due to PT2.0 instability")
+    def test_linear_unary_with_no_bias_tanh(self):
+        reset_dynamo()
+        output_1 = torch.nn.functional.tanh(
+            torch.nn.functional.linear(self.data.x, self.data.y.t())
+        )
+        self.get_and_compare_linear_output(
+            output_1, self.data.x, self.data.y.t(), post_op="tanh"
+        )
+
 
 if __name__ == "__main__":
     run_tests()
