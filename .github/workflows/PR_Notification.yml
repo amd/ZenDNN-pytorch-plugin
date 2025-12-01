@@ -58,7 +58,8 @@ jobs:
               'notification',
               'check-commit-messages',
               'intelligent analysis',
-              'intelligence'
+              'intelligence',
+              'build'
             ];
             
             const isExcluded = (name) => {
