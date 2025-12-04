@@ -3,194 +3,176 @@
 # All rights reserved.
 # ****************************************************************************
 
-from __future__ import annotations
+"""zentorch integration with vLLM - Platform definition.
 
-"""ZenTorch integration with vLLM – Platform definition.
-
-This lightweight wrapper plugs ZenTorch (CPU) into vLLM using the standard
+This lightweight wrapper plugs zentorch (CPU) into vLLM using the standard
 `Platform` extension mechanism.
 
-The goal is to minimise global monkey-patching – anything ZenTorch-specific
+The goal is to minimise global monkey-patching - anything zentorch-specific
 should happen inside the worker / model-runner, not via `nn.Module.__call__`
 patches that affect unrelated user code.
+
+Note: CompilationConfig.__repr__ patching is handled in __init__.py via the
+general_plugins entry point, which runs early in all vLLM processes.
+
+Tested with vLLM version: 0.11.0
 """
 
-from typing import Optional, Tuple
+from typing import TYPE_CHECKING, Optional
 
 import torch
-from zentorch._logging import get_logger
-from vllm.platforms import Platform, PlatformEnum
 
-logger = get_logger(__name__)
+from vllm.config import CompilationLevel
+from vllm.logger import init_logger
+from vllm.platforms.cpu import CpuPlatform
+from vllm.platforms.interface import _Backend
+
+if TYPE_CHECKING:
+    from vllm.config import VllmConfig
+else:
+    VllmConfig = None
+
+logger = init_logger(__name__)
 
 
-class ZenCPUPlatform(Platform):
-    """Out-of-tree CPU platform backed by ZenTorch optimisations."""
+class ZenCPUPlatform(CpuPlatform):
+    """Out-of-tree CPU platform backed by zentorch optimisations."""
 
-    # Mark this platform as CPU so vLLM treats it like the in-tree CPU backend
-    # By re-using the CPU enum we still
-    # register as an out-of-tree plugin via the entry-point mechanism, but we let
-    # the rest of vLLM assume a standard CPU device.
-    _enum = PlatformEnum.CPU
-    device_name: str = "zentorch-cpu"
+    # Explicitly set to "cpu" to ensure compatibility with vLLM's
+    # torch.device() calls and operational checks
+    device_name: str = "cpu"
     device_type: str = "cpu"
-    dispatch_key: str = "CPU"  # torch dispatcher key
-    ray_device_key: str = ""  # CPU resources are specified via normal CPUs
-    simple_compile_backend: str = "zentorch"
-
-    supported_quantization: list[str] = []
-
-    # ---------------------------------------------------------------------
-    # Mandatory `Platform` API implementation
-    # ---------------------------------------------------------------------
 
     @classmethod
-    def get_device_name(cls, device_id: int = 0) -> str:  # noqa: D401 – API
-        return f"Zen CPU #{device_id}"
+    def check_and_update_config(cls, vllm_config: VllmConfig) -> None:
+        # First apply standard CPU platform configuration
+        super().check_and_update_config(vllm_config)
+
+        compilation_config = vllm_config.compilation_config
+
+        # Enable torch.compile with inductor backend
+        compilation_config.level = CompilationLevel.DYNAMO_ONCE
+        compilation_config.backend = "inductor"
+        compilation_config.use_inductor = True
+        compilation_config.inductor_compile_config.update(
+            {
+                "dce": True,  # Dead code elimination
+                "size_asserts": False,  # Skip size assertions for perf
+                "nan_asserts": False,  # Skip NaN checks for perf
+                "epilogue_fusion": True,  # Fuse epilogue operations
+            }
+        )
+
+        compilation_config.custom_ops = ["none"]
+
+        # Inject zentorch optimization pass
+        from zentorch._compile_backend import optimize_pass
+        compilation_config.inductor_compile_config["joint_custom_post_pass"] = (
+            optimize_pass
+        )
+
+        # Apply CPU profiler patch (deferred to avoid circular imports)
+        cls._patch_cpu_profiler()
 
     @classmethod
-    def get_device_uuid(cls, device_id: int = 0) -> str:  # noqa: D401 – API
-        # CPUs don't expose a universal UUID – use a deterministic placeholder
-        return f"zen-cpu-{device_id}"
+    def _patch_cpu_profiler(cls):
+        """
+        Patch vLLM's Worker profiler for CPU-only profiling.
 
-    @classmethod
-    def get_device_total_memory(cls, device_id: int = 0) -> int:  # noqa: D401
-        # Rough approximation – on CPU we fall back to virtual memory size.
-        try:
-            import psutil  # optional dependency
+        This patch is applied during platform initialization to avoid
+        circular imports that occur during early plugin loading.
 
-            vm = psutil.virtual_memory()
-            return int(vm.total)
-        except Exception:
-            return 0
+        Raises:
+            RuntimeError: If patching fails.
+        """
+        import vllm.v1.worker.gpu_worker as worker_module
+        import vllm.envs as envs
 
-    @classmethod
-    def is_async_output_supported(cls, enforce_eager: Optional[bool]) -> bool:
-        # CPU tensors are always synchronised – async output makes no sense.
-        return False
+        # Check if already patched
+        if hasattr(worker_module.Worker, "_zentorch_profiler_patched"):
+            return
 
-    @classmethod
-    def inference_mode(cls):  # noqa: D401 – override for CPU
-        # Standard PyTorch inference mode is fine.
-        return torch.inference_mode()
+        OriginalWorker = worker_module.Worker
+        original_init = OriginalWorker.__init__
 
-    @classmethod
-    def set_device(cls, device: torch.device):  # noqa: D401 – CPU NOP
-        # Nothing to do – CPU context is global.
-        return None
+        def patched_init(self, *args, **kwargs):
+            """Patched __init__ that sets up CPU-only profiler."""
+            original_init(self, *args, **kwargs)
 
-    @classmethod
-    def empty_cache(cls):  # noqa: D401 – CPU NOP
-        return None
+            # Re-configure profiler for CPU-only if it was created
+            if self.profiler is not None:
+                self.profiler = torch.profiler.profile(
+                    activities=[
+                        torch.profiler.ProfilerActivity.CPU,
+                    ],
+                    record_shapes=envs.VLLM_TORCH_PROFILER_RECORD_SHAPES,
+                    profile_memory=envs.VLLM_TORCH_PROFILER_WITH_PROFILE_MEMORY,
+                    with_stack=envs.VLLM_TORCH_PROFILER_WITH_STACK,
+                    with_flops=envs.VLLM_TORCH_PROFILER_WITH_FLOPS,
+                )
 
-    @classmethod
-    def synchronize(cls):  # noqa: D401 – CPU NOP
-        return None
+        def patched_profile(self, is_start: bool = True):
+            """Patched profile method that prints CPU stats."""
+            if self.profiler is None:
+                raise RuntimeError("Profiler is not enabled.")
+            if is_start:
+                self.profiler.start()
+            else:
+                self.profiler.stop()
+                print(
+                    self.profiler.key_averages().table(
+                        sort_by="self_cpu_time_total"
+                    )
+                )
 
-    @classmethod
-    def mem_get_info(cls) -> Tuple[int, int]:  # noqa: D401 – approximate
-        # We expose (free, total) like CUDA does, but values are from psutil.
-        try:
-            import psutil
+        OriginalWorker.__init__ = patched_init
+        OriginalWorker.profile = patched_profile
+        OriginalWorker._zentorch_profiler_patched = True
 
-            vm = psutil.virtual_memory()
-            return vm.available, vm.total
-        except Exception:
-            return 0, 0
-
-    # ------------------------------------------------------------------
-    # vLLM configuration hooks
-    # ------------------------------------------------------------------
-
-    @classmethod
-    def check_and_update_config(cls, vllm_config) -> None:
-        from vllm.config import CompilationLevel
-
-        # Disable vLLM's own TorchDynamo compile passes – ZenTorch handles it.
-        compilation_cfg = vllm_config.compilation_config
-        compilation_cfg.level = CompilationLevel.NO_COMPILATION
-
-        # Ensure worker_cls resolves to our custom worker when left as "auto".
-        par_cfg = vllm_config.parallel_config
-        if par_cfg and par_cfg.worker_cls == "auto":
-            par_cfg.worker_cls = "zentorch.vllm.zentorch_worker.ZenWorker"
-
-        # ------------------------------------------------------------------
-        # KV-cache defaults – mirror the in-tree CPU platform
-        # ------------------------------------------------------------------
-        cache_cfg = vllm_config.cache_config
-        if cache_cfg and cache_cfg.block_size is None:
-            # we fall back to the same 16-token block size that vLLM uses for
-            # plain PyTorch CPUs.
-            cache_cfg.block_size = 16
-
-        # Ensure cpu_kvcache_space_bytes is set – otherwise vLLM's CPUWorker
-        # will error out when computing the number of available KV-cache blocks.
-        if cache_cfg and getattr(cache_cfg, "cpu_kvcache_space_bytes", None) is None:
-            import vllm.envs as envs
-            from vllm.utils import GiB_bytes
-
-            kv_cache_space_gib = envs.VLLM_CPU_KVCACHE_SPACE
-
-            # The built-in CPU platform treats the *unset* (0) case as 4 GiB.
-            # We replicate that behaviour.
-            if kv_cache_space_gib <= 0:
-                kv_cache_space_gib = 4
-
-            cache_cfg.cpu_kvcache_space_bytes = kv_cache_space_gib * GiB_bytes  # type: ignore[attr-defined]
-
-    # ------------------- Future Attention Integration -------------------
+        logger.info("[zentorch] Patched Worker profiler for CPU-only profiling")
 
     @classmethod
     def get_attn_backend_cls(
         cls,
-        selected_backend,  # noqa: ANN001, F841 – upstream type is private, unused
-        head_size: int,  # noqa: F841 - unused
-        dtype: torch.dtype,  # noqa: F841 - unused
-        kv_cache_dtype: Optional[str],  # noqa: F841 - unused
-        block_size: int,  # noqa: F841 - unused
+        selected_backend: _Backend,
+        head_size: int,
+        dtype: torch.dtype,
+        kv_cache_dtype: Optional[str],
+        block_size: int,
         use_v1: bool,
         use_mla: bool,
+        has_sink: bool,
+        use_sparse: bool,
     ) -> str:
-        """Return the fully-qualified attention backend class path.
 
-        ZenTorch currently only supports the Torch SDPA backend for CPU
-        execution. This method always returns the path to
-        `TorchSDPABackend`.
+        # Monkey-patch vLLM's _get_paged_attn_impl to return zentorch PagedAttention
+        import vllm.v1.attention.backends.cpu_attn as cpu_attn_module
+        from zentorch.vllm.attention import PagedAttention
 
-        Raises:
-            NotImplementedError: If use_v1 or use_mla is True, as these
-                features are not currently supported by ZenTorch-vLLM plugin.
-        """
-        # Check for unsupported features - these are not supported by ZenTorch-vLLM plugin.
-        if use_v1:
-            raise NotImplementedError(
-                "ZenTorch-vLLM plugin does not currently support vLLM V1 "
-                "attention backend (use_v1=True)"
-            )
+        def _get_zentorch_paged_attn_impl():
+            return PagedAttention
+
+        cpu_attn_module._get_paged_attn_impl = _get_zentorch_paged_attn_impl
+
+        logger.info("Monkey-patched vLLM PagedAttention with zentorch implementation")
 
         if use_mla:
             raise NotImplementedError(
-                "ZenTorch-vLLM plugin does not currently support Multi-head "
-                "Latent Attention (use_mla=True)."
+                "Multi-head Latent Attention is not supported by "
+                "vLLM-zentorch plugin."
             )
 
-        # ZenTorch on CPU currently relies solely on TorchSDPA backend.
-        # Future ZenTorch-specific attention kernels could be added here.
-        logger.info("[zentorch] Using Torch SDPA attention backend.")
-        return "vllm.attention.backends.torch_sdpa.TorchSDPABackend"
+        if use_sparse:
+            raise NotImplementedError(
+                "Sparse Attention is not supported by vLLM-zentorch plugin."
+            )
 
-    # ------------------------------------------------------------------
-    # Memory/pinning helpers
-    # ------------------------------------------------------------------
+        if selected_backend and selected_backend != _Backend.TORCH_SDPA:
+            logger.info(
+                "Cannot use %s backend on zentorch CPU, " "falling back to Torch SDPA.",
+                selected_backend,
+            )
 
-    @classmethod
-    def is_pin_memory_available(cls) -> bool:  # noqa: D401
-        """Pin-memory is not supported for pure-CPU execution.
-
-        Returning *False* ensures vLLM does not request pinned buffers, which
-        would otherwise trigger ``RuntimeError: Need to provide pin_memory
-        allocator to use pin memory`` in PyTorch CPU builds.
-        """
-        logger.debug("[zentorch] Pin memory disabled on CPU platform.")
-        return False
+        assert use_v1, "vLLM-zentorch only supports V1 backend."
+        logger.info("Using vLLM-zentorch V1 backend.")
+        return "vllm.v1.attention.backends.cpu_attn.TorchSDPABackend"

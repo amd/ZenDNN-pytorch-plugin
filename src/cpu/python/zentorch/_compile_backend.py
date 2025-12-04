@@ -17,6 +17,7 @@ from torch._functorch.aot_autograd import aot_module_simplified
 from torch.torch_version import TorchVersion
 from ._mkldnn import mkldnn_fuse_fx
 from torch._inductor.fx_passes.pre_grad import fuse_conv_bn, remove_identity
+
 # Make use of existing decompositions functions if Torch version >= 2.1
 # Torch version less than 2.1 doesn't support removal of decompositions
 from torch._decomp import remove_decompositions
@@ -31,6 +32,13 @@ class OptimizePass(CustomGraphPass):
     def uuid(self):
         # needed for inductor caching
         return get_hash_for_files((__file__,))
+
+    def __repr__(self):
+        try:
+            uuid_val = self.uuid()
+            return f"OptimizePass(uuid={uuid_val!r})"
+        except Exception:
+            return "OptimizePass(uuid=<error>)"
 
 
 optimize_pass = OptimizePass()
@@ -77,6 +85,9 @@ class ConvConfig:
 
     def enable_zentorch_conv(self, enabled: bool):
         self.enable_zentorch_conv_flag = enabled
+
+    def __repr__(self):
+        return f"ConvConfig(enable_zentorch_conv_flag={self.enable_zentorch_conv_flag})"
 
 
 conv_config = ConvConfig()

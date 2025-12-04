@@ -12,11 +12,20 @@ logger = get_logger(__name__)
 
 
 class PagedAttention:
-    """Implementation of ZenTorch PagedAttention - CPU decode path only"""
+    """Implementation of zentorch PagedAttention - CPU decode path only"""
+
+    def __repr__(self):
+        return "PagedAttention(backend='zentorch', device='cpu')"
 
     @staticmethod
     def get_supported_head_sizes() -> List[int]:
         return [32, 64, 80, 96, 112, 128, 256]
+
+    @staticmethod
+    def validate_head_size(head_size: int) -> tuple[bool, list[int]]:
+        """Validate if the head size is supported."""
+        supported = PagedAttention.get_supported_head_sizes()
+        return head_size in supported, supported
 
     @staticmethod
     def get_kv_cache_shape(

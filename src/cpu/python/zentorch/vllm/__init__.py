@@ -3,104 +3,40 @@
 # All rights reserved.
 # ****************************************************************************
 
-"""vLLM – ZenTorch integration
+"""vLLM - zentorch integration
 
 This module is discovered via *both* platform & general plugin entry-points.
-Platform:  ``vllm.platform_plugins``  –>  returns dotted path to
-            :class:`ZenCPUPlatform` so vLLM treats ZenTorch as a new device.
-General :  ``vllm.general_plugins``   –>  executes light-weight runtime.
-                For now we patch PagedAttention
+Platform:  ``vllm.platform_plugins``  ->  returns dotted path to
+            :class:`ZenCPUPlatform`
+General :  ``vllm.general_plugins``   ->  executes light-weight runtime.
+            Applies early monkey-patches for:
+            - PagedAttention (zentorch implementation)
+            - CompilationConfig repr (pydantic serialization fix)
+            - oneDNN GEMM disable (use zentorch GEMM instead)
+            - CPU profiler (remove CUDA dependencies)
+            - InternVL video input dtype bug fix
+
+Supported vLLM versions:
+- 0.11.0
+- 0.11.1.dev0+gb8b302cde.d20251203.cpu
 """
 
 from __future__ import annotations
 
-import contextlib
-from types import ModuleType
-from importlib import import_module
 from typing import Optional
 import sys
-
-from packaging.version import parse as V
 
 from zentorch._logging import get_logger
 
 logger = get_logger(__name__)
 
-# ---------------------------------------------------------------------------
-# Optional PagedAttention replacement
-# ---------------------------------------------------------------------------
-
-_PAGED_ATTN_MODULES = {
-    "vllm.attention.ops.ipex_attn"
+SUPPORTED_VLLM_VERSIONS = {
+    "0.11.0",
+    "0.11.1.dev0+gb8b302cde.d20251203.cpu",
 }
 
-
-def _maybe_get_zt_paged_attn():
-    try:
-        return import_module("zentorch.vllm.zentorch_attention").PagedAttention
-    except Exception as exc:  # pragma: no-cover – best effort
-        logger.debug("[zentorch] No ZenTorch PagedAttention found", exc_info=exc)
-        return None
-
-
-def _replace_paged_attention(module: ModuleType, zt_cls) -> None:  # noqa: D401
-    if not hasattr(module, "PagedAttention"):
-        return
-    if module.PagedAttention is zt_cls:
-        return
-    orig_cls = module.PagedAttention  # type: ignore[attr-defined]
-    module.PagedAttention = zt_cls  # type: ignore[assignment]
-
-    # Update already-imported refs
-    for m in list(sys.modules.values()):
-        if m is None:
-            continue
-        for attr in dir(m):
-            with contextlib.suppress(Exception):
-                if getattr(m, attr) is orig_cls:
-                    setattr(m, attr, zt_cls)
-
-
-def _apply_paged_attention_patch() -> None:  # noqa: D401
-    zt_cls = _maybe_get_zt_paged_attn()
-    if zt_cls is None:
-        return
-
-    # Patch already-loaded modules first
-    for name in _PAGED_ATTN_MODULES:
-        mod = sys.modules.get(name)
-        if mod is not None:
-            _replace_paged_attention(mod, zt_cls)
-
-    # Install import-hook for future imports
-    orig_import = __import__
-
-    def _hook(name, globals=None, locals=None, fromlist=(), level=0):  # noqa: D401
-        mod = orig_import(name, globals, locals, fromlist, level)
-        if name in _PAGED_ATTN_MODULES and isinstance(mod, ModuleType):
-            _replace_paged_attention(mod, zt_cls)
-        return mod
-
-    # Check explicitly if torch.compiler and allow_in_graph exist
-    # instead of suppressing all exceptions.
-    import importlib
-    try:
-        _tc = importlib.import_module("torch.compiler")
-        if hasattr(_tc, "allow_in_graph"):
-            # Ensure both the custom hook and the original import are graph-safe
-            _tc.allow_in_graph(_hook)
-            _tc.allow_in_graph(orig_import)
-    except ImportError:
-        # torch.compiler doesn't exist (e.g., PyTorch < 2.0), nothing to do.
-        pass
-
-    if isinstance(__builtins__, dict):
-        __builtins__["__import__"] = _hook  # type: ignore[index]
-    else:
-        __builtins__.__import__ = _hook  # type: ignore[attr-defined]
-
-    logger.info("[zentorch] PagedAttention patch installed")
-
+# Track if we've already logged circular import warnings
+_logged_circular_import_warning = False
 
 # ---------------------------------------------------------------------------
 # Plugin entry-points
@@ -112,13 +48,13 @@ def register() -> Optional[str]:  # noqa: D401
 
     If vLLM calls this via the *platform* group, we must **return** the dotted
     class path so that it can import the platform.  When executed via the
-    *general* group the return value is ignored – that is fine.
+    *general* group the return value is ignored - that is fine.
     """
     if "vllm" not in sys.modules:
         logger.warning(
             "[zentorch] vllm not found in sys.modules. "
             "The plugin should be loaded by vLLM. "
-            "ZenTorch platform will not be available."
+            "zentorch platform will not be available."
         )
         return None
 
@@ -128,38 +64,204 @@ def register() -> Optional[str]:  # noqa: D401
     if vllm_version is None:
         logger.warning(
             "[zentorch] Could not determine vLLM version. "
-            "ZenTorch platform will not be available."
+            "zentorch platform will not be available."
         )
         return None
 
-    # NOTE: zentorch-vllm plugin requires vLLM>=0.9.0
-    if V(vllm_version) < V("0.9.0"):
+    if vllm_version not in SUPPORTED_VLLM_VERSIONS:
         logger.warning(
-            "[zentorch] Mismatched vLLM version. "
-            "Found v%s, expected v0.9.0 or greater.",
+            "[zentorch] Unsupported vLLM version: %s. "
+            "Plugin supports versions: %s.",
             vllm_version,
+            ", ".join(sorted(SUPPORTED_VLLM_VERSIONS)),
         )
         return None
 
-    # Light-weight runtime patch (safe to execute multiple times)
-    _apply_paged_attention_patch()
+    # Apply monkey-patches early (runs in all processes)
+    _apply_paged_attention_monkey_patch()
+    _apply_compilation_config_repr_patch()
+    _apply_internvl_video_input_dtype_bug_fix()
 
-    # Ensure the custom torch.compile backend is registered so that
-    # `@torch.compile(backend=current_platform.simple_compile_backend)` can
-    # resolve to "zentorch".  Importing the module has the side-effect of
-    # calling `torch._dynamo.register_backend("zentorch", ...)`.
+    # Critical: oneDNN must be disabled for zentorch to work correctly
+    if not _disable_onednn_gemm():
+        logger.error(
+            "[zentorch] Failed to disable oneDNN GEMM. "
+            "Plugin cannot function correctly with oneDNN enabled."
+        )
+        return None
+
+    return "zentorch.vllm.platform.ZenCPUPlatform"
+
+
+def _apply_paged_attention_monkey_patch():
+    """
+    Monkey-patch vLLM's PagedAttention implementation with zentorch's.
+
+    This is called early during plugin registration to ensure that all
+    subsequent imports of vLLM modules get the zentorch implementation.
+    """
     try:
-        import importlib
+        import vllm.v1.attention.backends.cpu_attn as cpu_attn_module
+        from zentorch.vllm.attention import PagedAttention
 
-        importlib.import_module("zentorch._compile_backend")
-        # Backend successfully imported, provide the platform class path to vLLM
-        logger.debug("[zentorch] Compile backend initialised successfully.")
-        return "zentorch.vllm.platform.ZenCPUPlatform"
-    except Exception as exc:  # pragma: no-cover – best effort
-        logger.warning(
-            "[zentorch] Failed to initialise compile backend. "
-            "ZenTorch platform will not be available.",
-            exc_info=exc,
+        def _get_zentorch_paged_attn_impl():
+            return PagedAttention
+
+        cpu_attn_module._get_paged_attn_impl = _get_zentorch_paged_attn_impl
+
+        logger.info(
+            "[zentorch] Monkey-patched vLLM PagedAttention with zentorch implementation"
         )
-        # Return None to signal that the platform registration failed.
-        return None
+
+    except ImportError:
+        # Deferred - will be applied in platform.py
+        global _logged_circular_import_warning
+        if not _logged_circular_import_warning:
+            logger.debug("[zentorch] PagedAttention patch deferred")
+            _logged_circular_import_warning = True
+    except Exception:
+        logger.exception("[zentorch] Failed to patch PagedAttention")
+
+
+def _apply_compilation_config_repr_patch():
+    """
+    Monkey-patch CompilationConfig.__repr__ early to prevent serialization errors.
+    """
+    try:
+        from vllm.config import CompilationConfig
+        from pydantic import TypeAdapter
+        from vllm.config.compilation import PassConfig
+
+        if hasattr(CompilationConfig.__repr__, "_zentorch_patched"):
+            logger.info("[zentorch] CompilationConfig.__repr__ already patched")
+            return
+
+        def patched_repr(self):
+            exclude = {
+                "static_forward_context": True,
+                "enabled_custom_ops": True,
+                "disabled_custom_ops": True,
+                "compilation_time": True,
+                "bs_to_padded_graph_size": True,
+                "traced_files": True,
+                "inductor_compile_config": {
+                    "post_grad_custom_post_pass": True,
+                    "joint_custom_pre_pass": True,
+                },
+            }
+
+            pass_config_exclude = {}
+            try:
+                for attr, default_val in vars(PassConfig()).items():
+                    if getattr(self.pass_config, attr) == default_val:
+                        pass_config_exclude[attr] = True
+                if pass_config_exclude:
+                    exclude["pass_config"] = pass_config_exclude
+            except Exception:
+                pass
+
+            try:
+                return (
+                    TypeAdapter(CompilationConfig)
+                    .dump_json(self, exclude=exclude, exclude_unset=True)
+                    .decode()
+                )
+            except Exception:
+                try:
+                    return (
+                        f"CompilationConfig("
+                        f"level={getattr(self, 'level', '?')}, "
+                        f"backend={getattr(self, 'backend', '?')!r}, "
+                        f"use_inductor={getattr(self, 'use_inductor', '?')}, "
+                        f"custom_ops={getattr(self, 'custom_ops', '?')!r}"
+                        f")"
+                    )
+                except Exception as e:
+                    return f"CompilationConfig(<error during repr: {e}>)"
+
+        patched_repr._zentorch_patched = True
+
+        CompilationConfig.__repr__ = patched_repr
+        CompilationConfig.__str__ = patched_repr
+        logger.info(
+            "[zentorch] Patched CompilationConfig.__repr__ to handle custom passes"
+        )
+
+    except ImportError:
+        # Deferred - will be applied later
+        global _logged_circular_import_warning
+        if not _logged_circular_import_warning:
+            logger.debug("[zentorch] CompilationConfig repr patch deferred")
+            _logged_circular_import_warning = True
+    except Exception:
+        logger.exception("[zentorch] Failed to patch CompilationConfig.__repr__")
+
+
+def _disable_onednn_gemm() -> bool:
+    """
+    Disable oneDNN GEMM in vLLM to use zentorch.mm() instead.
+
+    This ensures zentorch optimizations are used instead of native oneDNN.
+
+    Returns:
+        True if successfully disabled, False otherwise.
+    """
+    try:
+        import vllm._custom_ops as ops
+
+        ops._supports_onednn = False
+
+        logger.info("[zentorch] Disabled oneDNN GEMM to use zentorch.mm() instead")
+        return True
+
+    except ImportError:
+        # Module not available yet - will be retried in platform.py
+        logger.debug("[zentorch] oneDNN disable deferred (module not loaded)")
+        return True  # Not a failure, just deferred
+    except Exception:
+        logger.exception("[zentorch] Failed to disable oneDNN GEMM")
+        return False
+
+
+def _apply_internvl_video_input_dtype_bug_fix():
+    """
+    Patch vLLM's multimodal profiling to fix InternVL video dtype issue.
+
+    The original code creates dummy videos without specifying dtype, which
+    causes issues with InternVL models. This patch adds dtype=np.uint8.
+
+    Bug fix: np.full((num_frames, width, height, 3), 255) ->
+             np.full((num_frames, width, height, 3), 255, dtype=np.uint8)
+    """
+    try:
+        import numpy as np
+        from vllm.multimodal import profiling as profiling_module
+
+        if hasattr(
+            profiling_module.BaseDummyInputsBuilder, "_zentorch_internvl_patched"
+        ):
+            return
+
+        def patched_get_dummy_videos(
+            self,
+            width: int,
+            height: int,
+            num_frames: int,
+            num_videos: int,
+        ):
+            if num_videos == 0:
+                return []
+            video = np.full((num_frames, width, height, 3), 255, dtype=np.uint8)
+            return [video] * num_videos
+
+        profiling_module.BaseDummyInputsBuilder._get_dummy_videos = (
+            patched_get_dummy_videos
+        )
+        profiling_module.BaseDummyInputsBuilder._zentorch_internvl_patched = True
+
+        logger.info("[zentorch] Patched multimodal profiling for InternVL video dtype")
+
+    except ImportError:
+        logger.debug("[zentorch] InternVL patch deferred (module not loaded)")
+    except Exception:
+        logger.exception("[zentorch] Failed to apply InternVL video dtype patch")
