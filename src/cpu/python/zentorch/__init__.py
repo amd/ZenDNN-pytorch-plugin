@@ -19,6 +19,7 @@ if runtime_torchversion[:3] != buildtime_torchversion[:3]:
     )
 
 from ._optimize import optimize  # noqa
+from ._optimize_for_export import export_optimize_pass  # noqa
 from ._info import __config__, __version__  # noqa
 from ._compile_backend import *  # noqa
 from ._meta_registrations import *  # noqa

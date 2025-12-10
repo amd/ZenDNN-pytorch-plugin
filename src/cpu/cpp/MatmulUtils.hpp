@@ -314,8 +314,19 @@ create_linear_and_matmul_output_tensor(const at::Tensor input,
                                        const at::Tensor weight) {
   auto output_size = get_matmul_and_linear_output_sizes(input, weight);
   auto output_strides = get_matmul_and_linear_output_strides(output_size);
-  at::Tensor result = at::detail::empty_strided_cpu(output_size, output_strides,
-                                                    input.options());
+
+  // For AOT Inductor compatibility, we need to set the device to CPU
+  c10::Device device = c10::Device(c10::DeviceType::CPU);
+
+  // Create options with explicit device
+  auto options = at::TensorOptions()
+                     .dtype(input.dtype())
+                     .layout(input.layout())
+                     .device(device)
+                     .requires_grad(false);
+
+  at::Tensor result =
+      at::detail::empty_strided_cpu(output_size, output_strides, options);
   return result;
 }
 
