@@ -44,6 +44,7 @@ jobs:
       BLIS_TAR_BALL: 'AOCL-Sep2025-b1.tar.gz'
       ZENDNN_REF: ${{ github.event.inputs.zendnn_ref || github.event.client_payload.zendnn_ref || '' }}
       ZENTORCH_REF: ${{ github.event.inputs.zendnnTorch_ref || github.event.client_payload.zendnnTorch_ref || '' }}
+      ZENDNNL_REF: ${{ github.event.inputs.zendnnl_ref || github.event.client_payload.zendnnl_ref || '' }}
       # Add ZenDNN triggering PR information
       ZENDNN_TRIGGERING_PR_NUMBER: ${{ github.event.client_payload.zendnn_pr_number || '' }}
       ZENDNN_TRIGGERING_PR_TITLE: ${{ github.event.client_payload.zendnn_pr_title || '' }}
@@ -315,7 +316,7 @@ jobs:
          curl -s -X POST \
          -H "Accept: application/vnd.github.v3+json" \
          -H "Authorization: token ${{ secrets.ZIAIE_PAT }}" \
-          "https://api.github.com/repos/AMD-Zenai/ZenDNN/statuses/${{ github.event.client_payload.zendnn_ref_sha }}" \
+          "https://api.github.com/repos/AMD-Zenai/ZenDNN/statuses/${{ github.event.client_payload.zendnnl_ref_sha }}" \
           -d "{\"state\":\"${state}\",\"context\":\"${{ github.repository }} CI\",\"description\":\"${{ github.repository }} ${state}\"}"
       - name: Report status back to ZenDNNTOOLS repo
         if: always()
