@@ -15,8 +15,6 @@
 
 #include <cpuinfo.h>
 #include <torch/all.h>
-#include <zendnn.h>
-#include <zendnn.hpp>
 
 // TODO: Make the __FILE__ give the name of the file relative to only
 // ZenDNN_PyTorch_Plugin
@@ -32,6 +30,10 @@ inline bool is_avx512_supported() {
          cpuinfo_has_x86_avx512vl() && cpuinfo_has_x86_avx512dq() &&
          cpuinfo_has_x86_avx512vnni() && cpuinfo_has_x86_avx512bf16() &&
          cpuinfo_has_x86_avx512bw();
+}
+
+inline bool zendnn_bf16_device_check() {
+  return cpuinfo_initialize() && cpuinfo_has_x86_avx512bf16();
 }
 
 enum EMBEDDING_BAG_ALGO {
@@ -75,64 +77,3 @@ static const std::map<std::string_view, int> post_op_map = {
 // with the zendnn library's tensor mask values.
 enum QUANT_GRANULARITY { PER_TENSOR = 0, PER_CHANNEL = 2, PER_GROUP = 3 };
 } // namespace zentorch
-
-namespace zendnn {
-
-using kind = zendnn::primitive::kind;
-
-namespace utils {
-// CPU execution engine only.
-struct engine : public zendnn::engine {
-
-  // Singleton CPU engine for all primitives
-  static engine &cpu_engine();
-
-  engine(kind akind = kind::cpu, size_t index = 0)
-      : zendnn::engine(akind, index) {}
-};
-
-// A default stream
-struct stream : public zendnn::stream {
-  static zendnn::stream &default_stream() {
-    static zendnn::stream s(engine::cpu_engine());
-    return s;
-  }
-};
-
-// Check AVX512 bf16 support
-inline bool zendnn_bf16_device_check() {
-  return cpuinfo_initialize() && cpuinfo_has_x86_avx512bf16();
-}
-
-// this infers the zendnn datatype from aten tensor
-inline auto get_zdtype(const at::Tensor &atensor) {
-  auto atype = atensor.scalar_type();
-  switch (atype) {
-  case c10::kByte:
-    return zendnn_data_type_t::zendnn_u8;
-  case c10::kChar:
-    return zendnn_data_type_t::zendnn_s8;
-  case c10::kInt:
-    return zendnn_data_type_t::zendnn_s32;
-  case c10::kFloat:
-    return zendnn_data_type_t::zendnn_f32;
-  case c10::kBFloat16:
-    return zendnn_data_type_t::zendnn_bf16;
-  case c10::kQUInt8:
-    return zendnn_data_type_t::zendnn_u8;
-  case c10::kQInt8:
-    return zendnn_data_type_t::zendnn_s8;
-  default:
-    ZENTORCH_CHECK(false, "Unsupported data type.");
-  }
-}
-
-// Check embedding-bag support, get dtype and emb_dim from weight tensor
-inline bool is_zendnn_embedding_bag_supported(const at::Tensor &weight) {
-  zendnn_data_type_t z_weight_dtype = get_zdtype(weight);
-  unsigned int emb_dim = weight.size(1);
-  return zendnn_custom_op::isEmbeddingBagSupported(z_weight_dtype, emb_dim);
-}
-
-} // namespace utils
-} // namespace zendnn

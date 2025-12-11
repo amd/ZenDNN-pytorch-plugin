@@ -21,7 +21,7 @@ include(ZenDnnlFwkMacros)
 find_package(OpenMP REQUIRED QUIET)
 # set ZenDNNL source, build and install folders
 zendnnl_add_option(NAME ZENDNNL_SOURCE_DIR
-  VALUE "${CMAKE_SOURCE_DIR}/third_party/ZenDNNL"
+  VALUE "${CMAKE_SOURCE_DIR}/third_party/ZenDNN"
   TYPE PATH
   CACHE_STRING "zendnnl_source_dir"
   COMMAND_LIST ZNL_CMAKE_ARGS)
@@ -42,7 +42,7 @@ zendnnl_add_option(NAME ZENDNNL_INSTALL_PREFIX
 zendnnl_add_option(NAME ZENDNNL_FWK_BUILD
   VALUE ON
   TYPE BOOL
-  CACHE_STRING "zendnnl framework build"
+  CACHE_STRING "zendnn framework build"
   COMMAND_LIST ZNL_CMAKE_ARGS)
 
 # general zendnnl options
@@ -134,11 +134,11 @@ zendnnl_add_option(NAME ZENDNNL_DEPENDS_LIBXSMM
 # set path of amdblis if amdblis is injected. if the framework
 # does not inject it, set it to "" (empty string).
 zendnnl_add_option(NAME ZENDNNL_AMDBLIS_FWK_DIR
-  VALUE "${CMAKE_CURRENT_BINARY_DIR}/blis_gcc_build"
+  VALUE ""
   TYPE PATH
   CACHE_STRING "zendnnl amdblis framework path"
   COMMAND_LIST ZNL_CMAKE_ARGS)
-message(STATUS "ZENDNNL_AMDBLIS_FWK_DIR=${ZENDNNL_AMDBLIS_FWK_DIR}")
+
 # try to find pre-built package
 set(zendnnl_ROOT "${ZENDNNL_INSTALL_PREFIX}/zendnnl")
 set(zendnnl_DIR "${zendnnl_ROOT}/lib/cmake")
@@ -173,7 +173,7 @@ else()
 
   # framwork dependencies
   # add_dependencies(fwk_zendnnl <injected dependency targets>)
-  add_dependencies(fwk_zendnnl libamdblis)
+  # add_dependencies(fwk_zendnnl libamdblis)
   get_target_property(FWK_ZENDNNL_DEPENDS fwk_zendnnl MANUALLY_ADDED_DEPENDENCIES)
   if(${FWK_ZENDNNL_DEPENDS} STREQUAL "FWK_ZENDNNL_DEPENDS-NOTFOUND")
     message(AUTHOR_WARNING "(ZENDNNL) please ensure fwk_zendnnl depends on injected dependencies targets")
@@ -263,7 +263,6 @@ else()
 
   # amdblis dependency
   if (ZENDNNL_DEPENDS_AMDBLIS)
-    if (${ZENDNNL_AMDBLIS_FWK_DIR} STREQUAL "")
       zendnnl_add_dependency(NAME amdblis
         PATH "${ZENDNNL_INSTALL_PREFIX}/deps/amdblis"
         ARCHIVE_FILE "libblis-mt.a"
@@ -271,7 +270,6 @@ else()
         DEPENDS fwk_zendnnl)
 
       target_link_libraries(zendnnl_library INTERFACE amdblis::amdblis_archive)
-    endif()
   endif()
 
   add_library(zendnnl::zendnnl_archive ALIAS zendnnl_library)

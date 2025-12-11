@@ -6,35 +6,9 @@
 #include "EmbeddingUtils.hpp"
 #include "EnvReader.hpp"
 
-using namespace zendnn;
 using namespace zendnnl::interface;
 
 namespace zentorch {
-
-at::Tensor zendnn_embedding_impl(const at::Tensor &weight,
-                                 const at::Tensor &indices, int64_t padding_idx,
-                                 bool scale_grad_by_freq, bool sparse,
-                                 std::string zentorch_op_name) {
-  LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
-            << "Executing function: " << __FUNCTION__;
-
-  at::Tensor cindices, output;
-  memory z_weight, z_indices, z_dst;
-  std::tie(cindices, output) =
-      embedding_tensors_to_memory(weight, indices, z_weight, z_indices, z_dst);
-
-  // Currently there is no primitive for embedding as an op.
-  // So, the manipulations on the embeddingbag op are taken care by the
-  // ZenDNN library and the ZenDNN library call is made from the plugin side.
-  LOG(INFO) << "Embedding compute in progress...";
-  zendnn_custom_op::zendnn_embedding(
-      z_weight, z_indices, static_cast<int32_t>(padding_idx),
-      scale_grad_by_freq, sparse, z_dst, zentorch_op_name.c_str());
-
-  LOG(INFO) << "Finished executing: " << __FUNCTION__ << "!\n";
-
-  return output;
-}
 
 at::Tensor zendnnl_embedding_impl(const at::Tensor &weight,
                                   const at::Tensor &indices,
@@ -92,55 +66,8 @@ at::Tensor zentorch_embedding(const at::Tensor &weight,
                               const at::Tensor &indices, int64_t padding_idx,
                               bool scale_grad_by_freq, bool sparse,
                               std::string zentorch_op_name) {
-  const int &library = EnvReader::getEnvVariableAsInt(
-      "ZENDNN_ZENDNNL"); // 0 would represent ZenDNN and 1 would
-                         // represent ZenDNNL. Default library will be ZenDNNL
-  return (library == 0) ? zendnn_embedding_impl(weight, indices, padding_idx,
-                                                scale_grad_by_freq, sparse,
-                                                zentorch_op_name)
-                        : zendnnl_embedding_impl(weight, indices, padding_idx,
-                                                 scale_grad_by_freq, sparse,
-                                                 zentorch_op_name);
-}
-
-std::vector<at::Tensor> zendnn_group_embedding_impl(
-    at::TensorList weight, at::TensorList indices, at::IntArrayRef padding_idx,
-    at::IntArrayRef scale_grad_by_freq, at::IntArrayRef sparse,
-    std::string zentorch_op_name) {
-
-  LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
-            << "Executing function: " << __FUNCTION__;
-  int num_embedding_ops = weight.size();
-
-  std::vector<memory> z_weights(num_embedding_ops);
-  std::vector<memory> z_indices(num_embedding_ops);
-  std::vector<int32_t> z_padding_idx(num_embedding_ops);
-  std::vector<int32_t> z_scale_grad_by_freq(num_embedding_ops);
-  std::vector<int32_t> z_sparse(num_embedding_ops);
-
-  std::vector<at::Tensor> temp_indices(num_embedding_ops);
-  std::vector<at::Tensor> output(num_embedding_ops);
-  std::vector<memory> z_destination(num_embedding_ops);
-
-  at::parallel_for(0, num_embedding_ops, 0, [&](int64_t start, int64_t end) {
-    for (auto i = start; i < end; i++) {
-
-      std::tie(temp_indices[i], output[i]) = embedding_tensors_to_memory(
-          weight[i], indices[i], z_weights[i], z_indices[i], z_destination[i]);
-
-      z_padding_idx[i] = padding_idx[i];
-      z_scale_grad_by_freq[i] = scale_grad_by_freq[i];
-      z_sparse[i] = sparse[i];
-    }
-  });
-
-  LOG(INFO) << "GroupEmbedding compute in progress...";
-  zendnn_custom_op::zendnn_grp_embedding(
-      z_weights, z_indices, z_padding_idx, z_scale_grad_by_freq, z_sparse,
-      z_destination, zentorch_op_name.c_str());
-  LOG(INFO) << "Finished executing: " << __FUNCTION__ << "!\n";
-
-  return output;
+  return zendnnl_embedding_impl(weight, indices, padding_idx,
+                                scale_grad_by_freq, sparse, zentorch_op_name);
 }
 
 std::vector<at::Tensor> zendnnl_group_embedding_impl(
@@ -176,16 +103,9 @@ std::vector<at::Tensor> zentorch_horizontal_embedding_group(
     at::IntArrayRef scale_grad_by_freq, at::IntArrayRef sparse,
     std::string zentorch_op_name) {
 
-  const int &library = EnvReader::getEnvVariableAsInt(
-      "ZENDNN_ZENDNNL"); // 0 would represent ZenDNN and 1 would
-                         // represent ZenDNNL. Default library will be ZenDNNL
-  return (library == 0)
-             ? zendnn_group_embedding_impl(weight, indices, padding_idx,
-                                           scale_grad_by_freq, sparse,
-                                           zentorch_op_name)
-             : zendnnl_group_embedding_impl(weight, indices, padding_idx,
-                                            scale_grad_by_freq, sparse,
-                                            zentorch_op_name);
+  return zendnnl_group_embedding_impl(weight, indices, padding_idx,
+                                      scale_grad_by_freq, sparse,
+                                      zentorch_op_name);
 }
 
 TORCH_LIBRARY_FRAGMENT(zentorch, m) {

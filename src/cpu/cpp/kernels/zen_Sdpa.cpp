@@ -28,8 +28,6 @@
 #include "../Memory.hpp"
 #include "zen_cpukernels.hpp"
 
-#include <blis.h>
-
 namespace zentorch {
 
 using namespace at::vec;
@@ -83,140 +81,69 @@ inline void zendnn_gemm(int64_t m, int64_t n, int64_t k, float alpha,
   const int &zendnn_matmul_direct_env_value =
       EnvReader::getEnvVariableAsInt("USE_ZENDNN_SDPA_MATMUL_DIRECT");
 
-  const int &library = EnvReader::getEnvVariableAsInt(
-      "ZENDNN_ZENDNNL"); // 0 would represent ZenDNN and 1 would
-                         // represent ZenDNNL. Default library will be ZenDNNL
-
   if (zendnn_matmul_direct_env_value) {
-    if (library == 1) {
-      zendnnl::lowoha::lowoha_params params;
-      zendnnl::lowoha::data_types matmul_dtype;
-      matmul_dtype.bias = data_type_t::none;
-      matmul_dtype.compute = data_type_t::none;
+    zendnnl::lowoha::lowoha_params params;
+    zendnnl::lowoha::data_types matmul_dtype;
+    matmul_dtype.bias = data_type_t::none;
+    matmul_dtype.compute = data_type_t::none;
 
-      matmul_dtype.src = is_input_float ? data_type_t::f32 : data_type_t::bf16;
-      matmul_dtype.wei = is_input_float ? data_type_t::f32 : data_type_t::bf16;
-      matmul_dtype.dst =
-          data_type_t::f32; // Destination data type is always Float32.
-      params.dtypes = matmul_dtype;
+    matmul_dtype.src = is_input_float ? data_type_t::f32 : data_type_t::bf16;
+    matmul_dtype.wei = is_input_float ? data_type_t::f32 : data_type_t::bf16;
+    matmul_dtype.dst =
+        data_type_t::f32; // Destination data type is always Float32.
+    params.dtypes = matmul_dtype;
 
-      zendnnl::lowoha::batch_params_t batch_params;
-      batch_params.Batch_A = 1;
-      batch_params.Batch_B = 1;
+    zendnnl::lowoha::batch_params_t batch_params;
+    batch_params.Batch_A = 1;
+    batch_params.Batch_B = 1;
 
-      matmul_direct('r' /* layout: row-major */, TransA, TransB, m, n, k, alpha,
-                    a, lda, b, ldb, nullptr, /* No bias */ beta, c, ldc,
-                    false /* is_weights_const */, batch_params, params);
-    } else {
-      const ActivationPostOp activation_post_op = ActivationPostOp::NONE;
-      // If input is Float, then use Float. Otherwise, use default BF16.
-      const zendnn::data_types dt =
-          is_input_float ? zendnn::data_types(zendnn_f32, zendnn_f32,
-                                              zendnn_f32, zendnn_f32)
-                         : zendnn::data_types(zendnn_bf16, zendnn_bf16,
-                                              zendnn_bf16, zendnn_f32);
-      zendnn_custom_op::zendnn_matmul_direct(
-          a, b, c, NULL /* bias */, alpha, beta, m, n, k, TransA, TransB, lda,
-          ldb, ldc, false /* weight_const */, dt, activation_post_op,
-          1 /* batch_A */, 1 /* batch_B */);
-    }
+    matmul_direct('r' /* layout: row-major */, TransA, TransB, m, n, k, alpha,
+                  a, lda, b, ldb, nullptr, /* No bias */ beta, c, ldc,
+                  false /* is_weights_const */, batch_params, params);
   } else {
-    if (library == 1) {
-      tensor_t mat1_tensor = tensor_t();
-      const std::vector<unsigned long> sizes_a = {
-          static_cast<unsigned long>(m), static_cast<unsigned long>(k)};
-      const std::vector<unsigned long> strides_a =
-          TransA
-              ? std::vector<unsigned long>{1, static_cast<unsigned long>(lda)}
-              : std::vector<unsigned long>{static_cast<unsigned long>(lda), 1};
-      set_zendnnl_tensor_attributes_wrapper(a, mat1_tensor, "matmul_input",
-                                            sizes_a, strides_a, is_input_float,
-                                            TransA);
+    tensor_t mat1_tensor = tensor_t();
+    const std::vector<unsigned long> sizes_a = {static_cast<unsigned long>(m),
+                                                static_cast<unsigned long>(k)};
+    const std::vector<unsigned long> strides_a =
+        TransA ? std::vector<unsigned long>{1, static_cast<unsigned long>(lda)}
+               : std::vector<unsigned long>{static_cast<unsigned long>(lda), 1};
+    set_zendnnl_tensor_attributes_wrapper(a, mat1_tensor, "matmul_input",
+                                          sizes_a, strides_a, is_input_float,
+                                          TransA);
 
-      tensor_t mat2_tensor = tensor_t();
-      const std::vector<unsigned long> sizes_b = {
-          static_cast<unsigned long>(k), static_cast<unsigned long>(n)};
-      const std::vector<unsigned long> strides_b =
-          TransB
-              ? std::vector<unsigned long>{1, static_cast<unsigned long>(ldb)}
-              : std::vector<unsigned long>{static_cast<unsigned long>(ldb), 1};
-      set_zendnnl_tensor_attributes_wrapper(b, mat2_tensor, "weights", sizes_b,
-                                            strides_b, is_input_float, TransB);
+    tensor_t mat2_tensor = tensor_t();
+    const std::vector<unsigned long> sizes_b = {static_cast<unsigned long>(k),
+                                                static_cast<unsigned long>(n)};
+    const std::vector<unsigned long> strides_b =
+        TransB ? std::vector<unsigned long>{1, static_cast<unsigned long>(ldb)}
+               : std::vector<unsigned long>{static_cast<unsigned long>(ldb), 1};
+    set_zendnnl_tensor_attributes_wrapper(b, mat2_tensor, "weights", sizes_b,
+                                          strides_b, is_input_float, TransB);
 
-      tensor_t result = tensor_t();
-      const std::vector<unsigned long> sizes_c = {
-          static_cast<unsigned long>(m), static_cast<unsigned long>(n)};
-      const std::vector<unsigned long> strides_c = {
-          static_cast<unsigned long>(ldc), 1};
-      set_zendnnl_tensor_attributes_wrapper(
-          c, result, "matmul_output", sizes_c, strides_c,
-          /* is_input_float */ true, /* is_transposed */ false);
-      // Destination tensor is always Float32 and contiguous.
+    tensor_t result = tensor_t();
+    const std::vector<unsigned long> sizes_c = {static_cast<unsigned long>(m),
+                                                static_cast<unsigned long>(n)};
+    const std::vector<unsigned long> strides_c = {
+        static_cast<unsigned long>(ldc), 1};
+    set_zendnnl_tensor_attributes_wrapper(
+        c, result, "matmul_output", sizes_c, strides_c,
+        /* is_input_float */ true, /* is_transposed */ false);
+    // Destination tensor is always Float32 and contiguous.
 
-      auto matmul_context = matmul_context_t();
-      set_matmul_context_attributes(matmul_context, mat2_tensor,
-                                    {} /* no post ops */, alpha);
+    auto matmul_context = matmul_context_t();
+    set_matmul_context_attributes(matmul_context, mat2_tensor,
+                                  {} /* no post ops */, alpha);
 
-      auto matmul_operator = matmul_operator_t();
-      set_matmul_operator_attributes(matmul_operator, matmul_context,
-                                     mat1_tensor, result, {} /* no post ops */,
-                                     {} /* no post op buffers */);
+    auto matmul_operator = matmul_operator_t();
+    set_matmul_operator_attributes(matmul_operator, matmul_context, mat1_tensor,
+                                   result, {} /* no post ops */,
+                                   {} /* no post op buffers */);
 
-      status_t status = matmul_operator.execute();
+    status_t status = matmul_operator.execute();
 
-      ZENTORCH_CHECK(status == status_t::success, "operator ",
-                     matmul_operator.get_name(),
-                     " execution failed for zentorch_matmul_impl.");
-    } else {
-      using dtype = memory::data_type;
-      dtype data_type = is_input_float ? dtype::f32 : dtype::bf16;
-
-      engine eng = utils::engine::cpu_engine();
-      zendnn::stream engine_stream(eng);
-      memory::dims a_dims = {m, k};
-      memory::dims b_dims = {k, n};
-      memory::dims c_dims = {m, n};
-      // Set strides for matrices A and B depending on whether they are
-      // transposed. Transposed matrices use column-major access (stride: {1,
-      // lda or ldb}), while non-transposed use row-major access (stride: {lda
-      // or ldb, 1}).
-      memory::dims a_strides =
-          TransA ? memory::dims{1, lda} : memory::dims{lda, 1};
-      memory::dims b_strides =
-          TransB ? memory::dims{1, ldb} : memory::dims{ldb, 1};
-
-      // Create memory descriptors
-      memory::desc a_md = memory::desc({a_dims}, data_type, a_strides);
-      memory::desc c_md = memory::desc({c_dims}, dtype::f32, {ldc, 1});
-      memory::desc b_md = memory::desc({b_dims}, data_type, b_strides, false);
-      zendnn::memory a_memory, b_memory, c_memory;
-      a_memory = memory(a_md, eng, const_cast<T *>(a));
-      c_memory = memory(c_md, eng, c);
-      b_memory = memory(b_md, eng, const_cast<T *>(b));
-
-      zendnn::primitive_attr matmul_attr;
-      matmul_attr.set_output_scales(0 /* mask */, {alpha});
-      zendnn::post_ops post_ops;
-      if (beta != 0.0) {
-        post_ops.append_sum(beta);
-      }
-      matmul_attr.set_post_ops(post_ops);
-      // Create descriptor for matmul
-      auto matmul_pd1 = zendnn::matmul::desc(a_md, b_md, c_md);
-      // Create primitive descriptor for matmul
-      auto matmul_pd =
-          zendnn::matmul::primitive_desc(matmul_pd1, matmul_attr, eng);
-      auto matmul_prim = matmul(matmul_pd);
-      // Primitive arguments.
-      std::unordered_map<int, memory> matmul_args;
-      matmul_args.insert({ZENDNN_ARG_SRC, a_memory});
-      matmul_args.insert({ZENDNN_ARG_WEIGHTS, b_memory});
-      matmul_args.insert({ZENDNN_ARG_DST, c_memory});
-      // Primitive execution: matrix multiplication.
-      matmul_prim.execute(engine_stream, matmul_args);
-      // Wait for the computation to finalize.
-      engine_stream.wait();
-    }
+    ZENTORCH_CHECK(status == status_t::success, "operator ",
+                   matmul_operator.get_name(),
+                   " execution failed for zentorch_matmul_impl.");
   }
 }
 

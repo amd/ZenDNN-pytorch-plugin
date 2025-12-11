@@ -21,17 +21,12 @@ from ._op_replacements_new import replace_with_zentorch_ops_new
 from ._custom_op_replacement import (
     inplace_cat_fusion,
     emb_ops_horizontal_fusion,
-    group_eb_concat_fusion,
-    qlinear_reorder_optimizations,
-    eb_group_mlp_group_fusion,
-    qkv_fusion,
 )
 from ._prepack_pass import add_zentorch_weight_prepack_ops
 from ._eltwise_unary_fusions import zentorch_eltwise_unary_fusions
 from ._eltwise_binary_fusions import zentorch_eltwise_binary_fusions
 from ._graph_preprocess_matcher import preprocess_graph_pass
 from ._fusion_matcher import fusions_graph_pass
-from ._qop_replacement import replace_with_zentorch_qops
 from ._unary_fusions import zentorch_unary_post_op_fusions
 from ._unary_binary_fusions import zentorch_unary_binary_post_op_fusions
 from ._binary_binary_fusions import zentorch_binary_binary_post_op_fusions
@@ -67,12 +62,9 @@ def optimize(fx_graph):
 
     optimized_graph = replace_with_composite_zentorch_ops(optimized_graph)
 
-    # Quantization pattern replacement
-    optimized_graph = replace_with_zentorch_qops(optimized_graph)
     if (
         config.freezing
         and os.environ.get("ZENTORCH_LINEAR", "0") == "1"
-        and os.environ.get("ZENDNN_ZENDNNL", "0") == "1"
     ):
         # replace zendnn ops with zendnn custom passes
         optimized_graph = add_zentorch_weight_prepack_ops(optimized_graph)
@@ -91,25 +83,9 @@ def optimize(fx_graph):
     # eltwise fusion replacements
     optimized_graph = fusions_graph_pass(optimized_graph)
 
-    # ZenTorch qlinear reorder optimizations.
-    optimized_graph = qlinear_reorder_optimizations(optimized_graph)
-
     optimized_graph = inplace_cat_fusion(optimized_graph)
 
     # Fusion of parallel embeddingbags
     optimized_graph = emb_ops_horizontal_fusion(optimized_graph)
 
-    # Fusion of embeddingbag outputs and cat node
-    optimized_graph = group_eb_concat_fusion(optimized_graph)
-
-    # Vertical fusion of Consecutive MLP layers
-    # TODO: Add support for Vertical Fusion
-    # TODO: Fix inconsistent results with unit tests
-    # optimized_graph = vertical_mlp_fusion(optimized_graph)
-
-    # Fusion of parallel QKV layers
-    optimized_graph = qkv_fusion(optimized_graph)
-
-    # Horizontal fusion of parallel Group EB op and Group MLP op
-    optimized_graph = eb_group_mlp_group_fusion(optimized_graph)
     return optimized_graph

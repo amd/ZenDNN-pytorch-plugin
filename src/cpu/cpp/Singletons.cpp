@@ -5,13 +5,7 @@
 
 #include "Utils.hpp"
 
-namespace zendnn {
-namespace utils {
-
-engine &engine::cpu_engine() {
-  static engine cpu_engine(kind::cpu, 0);
-  return cpu_engine;
-}
-
-} // namespace utils
-} // namespace zendnn
+// engine &engine::cpu_engine() {
+//   static engine cpu_engine(kind::cpu, 0);
+//   return cpu_engine;
+// }

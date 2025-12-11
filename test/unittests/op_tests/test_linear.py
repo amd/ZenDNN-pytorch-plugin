@@ -6,7 +6,6 @@
 import unittest
 import torch
 import sys
-import os
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
@@ -30,14 +29,11 @@ class Test_Linear_Unary(MMTestCase):
             input, weight, bias, post_op=post_op
         )
         self.assertEqual(ref_output, zen_output, atol=1e-2, rtol=1e-2)
-        if os.environ.get("ZENDNN_ZENDNNL", "0") == "1":
-            prepacked_weight = torch.ops.zentorch.zentorch_weight_prepack_for_linear(
-                weight
-            )
-            zen_output_prepacked = torch.ops.zentorch.zentorch_linear_unary(
-                input, prepacked_weight, bias, post_op=post_op, is_weight_prepacked=True
-            )
-            self.assertEqual(ref_output, zen_output_prepacked, atol=1e-2, rtol=1e-2)
+        prepacked_weight = torch.ops.zentorch.zentorch_weight_prepack_for_linear(weight)
+        zen_output_prepacked = torch.ops.zentorch.zentorch_linear_unary(
+            input, prepacked_weight, bias, post_op=post_op, is_weight_prepacked=True
+        )
+        self.assertEqual(ref_output, zen_output_prepacked, atol=1e-2, rtol=1e-2)
 
     @MMTestCase.hypothesis_params_mm_itr(dtype_list=supported_dtypes)
     @unittest.skipIf(skip_test_pt_2_0, "Skipping test due to PT2.0 instability")

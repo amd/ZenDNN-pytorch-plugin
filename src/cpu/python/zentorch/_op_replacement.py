@@ -5,7 +5,6 @@
 
 import operator
 import sys
-import os
 import torch
 from torch._inductor.pattern_matcher import (
     PatternMatcherPass,
@@ -19,7 +18,6 @@ from torch._inductor.pattern_matcher import (
 from torch._inductor import config
 import functools
 from ._utils import counters
-from .utils import is_zendnn_embedding_bag_supported
 
 # import the custom logging module
 from ._logging import get_logger
@@ -72,7 +70,7 @@ def is_embedding_op_replacable(match):
         return False
 
     # Return True only if both weight and indices satisfy all constraints
-    return is_zendnn_embedding_bag_supported(match.args[0].meta["val"]) and match.args[1].meta["val"].ndim == 1
+    return match.args[1].meta["val"].ndim == 1
 
 
 @register_graph_pattern(
@@ -510,15 +508,8 @@ def replace_with_composite_zentorch_ops(fx_graph: torch.fx.Graph) -> torch.fx.Gr
         combined_checks = weight_checks and indices_checks and offsets_checks
 
         if not combined_checks:
-            logger.debug("Cannot replace aten embedding bag with zentorch embedding bag.")
-            continue
-
-        if os.environ.get("ZENDNN_ZENDNNL", "1") == "0" and not is_zendnn_embedding_bag_supported(weight.meta["val"]):
-            logger.info(
-                "zentorch embedding-bag is not supported for the combination of "
-                "dtype: %s and embedding dimension: %s.",
-                weight.meta["val"].dtype,
-                weight.meta["val"].shape[1],
+            logger.debug(
+                "Cannot replace aten embedding bag with zentorch embedding bag."
             )
             continue
 

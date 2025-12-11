@@ -51,7 +51,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         "\n\nReturns:\n"
         "\tBool: True if AVX512 instructions are supported, False otherwise.");
 
-  m.def("is_bf16_supported", zendnn::utils::zendnn_bf16_device_check,
+  m.def("is_bf16_supported", zentorch::zendnn_bf16_device_check,
         "Check if BF16 is supported on the current device.\n\n"
         "Returns:\n"
         "    Bool: True if BF16 is supported, False otherwise.");
@@ -72,20 +72,4 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         "Args:\n"
         "    core_ids (List[int]): A list of core IDs to bind threads to.");
 
-  m.def("zentorch_weight_reorder_for_matmul",
-        &zentorch::zentorch_weight_reorder_for_matmul, py::arg("weight"),
-        py::arg("is_weight_oc_x_ic") = true,
-        "Reorder the weight tensor to desired format.\n\n"
-        "Args:\n"
-        "    weight (torch.Tensor): The weight tensor.\n"
-        "    is_weight_oc_x_ic (bool, optional): True if weight is stored as "
-        "OCxIC.\n"
-        "Returns:\n"
-        "    Tensor: Reordered weight tensor.");
-
-  m.def("is_zendnn_embedding_bag_supported",
-        &zendnn::utils::is_zendnn_embedding_bag_supported, py::arg("weight"),
-        "Check if the embedding-bag operation is supported.\n\n"
-        "Args:\n"
-        "    weight (torch.Tensor): The weight tensor.");
 } // End of PYBIND11_MODULE

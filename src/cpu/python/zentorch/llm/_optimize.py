@@ -6,7 +6,6 @@
 import torch
 from ._checks import essential_checks, get_installed_ipex_version
 import zentorch._C
-import zentorch._WOQLinear as WOQLinear
 from .._logging import get_logger
 import sys
 from packaging.version import Version
@@ -27,8 +26,6 @@ def check_for_shared_params(model):
     # Static quantized models are not supported.
     for name, module in model.named_modules():
         if hasattr(module, "weight"):
-            if isinstance(module.weight, WOQLinear.DummyWeight):
-                continue
             data_ptr = module.weight.data_ptr()
             if data_ptr not in param_dict:
                 param_dict[data_ptr] = []

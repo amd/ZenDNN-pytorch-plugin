@@ -9,207 +9,10 @@
 
 namespace zentorch {
 
-at::Tensor zendnn_matmul_impl(const at::Tensor &input, const at::Tensor &weight,
-                              const at::Tensor &bias, at::Tensor &result,
-                              const std::vector<int64_t> &post_op_ids,
-                              const std::vector<at::Tensor> &post_op_buffers,
-                              const float &beta, const float &alpha,
-                              std::string zentorch_op_name,
-                              const bool &is_weight_const = true) {
-  // ZenDNN has implementation for matmul and batched matmul which bypasses the
-  // primitive creation and other over-heads to directly start the matmul
-  // computation. The usage of the kernel is managed by the env variable
-  // "USE_ZENDNN_MATMUL_DIRECT" and when this variable is set to 1 based
-  // on the certain conditions, the decision of whether to use this kernel or
-  // not is made.
-
-  const int int_env_value =
-      EnvReader::getEnvVariableAsInt("USE_ZENDNN_MATMUL_DIRECT");
-
-  // "validate_zendnn_direct_kernel_usage" returns a boolean representing
-  // whether the direct kernel will be used or not. If true, then the direct
-  // kernel will be used and the product is stored in the "result" tensor which
-  // is then returned based on the final boolean value
-  // "use_zendnn_direct_kernel". "use_zendnn_direct_kernel" takes its final
-  // value based on the env variable enablement and the return value of
-  // "validate_zendnn_direct_kernel_usage" function.
-  const bool use_zendnn_direct_kernel =
-      int_env_value &&
-      validate_zendnn_direct_kernel_usage(input, weight, bias, result,
-                                          post_op_ids, post_op_buffers);
-  if (use_zendnn_direct_kernel) {
-    LOG(INFO) << "Using zendnn direct kernel for matmul";
-    const int64_t post_op_id =
-        post_op_ids.size() == 0 ? INT64_MIN : post_op_ids[0];
-    zendnn_direct_kernel(input, weight, bias, result, beta, alpha, post_op_id);
-    return result;
-  }
-  LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
-            << "Executing function: " << __FUNCTION__;
-  LOG(INFO) << "input dimensions: " << input.sizes();
-  LOG(INFO) << "weight dimensions: " << weight.sizes();
-  LOG(INFO) << "result dimensions: " << result.sizes();
-  LOG(INFO) << "beta : " << beta << " and alpha : " << alpha;
-  at::Tensor self_or_result_unsqueezed, input_, weight_, beta_bias;
-  memory z_input, z_weight, z_result, z_bias;
-  std::tie(self_or_result_unsqueezed, input_, weight_, beta_bias) =
-      matmul_tensors_to_memory(input, weight, result, bias, beta_bias,
-                               post_op_buffers, z_input, z_weight, z_bias,
-                               z_result, beta, alpha, is_weight_const);
-  zendnn::primitive_attr op_attr;
-  post_ops po;
-  const bool bias_defined = bias.numel();
-  // If alpha = 0, does not need to actually do gemm computation
-  if (alpha == 0) {
-    if (beta == 0.0f) {
-      return self_or_result_unsqueezed.zero_();
-    } else if (bias_defined) {
-      // bias is already multiplied by beta
-      return self_or_result_unsqueezed.copy_(beta_bias);
-    } else {
-      return self_or_result_unsqueezed.mul_(beta);
-    }
-  } else if (alpha != 1.0f) {
-    if (bias_defined) {
-      // TODO: add support for alpha when bias is defined
-      ZENTORCH_CHECK(
-          !(input.scalar_type() == c10::ScalarType::BFloat16 ||
-            weight.scalar_type() == c10::ScalarType::BFloat16),
-          "zentorch_matmul is not supported for bf16 "
-          "tensors when bias is defined and alpha is not equal to 1");
-    }
-    LOG(INFO) << "Setting output scales with alpha = " << alpha;
-    op_attr.set_output_scales(0, std::vector<float>(1, alpha));
-  }
-  std::unordered_map<int, memory> execute_args;
-  // Setting Post ops
-  zentorch_post_ops_selection(po, execute_args, post_op_ids, post_op_buffers);
-  op_attr.set_post_ops(po);
-  op_attr.set_plugin_op_name(zentorch_op_name);
-  // execute the zendnn::matmul kernel
-  zentorch_matmul_execute(execute_args, z_input, z_weight, z_bias, z_result,
-                          op_attr, bias_defined);
-  if (weight.dim() == 1) {
-    if (input.dim() == 2) {
-      // aten::mv  >>  [m, 1] tensor will be squeezed to 1-d([m]) tensor
-      self_or_result_unsqueezed.squeeze_(1);
-    } else if (input.dim() == 1) {
-      // aten::dot >>  [1, 1] tensor will be squeezed to 0-d([]) tensor
-      self_or_result_unsqueezed.squeeze_();
-    }
-  }
-  LOG(INFO) << "Finished executing: " << __FUNCTION__ << "!\n";
-  return self_or_result_unsqueezed;
-}
-
 // There are two custom group matmul ops which are structurally different, but
 // have a lot of overlap with respect to initialization of tensors and other
 // arguments. These overlaps are covered in the following function called
 // zendnn_matmul_group_impl.
-std::vector<at::Tensor> zendnn_matmul_group_impl(
-    std::vector<at::Tensor> &self_vector, std::vector<at::Tensor> &inputs,
-    const at::TensorList &weights, const at::ArrayRef<double> &betas,
-    const at::ArrayRef<double> &alphas, const at::IntArrayRef &fuse,
-    const bool &is_horizontal, std::string zentorch_op_name) {
-  int num_ops = inputs.size();
-  std::vector<at::Tensor> output(num_ops);
-  std::vector<at::Tensor> bias_vector(num_ops);
-  std::vector<at::Tensor> self_or_result_vector(num_ops);
-  std::vector<bool> bias_defined_vector(num_ops);
-  // ZenDNN Library now supports multiple post ops for one matmul variant in a
-  // GroupMLP op. To pass that information from ZenTorch GroupMLP, we create
-  // two vectors of vectors:
-  //    1. int64_t vector contains the post op identifiers
-  //    2. memory contains the ZenDNN memory of the tensor equivalent which are
-  //       used when the post op is a binary post op like add or mul.
-  std::vector<std::vector<int64_t>> z_post_op_ids(num_ops);
-  std::vector<std::vector<memory>> z_post_op_buffers = {};
-  std::vector<memory> z_mat1_vector(num_ops);
-  std::vector<memory> z_mat2_vector(num_ops);
-  std::vector<memory> z_bias_vector(num_ops);
-  std::vector<memory> z_result_vector(num_ops);
-  std::vector<float> alphas_vector(num_ops);
-  std::vector<float> betas_vector(num_ops);
-  // If TORCH_CHECK() fails, then the pragma omp parallel for cannot be used
-  // we will use at::parallel_for from pytorch instead
-  // Disabling at::parallel as a workaround to fix inconsistency in unit tests.
-  // TODO : Need to debug why at::parallel is not stable.
-  // at::parallel_for(0, num_ops, 0, [&](int64_t start, int64_t end) {
-  for (int op_id = 0; op_id < num_ops; op_id++) {
-    alphas_vector[op_id] = static_cast<float>(alphas[op_id]);
-    betas_vector[op_id] = static_cast<float>(betas[op_id]);
-    if (self_vector[op_id].sizes() ==
-        c10::IntArrayRef(get_matmul_and_linear_output_sizes(inputs[op_id],
-                                                            weights[op_id]))) {
-      ZENTORCH_CHECK((self_vector[op_id].dim() == 2 &&
-                      inputs[op_id].dim() == 2 &&
-                      weights[op_id].dim() == 2), // aten::addmm
-                     "unsupported dims for self, mat1 and mat2");
-      const at::Tensor empty_bias; // dummy empty bias
-      bias_vector[op_id] = empty_bias;
-      self_or_result_vector[op_id] = self_vector[op_id];
-    } else {
-      ZENTORCH_CHECK((self_vector[op_id].dim() == 1 &&
-                      inputs[op_id].dim() == 2 &&
-                      weights[op_id].dim() == 2), // aten::addmm
-                     "unsupported dims for self, mat1 and mat2");
-
-      at::Tensor result =
-          create_linear_and_matmul_output_tensor(inputs[op_id], weights[op_id]);
-      bias_vector[op_id] = self_vector[op_id];
-      self_or_result_vector[op_id] = result;
-    }
-    at::Tensor self_or_result_unsqueezed, mat1_, mat2_, beta_bias;
-    std::vector<at::Tensor> post_op_buffers = {};
-    std::tie(self_or_result_unsqueezed, mat1_, mat2_, beta_bias) =
-        matmul_tensors_to_memory(
-            inputs[op_id], weights[op_id], self_or_result_vector[op_id],
-            bias_vector[op_id], beta_bias, post_op_buffers,
-            z_mat1_vector[op_id], z_mat2_vector[op_id], z_bias_vector[op_id],
-            z_result_vector[op_id], betas_vector[op_id], alphas_vector[op_id]);
-    // Populating the bias_defined_vector with the bool equivalent values
-    // based on the number of elements in the bias.
-    bias_defined_vector[op_id] = bias_vector[op_id].numel();
-    if (betas[op_id] != 0.0f && !bias_defined_vector[op_id]) {
-      // sets post_ops as add or sum
-      LOG(INFO) << "Setting add or sum as post op";
-    }
-    if (alphas[op_id] != 1.0f) {
-      if (bias_defined_vector[op_id]) {
-        // TODO: add support for alpha when bias is defined
-        ZENTORCH_CHECK(
-            !(inputs[op_id].scalar_type() == c10::ScalarType::BFloat16 ||
-              weights[op_id].scalar_type() == c10::ScalarType::BFloat16),
-            "zentorch_matmul is not supported for bf16 "
-            "tensors when bias is defined and alpha != 1");
-      }
-      LOG(INFO) << "Setting output scales with alpha = " << alphas[op_id];
-    }
-    // Currently there is a limitation from the PyTorch side that a list of
-    // lists cannot be sent from the Python side to the CPP side via bindings
-    // using TORCH_LIBRARY_FRAGMENT. So, currently we are using just a single
-    // post op and wrapping it in a vector and sending it to ZenDNN Library.
-    z_post_op_ids[op_id] = std::vector<int64_t>{fuse[op_id]};
-  }
-  // });
-  if (is_horizontal) {
-    LOG(INFO) << "Horizontal GroupMatMul compute in progress...";
-    zendnn_custom_op::zendnn_grp_mlp(
-        z_mat1_vector, z_mat2_vector, z_bias_vector, alphas_vector,
-        betas_vector, bias_defined_vector, z_post_op_ids, z_post_op_buffers,
-        z_result_vector, zentorch_op_name.c_str());
-    LOG(INFO) << "Horizontal GroupMatMul compute complete...";
-  } else {
-    LOG(INFO) << "Vertical GroupMatMul compute in progress...";
-    std::vector z_input = {z_mat1_vector[0]};
-    zendnn_custom_op::zendnn_grp_mlp(
-        z_input, z_mat2_vector, z_bias_vector, alphas_vector, betas_vector,
-        bias_defined_vector, z_post_op_ids, z_post_op_buffers, z_result_vector,
-        zentorch_op_name.c_str());
-    LOG(INFO) << "Vertical GroupMatMul compute complete...";
-  }
-  return self_or_result_vector;
-}
 
 at::Tensor zendnnl_matmul_impl(
     const at::Tensor &input, const at::Tensor &weight, const at::Tensor &bias,
@@ -298,7 +101,7 @@ at::Tensor zendnnl_matmul_impl(
   auto matmul_context = matmul_context_t();
   if (bias_defined) {
     tensor_t bias_tensor = tensor_t();
-    auto bias_numel = beta_bias.numel();
+    long unsigned int bias_numel = beta_bias.numel();
     if (weight_.dim() == 2) {
       set_zendnnl_tensor_attributes(beta_bias, bias_tensor, "bias",
                                     false /* is_weight_prepacked */,
@@ -347,18 +150,10 @@ at::Tensor zentorch_matmul_impl(
     const std::vector<at::Tensor> &post_op_buffers, const float &beta,
     const float &alpha, std::string zentorch_op_name,
     const bool is_weight_const, const bool is_weight_prepacked) {
-  const int &library = EnvReader::getEnvVariableAsInt(
-      "ZENDNN_ZENDNNL"); // 0 would represent ZenDNN and 1 would
-                         // represent ZenDNNL. Default library will be ZenDNNL
 
-  return (library == 0)
-             ? zendnn_matmul_impl(input, weight, bias, result, post_op_ids,
-                                  post_op_buffers, beta, alpha,
-                                  zentorch_op_name, is_weight_const)
-             : zendnnl_matmul_impl(input, weight, bias, result, post_op_ids,
-                                   post_op_buffers, beta, alpha,
-                                   zentorch_op_name, is_weight_const,
-                                   is_weight_prepacked);
+  return zendnnl_matmul_impl(input, weight, bias, result, post_op_ids,
+                             post_op_buffers, beta, alpha, zentorch_op_name,
+                             is_weight_const, is_weight_prepacked);
 }
 
 template <UNARY_POST_OP fuse>
@@ -670,79 +465,6 @@ at::Tensor zentorch_mm_unary_binary(const at::Tensor &mat1,
                               1.0f /* alpha */, zentorch_op_name);
 }
 
-at::Tensor
-zentorch_vertical_mlp_group(at::TensorList self, const at::Tensor &input,
-                            at::TensorList weights, at::ArrayRef<double> betas,
-                            at::ArrayRef<double> alphas, at::IntArrayRef fuse,
-                            std::string zentorch_op_name) {
-  // self = alpha * input * weights + beta * self
-  LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
-            << "Executing function: " << __FUNCTION__;
-  int num_ops = weights.size();
-  std::vector<at::Tensor> input_vector(num_ops);
-  std::vector<at::Tensor> output_vector(num_ops);
-  std::vector<at::Tensor> self_vector(num_ops);
-  at::Tensor mlp_input, dummy_output;
-  for (int i = 0; i < num_ops; i++) {
-    if (i == 0)
-      mlp_input = input;
-    else
-      mlp_input = dummy_output;
-
-    std::vector<int64_t> output_sizes =
-        get_matmul_and_linear_output_sizes(mlp_input, weights[i]);
-    std::vector<int64_t> output_strides =
-        get_matmul_and_linear_output_strides(output_sizes);
-    dummy_output = at::detail::empty_strided_cpu(output_sizes, output_strides,
-                                                 input.options());
-    input_vector[i] = mlp_input;
-    self_vector[i] = self[i];
-  }
-
-  // TODO
-  // The under-the-hood impl functions are now prefixed with the backend library
-  // they are using to do the computation. Since this group matmul
-  // implementation is not supported in ZenDNN(L) yet, this function is using
-  // the zendnn library as of now. As soon as the ZenDNN(L) library supports
-  // custom operators, this will be removed and the function from ZenDNN(L) will
-  // be added.
-  output_vector =
-      zendnn_matmul_group_impl(self_vector, input_vector, weights, betas,
-                               alphas, fuse, false, zentorch_op_name);
-  return output_vector[num_ops - 1];
-}
-std::vector<at::Tensor>
-zentorch_attn_qkv_fusion(at::TensorList self, at::TensorList inputs,
-                         at::TensorList weights, at::ArrayRef<double> betas,
-                         at::ArrayRef<double> alphas, at::IntArrayRef fuse,
-                         at::IntArrayRef is_zentorch_mm,
-                         std::string zentorch_op_name) {
-  // self = alpha * inputs * weights.t + beta * self
-  LOG(INFO) << "In zentorch_attention_horizontal_matmul_group_mlp...\n";
-  int num_ops = inputs.size();
-  std::vector<at::Tensor> input_vector(num_ops);
-  std::vector<at::Tensor> self_vector(num_ops);
-  LOG(INFO) << "Executing function: " << __FUNCTION__;
-  for (int i = 0; i < num_ops; i++) {
-    input_vector[i] = inputs[i];
-    if (is_zentorch_mm[i] == 1) {
-      self_vector[i] =
-          create_linear_and_matmul_output_tensor(inputs[i], weights[i]);
-    } else {
-      self_vector[i] = self[i];
-    }
-  }
-  // TODO
-  // The under-the-hood impl functions are now prefixed with the backend library
-  // they are using to do the computation. Since this group matmul
-  // implementation is not supported in ZenDNN(L) yet, this function is using
-  // the zendnn library as of now. As soon as the ZenDNN(L) library supports
-  // custom operators, this will be removed and the function from ZenDNN(L) will
-  // be added.
-  return zendnn_matmul_group_impl(self_vector, input_vector, weights, betas,
-                                  alphas, fuse, true, zentorch_op_name);
-}
-
 TORCH_LIBRARY(zentorch, m) {
   m.def("zentorch_mm(Tensor self, Tensor mat2, *, str "
         "zentorch_op_name='zentorch::zentorch_mm') -> Tensor");
@@ -841,17 +563,6 @@ TORCH_LIBRARY(zentorch, m) {
         "mat2, Tensor mul_input, Scalar beta=1, Scalar alpha=1, str "
         "zentorch_op_name='zentorch::zentorch_addmm_1dbias_silu_mul') -> "
         "Tensor");
-  m.def("zentorch_vertical_mlp_group(Tensor[] self, Tensor inputs, "
-        "Tensor[] weight, float[] betas, float[] alphas, "
-        "int[] fuse, str zentorch_op_name = "
-        "'zentorch::zentorch_vertical_mlp_group') -> "
-        "Tensor");
-  m.def("zentorch_attn_qkv_fusion(Tensor[] self, Tensor[] inputs, "
-        "Tensor[] weights, "
-        "float[] betas, float[] alphas, int[] fuse, int[] is_zentorchmm, str "
-        "zentorch_op_name = "
-        "'zentorch::zentorch_attn_qkv_fusion') -> "
-        "Tensor[]");
 }
 
 TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
@@ -897,7 +608,5 @@ TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
   m.impl("zentorch_addmm_1dbias_silu_mul",
          zentorch_addmm_1dbias_unary_binary<UNARY_POST_OP::SILU,
                                             BINARY_POST_OP::MUL>);
-  m.impl("zentorch_vertical_mlp_group", zentorch_vertical_mlp_group);
-  m.impl("zentorch_attn_qkv_fusion", zentorch_attn_qkv_fusion);
 }
 } // namespace zentorch

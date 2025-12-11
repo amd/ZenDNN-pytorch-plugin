@@ -272,208 +272,6 @@ def _mm_add_replacement(arg_0, arg_1, add_1):
     return (out_0,)
 
 
-# Adding 2 Isometric patterns for linear+add fusion
-def _woq_linear_add_pattern_1(arg_0, arg_1, arg_2, arg_3, bias_0, add_1, group_size):
-    # arg_0 : input_tensor (n-d)
-    # arg_1 : qweight
-    # arg_2 : weight_scales
-    # arg_3 : weight_zero_point
-    # bias_0 : bias
-    # add_1 : add_tensor
-    # group_size : group_size
-    woq_linear_out = zt_ops.zentorch_woq_linear(
-        arg_0, arg_1, arg_2, arg_3, bias_0, group_size
-    )
-    add_res = at_ops.add(add_1, woq_linear_out)
-    return add_res
-
-
-def _woq_linear_add_pattern_2(arg_0, arg_1, arg_2, arg_3, bias_0, add_1, group_size):
-    woq_linear_out = zt_ops.zentorch_woq_linear(
-        arg_0, arg_1, arg_2, arg_3, bias_0, group_size
-    )
-    add_res = at_ops.add(woq_linear_out, add_1)
-    return add_res
-
-
-def _woq_linear_add_replacement(arg_0, arg_1, arg_2, arg_3, bias_0, add_1, group_size):
-    counters["zentorch"]["pattern_matcher_woq_add"] += 1
-    out_0 = zt_ops.zentorch_woq_linear_add.default(
-        arg_0, arg_1, arg_2, arg_3, bias_0, add_1, group_size
-    )
-    return (out_0,)
-
-
-# Adding 4 Isometric pattern for linear+add+add fusion
-def _woq_linear_add_add_pattern_1(
-    arg_0, arg_1, arg_2, arg_3, bias_0, add_1, add_2, group_size
-):
-    # arg_0 : input_tensor (n-d)
-    # arg_1 : qweight
-    # arg_2 : weight_scales
-    # arg_3 : weight_zero_point
-    # bias_0 : bias
-    # add_1 : add_tensor
-    # add_2 : add_tensor
-    # group_size : group_size
-    woq_linear_out = zt_ops.zentorch_woq_linear(
-        arg_0, arg_1, arg_2, arg_3, bias_0, group_size
-    )
-    add_res_0 = at_ops.add(woq_linear_out, add_1)
-    add_res_1 = at_ops.add(add_res_0, add_2)
-    return add_res_1
-
-
-def _woq_linear_add_add_pattern_2(
-    arg_0, arg_1, arg_2, arg_3, bias_0, add_1, add_2, group_size
-):
-    woq_linear_out = zt_ops.zentorch_woq_linear(
-        arg_0, arg_1, arg_2, arg_3, bias_0, group_size
-    )
-    add_res_0 = at_ops.add(add_1, woq_linear_out)
-    add_res_1 = at_ops.add(add_res_0, add_2)
-    return add_res_1
-
-
-def _woq_linear_add_add_pattern_3(
-    arg_0, arg_1, arg_2, arg_3, bias_0, add_1, add_2, group_size
-):
-    woq_linear_out = zt_ops.zentorch_woq_linear(
-        arg_0, arg_1, arg_2, arg_3, bias_0, group_size
-    )
-    add_res_0 = at_ops.add(woq_linear_out, add_1)
-    add_res_1 = at_ops.add(add_2, add_res_0)
-    return add_res_1
-
-
-def _woq_linear_add_add_pattern_4(
-    arg_0, arg_1, arg_2, arg_3, bias_0, add_1, add_2, group_size
-):
-    woq_linear_out = zt_ops.zentorch_woq_linear(
-        arg_0, arg_1, arg_2, arg_3, bias_0, group_size
-    )
-    add_res_0 = at_ops.add(add_1, woq_linear_out)
-    add_res_1 = at_ops.add(add_2, add_res_0)
-    return add_res_1
-
-
-def _woq_linear_add_add_replacement(
-    arg_0, arg_1, arg_2, arg_3, bias_0, add_1, add_2, group_size
-):
-    counters["zentorch"]["pattern_matcher_woq_add_add"] += 1
-    out_0 = zt_ops.zentorch_woq_linear_add_add.default(
-        arg_0, arg_1, arg_2, arg_3, bias_0, add_1, add_2, group_size
-    )
-    return out_0
-
-
-# Adding 4 Isometric pattern for linear+add+add fusion
-def _qlinear_mul_add_pattern_1(
-    arg_0, arg_1, bias_0, arg_2, arg_3, arg_4, arg_5, mul_1, add_1
-):
-    # arg_0 : input (n-d)
-    # arg_1 : weight
-    # bias_0 : bias
-    # arg_2 : input_scales
-    # arg_3 : input_zero_points,
-    # arg_4 : weight_scales,
-    # arg_5 : weight_zero_points,
-    # mul_1 : mul_input
-    # add_1 : add_input
-    # TODO : Currently output_dtype needs be same as arg_0 for this pass
-    # to work. We need to find a better way of decoupling them from each
-    # other.
-    qlinear_out = zt_ops.zentorch_qlinear(
-        arg_0, arg_1, bias_0, arg_2, arg_3, arg_4, arg_5
-    )
-    mul_res = at_ops.mul(qlinear_out, mul_1)
-    add_res = at_ops.add(mul_res, add_1)
-    return add_res
-
-
-def _qlinear_mul_add_pattern_2(
-    arg_0, arg_1, bias_0, arg_2, arg_3, arg_4, arg_5, mul_1, add_1
-):
-    qlinear_out = zt_ops.zentorch_qlinear(
-        arg_0, arg_1, bias_0, arg_2, arg_3, arg_4, arg_5
-    )
-    mul_res = at_ops.mul(mul_1, qlinear_out)
-    add_res = at_ops.add(mul_res, add_1)
-    return add_res
-
-
-def _qlinear_mul_add_pattern_3(
-    arg_0, arg_1, bias_0, arg_2, arg_3, arg_4, arg_5, mul_1, add_1
-):
-    qlinear_out = zt_ops.zentorch_qlinear(
-        arg_0, arg_1, bias_0, arg_2, arg_3, arg_4, arg_5
-    )
-    mul_res = at_ops.mul(qlinear_out, mul_1)
-    add_res = at_ops.add(add_1, mul_res)
-    return add_res
-
-
-def _qlinear_mul_add_pattern_4(
-    arg_0, arg_1, bias_0, arg_2, arg_3, arg_4, arg_5, mul_1, add_1
-):
-    qlinear_out = zt_ops.zentorch_qlinear(
-        arg_0, arg_1, bias_0, arg_2, arg_3, arg_4, arg_5
-    )
-    mul_res = at_ops.mul(mul_1, qlinear_out)
-    add_res = at_ops.add(add_1, mul_res)
-    return add_res
-
-
-def _qlinear_mul_add_replacement(
-    arg_0, arg_1, bias_0, arg_2, arg_3, arg_4, arg_5, mul_1, add_1
-):
-    counters["zentorch"]["pattern_matcher_qlinear_mul_add"] += 1
-    out_0 = zt_ops.zentorch_qlinear_mul_add.default(
-        arg_0,
-        arg_1,
-        bias_0,
-        arg_2,
-        arg_3,
-        arg_4,
-        arg_5,
-        mul_1,
-        add_1,
-        output_dtype=add_1.dtype,
-    )
-    return out_0
-
-
-# Adding 2 Isometric patterns for linear+silu+mul fusion
-def _woq_linear_silu_mul_pattern_1(
-    arg_0, arg_1, arg_2, arg_3, bias_0, mul_1, group_size
-):
-    woq_linear_out = zt_ops.zentorch_woq_linear_silu(
-        arg_0, arg_1, arg_2, arg_3, bias_0, group_size
-    )
-    mul_res_0 = at_ops.mul(woq_linear_out, mul_1)
-    return mul_res_0
-
-
-def _woq_linear_silu_mul_pattern_2(
-    arg_0, arg_1, arg_2, arg_3, bias_0, mul_1, group_size
-):
-    woq_linear_out = zt_ops.zentorch_woq_linear_silu(
-        arg_0, arg_1, arg_2, arg_3, bias_0, group_size
-    )
-    mul_res_0 = at_ops.mul(mul_1, woq_linear_out)
-    return mul_res_0
-
-
-def _woq_linear_silu_mul_replacement(
-    arg_0, arg_1, arg_2, arg_3, bias_0, mul_1, group_size
-):
-    counters["zentorch"]["pattern_matcher_woq_silu_mul"] += 1
-    out_0 = zt_ops.zentorch_woq_linear_silu_mul(
-        arg_0, arg_1, arg_2, arg_3, bias_0, mul_1, group_size
-    )
-    return out_0
-
-
 # add a split mm op for phi-3 model
 def _split_mm_pattern(arg_0, arg_1):
     # view -> mm -> view -> split ------>\
@@ -559,35 +357,6 @@ def _matmul_dtypes_check(match):
         return is_bf16 ^ is_fp32
 
 
-def _woq_check(match):
-    expected_dtype = {
-        "arg_0": (torch.bfloat16,),
-        "arg_1": (torch.int32,),
-        "arg_2": (
-            torch.float32,
-            torch.bfloat16,
-        ),
-        "arg_3": (torch.int32,),
-        "bias_0": (torch.bfloat16,),
-    }
-
-    post_op_dtypes_bf16 = True
-
-    for k, v in match.kwargs.items():
-        if isinstance(v, int):
-            continue
-        if k in ("add_1", "add_2", "mul_1"):
-            post_op_dtypes_bf16 = post_op_dtypes_bf16 and (
-                v.meta["val"].dtype == torch.bfloat16
-            )
-        if not (torch.is_tensor(v.meta["val"]) and k in expected_dtype):
-            continue
-        if v.meta["val"].dtype not in expected_dtype[str(k)]:
-            return False
-
-    return post_op_dtypes_bf16
-
-
 def _dim_check(match):
     if "mul_1" not in match.kwargs:
         if (
@@ -662,59 +431,59 @@ def _get_pattern_with_replacement():
     arg_7 = partial(
         torch.empty, (512, 128), device="cpu", requires_grad=True, dtype=torch.float
     )
-    inp_bf16 = partial(
-        torch.empty,
-        (4, 32, 32),
-        device="cpu",
-        requires_grad=False,
-        dtype=torch.bfloat16,
-    )
-    inp_fp32 = partial(
-        torch.empty,
-        (4, 32, 32),
-        device="cpu",
-        requires_grad=False,
-        dtype=torch.float32,
-    )
+    # inp_bf16 = partial(
+    #     torch.empty,
+    #     (4, 32, 32),
+    #     device="cpu",
+    #     requires_grad=False,
+    #     dtype=torch.bfloat16,
+    # )
+    # inp_fp32 = partial(
+    #     torch.empty,
+    #     (4, 32, 32),
+    #     device="cpu",
+    #     requires_grad=False,
+    #     dtype=torch.float32,
+    # )
     # q_bits: 4(int4) and packed qweight_dtype: int32
-    q_weight_int32 = partial(
-        torch.empty, (32, 4), device="cpu", requires_grad=False, dtype=torch.int32
-    )
-    q_weight_int8 = partial(
-        torch.empty, (32, 32), device="cpu", requires_grad=False, dtype=torch.int8
-    )
-    weight_scales_per_channel = partial(
-        torch.empty, (1, 32), device="cpu", requires_grad=False, dtype=torch.float32
-    )
-    weight_qzeros_per_channel = partial(
-        torch.empty, (1, 4), device="cpu", requires_grad=False, dtype=torch.int8
-    )
-    input_scales_per_tensor = partial(
-        torch.empty, (1), device="cpu", requires_grad=False, dtype=torch.float32
-    )
-    input_qzeros_per_tensor = partial(
-        torch.empty, (1), device="cpu", requires_grad=False, dtype=torch.int8
-    )
-    q_bias_bf16 = partial(
-        torch.empty, (32), device="cpu", requires_grad=False, dtype=torch.bfloat16
-    )
-    q_bias_fp32 = partial(
-        torch.empty, (32), device="cpu", requires_grad=False, dtype=torch.float32
-    )
+    # q_weight_int32 = partial(
+    #     torch.empty, (32, 4), device="cpu", requires_grad=False, dtype=torch.int32
+    # )
+    # q_weight_int8 = partial(
+    #     torch.empty, (32, 32), device="cpu", requires_grad=False, dtype=torch.int8
+    # )
+    # weight_scales_per_channel = partial(
+    #     torch.empty, (1, 32), device="cpu", requires_grad=False, dtype=torch.float32
+    # )
+    # weight_qzeros_per_channel = partial(
+    #     torch.empty, (1, 4), device="cpu", requires_grad=False, dtype=torch.int8
+    # )
+    # input_scales_per_tensor = partial(
+    #     torch.empty, (1), device="cpu", requires_grad=False, dtype=torch.float32
+    # )
+    # input_qzeros_per_tensor = partial(
+    #     torch.empty, (1), device="cpu", requires_grad=False, dtype=torch.int8
+    # )
+    # q_bias_bf16 = partial(
+    #     torch.empty, (32), device="cpu", requires_grad=False, dtype=torch.bfloat16
+    # )
+    # q_bias_fp32 = partial(
+    #     torch.empty, (32), device="cpu", requires_grad=False, dtype=torch.float32
+    # )
 
-    q_binary = partial(
-        torch.empty,
-        (4, 32, 32),
-        device="cpu",
-        requires_grad=False,
-        dtype=torch.float32,
-    )
+    # q_binary = partial(
+    #     torch.empty,
+    #     (4, 32, 32),
+    #     device="cpu",
+    #     requires_grad=False,
+    #     dtype=torch.float32,
+    # )
 
     # It doesn't allows same value for two kwargs hence the workaround
     # to have two different values for beta and alpha
     # kwargs in func sig is only valid torch 2.2 onwards
     kwargs_beta_alpha = {"beta": 1.0, "alpha": -2.8}
-    kwargs_group_size = {"group_size": -1}
+    # kwargs_group_size = {"group_size": -1}
 
     candidates = [
         (
@@ -856,191 +625,6 @@ def _get_pattern_with_replacement():
             [arg_1(), arg_2(), arg_6()],
             {},
             _mm_add_check,
-        ),
-        # TODO : check the appropriate order required for different fusions.
-        (
-            _qlinear_mul_add_pattern_1,
-            _qlinear_mul_add_replacement,
-            [
-                inp_fp32(),
-                q_weight_int8(),
-                q_bias_fp32(),
-                input_scales_per_tensor(),
-                input_qzeros_per_tensor(),
-                weight_scales_per_channel(),
-                weight_qzeros_per_channel(),
-                q_binary(),
-                q_binary(),
-            ],
-            {},
-            _qlinear_mul_add_check,
-        ),
-        (
-            _qlinear_mul_add_pattern_2,
-            _qlinear_mul_add_replacement,
-            [
-                inp_fp32(),
-                q_weight_int8(),
-                q_bias_fp32(),
-                input_scales_per_tensor(),
-                input_qzeros_per_tensor(),
-                weight_scales_per_channel(),
-                weight_qzeros_per_channel(),
-                q_binary(),
-                q_binary(),
-            ],
-            {},
-            _qlinear_mul_add_check,
-        ),
-        (
-            _qlinear_mul_add_pattern_3,
-            _qlinear_mul_add_replacement,
-            [
-                inp_fp32(),
-                q_weight_int8(),
-                q_bias_fp32(),
-                input_scales_per_tensor(),
-                input_qzeros_per_tensor(),
-                weight_scales_per_channel(),
-                weight_qzeros_per_channel(),
-                q_binary(),
-                q_binary(),
-            ],
-            {},
-            _qlinear_mul_add_check,
-        ),
-        (
-            _qlinear_mul_add_pattern_4,
-            _qlinear_mul_add_replacement,
-            [
-                inp_fp32(),
-                q_weight_int8(),
-                q_bias_fp32(),
-                input_scales_per_tensor(),
-                input_qzeros_per_tensor(),
-                weight_scales_per_channel(),
-                weight_qzeros_per_channel(),
-                q_binary(),
-                q_binary(),
-            ],
-            {},
-            _qlinear_mul_add_check,
-        ),
-        (
-            _woq_linear_add_add_pattern_1,
-            _woq_linear_add_add_replacement,
-            [
-                inp_bf16(),
-                q_weight_int32(),
-                weight_scales_per_channel(),
-                weight_qzeros_per_channel(),
-                q_bias_bf16(),
-                q_binary(),
-                q_binary(),
-            ],
-            kwargs_group_size,
-            _woq_check,
-        ),
-        (
-            _woq_linear_add_add_pattern_2,
-            _woq_linear_add_add_replacement,
-            [
-                inp_bf16(),
-                q_weight_int32(),
-                weight_scales_per_channel(),
-                weight_qzeros_per_channel(),
-                q_bias_bf16(),
-                q_binary(),
-                q_binary(),
-            ],
-            kwargs_group_size,
-            _woq_check,
-        ),
-        (
-            _woq_linear_add_add_pattern_3,
-            _woq_linear_add_add_replacement,
-            [
-                inp_bf16(),
-                q_weight_int32(),
-                weight_scales_per_channel(),
-                weight_qzeros_per_channel(),
-                q_bias_bf16(),
-                q_binary(),
-                q_binary(),
-            ],
-            kwargs_group_size,
-            _woq_check,
-        ),
-        (
-            _woq_linear_add_add_pattern_4,
-            _woq_linear_add_add_replacement,
-            [
-                inp_bf16(),
-                q_weight_int32(),
-                weight_scales_per_channel(),
-                weight_qzeros_per_channel(),
-                q_bias_bf16(),
-                q_binary(),
-                q_binary(),
-            ],
-            kwargs_group_size,
-            _woq_check,
-        ),
-        (
-            _woq_linear_add_pattern_1,
-            _woq_linear_add_replacement,
-            [
-                inp_bf16(),
-                q_weight_int32(),
-                weight_scales_per_channel(),
-                weight_qzeros_per_channel(),
-                q_bias_bf16(),
-                q_binary(),
-            ],
-            kwargs_group_size,
-            _woq_check,
-        ),
-        (
-            _woq_linear_add_pattern_2,
-            _woq_linear_add_replacement,
-            [
-                inp_bf16(),
-                q_weight_int32(),
-                weight_scales_per_channel(),
-                weight_qzeros_per_channel(),
-                q_bias_bf16(),
-                q_binary(),
-            ],
-            kwargs_group_size,
-            _woq_check,
-        ),
-        (
-            _woq_linear_silu_mul_pattern_1,
-            _woq_linear_silu_mul_replacement,
-            [
-                inp_bf16(),
-                q_weight_int32(),
-                weight_scales_per_channel(),
-                weight_qzeros_per_channel(),
-                q_bias_bf16(),
-                q_binary(),
-            ],
-            kwargs_group_size,
-            _woq_check,
-        ),
-        (
-            _woq_linear_silu_mul_pattern_2,
-            _woq_linear_silu_mul_replacement,
-            [
-                inp_bf16(),
-                q_weight_int32(),
-                weight_scales_per_channel(),
-                weight_qzeros_per_channel(),
-                q_bias_bf16(),
-                q_binary(),
-            ],
-            kwargs_group_size,
-            _woq_check,
         ),
         (
             _split_mm_pattern,
