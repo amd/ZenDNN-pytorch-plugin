@@ -17,6 +17,8 @@ include_guard(GLOBAL)
 include(ExternalProject)
 include(ZenDnnlFwkMacros)
 
+message(AUTHOR_WARNING "(ZENDNNL) please ensure all zendnnl variables are set properly.")
+
 # find openmp
 find_package(OpenMP REQUIRED QUIET)
 # set ZenDNNL source, build and install folders
@@ -38,26 +40,29 @@ zendnnl_add_option(NAME ZENDNNL_INSTALL_PREFIX
   CACHE_STRING "zendnnl_install_dir"
   COMMAND_LIST ZNL_CMAKE_ARGS)
 
-# set ZenDNNL framework build
+## general zendnnl options
+# set ZenDNNL framework build, this should on ON to avoid standalone build.
 zendnnl_add_option(NAME ZENDNNL_FWK_BUILD
   VALUE ON
   TYPE BOOL
-  CACHE_STRING "zendnn framework build"
+  CACHE_STRING "zendnnl framework build"
   COMMAND_LIST ZNL_CMAKE_ARGS)
 
-# general zendnnl options
+# set zendnnl build option, default is Release.
 zendnnl_add_option(NAME ZENDNNL_BUILD_TYPE
   VALUE "Release"
   TYPE STRING
   CACHE_STRING "zendnnl build type"
   COMMAND_LIST ZNL_CMAKE_ARGS)
 
+# set zendnnl log level.
 zendnnl_add_option(NAME ZENDNNL_MESSAGE_LOG_LEVEL
   VALUE "DEBUG"
   TYPE STRING
   CACHE_STRING "zendnnl message log level"
   COMMAND_LIST ZNL_CMAKE_ARGS)
 
+# set zendnnl verbose makefile option.
 zendnnl_add_option(NAME ZENDNNL_VERBOSE_MAKEFILE
   VALUE ON
   TYPE BOOL
@@ -104,7 +109,7 @@ zendnnl_add_option(NAME ZENDNNL_CODE_COVERAGE
 # set if zendnnl depends on amdblis. this should bf OFF only if
 # aocldlp dependency is ON.
 zendnnl_add_option(NAME ZENDNNL_DEPENDS_AMDBLIS
-  VALUE ON
+  VALUE OFF
   TYPE BOOL
   CACHE_STRING "zendnnl amdblis dependency"
   COMMAND_LIST ZNL_CMAKE_ARGS)
@@ -112,7 +117,7 @@ zendnnl_add_option(NAME ZENDNNL_DEPENDS_AMDBLIS
 # set if zendnnl depends on aocldlp. this should bf ON only if
 # amdblis dependency is OFF.
 zendnnl_add_option(NAME ZENDNNL_DEPENDS_AOCLDLP
-  VALUE OFF
+  VALUE ON
   TYPE BOOL
   CACHE_STRING "zendnnl aocldlp dependency"
   COMMAND_LIST ZNL_CMAKE_ARGS)
@@ -137,6 +142,12 @@ zendnnl_add_option(NAME ZENDNNL_AMDBLIS_FWK_DIR
   VALUE ""
   TYPE PATH
   CACHE_STRING "zendnnl amdblis framework path"
+  COMMAND_LIST ZNL_CMAKE_ARGS)
+
+zendnnl_add_option(NAME ZENDNNL_AOCLDLP_FWK_DIR
+  VALUE ""
+  TYPE PATH
+  CACHE_STRING "zendnnl aocldlp framework path"
   COMMAND_LIST ZNL_CMAKE_ARGS)
 
 # try to find pre-built package
@@ -270,6 +281,16 @@ else()
         DEPENDS fwk_zendnnl)
 
       target_link_libraries(zendnnl_library INTERFACE amdblis::amdblis_archive)
+  endif()
+
+  if (ZENDNNL_DEPENDS_AOCLDLP)
+    zendnnl_add_dependency(NAME aocldlp
+    PATH "${ZENDNNL_INSTALL_PREFIX}/deps/aocldlp"
+    ARCHIVE_FILE "libaocl-dlp.a"
+    ALIAS "aocldlp::aocldlp"
+    DEPENDS fwk_zendnnl)
+
+    target_link_libraries(zendnnl_library INTERFACE aocldlp::aocldlp)
   endif()
 
   add_library(zendnnl::zendnnl_archive ALIAS zendnnl_library)

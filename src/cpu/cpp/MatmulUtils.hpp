@@ -325,8 +325,13 @@ create_linear_and_matmul_output_tensor(const at::Tensor input,
                      .device(device)
                      .requires_grad(false);
 
-  at::Tensor result =
-      at::detail::empty_strided_cpu(output_size, output_strides, options);
+  // TODO: To be brought back once ZENAI-2693 is fixed
+  //  at::Tensor result =
+  //      at::detail::empty_strided_cpu(output_size, output_strides, options);
+  at::Tensor result = at::zeros(output_size, options);
+  if (result.strides() != output_strides) {
+    result = result.as_strided(output_size, output_strides);
+  }
   return result;
 }
 

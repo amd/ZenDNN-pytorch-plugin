@@ -4,7 +4,6 @@
  ******************************************************************************/
 
 #include "Config.hpp"
-#include <blis.h>
 #include <sstream>
 #include <zendnnl_version.hpp>
 
@@ -32,16 +31,8 @@ std::string show_config() {
   ss << "  - CXX Flags " << CMAKE_CXX_FLAGS << "\n";
   ss << "Third_party libraries:\n";
   ss << "  - "
-     << "AMD " << bli_info_get_version_str() << " ( Git Hash "
-     << BLIS_VERSION_HASH << " )"
-     << "\n";
-  ss << "  - "
      << "AMD ZENDNNL v" << get_zendnnl_version() << " ( Git Hash "
      << ZENDNNL_LIB_VERSION_HASH << " )"
-     << "\n";
-  ss << "  - "
-     << "FBGEMM " << FBGEMM_VERSION_TAG << " ( Git Hash " << FBGEMM_VERSION_HASH
-     << " )"
      << "\n";
 
   return ss.str();
