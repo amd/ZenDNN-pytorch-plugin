@@ -227,10 +227,10 @@ else()
     zendnnl_add_dependency(NAME onednn
       PATH "${ZENDNNL_INSTALL_PREFIX}/deps/onednn"
       ARCHIVE_FILE "libdnnl.a"
-      ALIAS "dnnl::dnnl"
+      ALIAS "DNNL::dnnl"
       DEPENDS fwk_zendnnl)
 
-    target_link_libraries(zendnnl_library INTERFACE dnnl::dnnl)
+    target_link_libraries(zendnnl_library INTERFACE DNNL::dnnl)
   endif()
 
   if (ZENDNNL_DEPENDS_LIBXSMM)
