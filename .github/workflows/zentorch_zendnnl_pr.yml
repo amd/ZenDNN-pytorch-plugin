@@ -32,7 +32,7 @@ on:
         required: false
         default: '1'
   repository_dispatch:
-    types: [zendnnl-pr , zendnn-zentorch-zendnnl-pr , zendnnTools-zentorch-zendnnl-pr]
+    types: [zendnn-zentorch-zendnnl-pr , zendnnTools-zentorch-zendnnl-pr]
 
 jobs:
   build:
