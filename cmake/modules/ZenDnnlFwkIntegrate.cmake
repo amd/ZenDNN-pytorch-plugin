@@ -122,9 +122,9 @@ zendnnl_add_option(NAME ZENDNNL_DEPENDS_AOCLDLP
   CACHE_STRING "zendnnl aocldlp dependency"
   COMMAND_LIST ZNL_CMAKE_ARGS)
 
-# set if zendnnl depends on onednn, default is OFF.
+# set if zendnnl depends on onednn, default is ON.
 zendnnl_add_option(NAME ZENDNNL_DEPENDS_ONEDNN
-  VALUE OFF
+  VALUE ON
   TYPE BOOL
   CACHE_STRING "zendnnl onednn dependency"
   COMMAND_LIST ZNL_CMAKE_ARGS)
@@ -221,6 +221,17 @@ else()
     INCLUDE_ONLY)
 
   target_link_libraries(zendnnl_library INTERFACE nlohmann_json::nlohmann_json)
+
+  if (ZENDNNL_DEPENDS_ONEDNN)
+    # onednn dependency
+    zendnnl_add_dependency(NAME onednn
+      PATH "${ZENDNNL_INSTALL_PREFIX}/deps/onednn"
+      ARCHIVE_FILE "libdnnl.a"
+      ALIAS "dnnl::dnnl"
+      DEPENDS fwk_zendnnl)
+
+    target_link_libraries(zendnnl_library INTERFACE dnnl::dnnl)
+  endif()
 
   if (ZENDNNL_DEPENDS_LIBXSMM)
     # libxsmm dependency
