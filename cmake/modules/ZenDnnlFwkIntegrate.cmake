@@ -150,6 +150,14 @@ zendnnl_add_option(NAME ZENDNNL_AOCLDLP_FWK_DIR
   CACHE_STRING "zendnnl aocldlp framework path"
   COMMAND_LIST ZNL_CMAKE_ARGS)
 
+# set path of onednn if onednn is injected. if the framework
+# does not inject it, set it to "" (empty string).
+zendnnl_add_option(NAME ZENDNNL_ONEDNN_FWK_DIR
+  VALUE <onednn install path>
+  TYPE PATH
+  CACHE_STRING "zendnnl onednnn framework path"
+  COMMAND_LIST ZNL_CMAKE_ARGS)
+
 # try to find pre-built package
 set(zendnnl_ROOT "${ZENDNNL_INSTALL_PREFIX}/zendnnl")
 set(zendnnl_DIR "${zendnnl_ROOT}/lib/cmake")
