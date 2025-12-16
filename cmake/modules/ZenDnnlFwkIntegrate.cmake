@@ -153,7 +153,7 @@ zendnnl_add_option(NAME ZENDNNL_AOCLDLP_FWK_DIR
 # set path of onednn if onednn is injected. if the framework
 # does not inject it, set it to "" (empty string).
 zendnnl_add_option(NAME ZENDNNL_ONEDNN_FWK_DIR
-  VALUE <onednn install path>
+  VALUE ""
   TYPE PATH
   CACHE_STRING "zendnnl onednnn framework path"
   COMMAND_LIST ZNL_CMAKE_ARGS)
