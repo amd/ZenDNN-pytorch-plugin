@@ -93,7 +93,37 @@ at::Tensor zendnnl_matmul_impl(
                                 is_weight_prepacked);
 
   tensor_t input_tensor = tensor_t();
-  set_zendnnl_tensor_attributes(input_, input_tensor, "matmul_input");
+  if (input_.dim() == 2) {
+    // Set the aligned size for the tensor based on whether it is transposed.
+    // Aligned size is used to set the actual size of tensor passed.
+    // If the tensor is transposed, align using the second dimension's stride
+    // and size. Otherwise, align using the first dimension's size and stride.
+
+    // Strides convey the actual size of tensor.
+    // That's why we need to multiply the leading dimension size and leading
+    // dimension stride if the tensor is contiguous. If the tensor is
+    // transposed, we need to multiply the trailing dimension size and trailing
+    // dimension stride.
+
+    const auto tensor_sizes = std::vector<unsigned long>(input_.sizes().begin(),
+                                                         input_.sizes().end());
+    const auto tensor_strides = std::vector<unsigned long>(
+        input_.strides().begin(), input_.strides().end());
+
+    const auto tensor_aligned_sizes =
+        is_transposed(input_)
+            ? std::vector<unsigned long>{tensor_strides[1], tensor_sizes[1]}
+            : std::vector<unsigned long>{tensor_sizes[0], tensor_strides[0]};
+
+    int64_t nbytes = c10::elementSize(input_.scalar_type()) *
+                     tensor_aligned_sizes[0] * tensor_aligned_sizes[1];
+
+    set_zendnnl_tensor_attributes(input_, input_tensor, "matmul_input",
+                                  false /* is_weight_prepacked */, tensor_sizes,
+                                  tensor_strides, tensor_aligned_sizes, nbytes);
+  } else {
+    set_zendnnl_tensor_attributes(input_, input_tensor, "matmul_input");
+  }
 
   tensor_t output_tensor = tensor_t();
   set_zendnnl_tensor_attributes(result, output_tensor, "matmul_output");

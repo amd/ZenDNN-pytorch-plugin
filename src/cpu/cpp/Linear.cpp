@@ -14,8 +14,16 @@ inline void zentorch_linear_impl(
     const bool is_weight_prepacked, std::string zentorch_op_name) {
   // Get appropriately tensors for Linear(2D input, transposed weight, 2D
   // result)
-  const at::Tensor &input_2d =
-      input.view(get_2d_size_for_tensor(get_contiguous_view(input)));
+
+  // TODO
+  //  in long term we should handle the reshape of the input outside the linear
+  //  and let graph passes handle the reshape. The input to linear must always
+  //  be 2D and contiguous.
+
+  const auto input_contiguous = get_contiguous_view(input);
+  const auto input_2d_sizes = get_2d_size_for_tensor(input_contiguous);
+  const auto input_2d = input_contiguous.view(input_2d_sizes);
+
   auto result_2d = result.view(get_2d_size_for_tensor(result));
   const float beta = bias.defined() ? 1.0f : 0.0f;
   std::vector<int64_t> post_op_idx;
