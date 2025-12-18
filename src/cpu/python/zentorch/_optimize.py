@@ -65,6 +65,7 @@ def optimize(fx_graph):
     if (
         config.freezing
         and os.environ.get("ZENTORCH_LINEAR", "0") == "1"
+        and os.environ.get("ZENTORCH_WEIGHT_PREPACK", "1") == "1"
     ):
         # replace zendnn ops with zendnn custom passes
         optimized_graph = add_zentorch_weight_prepack_ops(optimized_graph)
