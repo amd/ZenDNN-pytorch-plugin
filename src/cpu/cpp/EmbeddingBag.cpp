@@ -192,7 +192,7 @@ std::vector<at::Tensor> zendnnl_horizontal_embedding_bag_group_impl(
   std::vector<at::Tensor> output(num_eb_ops);
 
   at::parallel_for(0, num_eb_ops, 0, [&](int64_t start, int64_t end) {
-    for (int i = 0; i < num_eb_ops; i++) {
+    for (int i = start; i < end; i++) {
       output[i] = zentorch_embedding_bag(
           weight[i], indices[i], offsets[i], scale_grad_by_freq[i], mode[i],
           sparse[i], per_sample_weights_opt[i], include_last_offset[i],
