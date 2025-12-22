@@ -183,8 +183,8 @@ at_ops = torch.ops.aten
 zt_ops = torch.ops.zentorch
 
 qlinear_eltwise_map = {
-    # "relu": (torch.nn.ReLU(), zt_ops.zentorch_qlinear_relu.default),
-    # "sigmoid": (torch.nn.Sigmoid(), zt_ops.zentorch_qlinear_sigmoid.default),
+    "relu": (torch.nn.ReLU(), zt_ops.zentorch_qlinear_relu.default),
+    "sigmoid": (torch.nn.Sigmoid(), zt_ops.zentorch_qlinear_sigmoid.default),
     # TODO: Enable once silu, gelu_erf, gelu_tanh fusions are supported
     # with qlinear
     # "silu": (torch.nn.SiLU(), zt_ops.zentorch_qlinear_silu.default),

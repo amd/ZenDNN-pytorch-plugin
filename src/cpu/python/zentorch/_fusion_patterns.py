@@ -313,6 +313,81 @@ def _split_mm_replacement(arg_0, arg_1):
     return view_1
 
 
+# Adding 4 Isometric pattern for linear+add+add fusion
+def _qlinear_mul_add_pattern_1(
+    arg_0, arg_1, bias_0, arg_2, arg_3, arg_4, arg_5, mul_1, add_1
+):
+    # arg_0 : input (n-d)
+    # arg_1 : weight
+    # bias_0 : bias
+    # arg_2 : input_scales
+    # arg_3 : input_zero_points,
+    # arg_4 : weight_scales,
+    # arg_5 : weight_zero_points,
+    # mul_1 : mul_input
+    # add_1 : add_input
+    # TODO : Currently output_dtype needs be same as arg_0 for this pass
+    # to work. We need to find a better way of decoupling them from each
+    # other.
+    qlinear_out = zt_ops.zentorch_qlinear(
+        arg_0, arg_1, bias_0, arg_2, arg_3, arg_4, arg_5
+    )
+    mul_res = at_ops.mul(qlinear_out, mul_1)
+    add_res = at_ops.add(mul_res, add_1)
+    return add_res
+
+
+def _qlinear_mul_add_pattern_2(
+    arg_0, arg_1, bias_0, arg_2, arg_3, arg_4, arg_5, mul_1, add_1
+):
+    qlinear_out = zt_ops.zentorch_qlinear(
+        arg_0, arg_1, bias_0, arg_2, arg_3, arg_4, arg_5
+    )
+    mul_res = at_ops.mul(mul_1, qlinear_out)
+    add_res = at_ops.add(mul_res, add_1)
+    return add_res
+
+
+def _qlinear_mul_add_pattern_3(
+    arg_0, arg_1, bias_0, arg_2, arg_3, arg_4, arg_5, mul_1, add_1
+):
+    qlinear_out = zt_ops.zentorch_qlinear(
+        arg_0, arg_1, bias_0, arg_2, arg_3, arg_4, arg_5
+    )
+    mul_res = at_ops.mul(qlinear_out, mul_1)
+    add_res = at_ops.add(add_1, mul_res)
+    return add_res
+
+
+def _qlinear_mul_add_pattern_4(
+    arg_0, arg_1, bias_0, arg_2, arg_3, arg_4, arg_5, mul_1, add_1
+):
+    qlinear_out = zt_ops.zentorch_qlinear(
+        arg_0, arg_1, bias_0, arg_2, arg_3, arg_4, arg_5
+    )
+    mul_res = at_ops.mul(mul_1, qlinear_out)
+    add_res = at_ops.add(add_1, mul_res)
+    return add_res
+
+
+def _qlinear_mul_add_replacement(
+    arg_0, arg_1, bias_0, arg_2, arg_3, arg_4, arg_5, mul_1, add_1
+):
+    counters["zentorch"]["pattern_matcher_qlinear_mul_add"] += 1
+    out_0 = zt_ops.zentorch_qlinear_mul_add.default(
+        arg_0,
+        arg_1,
+        bias_0,
+        arg_2,
+        arg_3,
+        arg_4,
+        arg_5,
+        mul_1,
+        add_1,
+        output_dtype=add_1.dtype,
+    )
+    return out_0
+
 # adding patterns completed #
 
 
@@ -431,53 +506,39 @@ def _get_pattern_with_replacement():
     arg_7 = partial(
         torch.empty, (512, 128), device="cpu", requires_grad=True, dtype=torch.float
     )
-    # inp_bf16 = partial(
-    #     torch.empty,
-    #     (4, 32, 32),
-    #     device="cpu",
-    #     requires_grad=False,
-    #     dtype=torch.bfloat16,
-    # )
-    # inp_fp32 = partial(
-    #     torch.empty,
-    #     (4, 32, 32),
-    #     device="cpu",
-    #     requires_grad=False,
-    #     dtype=torch.float32,
-    # )
-    # q_bits: 4(int4) and packed qweight_dtype: int32
-    # q_weight_int32 = partial(
-    #     torch.empty, (32, 4), device="cpu", requires_grad=False, dtype=torch.int32
-    # )
-    # q_weight_int8 = partial(
-    #     torch.empty, (32, 32), device="cpu", requires_grad=False, dtype=torch.int8
-    # )
-    # weight_scales_per_channel = partial(
-    #     torch.empty, (1, 32), device="cpu", requires_grad=False, dtype=torch.float32
-    # )
-    # weight_qzeros_per_channel = partial(
-    #     torch.empty, (1, 4), device="cpu", requires_grad=False, dtype=torch.int8
-    # )
-    # input_scales_per_tensor = partial(
-    #     torch.empty, (1), device="cpu", requires_grad=False, dtype=torch.float32
-    # )
-    # input_qzeros_per_tensor = partial(
-    #     torch.empty, (1), device="cpu", requires_grad=False, dtype=torch.int8
-    # )
-    # q_bias_bf16 = partial(
-    #     torch.empty, (32), device="cpu", requires_grad=False, dtype=torch.bfloat16
-    # )
-    # q_bias_fp32 = partial(
-    #     torch.empty, (32), device="cpu", requires_grad=False, dtype=torch.float32
-    # )
+    inp_fp32 = partial(
+        torch.empty,
+        (4, 32, 32),
+        device="cpu",
+        requires_grad=False,
+        dtype=torch.float32,
+    )
+    q_weight_int8 = partial(
+        torch.empty, (32, 32), device="cpu", requires_grad=False, dtype=torch.int8
+    )
+    weight_scales_per_channel = partial(
+        torch.empty, (1, 32), device="cpu", requires_grad=False, dtype=torch.float32
+    )
+    weight_qzeros_per_channel = partial(
+        torch.empty, (1, 4), device="cpu", requires_grad=False, dtype=torch.int8
+    )
+    input_scales_per_tensor = partial(
+        torch.empty, (1), device="cpu", requires_grad=False, dtype=torch.float32
+    )
+    input_qzeros_per_tensor = partial(
+        torch.empty, (1), device="cpu", requires_grad=False, dtype=torch.int8
+    )
+    q_bias_fp32 = partial(
+        torch.empty, (32), device="cpu", requires_grad=False, dtype=torch.float32
+    )
 
-    # q_binary = partial(
-    #     torch.empty,
-    #     (4, 32, 32),
-    #     device="cpu",
-    #     requires_grad=False,
-    #     dtype=torch.float32,
-    # )
+    q_binary = partial(
+        torch.empty,
+        (4, 32, 32),
+        device="cpu",
+        requires_grad=False,
+        dtype=torch.float32,
+    )
 
     # It doesn't allows same value for two kwargs hence the workaround
     # to have two different values for beta and alpha
@@ -632,6 +693,75 @@ def _get_pattern_with_replacement():
             [arg_6(), arg_7()],
             {},
             _matmul_dtypes_check,
+        ),
+        # TODO : check the appropriate order required for different fusions.
+        (
+            _qlinear_mul_add_pattern_1,
+            _qlinear_mul_add_replacement,
+            [
+                inp_fp32(),
+                q_weight_int8(),
+                q_bias_fp32(),
+                input_scales_per_tensor(),
+                input_qzeros_per_tensor(),
+                weight_scales_per_channel(),
+                weight_qzeros_per_channel(),
+                q_binary(),
+                q_binary(),
+            ],
+            {},
+            _qlinear_mul_add_check,
+        ),
+        (
+            _qlinear_mul_add_pattern_2,
+            _qlinear_mul_add_replacement,
+            [
+                inp_fp32(),
+                q_weight_int8(),
+                q_bias_fp32(),
+                input_scales_per_tensor(),
+                input_qzeros_per_tensor(),
+                weight_scales_per_channel(),
+                weight_qzeros_per_channel(),
+                q_binary(),
+                q_binary(),
+            ],
+            {},
+            _qlinear_mul_add_check,
+        ),
+        (
+            _qlinear_mul_add_pattern_3,
+            _qlinear_mul_add_replacement,
+            [
+                inp_fp32(),
+                q_weight_int8(),
+                q_bias_fp32(),
+                input_scales_per_tensor(),
+                input_qzeros_per_tensor(),
+                weight_scales_per_channel(),
+                weight_qzeros_per_channel(),
+                q_binary(),
+                q_binary(),
+            ],
+            {},
+            _qlinear_mul_add_check,
+        ),
+        (
+            _qlinear_mul_add_pattern_4,
+            _qlinear_mul_add_replacement,
+            [
+                inp_fp32(),
+                q_weight_int8(),
+                q_bias_fp32(),
+                input_scales_per_tensor(),
+                input_qzeros_per_tensor(),
+                weight_scales_per_channel(),
+                weight_qzeros_per_channel(),
+                q_binary(),
+                q_binary(),
+            ],
+            {},
+            _qlinear_mul_add_check,
         ),
     ]
     for pattern, replacement, args, workaround, extra_check in candidates:

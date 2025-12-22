@@ -27,6 +27,7 @@ from ._eltwise_unary_fusions import zentorch_eltwise_unary_fusions
 from ._eltwise_binary_fusions import zentorch_eltwise_binary_fusions
 from ._graph_preprocess_matcher import preprocess_graph_pass
 from ._fusion_matcher import fusions_graph_pass
+from ._qop_replacement import replace_with_zentorch_qops
 from ._unary_fusions import zentorch_unary_post_op_fusions
 from ._unary_binary_fusions import zentorch_unary_binary_post_op_fusions
 from ._binary_binary_fusions import zentorch_binary_binary_post_op_fusions
@@ -61,6 +62,9 @@ def optimize(fx_graph):
     optimized_graph = replace_with_zentorch_ops(pattern_matched_model)
 
     optimized_graph = replace_with_composite_zentorch_ops(optimized_graph)
+
+    # Quantization pattern replacement
+    optimized_graph = replace_with_zentorch_qops(optimized_graph)
 
     if (
         config.freezing

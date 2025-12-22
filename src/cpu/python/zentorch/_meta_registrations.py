@@ -531,6 +531,136 @@ def meta_zentorch_weight_prepack_for_linear(weight):
     return weight.new_empty(weight.size())
 
 
+@register_meta("zentorch_qlinear", "out")
+def meta_zentorch_qlinear_out(
+    out,
+    output_stride,
+    input,
+    weight,
+    bias,
+    input_scales,
+    input_zero_points,
+    weight_scales,
+    weight_zero_points,
+    output_dtype=None,
+    output_scales=None,
+    output_zero_points=None,
+):
+    return
+
+
+@register_meta("zentorch_qlinear_relu", "out")
+def meta_zentorch_qlinear_relu_out(
+    out,
+    output_stride,
+    input,
+    weight,
+    bias,
+    input_scales,
+    input_zero_points,
+    weight_scales,
+    weight_zero_points,
+    output_dtype=None,
+    output_scales=None,
+    output_zero_points=None,
+):
+    return
+
+
+@register_meta("zentorch_qlinear")
+def meta_zentorch_qlinear(
+    input,
+    weight,
+    bias,
+    input_scales,
+    input_zero_points,
+    weight_scales,
+    weight_zero_points,
+    output_dtype=None,
+    output_scales=None,
+    output_zero_points=None,
+):
+    if output_dtype is None:
+        output_dtype = torch.float32
+    out_dim = list(input.size())
+    out_dim[-1] = weight.size(0)
+    return input.new_empty(out_dim, dtype=output_dtype)
+
+
+@register_meta("zentorch_qlinear_relu")
+def meta_zentorch_qlinear_relu(
+    input,
+    weight,
+    bias,
+    input_scales,
+    input_zero_points,
+    weight_scales,
+    weight_zero_points,
+    output_dtype=None,
+    output_scales=None,
+    output_zero_points=None,
+):
+    return meta_zentorch_qlinear(
+        input,
+        weight,
+        bias,
+        input_scales,
+        input_zero_points,
+        weight_scales,
+        weight_zero_points,
+        output_dtype,
+        output_scales,
+        output_zero_points,
+    )
+
+
+@register_meta("zentorch_qlinear_sigmoid")
+def meta_zentorch_qlinear_sigmoid(
+    input,
+    weight,
+    bias,
+    input_scales,
+    input_zero_points,
+    weight_scales,
+    weight_zero_points,
+    output_dtype=None,
+    output_scales=None,
+    output_zero_points=None,
+):
+    return meta_zentorch_qlinear(
+        input,
+        weight,
+        bias,
+        input_scales,
+        input_zero_points,
+        weight_scales,
+        weight_zero_points,
+        output_dtype,
+        output_scales,
+        output_zero_points,
+    )
+
+
+@register_meta("zentorch_qlinear_mul_add")
+def meta_zentorch_qlinear_mul_add(
+    input,
+    weight,
+    bias,
+    input_scales,
+    input_zero_points,
+    weight_scales,
+    weight_zero_points,
+    mul_input,
+    add_input,
+    output_dtype=None,
+    output_scales=None,
+    output_zero_points=None,
+):
+    if output_dtype is None:
+        output_dtype = torch.float32
+    return add_input.new_empty((add_input.size()), dtype=output_dtype)
+
+
 make_fallback(torch.ops.zentorch.zentorch_addmm)
 make_fallback(torch.ops.zentorch.zentorch_addmm_relu)
 make_fallback(torch.ops.zentorch.zentorch_addmm_silu)
@@ -564,6 +694,10 @@ make_fallback(torch.ops.zentorch.zentorch_horizontal_embedding_group)
 make_fallback(torch.ops.zentorch.zentorch_rope)
 make_fallback(torch.ops.zentorch.zentorch_masked_multihead_self_attention)
 make_fallback(torch.ops.zentorch.zentorch_weight_prepack_for_linear)
+make_fallback(torch.ops.zentorch.zentorch_qlinear)
+make_fallback(torch.ops.zentorch.zentorch_qlinear_relu)
+make_fallback(torch.ops.zentorch.zentorch_qlinear_sigmoid)
+make_fallback(torch.ops.zentorch.zentorch_qlinear_mul_add)
 if hasattr(torch.ops.zentorch, "zentorch_sdpa"):
     make_fallback(torch.ops.zentorch.zentorch_sdpa)
 if hasattr(torch.ops.zentorch, "zentorch_attention_reshape_and_cache"):

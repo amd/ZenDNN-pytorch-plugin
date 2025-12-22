@@ -686,3 +686,77 @@ def eb_group_mlp_group_fusion(fx_graph):
     stable_topological_sort(fx_graph)
     fx_graph.lint()
     return fx_graph
+
+
+# TODO : Address the case of mutiple child nodes of a qlinear_* op consuming the
+# output as the main input (non-postop input).
+def qlinear_reorder_optimizations(fx_graph):
+    reorder_qlinear_candidates = {
+        zt_ops.zentorch_qlinear.default,
+        zt_ops.zentorch_qlinear_relu.default,
+        zt_ops.zentorch_qlinear_sigmoid.default,
+        zt_ops.zentorch_qlinear_mul_add.default,
+    }
+
+    def next_user_node(users):
+        if len(users) == 1 and users[0].target in reorder_qlinear_candidates:
+            return users[0]
+        return None
+
+    logger.info("Reorder optimization for serialized qlinear_* ops.")
+
+    # Group a serialized pattern of qlinear_* ops and optimize the
+    # dequant-quant operation to a requant operation.
+    # TODO : Validate if dictionary with key : node and value : next_node, is
+    # a better solution for this optimization.
+    qlinear_groups = [[]]
+    nodes_traversed = set()
+    for node in fx_graph.nodes:
+        if node.target in reorder_qlinear_candidates:
+            while node not in nodes_traversed:
+                qlinear_groups[-1].append(node)
+                nodes_traversed.add(node)
+                user_node = next_user_node(list(node.users.keys()))
+                if not user_node:
+                    qlinear_groups.append([])
+                    break
+                node = user_node
+
+    # Modify the output_dtype and add quant information in predecessor qlinear_*
+    # node based on the successor.
+    for group in qlinear_groups:
+        if len(group) > 1:
+            pred_node = group[0]
+            for curr_node in group[1:]:
+                curr_args = curr_node.args
+                # TODO: modify the output dtype comparison after
+                # Quark v1.0.0 release.
+                # if dtype is not None or
+                # if dtype is None then o/p-scales & o/p-zp should also be None
+                # and copy all the arguments, then below holds good
+                if not bool(pred_node.kwargs) or (
+                    "output_dtype" in pred_node.kwargs
+                    and pred_node.kwargs["output_dtype"]
+                    in (torch.float, torch.bfloat16)
+                ):
+                    schema = curr_node.target._schema
+                    # Map argument names to index
+                    arg_indices = {
+                        arg.name: i for i, arg in enumerate(schema.arguments)
+                    }
+                    new_kwargs = dict(pred_node.kwargs)
+                    input_scales_idx = arg_indices["input_scales"]
+                    input_zero_points_idx = arg_indices["input_zero_points"]
+                    new_kwargs["output_dtype"] = (
+                        torch.int8
+                        if curr_args[input_zero_points_idx] is None
+                        else torch.uint8
+                    )
+                    new_kwargs["output_scales"] = curr_args[input_scales_idx]
+                    new_kwargs["output_zero_points"] = curr_args[input_zero_points_idx]
+                    pred_node.kwargs = new_kwargs
+                    counters["zentorch"]["optimized_reorder"] += 1
+                pred_node = curr_node
+    stable_topological_sort(fx_graph)
+    fx_graph.lint()
+    return fx_graph

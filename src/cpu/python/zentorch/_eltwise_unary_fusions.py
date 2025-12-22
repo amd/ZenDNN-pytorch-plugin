@@ -1028,6 +1028,179 @@ def addmm_view_1dbias_gelu_tanh_replacement(
     match.replace_by_example(repl, [inp, mat_1, mat_2, beta, alpha, approximate, size])
 
 
+qlinear_args = [Arg() for _ in range(7)]
+
+
+# qlinear-relu
+@register_graph_pattern(
+    CallFunction(
+        at_ops.relu,
+        CallFunction(
+            zt_ops.zentorch_qlinear,
+            *qlinear_args,
+            output_dtype=KeywordArg("output_dtype"),
+            output_scales=KeywordArg("output_scales"),
+            output_zero_points=KeywordArg("output_zero_points"),
+        ),
+    ),
+    pass_dict=pass_pattern,
+)
+@register_graph_pattern(
+    CallFunction(
+        at_ops.relu_,
+        CallFunction(
+            zt_ops.zentorch_qlinear,
+            *qlinear_args,
+            output_dtype=KeywordArg("output_dtype"),
+            output_scales=KeywordArg("output_scales"),
+            output_zero_points=KeywordArg("output_zero_points"),
+        ),
+    ),
+    pass_dict=pass_pattern,
+)
+def qlinear_relu_replacement(
+    match,
+    input,
+    weight,
+    bias,
+    input_scales,
+    input_zero_points,
+    weight_scales,
+    weight_zero_points,
+    *,
+    output_dtype,
+    output_scales,
+    output_zero_points,
+):
+    def repl(
+        input,
+        weight,
+        bias,
+        input_scales,
+        input_zero_points,
+        weight_scales,
+        weight_zero_points,
+        output_dtype=output_dtype,
+        output_scales=output_scales,
+        output_zero_points=output_zero_points,
+    ):
+        counters["zentorch"]["zentorch_qlinear_relu"] += 1
+        counters["zentorch"]["relu_fusion"] += 1
+        return zt_ops.zentorch_qlinear_relu(
+            input,
+            weight,
+            bias,
+            input_scales,
+            input_zero_points,
+            weight_scales,
+            weight_zero_points,
+            output_dtype=output_dtype,
+            output_scales=output_scales,
+            output_zero_points=output_zero_points,
+        )
+
+    match.replace_by_example(
+        repl,
+        [
+            input,
+            weight,
+            bias,
+            input_scales,
+            input_zero_points,
+            weight_scales,
+            weight_zero_points,
+            output_dtype,
+            output_scales,
+            output_zero_points,
+        ],
+    )
+
+
+# qlinear-sigmoid
+@register_graph_pattern(
+    CallFunction(
+        at_ops.sigmoid,
+        CallFunction(
+            zt_ops.zentorch_qlinear,
+            *qlinear_args,
+            output_dtype=KeywordArg("output_dtype"),
+            output_scales=KeywordArg("output_scales"),
+            output_zero_points=KeywordArg("output_zero_points"),
+        ),
+    ),
+    pass_dict=pass_pattern,
+)
+@register_graph_pattern(
+    CallFunction(
+        at_ops.sigmoid_,
+        CallFunction(
+            zt_ops.zentorch_qlinear,
+            *qlinear_args,
+            output_dtype=KeywordArg("output_dtype"),
+            output_scales=KeywordArg("output_scales"),
+            output_zero_points=KeywordArg("output_zero_points"),
+        ),
+    ),
+    pass_dict=pass_pattern,
+)
+def qlinear_sigmoid_replacement(
+    match,
+    input,
+    weight,
+    bias,
+    input_scales,
+    input_zero_points,
+    weight_scales,
+    weight_zero_points,
+    *,
+    output_dtype,
+    output_scales,
+    output_zero_points,
+):
+    def repl(
+        input,
+        weight,
+        bias,
+        input_scales,
+        input_zero_points,
+        weight_scales,
+        weight_zero_points,
+        output_dtype=output_dtype,
+        output_scales=output_scales,
+        output_zero_points=output_zero_points,
+    ):
+        counters["zentorch"]["zentorch_qlinear_sigmoid"] += 1
+        counters["zentorch"]["sigmoid_fusion"] += 1
+        return zt_ops.zentorch_qlinear_sigmoid(
+            input,
+            weight,
+            bias,
+            input_scales,
+            input_zero_points,
+            weight_scales,
+            weight_zero_points,
+            output_dtype=output_dtype,
+            output_scales=output_scales,
+            output_zero_points=output_zero_points,
+        )
+
+    match.replace_by_example(
+        repl,
+        [
+            input,
+            weight,
+            bias,
+            input_scales,
+            input_zero_points,
+            weight_scales,
+            weight_zero_points,
+            output_dtype,
+            output_scales,
+            output_zero_points,
+        ],
+    )
+
+
 def zentorch_eltwise_unary_fusions(fx_graph):
     """
     zentorch_op_fusion:

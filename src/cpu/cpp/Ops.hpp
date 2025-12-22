@@ -20,8 +20,5 @@ at::Tensor zentorch_get_packed_embedding_weight(at::Tensor &weight,
                                                 at::Tensor &weight_scales,
                                                 at::Tensor &weight_zero_points);
 
-at::Tensor zentorch_weight_reorder_for_matmul(at::Tensor &weight,
-                                              const bool &is_weight_oc_x_ic);
-
 std::string show_config();
 } // namespace zentorch

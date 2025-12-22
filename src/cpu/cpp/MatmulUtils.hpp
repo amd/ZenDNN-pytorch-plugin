@@ -253,6 +253,219 @@ check_valid_dtypes_for_matmul(const at::Tensor &mat1, const at::Tensor &mat2,
   }
 }
 
+inline void check_valid_dtypes_for_quantized_matmul(
+    const at::Tensor &bias, const at::Tensor &input, const at::Tensor weight,
+    const at::Tensor &result, const at::Tensor &input_scales,
+    const at::Tensor &input_zero_points, const at::Tensor &weight_scales,
+    const at::Tensor &weight_zero_points, const at::Tensor &output_scales,
+    const at::Tensor &output_zero_points,
+    const std::vector<at::Tensor> &post_op_buffers) {
+  // fp32 and bf16 inputs are supported by quantizing it to int8(s8) or
+  // uint8(u8).
+  const bool is_input_fp32 = (input.scalar_type() == c10::kFloat);
+
+  // TODO
+  // Enable bfloat16 input once we have support for bf16 to int8 quantization
+  // ZENAI-1322
+  // const bool is_input_bf16 = (input.scalar_type() == c10::kBFloat16);
+  // ZenDNN matmul's quantized kernel only supports u8 & s8 dtype for quantized
+  // input.
+  const bool is_input_u8 = (input.scalar_type() == c10::kByte);
+  const bool is_input_s8 = (input.scalar_type() == c10::kChar);
+
+  // ZenDNN matmul's quantized kernel only supports s8 dtype for quantized
+  // weight.
+  const bool is_weight_s8 = (weight.scalar_type() == c10::kChar);
+
+  // ZenDNN matmul's quantized kernel only supports u8, s8, fp32 and bf16
+  // dtypes for result.
+  const bool is_result_u8 = (result.scalar_type() == c10::kByte);
+  const bool is_result_s8 = (result.scalar_type() == c10::kChar);
+  const bool is_result_fp32 = (result.scalar_type() == c10::kFloat);
+  const bool is_result_bf16 = (result.scalar_type() == c10::kBFloat16);
+
+  const bool is_input_dtype_valid =
+      (is_input_fp32 || is_input_u8 || is_input_s8);
+  // TODO
+  // Enable bfloat16 input once we have support for bf16 to int8 quantization
+  // ZENAI-1322
+  // (is_input_fp32 || is_input_bf16 || is_input_u8 || is_input_s8);
+  const bool is_result_dtype_valid =
+      (is_result_fp32 || is_result_bf16 || is_result_u8 || is_result_s8);
+
+  ZENTORCH_CHECK(is_input_dtype_valid, "unsupported dtype for input tensor, "
+                                       "only float32/uint8/int8 is supported");
+  // TODO
+  // Enable bfloat16 input once we have support for bf16 to int8 quantization
+  // ZENAI-1322
+  //  "only float32/bfloat16/uint8/int8 is supported");
+
+  ZENTORCH_CHECK(is_weight_s8,
+                 "unsupported dtype for weight tensor, only int8 is supported");
+  ZENTORCH_CHECK(is_result_dtype_valid,
+                 "unsupported dtype for result tensor, "
+                 "only float32/bfloat16/uint8/int8 is supported");
+
+  if (bias.defined()) {
+    // zentorch_qlinear op only supports fp32 and bf16 bias.
+    ZENTORCH_CHECK((bias.scalar_type() == c10::kFloat ||
+                    bias.scalar_type() == c10::kBFloat16),
+                   "unsupported dtype for bias tensor, only float32 or "
+                   "bfloat16 is supported");
+  }
+  // Torch dtype checks specfic for quantized matmul.
+  ZENTORCH_CHECK(input_scales.scalar_type() == c10::kFloat,
+                 "unsupported dtype for input_scales, only float32 "
+                 "is supported");
+  if (input_zero_points.defined()) {
+    ZENTORCH_CHECK(
+        (input_zero_points.scalar_type() == c10::kInt),
+        "unsupported dtype for input_zero_points, only int32 supported");
+  }
+  ZENTORCH_CHECK(weight_scales.scalar_type() == c10::kFloat,
+                 "unsupported dtype for weight_scales, only float32 "
+                 "is supported");
+  if (weight_zero_points.defined()) {
+    ZENTORCH_CHECK(
+        weight_zero_points.scalar_type() == c10::kInt,
+        "unsupported dtype for weight_zero_points, only int32 is supported");
+  }
+  if (output_scales.defined()) {
+    ZENTORCH_CHECK(output_scales.scalar_type() == c10::kFloat,
+                   "unsupported dtype for output_scales, only float32 "
+                   "is supported");
+    if (output_zero_points.defined()) {
+      ZENTORCH_CHECK((output_zero_points.scalar_type() == c10::kInt),
+                     "unsupported dtype for output_zero_points, only int32 "
+                     "is supported");
+
+      ZENTORCH_CHECK(
+          (result.scalar_type() == c10::kByte),
+          "unsupported dtype for result tensor when output_zero_points"
+          "are defined, uint8 are supported dtype");
+    } else {
+      ZENTORCH_CHECK(
+          (result.scalar_type() == c10::kChar),
+          "unsupported dtype for result tensor when output_zero_points"
+          "are not defined while output_scales are defined,"
+          "int8 are supported dtype");
+    }
+  } else {
+    ZENTORCH_CHECK((result.scalar_type() == c10::kFloat ||
+                    result.scalar_type() == c10::kBFloat16),
+                   "unsupported dtype for result tensor, only float32/bfloat16 "
+                   "is supported when output_scales are not defined");
+  }
+  if (post_op_buffers.size() != 0) {
+    bool are_postops_fp32 = true;
+    bool are_postops_bf16 = true;
+
+    for (const at::Tensor &buffer : post_op_buffers) {
+      are_postops_fp32 =
+          are_postops_fp32 && (buffer.scalar_type() == c10::ScalarType::Float);
+      are_postops_bf16 = are_postops_bf16 &&
+                         (buffer.scalar_type() == c10::ScalarType::BFloat16);
+    }
+    ZENTORCH_CHECK((are_postops_fp32 || are_postops_bf16),
+                   "unsupported dtype for post_ops, only float32/bfloat16 "
+                   "is supported");
+  } else {
+    LOG(INFO) << "Post Op buffers are not present!\n";
+  }
+}
+
+inline void check_valid_sizes_for_quantized_matmul(
+    const at::Tensor &bias, const at::Tensor &input, const at::Tensor weight,
+    const at::Tensor &result, const at::Tensor &input_scales,
+    const at::Tensor &input_zero_points, const at::Tensor &weight_scales,
+    const at::Tensor &weight_zero_points, const at::Tensor &output_scales,
+    const at::Tensor &output_zero_points,
+    const std::vector<at::Tensor> &post_op_buffers) {
+  check_valid_sizes_for_matmul(input, weight, bias, result, post_op_buffers);
+
+  // Size checks specfic for quantized matmul.
+  // Per-tensor config check.
+  // For Hugging Face's large language models (LLMs) that are statically
+  // quantized with the Quark quantizer, 0-dimensional scales and zero_points
+  // need to be supported for per-tensor configuration.
+  //
+  // However, for recommender models (RMs, e.g., DLRM_v2) that are statically
+  // quantized with the Quark quantizer, 1-dimensional scales and zero_points
+  // need to be supported for per-tensor configuration.
+  ZENTORCH_CHECK((input_scales.dim() == 1 || input_scales.dim() == 0),
+                 "unsupported dims for input_scales with respect to "
+                 "input tensor");
+  if (input_zero_points.defined()) {
+    ZENTORCH_CHECK(
+        (input_zero_points.dim() == 0 || input_zero_points.dim() == 1),
+        "only scalar and 1-d input_zero_points are supported");
+    ZENTORCH_CHECK((input_zero_points.numel() == 1),
+                   "only supporting per-tensor quantization for input");
+  }
+
+  ZENTORCH_CHECK((input_scales.numel() == 1),
+                 "unsupported number of elements for input_scales "
+                 "with respect to input tensor");
+
+  // Per-tensor/channel config check.
+  ZENTORCH_CHECK((weight_scales.dim() == 1 || weight_scales.dim() == 0),
+                 "unsupported dims for weight_scales with respect "
+                 "to weight tensor");
+  ZENTORCH_CHECK(
+      (weight_scales.numel() == 1) || (weight_scales.numel() == weight.size(1)),
+      "unsupported number of elements for weight_scales with respect "
+      "to weight tensor");
+  if (weight_zero_points.defined()) {
+    ZENTORCH_CHECK(
+        (weight_zero_points.dim() == 0 || weight_zero_points.dim() == 1),
+        "only scalar and 1-d weight_zero_points are supported");
+    ZENTORCH_CHECK(
+        (weight_zero_points.numel() == 1) ||
+            (weight_zero_points.numel() == weight.size(1)),
+        "only supporting per-tensor and per-channel quantization for weight");
+  }
+  if (output_scales.defined() && output_zero_points.defined()) {
+    ZENTORCH_CHECK((output_scales.dim() == 1 || output_scales.dim() == 0),
+                   "unsupported dims for output_scales with respect "
+                   "to output tensor");
+    ZENTORCH_CHECK(
+        (output_zero_points.dim() == 0 || output_zero_points.dim() == 1),
+        "unsupported dims for output_zero_points with respect "
+        "to output tensor");
+
+    ZENTORCH_CHECK(
+        (output_scales.numel() == 1),
+        "unsupported number of elements for output_scales with respect "
+        "to output tensor");
+    ZENTORCH_CHECK(
+        (output_zero_points.numel() == 1),
+        "unsupported number of elements for output_zero_points with respect "
+        "to output tensor");
+  }
+
+  if (post_op_buffers.size() != 0) {
+    bool are_postops_dim_compatible = true;
+    bool are_postops_shape_compatible = true;
+
+    for (const at::Tensor &buffer : post_op_buffers) {
+      are_postops_dim_compatible =
+          are_postops_dim_compatible && (buffer.dim() == input.dim());
+      are_postops_shape_compatible =
+          are_postops_shape_compatible &&
+          (buffer.sizes() ==
+           c10::IntArrayRef(get_matmul_and_linear_output_sizes(input, weight)));
+    }
+
+    ZENTORCH_CHECK(are_postops_dim_compatible,
+                   "unsupported dims for post op buffers for input and weight");
+    ZENTORCH_CHECK(
+        are_postops_shape_compatible,
+        "unsupported shapes for post op buffers for input and weight");
+  } else {
+    LOG(INFO) << "Post Op buffers are not present!\n";
+  }
+}
+
 // TODO
 // Check if this and the is_transposed function can be merged into one
 inline bool is_zendnn_optimized_format(const at::Tensor &t) {
