@@ -18,10 +18,18 @@ import unittest
 import sys
 from unittest.mock import MagicMock, patch
 
+try:
+    import vllm  # NoQA: F401
+
+    VLLM_AVAILABLE = True
+except ImportError:
+    VLLM_AVAILABLE = False
+
 
 class TestVllmPluginVersionCheck(unittest.TestCase):
     """Test version compatibility checks."""
 
+    @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
     def test_version_check_passes_for_011(self):
         """Plugin should load successfully for vLLM 0.11.0."""
         mock_vllm = MagicMock()
@@ -37,6 +45,7 @@ class TestVllmPluginVersionCheck(unittest.TestCase):
             if result is not None:
                 self.assertEqual(result, "zentorch.vllm.platform.ZenCPUPlatform")
 
+    @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
     def test_version_check_passes_for_0111_dev(self):
         """Plugin should load for vetted 0.11.1 dev build."""
         mock_vllm = MagicMock()
@@ -83,10 +92,7 @@ class TestVllmPluginVersionCheck(unittest.TestCase):
 class TestOneDNNDisable(unittest.TestCase):
     """Test oneDNN GEMM disable patch."""
 
-    @unittest.skipUnless(
-        "vllm" in sys.modules or True,
-        "vLLM not installed",
-    )
+    @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
     def test_onednn_gemm_disabled(self):
         """_supports_onednn should be set to False after patch."""
         try:
@@ -103,7 +109,7 @@ class TestOneDNNDisable(unittest.TestCase):
 class TestPlatformConfiguration(unittest.TestCase):
     """Test ZenCPUPlatform configuration."""
 
-    @unittest.skipUnless("vllm" in sys.modules or True, "vLLM not installed")
+    @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
     def test_platform_device_name_is_cpu(self):
         """device_name should be 'cpu'."""
         try:
@@ -113,7 +119,7 @@ class TestPlatformConfiguration(unittest.TestCase):
         except ImportError:
             self.skipTest("ZenCPUPlatform not available")
 
-    @unittest.skipUnless("vllm" in sys.modules or True, "vLLM not installed")
+    @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
     def test_platform_device_type_is_cpu(self):
         """device_type should be 'cpu'."""
         try:
@@ -127,7 +133,7 @@ class TestPlatformConfiguration(unittest.TestCase):
 class TestCompilationConfigPatch(unittest.TestCase):
     """Test CompilationConfig repr patch."""
 
-    @unittest.skipUnless("vllm" in sys.modules or True, "vLLM not installed")
+    @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
     def test_compilation_config_repr_patched(self):
         """CompilationConfig.__repr__ should have _zentorch_patched attribute."""
         try:
@@ -143,7 +149,7 @@ class TestCompilationConfigPatch(unittest.TestCase):
         except ImportError:
             self.skipTest("vLLM CompilationConfig not available")
 
-    @unittest.skipUnless("vllm" in sys.modules or True, "vLLM not installed")
+    @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
     def test_compilation_config_repr_no_error(self):
         """Patched repr should not raise errors with zentorch optimize_pass."""
         try:
@@ -165,7 +171,7 @@ class TestCompilationConfigPatch(unittest.TestCase):
 class TestPagedAttentionPatch(unittest.TestCase):
     """Test PagedAttention monkey patch."""
 
-    @unittest.skipUnless("vllm" in sys.modules or True, "vLLM not installed")
+    @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
     def test_paged_attention_patch_applied(self):
         """PagedAttention should be replaced with zentorch implementation."""
         try:
@@ -184,7 +190,7 @@ class TestPagedAttentionPatch(unittest.TestCase):
 class TestZentorchOptimizePassInjection(unittest.TestCase):
     """Test that zentorch optimize_pass is injected correctly."""
 
-    @unittest.skipUnless("vllm" in sys.modules or True, "vLLM not installed")
+    @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
     def test_optimize_pass_in_compilation_config(self):
         """check_and_update_config should inject zentorch optimize_pass."""
         try:

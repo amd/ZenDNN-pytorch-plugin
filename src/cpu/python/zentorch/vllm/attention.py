@@ -73,6 +73,58 @@ class PagedAttention:
         )
 
     @staticmethod
+    def flash_attn_varlen_func(
+        out: torch.Tensor,
+        query: torch.Tensor,
+        key_cache: torch.Tensor,
+        value_cache: torch.Tensor,
+        cu_seqlens_q: torch.Tensor,
+        cu_seqlens_k: torch.Tensor,
+        max_seqlen_q: int,
+        max_seqlen_k: int,
+        softmax_scale: float,
+        is_causal: bool,
+        block_table: torch.Tensor,
+        alibi_slopes: torch.Tensor | None,
+        *,
+        softcap: float = -1.0,
+        window_size_left: int = -1,
+        window_size_right: int = -1,
+        kv_cache_dtype: str = "auto",
+        k_scale: float = 1.0,
+        v_scale: float = 1.0,
+        zentorch_op_name: str = "zentorch::zentorch_attention_flash_attn_varlen",
+        **unused_kwargs,
+    ) -> None:
+        cu_seqlens_q = cu_seqlens_q.to(torch.int32, copy=False)
+        cu_seqlens_k = cu_seqlens_k.to(torch.int32, copy=False)
+        block_table = block_table.to(torch.int32, copy=False)
+        softcap_value = -1.0
+        if softcap is not None and softcap != 0.0:
+            softcap_value = float(softcap)
+        torch.ops.zentorch.zentorch_attention_flash_attn_varlen(
+            out,
+            query,
+            key_cache,
+            value_cache,
+            cu_seqlens_q,
+            cu_seqlens_k,
+            max_seqlen_q,
+            max_seqlen_k,
+            float(softmax_scale),
+            bool(is_causal),
+            block_table,
+            alibi_slopes,
+            int(window_size_left),
+            int(window_size_right),
+            kv_cache_dtype,
+            float(k_scale),
+            float(v_scale),
+            softcap_value,
+            zentorch_op_name,
+        )
+
+    @staticmethod
     def forward_decode(
         output: torch.Tensor,
         query: torch.Tensor,

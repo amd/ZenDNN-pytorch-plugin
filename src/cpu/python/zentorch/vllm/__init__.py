@@ -24,6 +24,7 @@ Supported vLLM versions:
 from __future__ import annotations
 
 from typing import Optional
+import os
 import sys
 
 from zentorch._logging import get_logger
@@ -79,6 +80,14 @@ def register() -> Optional[str]:  # noqa: D401
 
     # Apply monkey-patches early (runs in all processes)
     _apply_paged_attention_monkey_patch()
+
+    # Monkey-patch IPEX's flash_attn_varlen_func with zentorch's implementation
+    # Set DISABLE_ZENTORCH_FLASH_ATTENTION_VARLEN=1 to use IPEX's native implementation
+    if os.environ.get("DISABLE_ZENTORCH_FLASH_ATTENTION_VARLEN", "0") != "1":
+        _apply_ipex_flash_attention_monkey_patch()
+    else:
+        logger.info("[zentorch] Skipping flash_attn_varlen_func patch (DISABLE_ZENTORCH_FLASH_ATTENTION_VARLEN=1)")
+
     _apply_compilation_config_repr_patch()
     _apply_internvl_video_input_dtype_bug_fix()
 
@@ -91,6 +100,23 @@ def register() -> Optional[str]:  # noqa: D401
         return None
 
     return "zentorch.vllm.platform.ZenCPUPlatform"
+
+
+def _apply_ipex_flash_attention_monkey_patch():
+    """
+    Monkey-patch IPEX's flash_attn_varlen_func with ZenTorch's implementation.
+    """
+    import intel_extension_for_pytorch.llm.modules as ipex_modules
+    from zentorch.vllm.attention import PagedAttention
+
+    # Replace IPEX's flash_attn_varlen_func with ZenTorch's
+    ipex_modules.PagedAttention.flash_attn_varlen_func = (
+        PagedAttention.flash_attn_varlen_func
+    )
+
+    logger.info(
+        "[zentorch] Monkey-patched IPEX flash_attn_varlen_func with ZenTorch implementation"
+    )
 
 
 def _apply_paged_attention_monkey_patch():

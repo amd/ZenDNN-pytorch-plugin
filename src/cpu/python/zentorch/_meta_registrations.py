@@ -60,6 +60,33 @@ if hasattr(torch.ops.zentorch, "zentorch_attention_single_query_cached_kv_attent
         return out.new_empty(out.size())
 
 
+if hasattr(torch.ops.zentorch, "zentorch_attention_flash_attn_varlen"):
+
+    @register_meta("zentorch_attention_flash_attn_varlen")
+    def meta_zentorch_flash_attn_varlen(
+        out,
+        query,
+        key_cache,
+        value_cache,
+        cu_seqlens_q,
+        cu_seqlens_k,
+        max_seqlen_q,
+        max_seqlen_k,
+        softmax_scale,
+        is_causal,
+        block_table,
+        alibi_slopes,
+        window_size_left,
+        window_size_right,
+        kv_cache_dtype,
+        k_scale,
+        v_scale,
+        softcap,
+        zentorch_op_name="",
+    ):
+        return None
+
+
 @register_meta("zentorch_addmm")
 def meta_zentorch_addmm(
     bias,

@@ -3,6 +3,9 @@
  * All rights reserved.
  ******************************************************************************/
 
+#include <string>
+#include <string_view>
+
 namespace zentorch {
 
 std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor>
@@ -32,6 +35,16 @@ at::Tensor zentorch_attention_single_query_cached_kv_attention_kernel_512(
     at::Scalar scale, const at::Tensor &block_tables,
     const at::Tensor &context_lens, at::Scalar block_size,
     at::Scalar max_context_len, const c10::optional<at::Tensor> &alibi_slopes,
+    std::string zentorch_op_name /* optional */);
+
+void zentorch_attention_flash_attn_varlen_kernel_512(
+    const at::Tensor &out, const at::Tensor &query, const at::Tensor &key_cache,
+    const at::Tensor &value_cache, const at::Tensor &cu_seqlens_q,
+    const at::Tensor &cu_seqlens_k, int64_t max_seqlen_q, int64_t max_seqlens_k,
+    double softmax_scale, bool is_causal, const at::Tensor &block_table,
+    const c10::optional<at::Tensor> &alibi_slopes, int64_t window_size_left,
+    int64_t window_size_right, const std::string_view &kv_cache_dtype,
+    double k_scale, double v_scale, double softcap,
     std::string zentorch_op_name /* optional */);
 
 } // namespace zentorch

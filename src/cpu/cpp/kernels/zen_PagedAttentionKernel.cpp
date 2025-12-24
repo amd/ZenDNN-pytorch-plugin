@@ -25,30 +25,399 @@
 #include "../Utils.hpp"
 #include "vec/add_softmax.h"
 #include "zen_cpukernels.hpp"
+#include <algorithm>
+#include <cmath>
+#include <cstring>
 #include <limits>
 #include <omp.h>
+#include <string>
+#include <string_view>
+#include <unordered_map>
+#include <utility>
 
-template <
-    typename scalar_t,
-    typename std::enable_if_t<is_reduced_floating_point_v<scalar_t>, int> = 0>
-static inline scalar_t *conditional_data_ptr(float *ptr, scalar_t *ptr2) {
-  return ptr2;
-}
+#include "../EnvReader.hpp"
+#include "../MatmulUtils.hpp"
+#include "../Memory.hpp"
+#include "../PagedAttentionCommon.hpp"
 
 namespace zentorch {
 
-template <typename scalar_t>
-inline void fill_stub(scalar_t *data, scalar_t val, int64_t size) {
-  using Vec = Vectorized<scalar_t>;
-  Vec data_vec = Vec(val);
-  int64_t d = 0;
-  for (; d < size - (size % Vec::size()); d += Vec::size()) {
-    data_vec.store(data + d);
-  }
+inline c10::SymFloat calculate_scale(const at::Tensor &query,
+                                     c10::optional<double> scale);
 
-#pragma unroll
-  for (; d < size; d++) {
-    data[d] = val;
+template <typename scalar_t, int64_t q_split_size>
+void flash_attn_varlen_kernel_512(
+    const at::Tensor &out, const at::Tensor &query, const at::Tensor &key_cache,
+    const at::Tensor &value_cache, const at::Tensor &cu_seqlens_q,
+    const at::Tensor &cu_seqlens_k, int64_t max_seqlen_q, int64_t max_seqlens_k,
+    const double softmax_scale, bool is_causal, const at::Tensor &block_table,
+    const c10::optional<at::Tensor> &alibi_slopes, int64_t window_size_left,
+    int64_t window_size_right, const double k_scale, const double v_scale,
+    const double softcap) {
+  TORCH_CHECK(!alibi_slopes.has_value(),
+              "alibi_slopes is not supported for flash_attn_varlen yet");
+  (void)k_scale;
+  (void)v_scale;
+
+  // Data pointers
+
+  auto out_ptr = out.data_ptr<scalar_t>();
+  auto query_ptr = query.data_ptr<scalar_t>();
+  auto key_ptr = key_cache.data_ptr<scalar_t>();
+  auto value_ptr = value_cache.data_ptr<scalar_t>();
+  auto cu_seqlens_q_ptr = cu_seqlens_q.data_ptr<int>();
+  auto cu_seqlens_k_ptr = cu_seqlens_k.data_ptr<int>();
+  auto block_table_ptr = block_table.data_ptr<int>();
+
+  // Sizes
+
+  int64_t batch_size = cu_seqlens_q.size(0) - 1;
+  int64_t num_heads = query.size(1);
+  int64_t head_size = query.size(2);
+  int64_t num_kv_heads = key_cache.size(1);
+  TORCH_CHECK(num_heads % num_kv_heads == 0,
+              "num_heads must be divisible by num_kv_heads");
+  int64_t kv_head_group_size = num_heads / num_kv_heads;
+  int64_t block_size = key_cache.size(2);
+  int64_t max_num_blocks_per_seq = block_table.size(1);
+
+  // Strides
+
+  auto kv_block_strideN = key_cache.stride(0);
+  auto kv_block_strideH = key_cache.stride(1);
+  auto kv_block_strideP = key_cache.stride(2);
+
+  auto out_strideN = out.stride(0);
+  auto out_strideH = out.stride(1);
+  auto q_strideN = query.stride(0);
+  auto q_strideH = query.stride(1);
+
+  // Window size and local attention
+
+  if (is_causal) {
+    window_size_right = 0;
+  }
+  if (window_size_left >= max_seqlens_k) {
+    window_size_left = -1;
+  }
+  if (window_size_right >= max_seqlens_k) {
+    window_size_right = -1;
+  }
+  bool is_local = (window_size_left != -1) || (window_size_right != -1);
+
+  // Scaling factor and softcap
+
+  using accum_t = at::opmath_type<scalar_t>;
+  using VecAccum = Vectorized<accum_t>;
+  accum_t scaling_factor = static_cast<accum_t>(
+      calculate_scale(query, softmax_scale).as_float_unchecked());
+  accum_t scaling_factor_ =
+      static_cast<accum_t>(softcap == -1.0 ? scaling_factor : 1.0);
+  bool use_softcap = softcap != -1.0;
+  const accum_t neg_inf = -std::numeric_limits<accum_t>::infinity();
+
+  // Split size and capacity
+
+  int64_t qSplitSize = std::min<int64_t>(q_split_size, max_seqlen_q);
+  int64_t kvSplitSize = std::min<int64_t>(block_size, max_seqlens_k);
+  int64_t qSliceMax =
+      (max_seqlen_q + qSplitSize - 1) / std::max<int64_t>(qSplitSize, 1);
+
+  // Size per thread
+
+  int64_t size_per_thread = qSplitSize * kvSplitSize + qSplitSize + qSplitSize +
+                            qSplitSize * head_size;
+
+  // Buffer allocation - use empty_strided_cpu for minimal dispatch overhead
+
+  int64_t num_threads = at::get_num_threads();
+  auto buf = at::detail::empty_strided_cpu(
+      {num_threads, size_per_thread}, {size_per_thread, 1},
+      query.options().dtype(at::toOpMathType(query.scalar_type())));
+  auto buf_data = buf.data_ptr<accum_t>();
+
+  // Buffer reduced allocation
+
+  constexpr bool is_reduced_type = is_reduced_floating_point_v<scalar_t>;
+  int64_t buf_reduced_dim2 = is_reduced_type ? kvSplitSize : 0;
+  at::Tensor buf_reduced = at::detail::empty_strided_cpu(
+      {num_threads, qSplitSize, buf_reduced_dim2},
+      {qSplitSize * buf_reduced_dim2, buf_reduced_dim2, 1}, query.options());
+  scalar_t *buf_reduced_data =
+      is_reduced_type ? buf_reduced.data_ptr<scalar_t>() : nullptr;
+
+  // Key and value block buffer allocation
+  // Use key_cache/value_cache options to match their dtypes
+  at::Tensor key_block_buffer = at::detail::empty_strided_cpu(
+      {num_threads, kvSplitSize, head_size},
+      {kvSplitSize * head_size, head_size, 1}, key_cache.options());
+  at::Tensor value_block_buffer = at::detail::empty_strided_cpu(
+      {num_threads, kvSplitSize, head_size},
+      {kvSplitSize * head_size, head_size, 1}, value_cache.options());
+  scalar_t *key_block_data = key_block_buffer.data_ptr<scalar_t>();
+  scalar_t *value_block_data = value_block_buffer.data_ptr<scalar_t>();
+
+  // Limit OpenMP nesting ONCE before parallel region (not inside loop)
+  omp_set_max_active_levels(1);
+
+  // Attention Computation Loop
+
+  at::parallel_for(
+      0, batch_size * num_heads * qSliceMax, 1,
+      [&](int64_t begin, int64_t end) {
+        int64_t batch_idx = 0, head_idx = 0, slice_idx = 0;
+        at::native::data_index_init(begin, batch_idx, batch_size, head_idx,
+                                    num_heads, slice_idx, qSliceMax);
+        for (int64_t linear = begin; linear < end; linear++) {
+          int omp_idx = at::get_thread_num();
+          accum_t *buf_ptr = buf_data + omp_idx * size_per_thread;
+          accum_t *qk_data = buf_ptr;
+          accum_t *qk_max_data = qk_data + qSplitSize * kvSplitSize;
+          accum_t *qk_sum_data = qk_max_data + qSplitSize;
+          accum_t *dst_data = qk_sum_data + qSplitSize;
+          scalar_t *qk_reduced_data =
+              is_reduced_type
+                  ? buf_reduced_data + omp_idx * qSplitSize * kvSplitSize
+                  : nullptr;
+
+          int64_t q_offset = cu_seqlens_q_ptr[batch_idx];
+          int64_t qSize = cu_seqlens_q_ptr[batch_idx + 1] - q_offset;
+          int64_t kvSize =
+              cu_seqlens_k_ptr[batch_idx + 1] - cu_seqlens_k_ptr[batch_idx];
+          int64_t context_len = kvSize - qSize;
+
+          int64_t m = slice_idx * qSplitSize;
+          if (m >= qSize) {
+            at::native::data_index_step(batch_idx, batch_size, head_idx,
+                                        num_heads, slice_idx, qSliceMax);
+            continue;
+          }
+
+          int64_t qBlockSize = std::min<int64_t>(qSplitSize, qSize - m);
+          fill_stub(qk_max_data, neg_inf, qBlockSize);
+          fill_stub(qk_sum_data, static_cast<accum_t>(0), qBlockSize);
+          fill_stub(dst_data, static_cast<accum_t>(0), qBlockSize * head_size);
+
+          int64_t num_keys =
+              is_causal
+                  ? std::min<int64_t>(m + qBlockSize + context_len, kvSize)
+                  : kvSize;
+
+          int64_t kv_head_id = head_idx / kv_head_group_size;
+
+          for (int64_t n = 0; n < num_keys;) {
+            int64_t logical_block = n / block_size;
+            int64_t block_offset = n % block_size;
+            auto physical_block_id =
+                block_table_ptr[batch_idx * max_num_blocks_per_seq +
+                                logical_block];
+            auto key_page_data = key_ptr +
+                                 physical_block_id * kv_block_strideN +
+                                 kv_head_id * kv_block_strideH;
+            auto value_page_data = value_ptr +
+                                   physical_block_id * kv_block_strideN +
+                                   kv_head_id * kv_block_strideH;
+
+            int64_t tokens_in_block = block_size - block_offset;
+            int64_t tokens_remaining = num_keys - n;
+            int64_t kvBlockSize =
+                std::min<int64_t>(kvSplitSize, tokens_in_block);
+            kvBlockSize = std::min<int64_t>(kvBlockSize, tokens_remaining);
+
+            if (window_size_left > 0 &&
+                m + context_len - window_size_left > n + kvBlockSize) {
+              n += kvBlockSize;
+              continue;
+            }
+            if (window_size_right >= 0 &&
+                m + context_len + qBlockSize + window_size_right + 1 <= n) {
+              n += kvBlockSize;
+              continue;
+            }
+
+            scalar_t *key_block_ptr =
+                key_block_data + omp_idx * kvSplitSize * head_size;
+            scalar_t *value_block_ptr =
+                value_block_data + omp_idx * kvSplitSize * head_size;
+
+            const scalar_t *key_src =
+                key_page_data + block_offset * kv_block_strideP;
+            const scalar_t *value_src =
+                value_page_data + block_offset * kv_block_strideP;
+
+            for (int64_t token_idx = 0; token_idx < kvBlockSize; token_idx++) {
+              std::memcpy(key_block_ptr + token_idx * head_size,
+                          key_src + token_idx * kv_block_strideP,
+                          head_size * sizeof(scalar_t));
+              std::memcpy(value_block_ptr + token_idx * head_size,
+                          value_src + token_idx * kv_block_strideP,
+                          head_size * sizeof(scalar_t));
+            }
+
+            // Q @ K^T GEMM (omp nesting already limited before parallel_for)
+            zendnn_gemm<scalar_t>(
+                qBlockSize, kvBlockSize, head_size, 1.0f,
+                query_ptr + (q_offset + m) * q_strideN + head_idx * q_strideH,
+                q_strideN, key_block_ptr, head_size, 0.0f,
+                reinterpret_cast<float *>(qk_data), kvSplitSize, false, true);
+
+            if (use_softcap) {
+              for (int64_t row = 0; row < qBlockSize; row++) {
+                softcap_kernel(
+                    reinterpret_cast<float *>(qk_data + row * kvSplitSize),
+                    reinterpret_cast<float *>(qk_data + row * kvSplitSize),
+                    kvBlockSize, static_cast<float>(softcap), scaling_factor);
+              }
+            }
+
+            if (is_local) {
+              for (int64_t row = 0; row < qBlockSize; row++) {
+                for (int64_t col = 0; col < kvBlockSize; col++) {
+                  int64_t idx = context_len + m + row;
+                  if (window_size_left > 0 &&
+                      idx - window_size_left > n + col) {
+                    qk_data[row * kvSplitSize + col] = neg_inf;
+                  }
+                  if (window_size_right >= 0 &&
+                      idx + window_size_right + 1 <= n + col) {
+                    qk_data[row * kvSplitSize + col] = neg_inf;
+                  }
+                }
+              }
+            }
+
+            for (int64_t row = 0; row < qBlockSize; row++) {
+              accum_t tmp_max = neg_inf;
+              for (int64_t col = 0; col < kvBlockSize; col++) {
+                qk_data[row * kvSplitSize + col] *= scaling_factor_;
+                tmp_max = std::max(tmp_max, qk_data[row * kvSplitSize + col]);
+              }
+              tmp_max = qk_max_data[row] > tmp_max ? qk_max_data[row] : tmp_max;
+              accum_t tmp_sum = 0;
+              // Guard against NaN from exp(-inf - (-inf)) when all masked
+              if (tmp_max == neg_inf) {
+                for (int64_t col = 0; col < kvBlockSize; col++) {
+                  qk_data[row * kvSplitSize + col] = 0;
+                  if (is_reduced_type) {
+                    qk_reduced_data[row * kvSplitSize + col] = 0;
+                  }
+                }
+              } else {
+                for (int64_t col = 0; col < kvBlockSize; col++) {
+                  accum_t val =
+                      std::exp(qk_data[row * kvSplitSize + col] - tmp_max);
+                  qk_data[row * kvSplitSize + col] = val;
+                  if (is_reduced_type) {
+                    qk_reduced_data[row * kvSplitSize + col] =
+                        static_cast<scalar_t>(val);
+                  }
+                  tmp_sum += val;
+                }
+              }
+              accum_t exp_tmp;
+              if (tmp_max == neg_inf) {
+                exp_tmp = std::exp(qk_max_data[row]);
+              } else {
+                exp_tmp = std::exp(qk_max_data[row] - tmp_max);
+              }
+              qk_sum_data[row] = tmp_sum + exp_tmp * qk_sum_data[row];
+              qk_max_data[row] = tmp_max;
+              if (n > 0) {
+                at::vec::map<accum_t>(
+                    [exp_tmp](VecAccum v) { return v * VecAccum(exp_tmp); },
+                    dst_data + row * head_size, dst_data + row * head_size,
+                    head_size);
+              }
+            }
+
+            const scalar_t *qk_mat_ptr =
+                is_reduced_type ? static_cast<const scalar_t *>(qk_reduced_data)
+                                : reinterpret_cast<const scalar_t *>(qk_data);
+
+            // Attention @ V GEMM (omp nesting already limited before
+            // parallel_for)
+            zendnn_gemm<scalar_t>(
+                qBlockSize, head_size, kvBlockSize, 1.0f, qk_mat_ptr,
+                kvSplitSize, value_block_ptr, head_size, n == 0 ? 0.0f : 1.0f,
+                reinterpret_cast<float *>(dst_data), head_size, false, false);
+
+            n += kvBlockSize;
+          }
+
+          for (int64_t row = 0; row < qBlockSize; row++) {
+            accum_t sum_recip = 1.0f / (qk_sum_data[row] + 1e-8f);
+            at::vec::map<scalar_t>(
+                [sum_recip](VecAccum v) { return v * VecAccum(sum_recip); },
+                out_ptr + (q_offset + m + row) * out_strideN +
+                    head_idx * out_strideH,
+                dst_data + row * head_size, head_size);
+          }
+
+          at::native::data_index_step(batch_idx, batch_size, head_idx,
+                                      num_heads, slice_idx, qSliceMax);
+        }
+      });
+}
+
+template <typename scalar_t>
+void flash_attn_varlen_launch_512(
+    const at::Tensor &out, const at::Tensor &query, const at::Tensor &key_cache,
+    const at::Tensor &value_cache, const at::Tensor &cu_seqlens_q,
+    const at::Tensor &cu_seqlens_k, int64_t max_seqlen_q, int64_t max_seqlens_k,
+    const double softmax_scale, bool is_causal, const at::Tensor &block_table,
+    const c10::optional<at::Tensor> &alibi_slopes, int64_t window_size_left,
+    int64_t window_size_right, const double k_scale, const double v_scale,
+    const double softcap) {
+  if (max_seqlen_q >= 768) {
+    flash_attn_varlen_kernel_512<scalar_t, 256>(
+        out, query, key_cache, value_cache, cu_seqlens_q, cu_seqlens_k,
+        max_seqlen_q, max_seqlens_k, softmax_scale, is_causal, block_table,
+        alibi_slopes, window_size_left, window_size_right, k_scale, v_scale,
+        softcap);
+  } else if (max_seqlen_q >= 192) {
+    flash_attn_varlen_kernel_512<scalar_t, 64>(
+        out, query, key_cache, value_cache, cu_seqlens_q, cu_seqlens_k,
+        max_seqlen_q, max_seqlens_k, softmax_scale, is_causal, block_table,
+        alibi_slopes, window_size_left, window_size_right, k_scale, v_scale,
+        softcap);
+  } else {
+    flash_attn_varlen_kernel_512<scalar_t, 32>(
+        out, query, key_cache, value_cache, cu_seqlens_q, cu_seqlens_k,
+        max_seqlen_q, max_seqlens_k, softmax_scale, is_causal, block_table,
+        alibi_slopes, window_size_left, window_size_right, k_scale, v_scale,
+        softcap);
+  }
+}
+
+void zentorch_attention_flash_attn_varlen_kernel_512(
+    const at::Tensor &out, const at::Tensor &query, const at::Tensor &key_cache,
+    const at::Tensor &value_cache, const at::Tensor &cu_seqlens_q,
+    const at::Tensor &cu_seqlens_k, int64_t max_seqlen_q, int64_t max_seqlens_k,
+    double softmax_scale, bool is_causal, const at::Tensor &block_table,
+    const c10::optional<at::Tensor> &alibi_slopes, int64_t window_size_left,
+    int64_t window_size_right, const std::string_view &kv_cache_dtype,
+    double k_scale, double v_scale, double softcap,
+    std::string zentorch_op_name) {
+  (void)zentorch_op_name;
+  TORCH_CHECK(kv_cache_dtype == "fp8" || kv_cache_dtype == "fp8_e5m2" ||
+                  kv_cache_dtype == "auto",
+              "Unsupported kv_cache_dtype for flash_attn_varlen kernel");
+
+  if (query.scalar_type() == at::ScalarType::Float) {
+    flash_attn_varlen_launch_512<float>(
+        out, query, key_cache, value_cache, cu_seqlens_q, cu_seqlens_k,
+        max_seqlen_q, max_seqlens_k, softmax_scale, is_causal, block_table,
+        alibi_slopes, window_size_left, window_size_right, k_scale, v_scale,
+        softcap);
+  } else if (query.scalar_type() == at::ScalarType::BFloat16) {
+    flash_attn_varlen_launch_512<at::BFloat16>(
+        out, query, key_cache, value_cache, cu_seqlens_q, cu_seqlens_k,
+        max_seqlen_q, max_seqlens_k, softmax_scale, is_causal, block_table,
+        alibi_slopes, window_size_left, window_size_right, k_scale, v_scale,
+        softcap);
+  } else {
+    TORCH_CHECK(false,
+                "zentorch flash_attn_varlen supports float and bfloat16");
   }
 }
 
@@ -293,15 +662,24 @@ inline void single_query_cached_kv_attention_kernel(
   auto max_num_partitions =
       (max_context_len + partition_size - 1) / partition_size;
 
-  auto max_logits = at::empty({num_seqs, num_heads, max_num_partitions + 1},
-                              query.options().dtype(at::ScalarType::Float));
+  // Use empty_strided_cpu for minimal dispatch overhead
+  int64_t max_part_plus1 = max_num_partitions + 1;
+  auto max_logits = at::detail::empty_strided_cpu(
+      {num_seqs, num_heads, max_part_plus1},
+      {num_heads * max_part_plus1, max_part_plus1, 1},
+      query.options().dtype(at::ScalarType::Float));
 
-  auto exp_sum = at::empty({num_seqs, num_heads, max_num_partitions + 1},
-                           query.options().dtype(at::ScalarType::Float));
+  auto exp_sum = at::detail::empty_strided_cpu(
+      {num_seqs, num_heads, max_part_plus1},
+      {num_heads * max_part_plus1, max_part_plus1, 1},
+      query.options().dtype(at::ScalarType::Float));
 
   // TODO: Use temporary buffer for store and load in the kernel
-  auto tmp_out = at::empty({num_seqs, num_heads, max_num_partitions, head_size},
-                           query.options().dtype(at::ScalarType::Float));
+  auto tmp_out = at::detail::empty_strided_cpu(
+      {num_seqs, num_heads, max_num_partitions, head_size},
+      {num_heads * max_num_partitions * head_size,
+       max_num_partitions * head_size, head_size, 1},
+      query.options().dtype(at::ScalarType::Float));
 
   auto tmp_out_ptr = tmp_out.data_ptr<float>();
   auto max_logits_ptr = max_logits.data_ptr<float>();
