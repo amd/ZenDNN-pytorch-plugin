@@ -20,9 +20,9 @@ if parse(__version__) < parse("2.8"):
         and retry the build."
     )
 
-if parse(__version__) < parse("2.9"):
+if parse(__version__) < parse("2.9.1"):
     warnings.warn(
-        "Consider upgrading to torch version 2.9 for improved performance.",
+        "Consider upgrading to torch version 2.9.1 for improved performance.",
         stacklevel=1,
     )
 
