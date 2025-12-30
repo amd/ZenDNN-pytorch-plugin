@@ -106,7 +106,7 @@ Refer to the [support matrix](https://www.amd.com/en/developer/zendnn.html#getti
 # 2. Installation
 
 _zentorch_ can be installed using binary wheel file or can be built from source itself.
-Only stable releases are available as binary wheel files. The latest stable release is _zentorch_ v5.1.0 which supports PyTorch v2.6.0 and v2.7.0. Zentorch 5.2 pre-release can be built from source and supports PyTorch v2.8.0 and v2.9.0.
+Only stable releases are available as binary wheel files. The latest stable release is _zentorch_ v5.1.0 which supports PyTorch v2.6.0 and v2.7.0. Zentorch 5.2 pre-release can be built from source and supports PyTorch v2.8.0 and v2.9.1.
 
 ## 2.1. From Binaries
 
@@ -166,10 +166,10 @@ Build setup downloads the ZenDNN, AOCL BLIS and FBGEMM repos into `third_party` 
 conda create -n pt-zentorch python=3.10 -y
 conda activate pt-zentorch
 ```
-#### 2.2.2.2. Install PyTorch v2.9.0
+#### 2.2.2.2. Install PyTorch v2.9.1
 ```bash
 # Pip command
-pip install torch==2.9.0 --index-url https://download.pytorch.org/whl/cpu
+pip install torch==2.9.1 --index-url https://download.pytorch.org/whl/cpu
 ```
 
 >Note: The CPU version of torch/pytorch only supports CPU version of torchvision.
