@@ -127,7 +127,7 @@ jobs:
            echo "   ZenDNN_tools Ref: ${{ github.event.client_payload.zendnntools_ref }}"
            echo "   ZenDNN_tools SHA: ${{ github.event.client_payload.zendnntools_ref_sha }}"
           fi
-         if [ "${{ github.event.action }}" = "zendnnl-pr" ]; then
+         elif [ "${{ github.event.action }}" = "zendnnl-pr" ]; then
           # ZenDNNL repository triggered this workflow
           if [ -n "${{ env.ZENDNNL_TRIGGERING_PR_NUMBER }}" ]; then
            echo "🔵 TRIGGERED BY ZENDNNL PR:"
