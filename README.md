@@ -54,6 +54,7 @@ They also incorporate optimized embedding bag kernels and enhanced zenMatMul mat
 Combined with PyTorch's torch.compile, zentorch transforms deep learning pipelines into finely-tuned, AMD-specific engines, delivering unparalleled efficiency and speed for large-scale inference workloads
 
 The zentorch 5.2 pre-release plugin seamlessly works with PyTorch versions including 2.9 and 2.8, offering a high-performance experience for deep learning on AMD EPYC™ platforms.
+**Note:** We recommend using Torch 2.9.1 or higher as there is a known [issue](https://github.com/pytorch/pytorch/pull/166338) with Torch 2.9.0 that leads to longer compilation time with zentorch backend. The issue has been fixed in later versions.
 
 ## Support
 
