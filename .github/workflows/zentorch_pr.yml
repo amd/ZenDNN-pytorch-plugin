@@ -250,10 +250,10 @@ jobs:
           git log --oneline -20 || echo "No commits found"
          echo ""
           echo "=============================="
-         echo "   ZENDNNL INFO"
+         echo "   ZENDNN INFO"
          echo "=============================="
-         if [ -d "$PARENT_DIR/ZenDNNL" ]; then
-          cd "$PARENT_DIR/ZenDNNL"
+         if [ -d "$PARENT_DIR/ZenDNN" ]; then
+          cd "$PARENT_DIR/ZenDNN"
           git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/AMD-Zenai/ZenDNN.git
           git fetch --all --no-tags || true
 
@@ -268,7 +268,7 @@ jobs:
           echo "BASE SHA         : $BASE_SHA"
           echo ""
 
-          echo "LAST 20 COMMITS (ZenDNNL)"
+          echo "LAST 20 COMMITS (ZenDNN)"
           git log --oneline -20 || echo "No commits found"
          else
          echo "ZenDNNL directory not found — skipping."
