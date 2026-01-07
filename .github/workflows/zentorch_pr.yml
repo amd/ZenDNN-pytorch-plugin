@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2025 Advanced Micro Devices, Inc.
+# Copyright (c) 2025-2026 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 name: ZenDNN PYTORCH CI
@@ -13,6 +13,10 @@ on:
     inputs:
       zendnn_ref:
         description: 'ZenDNN branch or PR ref (optional, e.g. refs/pull/123/head)'
+        required: false
+        default: ''
+      zendnnl_ref:
+        description: 'Zendnnl branch or PR ref (optional, e.g. refs/pull/123/head)'
         required: false
         default: ''
       zendnnTorch_ref:
@@ -52,6 +56,13 @@ jobs:
       ZENDNN_TRIGGERING_PR_URL: ${{ github.event.client_payload.zendnn_pr_url || '' }}
       ZENDNN_TRIGGERING_REPO: ${{ github.event.client_payload.triggering_repo || '' }}
       ZENDNN_TRIGGERING_EVENT: ${{ github.event.client_payload.triggering_event || '' }}
+      # Add Zendnnl triggering PR information
+      ZENDNNL_TRIGGERING_PR_NUMBER: ${{ github.event.client_payload.zendnnl_pr_number || '' }}
+      ZENDNNL_TRIGGERING_PR_TITLE: ${{ github.event.client_payload.zendnnl_pr_title || '' }}
+      ZENDNNL_TRIGGERING_PR_AUTHOR: ${{ github.event.client_payload.zendnnl_pr_author || '' }}
+      ZENDNNL_TRIGGERING_PR_URL: ${{ github.event.client_payload.zendnnl_pr_url || '' }}
+      ZENDNNL_TRIGGERING_REPO: ${{ github.event.client_payload.triggering_repo || '' }}
+      ZENDNNL_TRIGGERING_EVENT: ${{ github.event.client_payload.triggering_event || '' }}
       # Add triggering PR information
       TRIGGERING_PR_NUMBER: ${{ github.event.client_payload.zendnntools_pr_number || '' }}
       TRIGGERING_PR_TITLE: ${{ github.event.client_payload.zendnntools_pr_title || '' }}
@@ -116,6 +127,24 @@ jobs:
            echo "   ZenDNN_tools Ref: ${{ github.event.client_payload.zendnntools_ref }}"
            echo "   ZenDNN_tools SHA: ${{ github.event.client_payload.zendnntools_ref_sha }}"
           fi
+         if [ "${{ github.event.action }}" = "zendnnl-pr" ]; then
+          # ZenDNNL repository triggered this workflow
+          if [ -n "${{ env.ZENDNNL_TRIGGERING_PR_NUMBER }}" ]; then
+           echo "🔵 TRIGGERED BY ZENDNNL PR:"
+           echo "   Repository: ${{ env.ZENDNNL_TRIGGERING_REPO }}"
+           echo "   PR Number: #${{ env.ZENDNNL_TRIGGERING_PR_NUMBER }}"
+           echo "   PR Title: ${{ env.ZENDNNL_TRIGGERING_PR_TITLE }}"
+           echo "   PR Author: ${{ env.ZENDNNL_TRIGGERING_PR_AUTHOR }}"
+           echo "   PR URL: ${{ env.ZENDNNL_TRIGGERING_PR_URL }}"
+           echo "   Original Event: ${{ env.ZENDNNL_TRIGGERING_EVENT }}"
+           echo "   ZenDNNL Ref: ${{ github.event.client_payload.zendnnl_ref }}"
+           echo "   ZenDNNL SHA: ${{ github.event.client_payload.zendnnl_ref_sha }}"
+          else
+           echo "🔵 TRIGGERED BY ZENDNNL (No PR info - likely push/dispatch)"
+           echo "   Repository: AMD-Zenai/ZenDNN"
+           echo "   ZenDNNL Ref: ${{ github.event.client_payload.zendnnl_ref }}"
+           echo "   ZenDNNL SHA: ${{ github.event.client_payload.zendnnl_ref_sha }}"
+          fi
          else
           # Unknown or other trigger type
           echo "⚠️  TRIGGERED BY UNKNOWN SOURCE:"
@@ -147,7 +176,16 @@ jobs:
             git fetch origin "${ZENDNN_REF}"
             git checkout FETCH_HEAD
             cd "$PARENT_DIR"
+          elif [ "${ZENDNNL_REF}" != "" ]; then
+            cd "$PARENT_DIR/ZenDNN"
+            echo "Using ZENDNNL_REF: ${ZENDNNL_REF}"
+            git fetch origin "${ZENDNNL_REF}"
+            git checkout FETCH_HEAD
+            cd "$PARENT_DIR"
+          else
+            echo "No ZENDNN_REF or ZENDNNL_REF provided, using main branch"
           fi
+          
 
       - name: Copy and extract BLIS tarball if needed
         if: env.ZENTORCH_USE_LOCAL_BLIS == '1'
@@ -172,7 +210,7 @@ jobs:
         shell: bash
         run: |
          echo "======================================"
-         echo " ZENDTORCH & ZENDNN & ZENDNN_TOOLS INFO  "
+         echo " ZENDTORCH & ZENDNNL & ZENDNN_TOOLS INFO  "
          echo "======================================"
 
          git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
@@ -212,10 +250,10 @@ jobs:
           git log --oneline -20 || echo "No commits found"
          echo ""
           echo "=============================="
-         echo "   ZENDNN INFO"
+         echo "   ZENDNNL INFO"
          echo "=============================="
-         if [ -d "$PARENT_DIR/ZenDNN" ]; then
-          cd "$PARENT_DIR/ZenDNN"
+         if [ -d "$PARENT_DIR/ZenDNNL" ]; then
+          cd "$PARENT_DIR/ZenDNNL"
           git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/AMD-Zenai/ZenDNN.git
           git fetch --all --no-tags || true
 
@@ -230,10 +268,10 @@ jobs:
           echo "BASE SHA         : $BASE_SHA"
           echo ""
 
-          echo "LAST 20 COMMITS (ZenDNN)"
+          echo "LAST 20 COMMITS (ZenDNNL)"
           git log --oneline -20 || echo "No commits found"
          else
-         echo "ZenDNN directory not found — skipping."
+         echo "ZenDNNL directory not found — skipping."
          fi
 
          echo "=============================="
@@ -339,19 +377,19 @@ jobs:
           fi
 
           echo "Final job state: $state"
-          echo "ZenDNN_REF: ${{ github.event.inputs.zendnn_ref }}"
+          echo "ZenDNNL_REF: ${{ github.event.inputs.zendnnl_ref }}"
           echo "ZENTORCH_REF: ${{ github.event.inputs.zendnnTorch_ref }}"
 
-          # Report to ZenDNN repo if zendnn_ref commit SHA was provided
-          if [ -n "${{ github.event.inputs.zendnn_ref }}" ]; then
-            echo "Reporting $state to ZenDNN commit ${{ github.event.inputs.zendnn_ref }}"
+          # Report to ZenDNN-Zennnl repo if zendnnl_ref commit SHA was provided
+          if [ -n "${{ github.event.inputs.zendnnl_ref }}" ]; then
+            echo "Reporting $state to ZenDNNL commit ${{ github.event.inputs.zendnnl_ref }}"
             curl -s -X POST \
               -H "Accept: application/vnd.github.v3+json" \
               -H "Authorization: token ${{ secrets.ZIAIE_PAT }}" \
-              "https://api.github.com/repos/AMD-Zenai/ZenDNN/statuses/${{ github.event.inputs.zendnn_ref }}" \
+              "https://api.github.com/repos/AMD-Zenai/ZenDNN/statuses/${{ github.event.inputs.zendnnl_ref }}" \
               -d "{\"state\":\"${state}\",\"context\":\"ZenDNN_PyTorch_Plugin CI\",\"description\":\"ZenDNN_PyTorch_Plugin run ${state}\"}"
           else
-            echo "Skipping ZenDNN status update (no commit SHA provided)"
+            echo "Skipping ZenDNNL status update (no commit SHA provided)"
           fi
 
           # Report to ZenDNN_PyTorch_Plugin repo if zendnnTorch_ref commit SHA was provided
