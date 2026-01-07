@@ -1,5 +1,5 @@
 /******************************************************************************
- * Modifications Copyright (c) 2025 Advanced Micro Devices, Inc.
+ * Modifications Copyright (c) 2025-2026 Advanced Micro Devices, Inc.
  * All rights reserved.
  *
  * Was sourced from
@@ -92,6 +92,7 @@ inline void zendnn_gemm(int64_t m, int64_t n, int64_t k, float alpha,
     matmul_dtype.dst =
         data_type_t::f32; // Destination data type is always Float32.
     params.dtypes = matmul_dtype;
+    params.lowoha_algo = matmul_algo_t::aocl_dlp;
 
     zendnnl::lowoha::batch_params_t batch_params;
     batch_params.Batch_A = 1;
