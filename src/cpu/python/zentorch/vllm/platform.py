@@ -1,178 +1,234 @@
 # ****************************************************************************
-# Copyright (c) 2025 Advanced Micro Devices, Inc.
+# Copyright (c) 2025-2026 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ****************************************************************************
 
-"""zentorch integration with vLLM - Platform definition.
+"""zentorch CPU Platform for vLLM.
 
-This lightweight wrapper plugs zentorch (CPU) into vLLM using the standard
-`Platform` extension mechanism.
-
-The goal is to minimise global monkey-patching - anything zentorch-specific
-should happen inside the worker / model-runner, not via `nn.Module.__call__`
-patches that affect unrelated user code.
-
-Note: CompilationConfig.__repr__ patching is handled in __init__.py via the
-general_plugins entry point, which runs early in all vLLM processes.
-
-Tested with vLLM version: 0.11.0
+Supports:
+- 0.11.x: CompilationLevel, _Backend, PagedAttention patching
+- 0.12.x/0.13.x: CompilationMode, AttentionBackendEnum, native CPU attention
 """
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
-import torch
-
-from vllm.config import CompilationLevel
-from vllm.logger import init_logger
-from vllm.platforms.cpu import CpuPlatform
-from vllm.platforms.interface import _Backend
+from zentorch.vllm.core import is_v11, is_v13
 
 if TYPE_CHECKING:
     from vllm.config import VllmConfig
-else:
-    VllmConfig = None
 
-logger = init_logger(__name__)
+_ZenCPUPlatformImpl = None
 
 
-class ZenCPUPlatform(CpuPlatform):
-    """Out-of-tree CPU platform backed by zentorch optimisations."""
+def _create_platform():
+    """Create ZenCPUPlatform class lazily."""
+    global _ZenCPUPlatformImpl
+    if _ZenCPUPlatformImpl is not None:
+        return _ZenCPUPlatformImpl
 
-    # Explicitly set to "cpu" to ensure compatibility with vLLM's
-    # torch.device() calls and operational checks
-    device_name: str = "cpu"
-    device_type: str = "cpu"
+    from vllm.platforms.cpu import CpuPlatform
+    from vllm.logger import init_logger
 
-    @classmethod
-    def check_and_update_config(cls, vllm_config: VllmConfig) -> None:
-        # First apply standard CPU platform configuration
-        super().check_and_update_config(vllm_config)
+    logger = init_logger(__name__)
 
-        compilation_config = vllm_config.compilation_config
+    class ZenCPUPlatformImpl(CpuPlatform):
+        """Out-of-tree CPU platform with zentorch optimizations."""
 
-        # Enable torch.compile with inductor backend
-        compilation_config.level = CompilationLevel.DYNAMO_ONCE
-        compilation_config.backend = "inductor"
-        compilation_config.use_inductor = True
-        compilation_config.inductor_compile_config.update(
-            {
-                "dce": True,  # Dead code elimination
-                "size_asserts": False,  # Skip size assertions for perf
-                "nan_asserts": False,  # Skip NaN checks for perf
-                "epilogue_fusion": True,  # Fuse epilogue operations
-            }
-        )
+        device_name: str = "cpu"
+        device_type: str = "cpu"
 
-        compilation_config.custom_ops = ["none"]
+        @classmethod
+        def check_and_update_config(cls, vllm_config: "VllmConfig") -> None:
+            super().check_and_update_config(vllm_config)
 
-        # Inject zentorch optimization pass
-        from zentorch._compile_backend import optimize_pass
-        compilation_config.inductor_compile_config["joint_custom_post_pass"] = (
-            optimize_pass
-        )
+            cc = vllm_config.compilation_config
 
-        # Apply CPU profiler patch (deferred to avoid circular imports)
-        cls._patch_cpu_profiler()
+            if is_v11():
+                from vllm.config import CompilationLevel
 
-    @classmethod
-    def _patch_cpu_profiler(cls):
-        """
-        Patch vLLM's Worker profiler for CPU-only profiling.
+                cc.level = CompilationLevel.DYNAMO_ONCE
+                cc.backend = "inductor"
+                cc.use_inductor = True
+                cc.custom_ops = ["none"]
 
-        This patch is applied during platform initialization to avoid
-        circular imports that occur during early plugin loading.
+            cc.inductor_compile_config.update(
+                {
+                    "dce": True,
+                    "size_asserts": False,
+                    "nan_asserts": False,
+                    "epilogue_fusion": True,
+                }
+            )
 
-        Raises:
-            RuntimeError: If patching fails.
-        """
-        import vllm.v1.worker.gpu_worker as worker_module
-        import vllm.envs as envs
+            # Inject zentorch optimize pass
+            try:
+                from zentorch._compile_backend import optimize_pass
 
-        # Check if already patched
-        if hasattr(worker_module.Worker, "_zentorch_profiler_patched"):
-            return
+                cc.inductor_compile_config["joint_custom_post_pass"] = optimize_pass
+                logger.info("[zentorch] Injected optimize_pass")
+            except ImportError:
+                logger.warning("[zentorch] optimize_pass not available")
 
-        OriginalWorker = worker_module.Worker
-        original_init = OriginalWorker.__init__
+            # Apply profiler patches (version-specific)
+            cls._patch_profiler()
 
-        def patched_init(self, *args, **kwargs):
-            """Patched __init__ that sets up CPU-only profiler."""
-            original_init(self, *args, **kwargs)
+        @classmethod
+        def get_attn_backend_cls(cls, selected_backend, *args, **kwargs):
+            """Version-aware attention backend selection.
 
-            # Re-configure profiler for CPU-only if it was created
-            if self.profiler is not None:
-                self.profiler = torch.profiler.profile(
-                    activities=[
-                        torch.profiler.ProfilerActivity.CPU,
-                    ],
-                    record_shapes=envs.VLLM_TORCH_PROFILER_RECORD_SHAPES,
-                    profile_memory=envs.VLLM_TORCH_PROFILER_WITH_PROFILE_MEMORY,
-                    with_stack=envs.VLLM_TORCH_PROFILER_WITH_STACK,
-                    with_flops=envs.VLLM_TORCH_PROFILER_WITH_FLOPS,
+            0.11: (selected_backend, head_size, dtype, ..., use_v1=True)
+            0.12: (selected_backend, head_size, dtype, ..., attn_type=None)
+            0.13: (selected_backend, attn_selector_config)
+            """
+            if is_v11():
+                return cls._attn_backend_v11(selected_backend, *args, **kwargs)
+            # 0.12/0.13: delegate to parent CpuPlatform
+            return super(ZenCPUPlatformImpl, cls).get_attn_backend_cls(
+                selected_backend, *args, **kwargs
+            )
+
+        @classmethod
+        def _attn_backend_v11(
+            cls,
+            selected_backend,
+            head_size=None,
+            dtype=None,
+            kv_cache_dtype=None,
+            block_size=None,
+            use_v1=True,
+            use_mla=False,
+            has_sink=False,
+            use_sparse=False,
+        ):
+            """0.11: Patch and return TorchSDPABackend."""
+            import vllm.v1.attention.backends.cpu_attn as cpu_attn
+            from zentorch.vllm.attention import PagedAttention
+
+            cpu_attn._get_paged_attn_impl = lambda: PagedAttention
+            logger.info("[zentorch] Applied PagedAttention in get_attn_backend_cls")
+
+            if use_mla:
+                raise NotImplementedError("MLA not supported")
+            if use_sparse:
+                raise NotImplementedError("Sparse attention not supported")
+
+            if not use_v1:
+                raise ValueError("zentorch requires V1 engine")
+            return "vllm.v1.attention.backends.cpu_attn.TorchSDPABackend"
+
+        @classmethod
+        def _patch_profiler(cls):
+            """Apply version-specific profiler patches.
+
+            0.11: Patches Worker.__init__ and Worker.profile for CPU-only profiling
+            0.12: Patched in __init__.py register() (must run before worker creation)
+            0.13: Suppresses redundant cuda-time table output for CPU (single table like 0.14)
+            """
+            if is_v11():
+                cls._patch_profiler_v11()
+            elif is_v13():
+                cls._patch_profiler_v13()
+            # 0.12 is handled via _apply_profiler_patch_v12() in __init__.py register()
+
+        @classmethod
+        def _patch_profiler_v11(cls):
+            """Fix vLLM 0.11: Patch Worker profiler for CPU-only operation."""
+            import torch
+
+            try:
+                import vllm.v1.worker.gpu_worker as worker_module
+                import vllm.envs as envs
+            except ImportError:
+                logger.debug(
+                    "[zentorch] Worker module not available for profiler patch"
                 )
+                return
 
-        def patched_profile(self, is_start: bool = True):
-            """Patched profile method that prints CPU stats."""
-            if self.profiler is None:
-                raise RuntimeError("Profiler is not enabled.")
-            if is_start:
-                self.profiler.start()
-            else:
-                self.profiler.stop()
-                print(
-                    self.profiler.key_averages().table(
-                        sort_by="self_cpu_time_total"
+            if hasattr(worker_module.Worker, "_zentorch_profiler_patched"):
+                return
+
+            OriginalWorker = worker_module.Worker
+            original_init = OriginalWorker.__init__
+
+            def patched_init(self, *args, **kwargs):
+                original_init(self, *args, **kwargs)
+                if self.profiler is not None:
+                    self.profiler = torch.profiler.profile(
+                        activities=[torch.profiler.ProfilerActivity.CPU],
+                        record_shapes=envs.VLLM_TORCH_PROFILER_RECORD_SHAPES,
+                        profile_memory=envs.VLLM_TORCH_PROFILER_WITH_PROFILE_MEMORY,
+                        with_stack=envs.VLLM_TORCH_PROFILER_WITH_STACK,
+                        with_flops=envs.VLLM_TORCH_PROFILER_WITH_FLOPS,
                     )
-                )
 
-        OriginalWorker.__init__ = patched_init
-        OriginalWorker.profile = patched_profile
-        OriginalWorker._zentorch_profiler_patched = True
+            def patched_profile(self, is_start: bool = True):
+                if self.profiler is None:
+                    raise RuntimeError("Profiler is not enabled.")
+                if is_start:
+                    self.profiler.start()
+                else:
+                    self.profiler.stop()
+                    print(
+                        self.profiler.key_averages().table(
+                            sort_by="self_cpu_time_total"
+                        )
+                    )
 
-        logger.info("[zentorch] Patched Worker profiler for CPU-only profiling")
+            OriginalWorker.__init__ = patched_init
+            OriginalWorker.profile = patched_profile
+            OriginalWorker._zentorch_profiler_patched = True
+            logger.info("[zentorch] Patched Worker profiler for CPU-only (0.11)")
 
-    @classmethod
-    def get_attn_backend_cls(
-        cls,
-        selected_backend: _Backend,
-        head_size: int,
-        dtype: torch.dtype,
-        kv_cache_dtype: Optional[str],
-        block_size: int,
-        use_v1: bool,
-        use_mla: bool,
-        has_sink: bool,
-        use_sparse: bool,
-    ) -> str:
+        @classmethod
+        def _patch_profiler_v13(cls):
+            """Fix vLLM 0.13: Suppress redundant cuda-time table for CPU-only."""
+            try:
+                from vllm.profiler import wrapper as wrapper_module
+            except ImportError:
+                logger.debug("[zentorch] profiler.wrapper not available")
+                return
 
-        # Monkey-patch vLLM's _get_paged_attn_impl to return zentorch PagedAttention
-        import vllm.v1.attention.backends.cpu_attn as cpu_attn_module
-        from zentorch.vllm.attention import PagedAttention
+            TorchProfilerWrapper = wrapper_module.TorchProfilerWrapper
+            if hasattr(TorchProfilerWrapper, "_zentorch_patched"):
+                return
 
-        def _get_zentorch_paged_attn_impl():
-            return PagedAttention
+            def patched_stop(self):
+                self.profiler.stop()
+                profiler_config = self.profiler_config
+                rank = self.local_rank
 
-        cpu_attn_module._get_paged_attn_impl = _get_zentorch_paged_attn_impl
+                # Only dump cuda time table if NOT cpu-only
+                if (
+                    profiler_config.torch_profiler_dump_cuda_time_total
+                    and not self.dump_cpu_time_total
+                ):
+                    profiler_dir = profiler_config.torch_profiler_dir
+                    profiler_out_file = f"{profiler_dir}/profiler_out_{rank}.txt"
+                    table = self.profiler.key_averages().table(
+                        sort_by="self_cuda_time_total"
+                    )
+                    with open(profiler_out_file, "w") as f:
+                        print(table, file=f)
+                    if rank == 0:
+                        print(table)
 
-        logger.info("Monkey-patched vLLM PagedAttention with zentorch implementation")
+                # CPU time table for CPU-only activities
+                if self.dump_cpu_time_total and rank == 0:
+                    wrapper_module.logger.info(
+                        self.profiler.key_averages().table(
+                            sort_by="self_cpu_time_total", row_limit=50
+                        )
+                    )
 
-        if use_mla:
-            raise NotImplementedError(
-                "Multi-head Latent Attention is not supported by "
-                "vLLM-zentorch plugin."
-            )
+            TorchProfilerWrapper._stop = patched_stop
+            TorchProfilerWrapper._zentorch_patched = True
+            logger.info("[zentorch] Patched TorchProfilerWrapper._stop (0.13)")
 
-        if use_sparse:
-            raise NotImplementedError(
-                "Sparse Attention is not supported by vLLM-zentorch plugin."
-            )
+    _ZenCPUPlatformImpl = ZenCPUPlatformImpl
+    return _ZenCPUPlatformImpl
 
-        if selected_backend and selected_backend != _Backend.TORCH_SDPA:
-            logger.info(
-                "Cannot use %s backend on zentorch CPU, " "falling back to Torch SDPA.",
-                selected_backend,
-            )
 
-        assert use_v1, "vLLM-zentorch only supports V1 backend."
-        logger.info("Using vLLM-zentorch V1 backend.")
-        return "vllm.v1.attention.backends.cpu_attn.TorchSDPABackend"
+def __getattr__(name):
+    if name == "ZenCPUPlatform":
+        return _create_platform()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

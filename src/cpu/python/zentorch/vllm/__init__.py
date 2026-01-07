@@ -1,293 +1,457 @@
 # ****************************************************************************
-# Copyright (c) 2025 Advanced Micro Devices, Inc.
+# Copyright (c) 2025-2026 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ****************************************************************************
 
-"""vLLM - zentorch integration
+"""vLLM - zentorch integration using the plugin pattern.
 
-This module is discovered via *both* platform & general plugin entry-points.
-Platform:  ``vllm.platform_plugins``  ->  returns dotted path to
-            :class:`ZenCPUPlatform`
-General :  ``vllm.general_plugins``   ->  executes light-weight runtime.
-            Applies early monkey-patches for:
-            - PagedAttention (zentorch implementation)
-            - CompilationConfig repr (pydantic serialization fix)
-            - oneDNN GEMM disable (use zentorch GEMM instead)
-            - CPU profiler (remove CUDA dependencies)
-            - InternVL video input dtype bug fix
+Entry points:
+- vllm.platform_plugins -> returns ZenCPUPlatform class path
+- vllm.general_plugins  -> applies early patches
 
-Supported vLLM versions:
-- 0.11.0
-- 0.11.1.dev0+gb8b302cde.d20251203.cpu
+Patches (each with version decorator):
+- PagedAttention (0.11 only)
+- IPEX flash attention (0.11 only)
+- CompilationConfig repr (all versions)
+- oneDNN disable (all versions)
+- InternVL dtype fix (all versions)
+
+Reference: https://blog.vllm.ai/2025/11/20/vllm-plugin-system.html
 """
 
 from __future__ import annotations
 
-from typing import Optional
 import os
 import sys
+from typing import Optional
 
 from zentorch._logging import get_logger
+from zentorch.vllm.core import (
+    vllm_version,
+    vllm_version_range,
+    manager,
+    get_version_family,
+    is_v12,
+)
 
 logger = get_logger(__name__)
 
-SUPPORTED_VLLM_VERSIONS = {
-    "0.11.0",
-    "0.11.1.dev0+gb8b302cde.d20251203.cpu",
-}
-
-# Track if we've already logged circular import warnings
-_logged_circular_import_warning = False
 
 # ---------------------------------------------------------------------------
-# Plugin entry-points
+# Patches (0.11 only)
 # ---------------------------------------------------------------------------
 
 
-def register() -> Optional[str]:  # noqa: D401
-    """Entry-point for *both* platform & general plugin groups.
+@vllm_version("0.11.0", "0.11.1", "0.11.2")
+class PagedAttentionPatch:
+    """Replace vLLM's PagedAttention with zentorch implementation."""
 
-    If vLLM calls this via the *platform* group, we must **return** the dotted
-    class path so that it can import the platform.  When executed via the
-    *general* group the return value is ignored - that is fine.
-    """
-    if "vllm" not in sys.modules:
-        logger.warning(
-            "[zentorch] vllm not found in sys.modules. "
-            "The plugin should be loaded by vLLM. "
-            "zentorch platform will not be available."
-        )
-        return None
+    @classmethod
+    def apply(cls) -> bool:
+        try:
+            import vllm.v1.attention.backends.cpu_attn as cpu_attn_module
+            from zentorch.vllm.attention import PagedAttention
 
-    vllm_module = sys.modules["vllm"]
-    vllm_version = getattr(vllm_module, "__version__", None)
-
-    if vllm_version is None:
-        logger.warning(
-            "[zentorch] Could not determine vLLM version. "
-            "zentorch platform will not be available."
-        )
-        return None
-
-    if vllm_version not in SUPPORTED_VLLM_VERSIONS:
-        logger.warning(
-            "[zentorch] Unsupported vLLM version: %s. "
-            "Plugin supports versions: %s.",
-            vllm_version,
-            ", ".join(sorted(SUPPORTED_VLLM_VERSIONS)),
-        )
-        return None
-
-    # Apply monkey-patches early (runs in all processes)
-    _apply_paged_attention_monkey_patch()
-
-    # Monkey-patch IPEX's flash_attn_varlen_func with zentorch's implementation
-    # Set DISABLE_ZENTORCH_FLASH_ATTENTION_VARLEN=1 to use IPEX's native implementation
-    if os.environ.get("DISABLE_ZENTORCH_FLASH_ATTENTION_VARLEN", "0") != "1":
-        _apply_ipex_flash_attention_monkey_patch()
-    else:
-        logger.info("[zentorch] Skipping flash_attn_varlen_func patch (DISABLE_ZENTORCH_FLASH_ATTENTION_VARLEN=1)")
-
-    _apply_compilation_config_repr_patch()
-    _apply_internvl_video_input_dtype_bug_fix()
-
-    # Critical: oneDNN must be disabled for zentorch to work correctly
-    if not _disable_onednn_gemm():
-        logger.error(
-            "[zentorch] Failed to disable oneDNN GEMM. "
-            "Plugin cannot function correctly with oneDNN enabled."
-        )
-        return None
-
-    return "zentorch.vllm.platform.ZenCPUPlatform"
-
-
-def _apply_ipex_flash_attention_monkey_patch():
-    """
-    Monkey-patch IPEX's flash_attn_varlen_func with ZenTorch's implementation.
-    """
-    import intel_extension_for_pytorch.llm.modules as ipex_modules
-    from zentorch.vllm.attention import PagedAttention
-
-    # Replace IPEX's flash_attn_varlen_func with ZenTorch's
-    ipex_modules.PagedAttention.flash_attn_varlen_func = (
-        PagedAttention.flash_attn_varlen_func
-    )
-
-    logger.info(
-        "[zentorch] Monkey-patched IPEX flash_attn_varlen_func with ZenTorch implementation"
-    )
-
-
-def _apply_paged_attention_monkey_patch():
-    """
-    Monkey-patch vLLM's PagedAttention implementation with zentorch's.
-
-    This is called early during plugin registration to ensure that all
-    subsequent imports of vLLM modules get the zentorch implementation.
-    """
-    try:
-        import vllm.v1.attention.backends.cpu_attn as cpu_attn_module
-        from zentorch.vllm.attention import PagedAttention
-
-        def _get_zentorch_paged_attn_impl():
-            return PagedAttention
-
-        cpu_attn_module._get_paged_attn_impl = _get_zentorch_paged_attn_impl
-
-        logger.info(
-            "[zentorch] Monkey-patched vLLM PagedAttention with zentorch implementation"
-        )
-
-    except ImportError:
-        # Deferred - will be applied in platform.py
-        global _logged_circular_import_warning
-        if not _logged_circular_import_warning:
+            cpu_attn_module._get_paged_attn_impl = lambda: PagedAttention
+            logger.info("[zentorch] Patched PagedAttention")
+            return True
+        except ImportError:
             logger.debug("[zentorch] PagedAttention patch deferred")
-            _logged_circular_import_warning = True
-    except Exception:
-        logger.exception("[zentorch] Failed to patch PagedAttention")
+            return False
 
 
-def _apply_compilation_config_repr_patch():
-    """
-    Monkey-patch CompilationConfig.__repr__ early to prevent serialization errors.
-    """
-    try:
-        from vllm.config import CompilationConfig
-        from pydantic import TypeAdapter
-        from vllm.config.compilation import PassConfig
+@vllm_version("0.11.0", "0.11.1", "0.11.2")
+class IPEXFlashAttentionPatch:
+    """Replace IPEX flash_attn_varlen_func with zentorch."""
 
-        if hasattr(CompilationConfig.__repr__, "_zentorch_patched"):
-            logger.info("[zentorch] CompilationConfig.__repr__ already patched")
-            return
+    @classmethod
+    def apply(cls) -> bool:
+        if os.environ.get("DISABLE_ZENTORCH_FLASH_ATTENTION_VARLEN", "0") == "1":
+            logger.info("[zentorch] IPEX patch disabled via env")
+            return False
 
-        def patched_repr(self):
-            exclude = {
-                "static_forward_context": True,
-                "enabled_custom_ops": True,
-                "disabled_custom_ops": True,
-                "compilation_time": True,
-                "bs_to_padded_graph_size": True,
-                "traced_files": True,
-                "inductor_compile_config": {
-                    "post_grad_custom_post_pass": True,
-                    "joint_custom_pre_pass": True,
-                },
-            }
+        try:
+            import intel_extension_for_pytorch.llm.modules as ipex_modules
+            from zentorch.vllm.attention import PagedAttention
 
-            pass_config_exclude = {}
-            try:
-                for attr, default_val in vars(PassConfig()).items():
-                    if getattr(self.pass_config, attr) == default_val:
-                        pass_config_exclude[attr] = True
-                if pass_config_exclude:
-                    exclude["pass_config"] = pass_config_exclude
-            except Exception:
-                pass
+            ipex_modules.PagedAttention.flash_attn_varlen_func = (
+                PagedAttention.flash_attn_varlen_func
+            )
+            logger.info("[zentorch] Patched IPEX flash_attn_varlen_func")
+            return True
+        except ImportError:
+            logger.debug("[zentorch] IPEX patch deferred")
+            return False
 
-            try:
-                return (
-                    TypeAdapter(CompilationConfig)
-                    .dump_json(self, exclude=exclude, exclude_unset=True)
-                    .decode()
-                )
-            except Exception:
+
+# ---------------------------------------------------------------------------
+# Patches (all versions)
+# ---------------------------------------------------------------------------
+
+
+@vllm_version_range(min_ver="0.11.0", max_ver="0.13.99")
+class CompilationConfigReprPatch:
+    """Fix CompilationConfig repr for pydantic serialization."""
+
+    @classmethod
+    def apply(cls) -> bool:
+        try:
+            from vllm.config import CompilationConfig
+            from pydantic import TypeAdapter
+            from vllm.config.compilation import PassConfig
+
+            if hasattr(CompilationConfig.__repr__, "_zentorch_patched"):
+                return True
+
+            def patched_repr(self):
+                exclude = {
+                    "static_forward_context": True,
+                    "enabled_custom_ops": True,
+                    "disabled_custom_ops": True,
+                    "compilation_time": True,
+                    "bs_to_padded_graph_size": True,
+                    "traced_files": True,
+                    "inductor_compile_config": {
+                        "post_grad_custom_post_pass": True,
+                        "joint_custom_post_pass": True,
+                        "joint_custom_pre_pass": True,
+                    },
+                }
+
+                pass_config_exclude = {}
+                try:
+                    for attr, default_val in vars(PassConfig()).items():
+                        if getattr(self.pass_config, attr) == default_val:
+                            pass_config_exclude[attr] = True
+                    if pass_config_exclude:
+                        exclude["pass_config"] = pass_config_exclude
+                except Exception:
+                    pass
+
                 try:
                     return (
-                        f"CompilationConfig("
-                        f"level={getattr(self, 'level', '?')}, "
-                        f"backend={getattr(self, 'backend', '?')!r}, "
-                        f"use_inductor={getattr(self, 'use_inductor', '?')}, "
-                        f"custom_ops={getattr(self, 'custom_ops', '?')!r}"
-                        f")"
+                        TypeAdapter(CompilationConfig)
+                        .dump_json(self, exclude=exclude, exclude_unset=True)
+                        .decode()
                     )
-                except Exception as e:
-                    return f"CompilationConfig(<error during repr: {e}>)"
+                except Exception:
+                    mode = getattr(self, "mode", getattr(self, "level", "?"))
+                    return f"CompilationConfig(mode={mode}, backend={self.backend!r})"
 
-        patched_repr._zentorch_patched = True
-
-        CompilationConfig.__repr__ = patched_repr
-        CompilationConfig.__str__ = patched_repr
-        logger.info(
-            "[zentorch] Patched CompilationConfig.__repr__ to handle custom passes"
-        )
-
-    except ImportError:
-        # Deferred - will be applied later
-        global _logged_circular_import_warning
-        if not _logged_circular_import_warning:
-            logger.debug("[zentorch] CompilationConfig repr patch deferred")
-            _logged_circular_import_warning = True
-    except Exception:
-        logger.exception("[zentorch] Failed to patch CompilationConfig.__repr__")
+            patched_repr._zentorch_patched = True
+            CompilationConfig.__repr__ = patched_repr
+            CompilationConfig.__str__ = patched_repr
+            logger.info("[zentorch] Patched CompilationConfig repr")
+            return True
+        except ImportError:
+            return False
 
 
-def _disable_onednn_gemm() -> bool:
-    """
-    Disable oneDNN GEMM in vLLM to use zentorch.mm() instead.
+@vllm_version_range(min_ver="0.11.0", max_ver="0.13.99")
+class OneDNNDisablePatch:
+    """Disable oneDNN GEMM to use zentorch.zentorch_linear_unary()."""
 
-    This ensures zentorch optimizations are used instead of native oneDNN.
+    @classmethod
+    def apply(cls) -> bool:
+        try:
+            import vllm._custom_ops as ops
 
-    Returns:
-        True if successfully disabled, False otherwise.
-    """
-    try:
-        import vllm._custom_ops as ops
+            ops._supports_onednn = False
+            logger.info("[zentorch] Disabled oneDNN GEMM")
+            return True
+        except ImportError:
+            return False
 
-        ops._supports_onednn = False
 
-        logger.info("[zentorch] Disabled oneDNN GEMM to use zentorch.mm() instead")
+@vllm_version_range(min_ver="0.11.0", max_ver="0.13.99")
+class InternVLDtypePatch:
+    """Fix InternVL video dtype issue."""
+
+    @classmethod
+    def apply(cls) -> bool:
+        try:
+            import numpy as np
+            from vllm.multimodal import profiling as profiling_module
+
+            if hasattr(profiling_module.BaseDummyInputsBuilder, "_zentorch_patched"):
+                return True
+
+            def patched_get_dummy_videos(self, width, height, num_frames, num_videos):
+                if num_videos == 0:
+                    return []
+                return [
+                    np.full((num_frames, width, height, 3), 255, dtype=np.uint8)
+                ] * num_videos
+
+            profiling_module.BaseDummyInputsBuilder._get_dummy_videos = (
+                patched_get_dummy_videos
+            )
+            profiling_module.BaseDummyInputsBuilder._zentorch_patched = True
+            logger.info("[zentorch] Patched InternVL dtype")
+            return True
+        except ImportError:
+            return False
+
+
+@vllm_version("0.11.0", "0.11.1", "0.11.2")
+class CPUProfilerPatch:
+    """Patch Worker profiler for CPU-only profiling (0.11 only)."""
+
+    @classmethod
+    def apply(cls) -> bool:
+        import torch
+
+        try:
+            import vllm.envs as envs
+            import vllm.v1.worker.gpu_worker as worker_module
+        except ImportError:
+            return False
+
+        if hasattr(worker_module.Worker, "_zentorch_profiler_patched"):
+            return True
+
+        Worker = worker_module.Worker
+        orig_init = Worker.__init__
+
+        def patched_init(self, *a, **kw):
+            orig_init(self, *a, **kw)
+            if self.profiler:
+                record_shapes = getattr(
+                    envs, "VLLM_TORCH_PROFILER_RECORD_SHAPES", False
+                )
+                profile_memory = getattr(
+                    envs, "VLLM_TORCH_PROFILER_WITH_PROFILE_MEMORY", False
+                )
+                with_stack = getattr(envs, "VLLM_TORCH_PROFILER_WITH_STACK", False)
+                with_flops = getattr(envs, "VLLM_TORCH_PROFILER_WITH_FLOPS", False)
+                self.profiler = torch.profiler.profile(
+                    activities=[torch.profiler.ProfilerActivity.CPU],
+                    record_shapes=record_shapes,
+                    profile_memory=profile_memory,
+                    with_stack=with_stack,
+                    with_flops=with_flops,
+                )
+
+        def patched_profile(self, is_start=True):
+            if not self.profiler:
+                raise RuntimeError("Profiler not enabled")
+            if is_start:
+                self.profiler.start()
+            else:
+                self.profiler.stop()
+                logger.info(
+                    "\n%s",
+                    self.profiler.key_averages().table(sort_by="self_cpu_time_total"),
+                )
+
+        Worker.__init__ = patched_init
+        Worker.profile = patched_profile
+        Worker._zentorch_profiler_patched = True
+        logger.info("[zentorch] Patched Worker profiler (0.11)")
+
         return True
 
+
+@vllm_version("0.12.0")
+class CPUProfilerPatchV12:
+    """Stub: Actual patching happens in platform.py check_and_update_config."""
+
+    @classmethod
+    def apply(cls) -> bool:
+        # Patching is done in platform.py's check_and_update_config()
+        # which is called in every process (main and subprocess)
+        return True
+
+
+@vllm_version("0.13.0")
+class CPUProfilerPatchV13:
+    """Stub: Actual patching happens in platform.py check_and_update_config."""
+
+    @classmethod
+    def apply(cls) -> bool:
+        # Patching is done in platform.py's check_and_update_config()
+        return True
+
+
+# ---------------------------------------------------------------------------
+# vLLM 0.12 Profiler Fix (Post-import hook)
+# ---------------------------------------------------------------------------
+
+_V12_PROFILER_HOOK_INSTALLED = False
+
+
+def _do_patch_cpuworker():
+    """Actually patch CPUWorker class. Called when module is available."""
+    import torch
+
+    try:
+        import vllm.v1.worker.cpu_worker as cpu_worker_module
     except ImportError:
-        # Module not available yet - will be retried in platform.py
-        logger.debug("[zentorch] oneDNN disable deferred (module not loaded)")
-        return True  # Not a failure, just deferred
-    except Exception:
-        logger.exception("[zentorch] Failed to disable oneDNN GEMM")
         return False
 
+    CPUWorker = cpu_worker_module.CPUWorker
+    if hasattr(CPUWorker, "_zentorch_profiler_patched"):
+        return True  # Already patched
 
-def _apply_internvl_video_input_dtype_bug_fix():
+    orig_init = CPUWorker.__init__
+
+    class _CPUProfilerWrapper:
+        """Wrapper to give raw profiler the TorchProfilerWrapper interface."""
+
+        def __init__(self, raw_profiler):
+            self._profiler = raw_profiler
+            self._running = False
+
+        def start(self):
+            self._profiler.start()
+            self._running = True
+
+        def stop(self):
+            self._profiler.stop()
+            self._running = False
+
+        def step(self):
+            pass  # Not needed for CPU profiling
+
+        def shutdown(self):
+            if self._running:
+                self.stop()
+
+        def annotate_context_manager(self, name: str):
+            return torch.profiler.record_function(name)
+
+        def key_averages(self):
+            return self._profiler.key_averages()
+
+    def patched_init(self, *args, **kwargs):
+        orig_init(self, *args, **kwargs)
+        # Wrap raw profiler with TorchProfilerWrapper-compatible interface
+        if self.profiler is not None:
+            self.profiler = _CPUProfilerWrapper(self.profiler)
+
+    CPUWorker.__init__ = patched_init
+    CPUWorker._zentorch_profiler_patched = True
+    logger.info("[zentorch] Patched CPUWorker profiler for 0.12")
+    return True
+
+
+class _V12ProfilerImportHook:
+    """Intercept imports to patch CPUWorker when cpu_worker is imported."""
+
+    def find_module(self, fullname, path=None):
+        if fullname == "vllm.v1.worker.cpu_worker":
+            return self
+        return None
+
+    def load_module(self, fullname):
+        # Remove ourselves to avoid recursion
+        if self in sys.meta_path:
+            sys.meta_path.remove(self)
+
+        # Let Python do the actual import
+        import importlib
+
+        module = importlib.import_module(fullname)
+
+        # Now patch the class
+        _do_patch_cpuworker()
+
+        return module
+
+
+def _apply_profiler_patch_v12():
+    """Fix vLLM 0.12 bug: CPUWorker uses raw torch.profiler.profile but
+    inherits methods expecting TorchProfilerWrapper interface.
+
+    Installs a meta_path hook to patch CPUWorker when it's imported.
     """
-    Patch vLLM's multimodal profiling to fix InternVL video dtype issue.
+    global _V12_PROFILER_HOOK_INSTALLED
 
-    The original code creates dummy videos without specifying dtype, which
-    causes issues with InternVL models. This patch adds dtype=np.uint8.
+    if not is_v12():
+        return
 
-    Bug fix: np.full((num_frames, width, height, 3), 255) ->
-             np.full((num_frames, width, height, 3), 255, dtype=np.uint8)
+    if _V12_PROFILER_HOOK_INSTALLED:
+        return
+
+    # Check if module is already imported
+    if "vllm.v1.worker.cpu_worker" in sys.modules:
+        _do_patch_cpuworker()
+    else:
+        # Install import hook to patch when module is imported
+        sys.meta_path.insert(0, _V12ProfilerImportHook())
+        logger.debug("[zentorch] Installed v12 profiler import hook")
+
+    _V12_PROFILER_HOOK_INSTALLED = True
+
+
+# ---------------------------------------------------------------------------
+# Registration
+# ---------------------------------------------------------------------------
+
+_REGISTERED = False
+
+
+def _register_patches():
+    """Register all patches with the manager (only once)."""
+    global _REGISTERED
+    if _REGISTERED:
+        return
+
+    manager.register("PagedAttention", PagedAttentionPatch)
+    manager.register("IPEXFlashAttention", IPEXFlashAttentionPatch)
+    manager.register("CompilationConfigRepr", CompilationConfigReprPatch)
+    manager.register("OneDNNDisable", OneDNNDisablePatch)
+    manager.register("InternVLDtype", InternVLDtypePatch)
+    manager.register("CPUProfiler", CPUProfilerPatch)
+    manager.register("CPUProfilerV12", CPUProfilerPatchV12)
+    manager.register("CPUProfilerV13", CPUProfilerPatchV13)
+
+    _REGISTERED = True
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+
+_INITIALIZED = False
+
+
+def register() -> Optional[str]:
+    """Entry-point for vllm.platform_plugins and vllm.general_plugins.
+
+    This is called multiple times by vLLM (both entry points). We only
+    apply patches once but always return the platform class path.
     """
-    try:
-        import numpy as np
-        from vllm.multimodal import profiling as profiling_module
+    global _INITIALIZED
 
-        if hasattr(
-            profiling_module.BaseDummyInputsBuilder, "_zentorch_internvl_patched"
-        ):
-            return
+    if "vllm" not in sys.modules:
+        logger.warning("[zentorch] vllm not loaded")
+        return None
 
-        def patched_get_dummy_videos(
-            self,
-            width: int,
-            height: int,
-            num_frames: int,
-            num_videos: int,
-        ):
-            if num_videos == 0:
-                return []
-            video = np.full((num_frames, width, height, 3), 255, dtype=np.uint8)
-            return [video] * num_videos
+    vllm_ver = getattr(sys.modules["vllm"], "__version__", None)
+    family = get_version_family()
 
-        profiling_module.BaseDummyInputsBuilder._get_dummy_videos = (
-            patched_get_dummy_videos
+    if family is None:
+        logger.warning(
+            "[zentorch] Unsupported vLLM %s. Supports: 0.11.x, 0.12.x, 0.13.x",
+            vllm_ver,
         )
-        profiling_module.BaseDummyInputsBuilder._zentorch_internvl_patched = True
+        return None
 
-        logger.info("[zentorch] Patched multimodal profiling for InternVL video dtype")
+    # Only initialize once per process
+    if not _INITIALIZED:
+        logger.info("[zentorch] vLLM %s detected (family: %s)", vllm_ver, family)
 
-    except ImportError:
-        logger.debug("[zentorch] InternVL patch deferred (module not loaded)")
-    except Exception:
-        logger.exception("[zentorch] Failed to apply InternVL video dtype patch")
+        # Register and apply all patches (decorators handle version filtering)
+        _register_patches()
+        manager.apply_all()
+
+        # Apply profiler patches early (before worker creation)
+        # Must be done here in register(), not in check_and_update_config(),
+        # because VllmConfig may be passed from main process (not recreated)
+        _apply_profiler_patch_v12()
+
+        logger.info("[zentorch] Applied patches: %s", manager.applied)
+        _INITIALIZED = True
+
+    return "zentorch.vllm.platform.ZenCPUPlatform"

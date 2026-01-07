@@ -28,11 +28,11 @@ The plugin uses vLLM's platform and general plugin entry points to:
 
 ## Compatibility
 
-| Component | Version |
-|-----------|---------|
-| vLLM | 0.11.0 (exact match required) |
-| Python | 3.10+ |
-| PyTorch | 2.8 (auto-installed by vLLM) |
+| Component | Version | Notes |
+|-----------|---------|-------|
+| vLLM | 0.11.0 - 0.13.0 | Profiler fixes applied per version |
+| Python | 3.10+ | |
+| PyTorch | 2.8/2.9.1+ | Auto-installed by vLLM |
 
 ---
 
@@ -51,12 +51,12 @@ When both vLLM and the `zentorch` package are installed, vLLM automatically dete
 │  ZenCPUPlatform                                             │
 │  ├── Configures torch.compile with inductor backend         │
 │  ├── Injects zentorch.optimize_pass for ZenDNN kernels      │
-│  └── Patches Worker profiler for CPU-only operation         │
+│  └── Patches profiler(version-specific)                     │
 ├─────────────────────────────────────────────────────────────┤
 │  Monkey Patches (applied early)                             │
 │  ├── PagedAttention → zentorch implementation               │
 │  ├── CompilationConfig.__repr__ → Handle custom passes      │
-│  └── _supports_onednn = False → Use zentorch MM instead     │
+│  └── _supports_onednn = False → Use zentorch linear         │
 ├─────────────────────────────────────────────────────────────┤
 │  torch.compile (inductor + zentorch optimize_pass)          │
 │  └── Replaces aten ops with zentorch ops (mm, attention)    │
@@ -70,7 +70,7 @@ This kernel leverages AMD EPYC specific intrinsics and optimizations to accelera
 **ZenCPUPlatform** (`platform.py`)
 - Extends vLLM's `CpuPlatform`
 - Sets `device_name = "cpu"` and `device_type = "cpu"`
-- Configures `CompilationLevel.DYNAMO_ONCE` with inductor backend
+- Configures `CompilationLevel.DYNAMO_ONCE`/`CompilationMode.DYNAMO_TRACE_ONCE` with inductor backend
 - Injects `zentorch._compile_backend.optimize_pass` introducing zentorch operators
 
 **Plugin Entry Points** (`__init__.py`)
@@ -97,9 +97,9 @@ This kernel leverages AMD EPYC specific intrinsics and optimizations to accelera
    ```
 
 2. **Build vLLM from Source**
-   - Follow the official [vLLM Installation Guide](https://docs.vllm.ai/en/v0.11.0/getting_started/installation/cpu.html) for detailed, step-by-step instructions.
+   - Follow the official [vLLM Installation Guide](https://docs.vllm.ai/en/stable/getting_started/installation/cpu.html) for detailed, step-by-step instructions.
    - **Important:** Pre-built vLLM CPU binaries are not available. You must build vLLM from source to enable CPU support.
-   - Ensure you check out the `v0.11.0` release tag before building.
+   - Supported versions: 0.11.x, 0.12.0, 0.13.0. Check out the appropriate release tag before building.
 
 3. **Install zentorch:**
    Refer to the [zentorch Installation Guide](https://github.com/amd/ZenDNN-pytorch-plugin?tab=readme-ov-file#2-installation) for detailed instructions.
@@ -123,11 +123,12 @@ No code changes are required. Once installed, simply run your vLLM inference wor
 
 ```bash
 # ZenDNN settings
-export ZENDNN_TENSOR_POOL_LIMIT=1024
-export ZENDNN_MATMUL_ALGO=FP32:4,BF16:0
-export ZENDNN_PRIMITIVE_CACHE_CAPACITY=1024
-export ZENDNN_WEIGHT_CACHING=1
-
+export TORCHINDUCTOR_FREEZING=0 
+export ZENTORCH_LINEAR=1 
+export USE_ZENDNN_MATMUL_DIRECT=1 
+export USE_ZENDNN_SDPA_MATMUL_DIRECT=1 
+export ZENDNNL_MATMUL_WEIGHT_CACHE=1 
+export ZENDNNL_MATMUL_ALGO=1
 # vLLM CPU settings
 export VLLM_CPU_KVCACHE_SPACE=90  # GB for KV cache
 export VLLM_CPU_OMP_THREADS_BIND=0-95  # CPU cores to use
@@ -183,7 +184,7 @@ vllm bench throughput \
 
 If you don't see "Platform plugin zentorch is activated":
 1. Verify zentorch is installed: `python -c "import zentorch"`
-2. Check vLLM version: `python -c "import vllm; print(vllm.__version__)"` (must be 0.11.0)
+2. Check vLLM version: `python -c "import vllm; print(vllm.__version__)"` (must be 0.11.x - 0.13.0)
 
 ### Stale Compilation Cache
 

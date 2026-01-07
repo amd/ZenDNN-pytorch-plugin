@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2025 Advanced Micro Devices, Inc.
+# Copyright (c) 2025-2026 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -167,9 +167,3 @@ class PagedAttention:
             max_context_len,
             alibi_slopes,
         )
-
-
-logger.info(
-    "[vllm-zentorch] Using fallback Python PagedAttention implementation "
-    "from zentorch_attention.py."
-)
