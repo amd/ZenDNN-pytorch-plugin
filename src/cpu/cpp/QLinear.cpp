@@ -1,13 +1,44 @@
 /******************************************************************************
- * Copyright (c) 2025 Advanced Micro Devices, Inc.
+ * Copyright (c) 2025-2026 Advanced Micro Devices, Inc.
  * All rights reserved.
  ******************************************************************************/
 
 #include "MatmulUtils.hpp"
 #include "Memory.hpp"
 
-namespace zentorch {
 using namespace zendnnl::interface;
+
+namespace zentorch {
+
+at::Tensor quantize_bf16_to_int8(const at::Tensor &input,
+                                 const at::Tensor &input_scales,
+                                 const at::Tensor &input_zero_points,
+                                 const bool input_zero_points_defined) {
+  at::Tensor q_input = at::detail::empty_strided_cpu(
+      input.sizes(), input.strides(),
+      input.options().dtype(
+          input_zero_points_defined ? c10::kByte : c10::kChar)); // For u8 & s8
+
+  zendnnl::lowoha::lowoha_reorder_params_t params;
+  params.dtypes.src = data_type_t::bf16;
+  params.dtypes.dst =
+      input_zero_points_defined ? data_type_t::u8 : data_type_t::s8;
+
+  params.quant_params.scale.buff = input_scales.data_ptr();
+  params.quant_params.scale.dt = data_type_t::f32;
+
+  params.quant_params.zero_point.buff = input_zero_points.data_ptr();
+  params.quant_params.zero_point.dt = data_type_t::s32;
+
+  status_t reorder_operator_status = zendnnl::lowoha::reorder_direct(
+      input.data_ptr(), q_input.data_ptr(), input.numel(), params);
+  ZENTORCH_CHECK(reorder_operator_status == status_t::success,
+                 "bf16 to int8 quantization reorder failed for input tensor "
+                 "with shape [",
+                 input.sizes(), "] and numel=", input.numel());
+
+  return q_input;
+}
 
 void zendnnl_quantized_matmul_impl(
     const at::Tensor &input, const at::Tensor &weight,
@@ -81,14 +112,13 @@ void zendnnl_quantized_matmul_impl(
   at::Tensor q_input;
   tensor_t z_input_scales = tensor_t();
   tensor_opt_ref z_input_scales_opt_ref = std::nullopt;
-  if (input_scales.defined()) {
-    create_zendnnl_tensor(input_scales, z_input_scales, "input_scales");
-    z_input_scales_opt_ref = tensor_opt_ref(std::ref(z_input_scales));
-  }
+  create_zendnnl_tensor(input_scales, z_input_scales, "input_scales");
+  z_input_scales_opt_ref = tensor_opt_ref(std::ref(z_input_scales));
 
   tensor_t z_input_zero_points = tensor_t();
+  const auto input_zero_points_defined = input_zero_points.defined();
   tensor_opt_ref z_input_zero_points_opt_ref = std::nullopt;
-  if (input_zero_points.defined()) {
+  if (input_zero_points_defined) {
     create_zendnnl_tensor(input_zero_points, z_input_zero_points,
                           "input_zero_points");
     z_input_zero_points_opt_ref = tensor_opt_ref(std::ref(z_input_zero_points));
@@ -107,37 +137,39 @@ void zendnnl_quantized_matmul_impl(
     // ZenDNN matmul's quantized kernel only supports u8 & s8 dtype for
     // quantized input & s8 dtype for quantized weight.
 
-    // TODO
-    // As soon as the library supports bf16 to int8 quantization, the following
-    // check will be removed and bf16 input will be supported. Branching based
-    // on the input datatype and respective apis to quantize the input will be
-    // added.
+    // This default zero points is only used with per tensor quantization.
+    const auto default_zero_points = torch::zeros(1, torch::kInt);
 
-    ZENTORCH_CHECK(input.scalar_type() == c10::kFloat,
-                   "unsupported dtype for quantization of input tensor, "
-                   "currently only float32 input tensor can be quantized");
+    // TODO: Based on the previous performance measurements, it was found that
+    // the quantize_per_tensor API is faster than the reorder API from the old
+    // library. Hence, we are using the quantize_per_tensor API for float input.
+    // However, we need to revisit this decision once we have more performance
+    // measurements, with the new library implementation of the reorder API.
 
-    LOG(INFO) << "Using quantize_per_tensor API to quantize float input\n";
-    q_input = at::quantize_per_tensor(
-        input, input_scales,
-        input_zero_points.defined() ? input_zero_points
-                                    : torch::zeros(1).to(torch::kInt),
-        input_zero_points.defined() ? c10::kQUInt8 : c10::kQInt8);
-
-    set_zendnnl_tensor_attributes(
-        q_input, z_q_input, "z_q_input", false /* is_weight_prepacked */,
-        {} /* tensor_sizes */, {} /* tensor_strides */,
-        {} /* tensor_aligned_sizes */, -1 /* nbytes */, z_input_scales_opt_ref,
-        z_input_zero_points_opt_ref);
-    LOG(INFO) << "Created input tensor";
-  } else {
-    set_zendnnl_tensor_attributes(
-        input, z_q_input, "z_q_input", false /* is_weight_prepacked */,
-        {} /* tensor_sizes */, {} /* tensor_strides */,
-        {} /* tensor_aligned_sizes */, -1 /* nbytes */, z_input_scales_opt_ref,
-        z_input_zero_points_opt_ref);
-    LOG(INFO) << "Created input tensor";
+    if (input.scalar_type() == c10::kFloat) {
+      LOG(INFO) << "Using quantize_per_tensor API to quantize float input\n";
+      q_input = at::quantize_per_tensor(
+          input, input_scales,
+          input_zero_points_defined ? input_zero_points : default_zero_points,
+          input_zero_points_defined ? c10::kQUInt8 : c10::kQInt8);
+    } else {
+      // There is only a simple else here, as there is a check already if the
+      // input is quantized or not. If the input is not quantized, then the only
+      // available datatypes from which the tensor can be quantized is float32
+      // and bfloat16.
+      q_input = quantize_bf16_to_int8(
+          input, input_scales,
+          input_zero_points_defined ? input_zero_points : default_zero_points,
+          input_zero_points_defined);
+    }
   }
+
+  set_zendnnl_tensor_attributes(
+      is_input_quantized ? input : q_input, z_q_input, "z_q_input",
+      false /* is_weight_prepacked */, {} /* tensor_sizes */,
+      {} /* tensor_strides */, {} /* tensor_aligned_sizes */, -1 /* nbytes */,
+      z_input_scales_opt_ref, z_input_zero_points_opt_ref);
+  LOG(INFO) << "Created input tensor";
 
   tensor_t z_weight_scales = tensor_t();
   tensor_opt_ref z_weight_scales_opt_ref = std::nullopt;

@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright (c) 2025 Advanced Micro Devices, Inc.
+ * Copyright (c) 2025-2026 Advanced Micro Devices, Inc.
  * All rights reserved.
  ******************************************************************************/
 
@@ -263,11 +263,7 @@ inline void check_valid_dtypes_for_quantized_matmul(
   // fp32 and bf16 inputs are supported by quantizing it to int8(s8) or
   // uint8(u8).
   const bool is_input_fp32 = (input.scalar_type() == c10::kFloat);
-
-  // TODO
-  // Enable bfloat16 input once we have support for bf16 to int8 quantization
-  // ZENAI-1322
-  // const bool is_input_bf16 = (input.scalar_type() == c10::kBFloat16);
+  const bool is_input_bf16 = (input.scalar_type() == c10::kBFloat16);
   // ZenDNN matmul's quantized kernel only supports u8 & s8 dtype for quantized
   // input.
   const bool is_input_u8 = (input.scalar_type() == c10::kByte);
@@ -285,20 +281,13 @@ inline void check_valid_dtypes_for_quantized_matmul(
   const bool is_result_bf16 = (result.scalar_type() == c10::kBFloat16);
 
   const bool is_input_dtype_valid =
-      (is_input_fp32 || is_input_u8 || is_input_s8);
-  // TODO
-  // Enable bfloat16 input once we have support for bf16 to int8 quantization
-  // ZENAI-1322
-  // (is_input_fp32 || is_input_bf16 || is_input_u8 || is_input_s8);
+      (is_input_fp32 || is_input_bf16 || is_input_u8 || is_input_s8);
   const bool is_result_dtype_valid =
       (is_result_fp32 || is_result_bf16 || is_result_u8 || is_result_s8);
 
-  ZENTORCH_CHECK(is_input_dtype_valid, "unsupported dtype for input tensor, "
-                                       "only float32/uint8/int8 is supported");
-  // TODO
-  // Enable bfloat16 input once we have support for bf16 to int8 quantization
-  // ZENAI-1322
-  //  "only float32/bfloat16/uint8/int8 is supported");
+  ZENTORCH_CHECK(is_input_dtype_valid,
+                 "unsupported dtype for input tensor, "
+                 "only float32/bfloat16/uint8/int8 is supported");
 
   ZENTORCH_CHECK(is_weight_s8,
                  "unsupported dtype for weight tensor, only int8 is supported");

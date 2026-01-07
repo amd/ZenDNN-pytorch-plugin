@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2025 Advanced Micro Devices, Inc.
+# Copyright (c) 2025-2026 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -102,11 +102,7 @@ class Test_Qlinear(QLinearTestCase):
             )
         self.assertTrue(
             "unsupported dtype for input tensor, only "
-            "float32/uint8/int8 is supported" in str(context.exception)
-            # TODO
-            # Enable input type to be bfloat16 once we have support for bf16 to int8 quantization
-            # ZENAI-1322
-            # "float32/bfloat16/uint8/int8 is supported" in str(context.exception)
+            "float32/bfloat16/uint8/int8 is supported" in str(context.exception)
         )
 
         with self.assertRaises(RuntimeError) as context:
@@ -480,14 +476,6 @@ class Test_Qlinear(QLinearTestCase):
         q_zero_points_dtype,
         input_dtype,
     ):
-        # TODO
-        # Enable input type to be bfloat16 once we have support for bf16 to int8 quantization
-        # ZENAI-1322
-        if input_dtype == "bfloat16":
-            self.skipTest(
-                "Skipping test, if input dtype is bfloat16, then it is not supported."
-            )
-
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_qlinear(
                 self.data.x_for_qlinear[input_dtype][input_dim],
@@ -530,14 +518,6 @@ class Test_Qlinear(QLinearTestCase):
         input_dtype,
         output_dtype,
     ):
-        # TODO
-        # Enable input type to be bfloat16 once we have support for bf16 to int8 quantization
-        # ZENAI-1322
-        if input_dtype == "bfloat16":
-            self.skipTest(
-                "Skipping test, if input dtype is bfloat16, then it is not supported."
-            )
-
         self.skip_if_does_not_support_arg_combination_for_qlinear(
             bias_opt_idx, input_dtype, output_dtype
         )
@@ -601,14 +581,6 @@ class Test_Qlinear(QLinearTestCase):
         input_dtype,
         output_dtype,
     ):
-        # TODO
-        # Enable input type to be bfloat16 once we have support for bf16 to int8 quantization
-        # ZENAI-1322
-        if input_dtype == "bfloat16":
-            self.skipTest(
-                "Skipping test, if input dtype is bfloat16, then it is not supported."
-            )
-
         self.skip_if_does_not_support_arg_combination_for_qlinear(
             bias_opt_idx, input_dtype, output_dtype
         )

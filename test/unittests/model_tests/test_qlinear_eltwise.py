@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2025 Advanced Micro Devices, Inc.
+# Copyright (c) 2025-2026 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -87,14 +87,6 @@ class Test_Qlinear_Eltwise_Model(QLinearTestCase):
         eltwise_op,
         output_dtype,
     ):
-        # TODO
-        # Enable input type to be bfloat16 once we have support for bf16 to int8 quantization
-        # ZENAI-1322
-        if input_dtype == "bfloat16":
-            self.skipTest(
-                "Skipping test, if input dtype is bfloat16, then it is not supported."
-            )
-
         if (
             self.data.bias_for_qlinear[bias_opt_idx] is not None
             and input_dtype in ("float32", "bfloat16")
