@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
+# Copyright (c) 2025-2026 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -34,11 +34,12 @@ class Custom_Model_Baddbmm(nn.Module):
 
 
 class Custom_Model_Baddbmm_Unsupport(nn.Module):
-    def __init__(self):
+    def __init__(self, batch2):
         super(Custom_Model_Baddbmm_Unsupport, self).__init__()
+        self.batch2 = nn.Parameter(batch2)
 
-    def forward(self, input, batch1, batch2):
-        bmm_res = torch.bmm(batch1, batch2)
+    def forward(self, input, batch1):
+        bmm_res = torch.bmm(batch1, self.batch2)
         add_res = torch.add(bmm_res, input)
         return add_res
 
@@ -74,13 +75,13 @@ class Test_Baddbmm_Model(AddmmTestCase):
     @torch.inference_mode()
     def test_baddbmm_unsupport_model(self, dtype, freeze_opt):
         self.skip_if_bfloat16_path_issue(dtype)
-        model = Custom_Model_Baddbmm_Unsupport().eval()
-        model_output = model(self.data.M3, self.data.x2[0], self.data.y2[0])
+        model = Custom_Model_Baddbmm_Unsupport(self.data.y2[0]).eval()
+        model_output = model(self.data.M3, self.data.x2[0])
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
         compiled_graph_output = test_with_freeze_opt(
             compiled_graph,
-            (self.data.M3, self.data.x2[0], self.data.y2[0]),
+            (self.data.M3, self.data.x2[0]),
             freeze_opt
         )
         self.assertEqual(model_output, compiled_graph_output, atol=1e-5, rtol=1e-3)

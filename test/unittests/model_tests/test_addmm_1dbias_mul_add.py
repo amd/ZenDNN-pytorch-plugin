@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2025 Advanced Micro Devices, Inc.
+# Copyright (c) 2026 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -41,11 +41,13 @@ class Custom_Model_Addmm_1dbias_View_Mul_Add(nn.Module):
 
 
 class Custom_Model_Addmm_1dbias_Alpha_Beta_View_Mul_Add(nn.Module):
-    def __init__(self):
+    def __init__(self, bias, mat2):
         super(Custom_Model_Addmm_1dbias_Alpha_Beta_View_Mul_Add, self).__init__()
+        self.bias = nn.Parameter(bias)
+        self.weight = nn.Parameter(mat2)
 
-    def forward(self, mat1, mat2, bias, new_shape, add_input):
-        addmm_result = torch.addmm(bias, mat1, mat2, alpha=1, beta=1.2)
+    def forward(self, mat1, new_shape, add_input):
+        addmm_result = torch.addmm(self.bias, mat1, self.weight, alpha=1, beta=1.2)
         view_result = addmm_result.view(*new_shape)
         mul_result = view_result * add_input
         final_result = mul_result + add_input
@@ -103,9 +105,9 @@ class Test_Addmm_1dbias_Mul_Add_Model(AddmmTestCase):
         mat1 = self.data.x
         add_input = torch.randn(*new_shape, dtype=test_dtype)
 
-        model = Custom_Model_Addmm_1dbias_Alpha_Beta_View_Mul_Add().eval()
+        model = Custom_Model_Addmm_1dbias_Alpha_Beta_View_Mul_Add(bias, mat2).eval()
         zentorch_model = copy.deepcopy(model)
-        model_output = model(mat1, mat2, bias, new_shape, add_input)
+        model_output = model(mat1, new_shape, add_input)
         reset_dynamo()
         compiled_model = torch.compile(zentorch_model, backend="zentorch")
         counters.clear()
@@ -113,7 +115,7 @@ class Test_Addmm_1dbias_Mul_Add_Model(AddmmTestCase):
             counters["zentorch"]["pattern_matcher_addmm_1dbias_mul_add"], 0
         )
         compiled_graph_output = test_with_freeze_opt(
-            compiled_model, (mat1, mat2, bias, new_shape, add_input), freeze_opt
+            compiled_model, (mat1, new_shape, add_input), freeze_opt
         )
         self.assertEqual(
             counters["zentorch"]["pattern_matcher_addmm_1dbias_mul_add"], 1

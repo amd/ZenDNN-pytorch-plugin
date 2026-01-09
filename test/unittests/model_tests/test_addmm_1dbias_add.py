@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
+# Copyright (c) 2025-2026 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -41,11 +41,13 @@ class Custom_Model_Addmm_1dbias_View_Add(nn.Module):
 
 
 class Custom_Model_Addmm_1dbias_Alpha_Beta_View_Add(nn.Module):
-    def __init__(self):
+    def __init__(self, bias, weight):
         super(Custom_Model_Addmm_1dbias_Alpha_Beta_View_Add, self).__init__()
+        self.bias = nn.Parameter(bias)
+        self.weight = nn.Parameter(weight)
 
-    def forward(self, mat1, mat2, bias, new_shape, add_input):
-        addmm_result = torch.addmm(bias, mat1, mat2, alpha=1, beta=1.2)
+    def forward(self, mat1, new_shape, add_input):
+        addmm_result = torch.addmm(self.bias, mat1, self.weight, alpha=1, beta=1.2)
         view_result = addmm_result.view(*new_shape)
         input_view_result = add_input.view(*new_shape)
         final_result = view_result + input_view_result
@@ -79,11 +81,13 @@ class Custom_Model_Addmm_1dbias_View_Add_Add(nn.Module):
 
 
 class Custom_Model_Addmm_1dbias_Alpha_Beta_View_Add_Add(nn.Module):
-    def __init__(self):
+    def __init__(self, bias, weight):
         super(Custom_Model_Addmm_1dbias_Alpha_Beta_View_Add_Add, self).__init__()
+        self.bias = nn.Parameter(bias)
+        self.weight = nn.Parameter(weight)
 
-    def forward(self, mat1, mat2, bias, new_shape, add_input):
-        addmm_result = torch.addmm(bias, mat1, mat2, alpha=1, beta=1.2)
+    def forward(self, mat1, new_shape, add_input):
+        addmm_result = torch.addmm(self.bias, mat1, self.weight, alpha=1, beta=1.2)
         view_result = addmm_result.view(*new_shape)
         add_result = view_result + add_input
         final_result = add_result + add_input
@@ -146,9 +150,9 @@ class Test_Addmm_1dbias_Add_Model(AddmmTestCase):
         mat1 = self.data.x
         add_input = self.data.input
 
-        model = Custom_Model_Addmm_1dbias_Alpha_Beta_View_Add().eval()
+        model = Custom_Model_Addmm_1dbias_Alpha_Beta_View_Add(bias, mat2).eval()
         zentorch_model = copy.deepcopy(model)
-        model_output = model(mat1, mat2, bias, new_shape, add_input)
+        model_output = model(mat1, new_shape, add_input)
         reset_dynamo()
         compiled_graph = torch.compile(zentorch_model, backend="zentorch")
         counters.clear()
@@ -157,8 +161,6 @@ class Test_Addmm_1dbias_Add_Model(AddmmTestCase):
             compiled_graph,
             (
                 mat1,
-                mat2,
-                bias,
                 new_shape,
                 add_input
             ),
@@ -273,9 +275,9 @@ class Test_Addmm_1dbias_Add_Model(AddmmTestCase):
         mat1 = self.data.x
         add_input = torch.randn(*new_shape, dtype=test_dtype)
 
-        model = Custom_Model_Addmm_1dbias_Alpha_Beta_View_Add_Add().eval()
+        model = Custom_Model_Addmm_1dbias_Alpha_Beta_View_Add_Add(bias, mat2).eval()
         zentorch_model = copy.deepcopy(model)
-        model_output = model(mat1, mat2, bias, new_shape, add_input)
+        model_output = model(mat1, new_shape, add_input)
         reset_dynamo()
         compiled_graph = torch.compile(zentorch_model, backend="zentorch")
         counters.clear()
@@ -286,8 +288,6 @@ class Test_Addmm_1dbias_Add_Model(AddmmTestCase):
             compiled_graph,
             (
                 mat1,
-                mat2,
-                bias,
                 new_shape,
                 add_input
             ),

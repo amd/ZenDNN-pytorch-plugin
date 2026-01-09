@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
+# Copyright (c) 2025-2026 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 import unittest
@@ -38,13 +38,16 @@ class Custom_Model_Addmm_1dbias_SiLU_Mul(nn.Module):
 
 
 class Custom_Model_Addmm_1dbias_Alpha_Beta_SiLU_Mul(nn.Module):
-    def __init__(self):
+    def __init__(self, bias, weight, mul_tensor):
         super(Custom_Model_Addmm_1dbias_Alpha_Beta_SiLU_Mul, self).__init__()
         self.silu = torch.nn.SiLU()
+        self.bias = nn.Parameter(bias)
+        self.weight = nn.Parameter(weight)
+        self.mul_tensor = nn.Parameter(mul_tensor)
 
-    def forward(self, mat1, mat2, bias, mul_tensor):
-        addmm_silu = self.silu(torch.addmm(bias, mat1, mat2, alpha=1.1, beta=1.8))
-        return addmm_silu * mul_tensor
+    def forward(self, mat1):
+        addmm_silu = self.silu(torch.addmm(self.bias, mat1, self.weight, alpha=1.1, beta=1.8))
+        return addmm_silu * self.mul_tensor
 
 
 @unittest.skipIf(skip_test_pt_2_1, "Pattern matcher disabled for Torch < 2.2")
@@ -95,13 +98,14 @@ class Test_Pattern_Matcher_Test_With_Different_Dtypes_Model(AddmmTestCase):
         freeze_opt
     ):
         reset_dynamo()
-        model = Custom_Model_Addmm_1dbias_Alpha_Beta_SiLU_Mul()
         self.data.create_unittest_data("float32")
 
         mat1_tensor = self.data.x
         mat2_tensor = self.data.y
         bias_tensor = self.data.input1d
         mul_tensor = self.data.input
+
+        model = Custom_Model_Addmm_1dbias_Alpha_Beta_SiLU_Mul(bias_tensor, mat2_tensor, mul_tensor)
 
         counters.clear()
         self.assertEqual(
@@ -112,7 +116,7 @@ class Test_Pattern_Matcher_Test_With_Different_Dtypes_Model(AddmmTestCase):
         compiled_model = torch.compile(zentorch_model, backend="zentorch")
         _ = test_with_freeze_opt(
             compiled_model,
-            (mat1_tensor, mat2_tensor, bias_tensor, mul_tensor),
+            (mat1_tensor,),
             freeze_opt
         )
         self.assertEqual(
