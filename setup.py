@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2023-2025 Advanced Micro Devices, Inc.
+# Copyright (c) 2023-2026 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -32,10 +32,8 @@ class CustomBuildExtension(BuildExtension):
         """
         Invoke the CMAKE compilation commands.
         """
-        # Env variables set to copy ZenDNN/BLIS from local
+        # Env variables set to copy ZenDNN from local
         # if variables not set: then use default values
-        if "ZENTORCH_USE_LOCAL_BLIS" not in os.environ:
-            os.environ["ZENTORCH_USE_LOCAL_BLIS"] = "0"
         if "ZENTORCH_USE_LOCAL_ZENDNN" not in os.environ:
             os.environ["ZENTORCH_USE_LOCAL_ZENDNN"] = "0"
 

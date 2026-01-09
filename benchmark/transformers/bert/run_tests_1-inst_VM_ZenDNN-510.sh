@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2025 Advanced Micro Devices, Inc.
+# Copyright (c) 2025-2026 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 PLATFORM=$1
@@ -106,7 +106,6 @@ for NOF_INSTANCES in ${LST_NOF_INSTANCES[@]}; do
                 echo -n "${GLOBAL_INDEX} ${NOF_INSTANCES} ${DATA_TYPE} ${SEQUENCE_LENGTH} ${ENV_OMP_NUM_THREADS} " >> $RES_FILE
 
                 CMD="OMP_NUM_THREADS=${ENV_OMP_NUM_THREADS} OMP_WAIT_POLICY=ACTIVE OMP_DYNAMIC=FALSE \
-                     USE_ZENDNN_SDPA_MATMUL_DIRECT=1 \
                      KMP_BLOCKTIME=1 KMP_TPAUSE=0 KMP_FORKJOIN_BARRIER_PATTERN=dist,dist \
                      KMP_PLAIN_BARRIER_PATTERN=dist,dist KMP_REDUCTION_BARRIER_PATTERN=dist,dist \
                      KMP_AFFINITY=granularity=fine,compact,1,0 \

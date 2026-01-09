@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright (c) 2025 Advanced Micro Devices, Inc.
+ * Copyright (c) 2025-2026 Advanced Micro Devices, Inc.
  * All rights reserved.
  ******************************************************************************/
 
@@ -39,9 +39,8 @@ private:
   EnvReader() {}
 
   void initializeVariables() {
-    storeEnvVariable("USE_ZENDNN_MATMUL_DIRECT", 0);
-    storeEnvVariable("USE_ZENDNN_SDPA_MATMUL_DIRECT", 0);
-    storeEnvVariable("ZENDNN_ZENDNNL", 1); // ZenDNNL is used by default
+    storeEnvVariable("USE_ZENDNN_MATMUL_DIRECT",
+                     1); // LOA is default for Matmul
   }
 
   // Function to convert and store environment variable value as integer
@@ -53,7 +52,8 @@ private:
       try {
         int env_value_int = std::stoi(env_value);
         if (env_value_int != 0 && env_value_int != 1) {
-          LOG(WARNING) << "Environment value of: " << "'" << varName_view << "'"
+          LOG(WARNING) << "Environment value of: "
+                       << "'" << varName_view << "'"
                        << " is not one of allowed values (0 or 1). Execution "
                        << "will use the default value of " << default_value
                        << "\n";

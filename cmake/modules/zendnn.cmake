@@ -1,5 +1,5 @@
 #******************************************************************************
-# Copyright (c) 2025 Advanced Micro Devices, Inc.
+# Copyright (c) 2025-2026 Advanced Micro Devices, Inc.
 # All rights reserved.
 #******************************************************************************
 
@@ -12,14 +12,6 @@ string(REGEX REPLACE "-D_GLIBCXX_USE_CXX11_ABI=" "" TEMP_ABI "${TEMP_ABI_DEFINE}
 
 if(NOT DEFINED _GLIBCXX_USE_CXX11_ABI)
   set(_GLIBCXX_USE_CXX11_ABI ${TEMP_ABI})
-endif()
-
-if(DEFINED ENV{ZENTORCH_USE_LOCAL_BLIS} AND "$ENV{ZENTORCH_USE_LOCAL_BLIS}" EQUAL 1)
-    if(EXISTS ${PLUGIN_PARENT_DIR}/blis)
-       set(AMDBLIS_LOCAL_SOURCE ${PLUGIN_PARENT_DIR}/blis)
-    else()
-       message(FATAL_ERROR "Directory ${PLUGIN_PARENT_DIR}/blis doesn't exist")
-    endif()
 endif()
 
 if(DEFINED ENV{ZENTORCH_USE_LOCAL_ZENDNN} AND "$ENV{ZENTORCH_USE_LOCAL_ZENDNN}" EQUAL 0)

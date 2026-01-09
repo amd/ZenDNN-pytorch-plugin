@@ -122,12 +122,10 @@ No code changes are required. Once installed, simply run your vLLM inference wor
 ### Environment Variables
 
 ```bash
-# ZenDNN settings
-export TORCHINDUCTOR_FREEZING=0 
-export ZENTORCH_LINEAR=1 
-export USE_ZENDNN_MATMUL_DIRECT=1 
-export USE_ZENDNN_SDPA_MATMUL_DIRECT=1 
-export ZENDNNL_MATMUL_WEIGHT_CACHE=1 
+# ZenDNN settings (USE_ZENDNN_MATMUL_DIRECT=1 is now the default)
+export TORCHINDUCTOR_FREEZING=0
+export ZENTORCH_LINEAR=1
+export ZENDNNL_MATMUL_WEIGHT_CACHE=1
 export ZENDNNL_MATMUL_ALGO=1
 # vLLM CPU settings
 export VLLM_CPU_KVCACHE_SPACE=90  # GB for KV cache

@@ -1,16 +1,15 @@
 # ******************************************************************************
-# Copyright (c) 2025 Advanced Micro Devices, Inc.
+# Copyright (c) 2025-2026 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
 import math
-import os
 import random
 from typing import Tuple
 
 import torch
 
-from llm_utils import Zentorch_TestCase, run_tests, set_seed
+from .llm_utils import Zentorch_TestCase, run_tests, set_seed
 from zentorch.vllm.attention import PagedAttention
 
 
@@ -287,17 +286,10 @@ class TestFlashAttnVarLen(Zentorch_TestCase):
             },
         ]
 
-        # Test both GEMM paths: matmul_direct (1) and tensor-based (0)
-        env_values = [
-            ("zendnn_matmul_direct", "1"),
-            ("zendnn_matmul_tensor", "0"),
-        ]
-
-        for path_name, env_val in env_values:
-            os.environ["USE_ZENDNN_SDPA_MATMUL_DIRECT"] = env_val
-            for cfg in configs:
-                with self.subTest(gemm_path=path_name, cfg=cfg):
-                    self._run_flash_attn_varlen_case(**cfg)
+        # Test using LOA matmul_direct (now the default)
+        for cfg in configs:
+            with self.subTest(cfg=cfg):
+                self._run_flash_attn_varlen_case(**cfg)
 
 
 if __name__ == "__main__":
