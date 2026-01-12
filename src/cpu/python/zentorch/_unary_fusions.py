@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2025 Advanced Micro Devices, Inc.
+# Copyright (c) 2025-2026 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -20,7 +20,11 @@ from torch._inductor.pattern_matcher import (
 )
 from torch.fx.graph import Graph
 
-from torch._inductor.fx_passes.mkldnn_fusion import _gelu_fusion_1, _gelu_fusion_2, _silu_fusion
+from torch._inductor.fx_passes.mkldnn_fusion import (
+    _gelu_fusion_1,
+    _gelu_fusion_2,
+    _silu_fusion,
+)
 
 
 pass_pattern = PatternMatcherPass()
@@ -69,6 +73,7 @@ def create_linear_compute_fn(bias: bool = False, users: int = 1) -> CallFunction
         *linear_args,
         is_weight_prepacked=KeywordArg("is_weight_prepacked"),
         _users=users,
+        zentorch_op_name=KeywordArg("zentorch_op_name"),
     )
 
 
@@ -133,10 +138,17 @@ def register_patterns(
             pattern, pass_dict=pass_pattern, extra_check=extra_check
         )
         def replacement_fn(
-            match: Match, mat_1: Any, mat_2: Any, bias: Any, *, is_weight_prepacked: Any, approximate: Any = None
+            match: Match,
+            mat_1: Any,
+            mat_2: Any,
+            bias: Any,
+            *,
+            is_weight_prepacked: Any,
+            zentorch_op_name: Any,
+            approximate: Any = None
         ) -> None:
             def repl(
-                mat_1: Any, mat_2: Any, bias: Any, is_weight_prepacked: Any
+                mat_1: Any, mat_2: Any, bias: Any, is_weight_prepacked: Any, zentorch_op_name: Any
             ) -> torch.Tensor:
                 counters["zentorch"]["zentorch_linear_" + post_op_name] += 1
                 return zentorch.zentorch_linear_unary(
@@ -145,27 +157,44 @@ def register_patterns(
                     bias,
                     is_weight_prepacked=is_weight_prepacked,
                     post_op=post_op_name,
+                    zentorch_op_name=(
+                        "zentorch::zentorch_linear_" + post_op_name
+                        if post_op_name != "none"
+                        else zentorch_op_name
+                    ),
                 )
 
-            match.replace_by_example(repl, [mat_1, mat_2, bias, is_weight_prepacked])
+            match.replace_by_example(repl, [mat_1, mat_2, bias, is_weight_prepacked, zentorch_op_name])
+
     else:
 
         @register_graph_pattern(
             pattern, pass_dict=pass_pattern, extra_check=extra_check
         )
         def replacement_fn(
-            match: Match, mat_1: Any, mat_2: Any, *, is_weight_prepacked: Any, approximate: Any = None
+            match: Match,
+            mat_1: Any,
+            mat_2: Any,
+            *,
+            is_weight_prepacked: Any,
+            zentorch_op_name: Any,
+            approximate: Any = None
         ) -> None:
-            def repl(mat_1: Any, mat_2: Any, is_weight_prepacked: Any) -> torch.Tensor:
+            def repl(mat_1: Any, mat_2: Any, is_weight_prepacked: Any, zentorch_op_name: Any) -> torch.Tensor:
                 counters["zentorch"]["zentorch_linear_" + post_op_name] += 1
                 return zentorch.zentorch_linear_unary(
                     mat_1,
                     mat_2,
                     is_weight_prepacked=is_weight_prepacked,
                     post_op=post_op_name,
+                    zentorch_op_name=(
+                        zentorch_op_name + "_" + post_op_name
+                        if post_op_name != "none"
+                        else zentorch_op_name
+                    ),
                 )
 
-            match.replace_by_example(repl, [mat_1, mat_2, is_weight_prepacked])
+            match.replace_by_example(repl, [mat_1, mat_2, is_weight_prepacked, zentorch_op_name])
 
 
 # create a map to pass to unary_fusions_generator
@@ -222,7 +251,9 @@ def zentorch_unary_post_op_fusions(fx_graph: Graph) -> Graph:
         subsystem="zentorch_unary_post_op_fusions",
     )
     if config.pattern_matcher:
-        GraphTransformObserver(fx_graph, "pass_pattern").apply_gm_pass(pass_pattern.apply)
+        GraphTransformObserver(fx_graph, "pass_pattern").apply_gm_pass(
+            pass_pattern.apply
+        )
     stable_topological_sort(fx_graph)
     fx_graph.lint()
     return fx_graph

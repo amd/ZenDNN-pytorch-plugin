@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2025 Advanced Micro Devices, Inc.
+# Copyright (c) 2025-2026 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -123,6 +123,7 @@ def register_binary_binary_patterns(
                     arg_4: Any,
                     *,
                     is_weight_prepacked: Any,
+                    zentorch_op_name: Any,
                 ) -> None:
                     def repl(
                         arg_0: Any,
@@ -131,6 +132,7 @@ def register_binary_binary_patterns(
                         arg_3: Any,
                         arg_4: Any,
                         is_weight_prepacked: Any,
+                        zentorch_op_name: Any,
                     ) -> torch.Tensor:
                         counters["zentorch"][
                             "zentorch_linear_" + binary_name_1 + "_" + binary_name_2
@@ -145,6 +147,7 @@ def register_binary_binary_patterns(
                                 is_weight_prepacked=is_weight_prepacked,
                                 post_op_1=binary_name_1,
                                 post_op_2=binary_name_2,
+                                zentorch_op_name=zentorch_op_name + "_" + binary_name_1 + "_" + binary_name_2,
                             )
                         elif idx == 1:
                             return zentorch.zentorch_linear_binary_binary(
@@ -156,6 +159,7 @@ def register_binary_binary_patterns(
                                 is_weight_prepacked=is_weight_prepacked,
                                 post_op_1=binary_name_1,
                                 post_op_2=binary_name_2,
+                                zentorch_op_name=zentorch_op_name + "_" + binary_name_1 + "_" + binary_name_2,
                             )
                         elif idx == 2:
                             return zentorch.zentorch_linear_binary_binary(
@@ -167,6 +171,7 @@ def register_binary_binary_patterns(
                                 is_weight_prepacked=is_weight_prepacked,
                                 post_op_1=binary_name_1,
                                 post_op_2=binary_name_2,
+                                zentorch_op_name=zentorch_op_name + "_" + binary_name_1 + "_" + binary_name_2,
                             )
                         else:
                             return zentorch.zentorch_linear_binary_binary(
@@ -178,10 +183,11 @@ def register_binary_binary_patterns(
                                 is_weight_prepacked=is_weight_prepacked,
                                 post_op_1=binary_name_1,
                                 post_op_2=binary_name_2,
+                                zentorch_op_name=zentorch_op_name + "_" + binary_name_1 + "_" + binary_name_2,
                             )
 
                     match.replace_by_example(
-                        repl, [arg_0, arg_1, arg_2, arg_3, arg_4, is_weight_prepacked]
+                        repl, [arg_0, arg_1, arg_2, arg_3, arg_4, is_weight_prepacked, zentorch_op_name]
                     )
 
                 replacement_fn.__name__ = (
@@ -198,6 +204,7 @@ def register_binary_binary_patterns(
                     arg_3: Any,
                     *,
                     is_weight_prepacked: Any,
+                    zentorch_op_name: Any,
                 ) -> None:
                     def repl(
                         arg_0: Any,
@@ -205,6 +212,7 @@ def register_binary_binary_patterns(
                         arg_2: Any,
                         arg_3: Any,
                         is_weight_prepacked: Any,
+                        zentorch_op_name: Any,
                     ) -> torch.Tensor:
                         counters["zentorch"][
                             "zentorch_linear_" + binary_name_1 + "_" + binary_name_2
@@ -218,6 +226,7 @@ def register_binary_binary_patterns(
                                 is_weight_prepacked=is_weight_prepacked,
                                 post_op_1=binary_name_1,
                                 post_op_2=binary_name_2,
+                                zentorch_op_name=zentorch_op_name + "_" + binary_name_1 + "_" + binary_name_2,
                             )
                         elif idx == 1:
                             return zentorch.zentorch_linear_binary_binary(
@@ -228,6 +237,7 @@ def register_binary_binary_patterns(
                                 is_weight_prepacked=is_weight_prepacked,
                                 post_op_1=binary_name_1,
                                 post_op_2=binary_name_2,
+                                zentorch_op_name=zentorch_op_name + "_" + binary_name_1 + "_" + binary_name_2,
                             )
                         elif idx == 2:
                             return zentorch.zentorch_linear_binary_binary(
@@ -238,6 +248,7 @@ def register_binary_binary_patterns(
                                 is_weight_prepacked=is_weight_prepacked,
                                 post_op_1=binary_name_1,
                                 post_op_2=binary_name_2,
+                                zentorch_op_name=zentorch_op_name + "_" + binary_name_1 + "_" + binary_name_2,
                             )
                         else:
                             return zentorch.zentorch_linear_binary_binary(
@@ -248,10 +259,11 @@ def register_binary_binary_patterns(
                                 is_weight_prepacked=is_weight_prepacked,
                                 post_op_1=binary_name_1,
                                 post_op_2=binary_name_2,
+                                zentorch_op_name=zentorch_op_name + "_" + binary_name_1 + "_" + binary_name_2,
                             )
 
                     match.replace_by_example(
-                        repl, [arg_0, arg_1, arg_2, arg_3, is_weight_prepacked]
+                        repl, [arg_0, arg_1, arg_2, arg_3, is_weight_prepacked, zentorch_op_name]
                     )
 
                 replacement_fn.__name__ = (

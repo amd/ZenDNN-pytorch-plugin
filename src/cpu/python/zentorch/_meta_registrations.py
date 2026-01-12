@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2023-2025 Advanced Micro Devices, Inc.
+# Copyright (c) 2023-2026 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -144,7 +144,7 @@ def meta_zentorch_addmm_gelu_erf(
 
 @register_meta("zentorch_linear_unary")
 def meta_zentorch_linear_unary(
-    input, weight, bias=None, is_weight_prepacked=False, post_op="none"
+    input, weight, bias=None, is_weight_prepacked=False, post_op="none", zentorch_op_name="zentorch::zentorch_linear_unary"
 ):
     out_dim = list(input.size())
     out_dim[-1] = weight.size(0)
@@ -161,6 +161,7 @@ def meta_zendnn_linear_binary_binary(
     is_weight_prepacked=False,
     post_op_1="none",
     post_op_2="none",
+    zentorch_op_name="zentorch::zentorch_linear_binary_binary",
 ):
     return binary_input_2.new_empty(binary_input_2.shape)
 
@@ -174,6 +175,7 @@ def meta_zendnn_linear_unary_binary(
     is_weight_prepacked=False,
     post_op_1="none",
     post_op_2="none",
+    zentorch_op_name="zentorch::zentorch_linear_unary_binary",
 ):
     return binary_input.new_empty(binary_input.shape)
 

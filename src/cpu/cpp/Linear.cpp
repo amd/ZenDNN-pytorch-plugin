@@ -1,10 +1,11 @@
 /*****************************************************************************
- * Copyright (c) 2023-2025 Advanced Micro Devices, Inc.
+ * Copyright (c) 2025-2026 Advanced Micro Devices, Inc.
  * All rights reserved.
  ******************************************************************************/
 
 #include "MatmulUtils.hpp"
 #include "Ops.hpp"
+#include <ATen/record_function.h>
 
 namespace zentorch {
 inline void zentorch_linear_impl(
@@ -45,6 +46,7 @@ at::Tensor zentorch_linear_unary(const at::Tensor &input,
                                  bool is_weight_prepacked,
                                  std::string_view post_op,
                                  std::string zentorch_op_name) {
+  RECORD_FUNCTION(zentorch_op_name, std::vector<c10::IValue>({input, weight}));
   c10::MaybeOwned<at::Tensor> bias_maybe_owned =
       at::borrow_from_optional_tensor(bias);
   const at::Tensor &bias_t = *bias_maybe_owned;
@@ -66,6 +68,7 @@ at::Tensor zentorch_linear_unary_binary(
     const at::Tensor &binary_input, const std::optional<at::Tensor> &bias,
     bool is_weight_prepacked, std::string_view post_op_1,
     std::string_view post_op_2, std::string zentorch_op_name) {
+  RECORD_FUNCTION(zentorch_op_name, std::vector<c10::IValue>({input, weight}));
   c10::MaybeOwned<at::Tensor> bias_maybe_owned =
       at::borrow_from_optional_tensor(bias);
   const at::Tensor &bias_t = *bias_maybe_owned;
@@ -89,6 +92,7 @@ at::Tensor zentorch_linear_binary_binary(
     const std::optional<at::Tensor> &bias, bool is_weight_prepacked,
     std::string_view post_op_1, std::string_view post_op_2,
     std::string zentorch_op_name) {
+  RECORD_FUNCTION(zentorch_op_name, std::vector<c10::IValue>({input, weight}));
   c10::MaybeOwned<at::Tensor> bias_maybe_owned =
       at::borrow_from_optional_tensor(bias);
   const at::Tensor &bias_t = *bias_maybe_owned;

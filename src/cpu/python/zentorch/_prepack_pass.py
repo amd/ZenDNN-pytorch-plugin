@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2025 Advanced Micro Devices, Inc.
+# Copyright (c) 2025-2026 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -31,20 +31,28 @@ zentorch = torch.ops.zentorch
         zentorch.zentorch_linear_unary,
         Arg(),
         Arg(),
+        Arg(),
+        Arg(),
+        Arg(),
     ),
     pass_dict=pass_pattern,
 )
 def zentorch_weight_prepack_for_linear_replacement_without_bias(
-    match: Match, mat_1: Any, mat_2: Any
+    match: Match, mat_1: Any, mat_2: Any, is_weight_prepacked: Any, post_op: Any, zentorch_op_name: Any
 ) -> None:
-    def repl(mat_1: Any, mat_2: Any) -> torch.Tensor:
+
+    def repl(mat_1: Any, mat_2: Any, is_weight_prepacked: Any, post_op: Any, zentorch_op_name: Any) -> torch.Tensor:
         counters["zentorch"]["zentorch_weight_prepack_for_linear"] += 1
         mat_2_prepacked = zentorch.zentorch_weight_prepack_for_linear(mat_2)
         return zentorch.zentorch_linear_unary(
-            mat_1, mat_2_prepacked, is_weight_prepacked=True
+            mat_1,
+            mat_2_prepacked,
+            is_weight_prepacked=is_weight_prepacked,
+            post_op=post_op,
+            zentorch_op_name=zentorch_op_name,
         )
 
-    match.replace_by_example(repl, [mat_1, mat_2])
+    match.replace_by_example(repl, [mat_1, mat_2, is_weight_prepacked, post_op, zentorch_op_name])
 
 
 @register_graph_pattern(
@@ -53,20 +61,29 @@ def zentorch_weight_prepack_for_linear_replacement_without_bias(
         Arg(),
         Arg(),
         Arg(),
+        Arg(),
+        Arg(),
+        Arg(),
     ),
     pass_dict=pass_pattern,
 )
 def zentorch_weight_prepack_for_linear_replacement_with_bias(
-    match: Match, mat_1: Any, mat_2: Any, bias: Any
+    match: Match, mat_1: Any, mat_2: Any, bias: Any, is_weight_prepacked: Any, post_op: Any, zentorch_op_name: Any
 ) -> None:
-    def repl(mat_1: Any, mat_2: Any, bias: Any) -> torch.Tensor:
+
+    def repl(mat_1: Any, mat_2: Any, bias: Any, is_weight_prepacked: Any, post_op: Any, zentorch_op_name: Any) -> torch.Tensor:
         counters["zentorch"]["zentorch_weight_prepack_for_linear"] += 1
         mat_2_prepacked = zentorch.zentorch_weight_prepack_for_linear(mat_2)
         return zentorch.zentorch_linear_unary(
-            mat_1, mat_2_prepacked, bias, is_weight_prepacked=True
-        )
+            mat_1,
+            mat_2_prepacked,
+            bias,
+            is_weight_prepacked=is_weight_prepacked,
+            post_op=post_op,
+            zentorch_op_name=zentorch_op_name,
+        ).is_weight_prepacked(is_weight_prepacked)
 
-    match.replace_by_example(repl, [mat_1, mat_2, bias])
+    match.replace_by_example(repl, [mat_1, mat_2, bias, is_weight_prepacked, post_op, zentorch_op_name])
 
 
 def add_zentorch_weight_prepack_ops(fx_graph: Graph) -> Graph:

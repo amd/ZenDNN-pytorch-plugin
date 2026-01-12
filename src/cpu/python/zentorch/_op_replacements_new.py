@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2025 Advanced Micro Devices, Inc.
+# Copyright (c) 2025-2026 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -40,7 +40,14 @@ zentorch = torch.ops.zentorch
 def linear_replacement(match: Match, mat_1: Any, mat_2: Any, bias: Any) -> None:
     def repl(mat_1: Any, mat_2: Any, bias: Any) -> torch.Tensor:
         counters["zentorch"]["zentorch_linear"] += 1
-        return zentorch.zentorch_linear_unary(mat_1, mat_2, bias)
+        return zentorch.zentorch_linear_unary(
+            mat_1,
+            mat_2,
+            bias,
+            is_weight_prepacked=False,
+            post_op="none",
+            zentorch_op_name="zentorch::zentorch_linear",
+        )
 
     match.replace_by_example(repl, [mat_1, mat_2, bias])
 
@@ -56,7 +63,13 @@ def linear_replacement(match: Match, mat_1: Any, mat_2: Any, bias: Any) -> None:
 def linear_replacement_no_bias(match: Match, mat_1: Any, mat_2: Any) -> None:
     def repl(mat_1: Any, mat_2: Any) -> torch.Tensor:
         counters["zentorch"]["zentorch_linear"] += 1
-        return zentorch.zentorch_linear_unary(mat_1, mat_2)
+        return zentorch.zentorch_linear_unary(
+            mat_1,
+            mat_2,
+            is_weight_prepacked=False,
+            post_op="none",
+            zentorch_op_name="zentorch::zentorch_linear",
+        )
 
     match.replace_by_example(repl, [mat_1, mat_2])
 
@@ -103,7 +116,13 @@ def is_placeholder(
 def mm_linear_replacement_2d(match: Match, mat_1: Any, mat_2: Any, dims: Any) -> None:
     def repl(mat_1: Any, mat_2: Any, dims: Any) -> torch.Tensor:
         counters["zentorch"]["zentorch_linear"] += 1
-        return zentorch.zentorch_linear_unary(mat_1, mat_2)
+        return zentorch.zentorch_linear_unary(
+            mat_1,
+            mat_2,
+            is_weight_prepacked=False,
+            post_op="none",
+            zentorch_op_name="zentorch::zentorch_linear",
+        )
 
     match.replace_by_example(repl, [mat_1, mat_2, dims])
 
@@ -132,10 +151,22 @@ def mm_linear_replacement_nd(
         if mat_1.shape != tuple(exp_inp_shape):
             view_0 = aten.view(mat_1, exp_inp_shape)
             counters["zentorch"]["zentorch_linear"] += 1
-            return zentorch.zentorch_linear_unary(view_0, mat_2)
+            return zentorch.zentorch_linear_unary(
+                view_0,
+                mat_2,
+                is_weight_prepacked=False,
+                post_op="none",
+                zentorch_op_name="zentorch::zentorch_linear",
+            )
         else:
             counters["zentorch"]["zentorch_linear"] += 1
-            return zentorch.zentorch_linear_unary(mat_1, mat_2)
+            return zentorch.zentorch_linear_unary(
+                mat_1,
+                mat_2,
+                is_weight_prepacked=False,
+                post_op="none",
+                zentorch_op_name="zentorch::zentorch_linear",
+            )
 
     match.replace_by_example(repl, [mat_1, size, mat_2, dims, size_1])
 
@@ -166,7 +197,14 @@ def addmm_linear_replacement_2d(
         bias: Any, mat_1: Any, mat_2: Any, dims: Any, beta: float, alpha: float
     ) -> torch.Tensor:
         counters["zentorch"]["zentorch_linear"] += 1
-        return zentorch.zentorch_linear_unary(mat_1, mat_2, bias)
+        return zentorch.zentorch_linear_unary(
+            mat_1,
+            mat_2,
+            bias,
+            is_weight_prepacked=False,
+            post_op="none",
+            zentorch_op_name="zentorch::zentorch_linear",
+        )
 
     match.replace_by_example(repl, [bias, mat_1, mat_2, dims, beta, alpha])
 
@@ -214,10 +252,24 @@ def addmm_linear_replacement_nd(
         if mat_1.shape != tuple(exp_inp_shape):
             view_0 = aten.view(mat_1, exp_inp_shape)
             counters["zentorch"]["zentorch_linear"] += 1
-            return zentorch.zentorch_linear_unary(view_0, mat_2, bias)
+            return zentorch.zentorch_linear_unary(
+                view_0,
+                mat_2,
+                bias,
+                is_weight_prepacked=False,
+                post_op="none",
+                zentorch_op_name="zentorch::zentorch_linear",
+            )
         else:
             counters["zentorch"]["zentorch_linear"] += 1
-            return zentorch.zentorch_linear_unary(mat_1, mat_2, bias)
+            return zentorch.zentorch_linear_unary(
+                mat_1,
+                mat_2,
+                bias,
+                is_weight_prepacked=False,
+                post_op="none",
+                zentorch_op_name="zentorch::zentorch_linear",
+            )
 
     match.replace_by_example(
         repl, [bias, mat_1, size, mat_2, dims, size_1, beta, alpha]
@@ -231,7 +283,9 @@ def replace_with_zentorch_ops_new(fx_graph: Graph) -> Graph:
     )
 
     if config.pattern_matcher:
-        GraphTransformObserver(fx_graph, "pass_pattern").apply_gm_pass(pass_pattern.apply)
+        GraphTransformObserver(fx_graph, "pass_pattern").apply_gm_pass(
+            pass_pattern.apply
+        )
     stable_topological_sort(fx_graph)
     fx_graph.lint()
     return fx_graph
