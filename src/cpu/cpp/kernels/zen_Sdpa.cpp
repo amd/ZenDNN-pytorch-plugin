@@ -82,8 +82,8 @@ inline void zendnn_gemm(int64_t m, int64_t n, int64_t k, float alpha,
       EnvReader::getEnvVariableAsInt("USE_ZENDNN_SDPA_MATMUL_DIRECT");
 
   if (zendnn_matmul_direct_env_value) {
-    zendnnl::lowoha::lowoha_params params;
-    zendnnl::lowoha::data_types matmul_dtype;
+    zendnnl::lowoha::matmul::matmul_params params;
+    zendnnl::lowoha::matmul::matmul_data_types matmul_dtype;
     matmul_dtype.bias = data_type_t::none;
     matmul_dtype.compute = data_type_t::none;
 
@@ -94,13 +94,14 @@ inline void zendnn_gemm(int64_t m, int64_t n, int64_t k, float alpha,
     params.dtypes = matmul_dtype;
     params.lowoha_algo = matmul_algo_t::aocl_dlp;
 
-    zendnnl::lowoha::batch_params_t batch_params;
+    zendnnl::lowoha::matmul::matmul_batch_params_t batch_params;
     batch_params.Batch_A = 1;
     batch_params.Batch_B = 1;
 
-    matmul_direct('r' /* layout: row-major */, TransA, TransB, m, n, k, alpha,
-                  a, lda, b, ldb, nullptr, /* No bias */ beta, c, ldc,
-                  false /* is_weights_const */, batch_params, params);
+    zendnnl::lowoha::matmul::matmul_direct(
+        'r' /* layout: row-major */, TransA, TransB, m, n, k, alpha, a, lda, b,
+        ldb, nullptr, /* No bias */ beta, c, ldc, false /* is_weights_const */,
+        batch_params, params);
   } else {
     tensor_t mat1_tensor = tensor_t();
     const std::vector<unsigned long> sizes_a = {static_cast<unsigned long>(m),

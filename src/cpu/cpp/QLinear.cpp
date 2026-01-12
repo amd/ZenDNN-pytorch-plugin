@@ -19,7 +19,7 @@ at::Tensor quantize_bf16_to_int8(const at::Tensor &input,
       input.options().dtype(
           input_zero_points_defined ? c10::kByte : c10::kChar)); // For u8 & s8
 
-  zendnnl::lowoha::lowoha_reorder_params_t params;
+  zendnnl::lowoha::reorder::lowoha_reorder_params_t params;
   params.dtypes.src = data_type_t::bf16;
   params.dtypes.dst =
       input_zero_points_defined ? data_type_t::u8 : data_type_t::s8;
@@ -30,7 +30,7 @@ at::Tensor quantize_bf16_to_int8(const at::Tensor &input,
   params.quant_params.zero_point.buff = input_zero_points.data_ptr();
   params.quant_params.zero_point.dt = data_type_t::s32;
 
-  status_t reorder_operator_status = zendnnl::lowoha::reorder_direct(
+  status_t reorder_operator_status = zendnnl::lowoha::reorder::reorder_direct(
       input.data_ptr(), q_input.data_ptr(), input.numel(), params);
   ZENTORCH_CHECK(reorder_operator_status == status_t::success,
                  "bf16 to int8 quantization reorder failed for input tensor "

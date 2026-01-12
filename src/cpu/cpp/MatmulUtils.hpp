@@ -660,7 +660,7 @@ inline void zendnnl_direct_kernel(
   void *bias_ptr = bias.defined() ? bias.data_ptr() : nullptr;
   void *result_ptr = result.data_ptr();
 
-  zendnnl::lowoha::data_types matmul_dtype;
+  zendnnl::lowoha::matmul::matmul_data_types matmul_dtype;
   matmul_dtype.src = get_zendnnl_dtype(input);
   matmul_dtype.wei = get_zendnnl_dtype(weight);
   matmul_dtype.bias =
@@ -669,7 +669,7 @@ inline void zendnnl_direct_kernel(
 
   matmul_dtype.compute = data_type_t::none;
 
-  zendnnl::lowoha::lowoha_params params;
+  zendnnl::lowoha::matmul::matmul_params params;
   params.dtypes = matmul_dtype;
   if (is_weight_prepacked) {
     params.mem_format_b = 'r';
@@ -680,7 +680,7 @@ inline void zendnnl_direct_kernel(
 
   // Lambda to add unary post-ops
   auto unary_post_op = [&params, &result_sizes](post_op_type_t op_type) {
-    zendnnl::lowoha::postop post_op;
+    zendnnl::lowoha::matmul::matmul_post_op post_op;
     post_op.po_type = op_type;
     post_op.buff = nullptr;
     post_op.dtype = data_type_t::none;
@@ -692,7 +692,7 @@ inline void zendnnl_direct_kernel(
   auto binary_post_op = [&params,
                          &result_sizes](post_op_type_t op_type,
                                         const at::Tensor &post_op_buffer) {
-    zendnnl::lowoha::postop post_op;
+    zendnnl::lowoha::matmul::matmul_post_op post_op;
     post_op.po_type = op_type;
     post_op.buff = post_op_buffer.data_ptr();
     post_op.dtype = get_zendnnl_dtype(post_op_buffer);
@@ -717,14 +717,14 @@ inline void zendnnl_direct_kernel(
     }
   }
 
-  zendnnl::lowoha::batch_params_t batch_params;
+  zendnnl::lowoha::matmul::matmul_batch_params_t batch_params;
   batch_params.Batch_A = batch_A;
   batch_params.Batch_B = batch_B;
 
-  zendnnl::lowoha::matmul_direct('r' /* layout: row-major */, transA, transB, M,
-                                 N, K, alpha, input_ptr, lda, weight_ptr, ldb,
-                                 bias_ptr, 0.0f /* beta */, result_ptr, ldc,
-                                 is_weight_const, batch_params, params);
+  zendnnl::lowoha::matmul::matmul_direct(
+      'r' /* layout: row-major */, transA, transB, M, N, K, alpha, input_ptr,
+      lda, weight_ptr, ldb, bias_ptr, 0.0f /* beta */, result_ptr, ldc,
+      is_weight_const, batch_params, params);
 }
 
 inline void set_matmul_context_attributes(

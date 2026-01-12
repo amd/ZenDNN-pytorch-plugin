@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright (c) 2025 Advanced Micro Devices, Inc.
+ * Copyright (c) 2025-2026 Advanced Micro Devices, Inc.
  * All rights reserved.
  *
  * Common utilities for PagedAttention kernels, shared between
@@ -115,8 +115,8 @@ inline void zendnn_gemm(int64_t m, int64_t n, int64_t k, float alpha,
   }
 
   if (zendnn_matmul_direct_env_value) {
-    zendnnl::lowoha::lowoha_params params;
-    zendnnl::lowoha::data_types matmul_dtype;
+    zendnnl::lowoha::matmul::matmul_params params;
+    zendnnl::lowoha::matmul::matmul_data_types matmul_dtype;
     matmul_dtype.bias = data_type_t::none;
     matmul_dtype.compute = data_type_t::none;
     matmul_dtype.src = is_input_float ? data_type_t::f32 : data_type_t::bf16;
@@ -124,12 +124,13 @@ inline void zendnn_gemm(int64_t m, int64_t n, int64_t k, float alpha,
     matmul_dtype.dst = data_type_t::f32;
     params.dtypes = matmul_dtype;
     params.lowoha_algo = zendnnl::ops::matmul_algo_t::libxsmm;
-    zendnnl::lowoha::batch_params_t batch_params;
+    zendnnl::lowoha::matmul::matmul_batch_params_t batch_params;
     batch_params.Batch_A = 1;
     batch_params.Batch_B = 1;
-    matmul_direct('r', /* layout: row-major */ transA, transB, m, n, k, alpha,
-                  a, lda, b, ldb, nullptr, /* No bias */ beta, c, ldc,
-                  false /* is_weights_const */, batch_params, params);
+    zendnnl::lowoha::matmul::matmul_direct(
+        'r', /* layout: row-major */ transA, transB, m, n, k, alpha, a, lda, b,
+        ldb, nullptr, /* No bias */ beta, c, ldc, false /* is_weights_const */,
+        batch_params, params);
   } else {
     tensor_t mat1_tensor = tensor_t();
     const std::vector<unsigned long> sizes_a = {static_cast<unsigned long>(m),
