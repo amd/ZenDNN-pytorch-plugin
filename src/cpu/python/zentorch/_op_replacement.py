@@ -115,18 +115,18 @@ def mm_replacement(match, mat_1, mat_2):
 
     match.replace_by_example(repl, [mat_1, mat_2])
 
-# TODO: Uncomment this when bmm support once ZENAI-2801 is resolved.
-# # bmm replacement
-# @register_graph_pattern(
-#     CallFunction(at_ops.bmm, Arg(), Arg()),
-#     pass_dict=pass_pattern,
-# )
-# def bmm_replacement(match, mat_1, mat_2):
-#     def repl(mat_1, mat_2):
-#         counters["zentorch"]["zentorch_bmm"] += 1
-#         return zt_ops.zentorch_bmm(mat_1, mat_2)
 
-#     match.replace_by_example(repl, [mat_1, mat_2])
+# bmm replacement
+@register_graph_pattern(
+    CallFunction(at_ops.bmm, Arg(), Arg()),
+    pass_dict=pass_pattern,
+)
+def bmm_replacement(match, mat_1, mat_2):
+    def repl(mat_1, mat_2):
+        counters["zentorch"]["zentorch_bmm"] += 1
+        return zt_ops.zentorch_bmm(mat_1, mat_2)
+
+    match.replace_by_example(repl, [mat_1, mat_2])
 
 
 # addmm->addmm_1dbias replacement
