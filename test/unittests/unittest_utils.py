@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2026 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -67,10 +67,15 @@ from zentorch_test_utils import (  # noqa: 402 # noqa: F401
     qlinear_eltwise_map,
     QLINEAR_ELTWISE_OPT_DEF,
     seq_length_opt,
+    SEQ_LENGTH_OPT_DEF,
     batch_size_opt,
+    BATCH_SIZE_OPT_DEF,
     mask_type_opt,
+    MASK_OPT_DEF,
     num_heads_opt,
+    NUM_HEADS_OPT_DEF,
     head_dim_opt,
+    HEAD_DIM_OPT_DEF,
     torch,
     DataTypes,
     SEED,
@@ -2746,3 +2751,232 @@ class QLinearTestCase(Zentorch_TestCase):
             return wrapper
 
         return hypothesis_params_qlinear_itr_impl
+
+
+class SDPATestCase(Zentorch_TestCase):
+    time_out = 10000
+    max_example_per_test = 20
+
+    def getData(self):
+        return self.data
+
+    def createData(
+        self,
+        dtype,
+        sdpa_query,
+        sdpa_key,
+        sdpa_value,
+        mask_shape
+    ):
+        self.data.create_data_SDPA(
+            dtype=dtype,
+            sdpa_query=sdpa_query,
+            sdpa_key=sdpa_key,
+            sdpa_value=sdpa_value,
+            mask_shape=mask_shape
+        )
+
+    def createDataFromVal(self, val):
+        (
+            hypStr,
+            tensor_seed,
+            dtype,
+            seq_length,
+            batch_size,
+            mask,
+            num_heads,
+            head_dim,
+            sdpa_query,
+            sdpa_key,
+            sdpa_value,
+            mask_shape
+        ) = val
+        self.createData(
+            dtype=dtype,
+            sdpa_query=sdpa_query,
+            sdpa_key=sdpa_key,
+            sdpa_value=sdpa_value,
+            mask_shape=mask_shape,
+        )
+
+    @seed(seed=SEED)
+    @staticmethod
+    @st.composite
+    def tensor_sdpa_strategy(
+        draw,
+        dtype_list=supported_dtypes_def,
+        seq_length_opt_list=SEQ_LENGTH_OPT_DEF,
+        batch_size_opt_list=BATCH_SIZE_OPT_DEF,
+        mask_opt_list=MASK_OPT_DEF,
+        num_heads_opt_list=NUM_HEADS_OPT_DEF,
+        head_dim_opt_list=HEAD_DIM_OPT_DEF,
+        tensor_seed=0,
+    ):
+        hypStr = ""
+        if not tensor_seed:
+            tensor_seed = getRandomSeed()
+        hypStr += f"tensor_seed={tensor_seed}, "
+        generator = torch.Generator()
+        generator.manual_seed(tensor_seed)
+        dtype = draw(st.sampled_from(dtype_list))
+        hypStr += f"dtype_list=[{dtype!r}], "
+        seq_length = draw(st.sampled_from(seq_length_opt_list))
+        hypStr += f"seq_length_opt_list=[{seq_length}], "
+        batch_size = draw(st.sampled_from(batch_size_opt_list))
+        hypStr += f"batch_size_opt_list=[{batch_size}], "
+        mask = draw(st.sampled_from(mask_opt_list))
+        hypStr += f"mask_opt_list=[{mask!r}], "
+        num_heads = draw(st.sampled_from(num_heads_opt_list))
+        hypStr += f"num_heads_opt_list=[{num_heads}], "
+        head_dim = draw(st.sampled_from(head_dim_opt_list))
+        hypStr += f"head_dim_opt_list=[{head_dim}], "
+
+        torch_type = DataTypes.get_torch_type(dtype)
+
+        sdpa_query = torch.randn(
+            batch_size,
+            num_heads,
+            seq_length,
+            head_dim,
+            device="cpu",
+            requires_grad=False,
+        ).type(torch_type)
+
+        sdpa_key = torch.randn(
+            batch_size,
+            num_heads,
+            seq_length,
+            head_dim,
+            device="cpu",
+            requires_grad=False,
+        ).type(torch_type)
+
+        sdpa_value = torch.randn(
+            batch_size,
+            num_heads,
+            seq_length,
+            head_dim,
+            device="cpu",
+            requires_grad=False,
+        ).type(torch_type)
+
+        mask_shape = (batch_size, num_heads, seq_length, seq_length)
+
+        return (
+            hypStr,
+            tensor_seed,
+            dtype,
+            seq_length,
+            batch_size,
+            mask,
+            num_heads,
+            head_dim,
+            sdpa_query,
+            sdpa_key,
+            sdpa_value,
+            mask_shape,
+        )
+
+    @staticmethod
+    def hypothesis_params_sdpa_itr(
+        dtype_list=supported_dtypes_def,
+        seq_length_opt_list=SEQ_LENGTH_OPT_DEF,
+        batch_size_opt_list=BATCH_SIZE_OPT_DEF,
+        mask_opt_list=MASK_OPT_DEF,
+        num_heads_opt_list=NUM_HEADS_OPT_DEF,
+        head_dim_opt_list=HEAD_DIM_OPT_DEF,
+        tensor_seed=0,
+    ):
+        skip_reason = None
+        if not dtype_list:
+            skip_reason = "dtype_list is empty"
+
+        def hypothesis_params_itr_impl(function):
+            if skip_reason:
+                print(f"Skipping test - {function.__name__}: {skip_reason}")
+                return unittest.skipIf(True, skip_reason)(function)
+
+            @settings(
+                deadline=SDPATestCase.time_out,
+                max_examples=SDPATestCase.max_example_per_test,
+                verbosity=Verbosity.quiet,
+            )
+            @given(
+                val=SDPATestCase.tensor_sdpa_strategy(
+                    dtype_list=dtype_list,
+                    seq_length_opt_list=seq_length_opt_list,
+                    batch_size_opt_list=batch_size_opt_list,
+                    mask_opt_list=mask_opt_list,
+                    num_heads_opt_list=num_heads_opt_list,
+                    head_dim_opt_list=head_dim_opt_list,
+                    tensor_seed=tensor_seed,
+                )
+            )
+            def wrapper(
+                obj,
+                val,
+                *args,
+                **kwargs
+            ):
+                try:
+                    if not hasattr(obj, "getData") or not isinstance(
+                        obj.getData(), Test_Data
+                    ):
+                        raise RuntimeError(
+                            "hypothesis_params_sdpa_itr called with invalid object"
+                        )
+
+                    (
+                        hypStr,
+                        tensor_seed,
+                        dtype,
+                        seq_length,
+                        batch_size,
+                        mask,
+                        num_heads,
+                        head_dim,
+                        sdpa_query,
+                        sdpa_key,
+                        sdpa_value,
+                        mask_shape,
+                        *_) = val
+
+                    obj.createDataFromVal(val)
+
+                    # Prepare the arguments to pass to the test function
+                    test_args = {
+                        'dtype': dtype,
+                        'mask_type': mask,
+                        'head_dim': head_dim,
+                    }
+
+                    # Get the required argument names for the test function
+                    required_args = inspect.signature(function).parameters.keys()
+
+                    # Call the test function with the appropriate arguments
+                    function(
+                        obj,
+                        *args,
+                        **{k: v for k, v in test_args.items() if k in required_args},
+                        **kwargs
+                    )
+                except Exception as e:
+                    if not isinstance(e, unittest.SkipTest):
+                        decName = "SDPATestCase.hypothesis_params_sdpa_itr"
+                        pklReplayFunction = "SDPATestCase.replay_from_pickle"
+                        obj.handleException(
+                            obj,
+                            str(e),
+                            hypStr,
+                            function.__name__,
+                            decName,
+                            pklReplayFunction,
+                            val,
+                            test_args,
+                        )
+                    raise  # Re-raise the exception after printing
+                return
+
+            return wrapper
+
+        return hypothesis_params_itr_impl

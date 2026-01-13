@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2026 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -174,10 +174,15 @@ conv_stride_def = [[1, 1]]
 conv_padding = [[0, 0], [1, 1]]
 conv_padding_def = [[0, 0]]
 seq_length_opt = [384, 512]
+SEQ_LENGTH_OPT_DEF = [384]
 batch_size_opt = [1, 4, 8]
+BATCH_SIZE_OPT_DEF = [1]
 mask_type_opt = ["none", "float", "bfloat16", "bool"]
+MASK_OPT_DEF = ["none"]
 num_heads_opt = [12, 16]
+NUM_HEADS_OPT_DEF = [12]
 head_dim_opt = [32, 64]
+HEAD_DIM_OPT_DEF = [32]
 
 at_ops = torch.ops.aten
 zt_ops = torch.ops.zentorch
@@ -881,6 +886,19 @@ class Test_Data(metaclass=Singleton):
         self.mm_add_1D = mm_add_1D
         self.mm_add_2D = mm_add_2D
         self.mm_add_3D = mm_add_3D
+
+    def create_data_SDPA(
+            self,
+            dtype,
+            sdpa_query,
+            sdpa_key,
+            sdpa_value,
+            mask_shape
+    ):
+        self.sdpa_query = sdpa_query
+        self.sdpa_key = sdpa_key
+        self.sdpa_value = sdpa_value
+        self.mask_shape = mask_shape
 
     # TODO ZENAI-1522
     # Change str_type -> str_type.lower()
