@@ -1,13 +1,11 @@
 /******************************************************************************
-  * Modifications Copyright (c) 2025 Advanced Micro Devices, Inc.
+  * Modifications Copyright (c) 2025-2026 Advanced Micro Devices, Inc.
   * All rights reserved.
 
   * Was sourced from
   * https://github.com/intel/intel-extension-for-pytorch/blob/v2.5.0%2Bcpu/csrc/cpu/aten/kernels/PagedAttentionKrnl.cpp
   * IPEX commit ID: 6973d57
 ******************************************************************************/
-#include <torch/torch.h>
-#if TORCH_VERSION_MAJOR >= 2 && TORCH_VERSION_MINOR > 3
 #include <ATen/ATen.h>
 #include <ATen/AccumulateType.h>
 #include <ATen/Dispatch.h>
@@ -19,6 +17,7 @@
 #include <ATen/native/CPUBlas.h>
 #include <ATen/native/cpu/utils.h>
 #include <c10/util/irange.h>
+#include <torch/torch.h>
 
 #include <ATen/ops/empty.h>
 
@@ -1020,4 +1019,3 @@ void zentorch_attention_reshape_and_cache_cpu_kernel_512(
 }
 
 } // namespace zentorch
-#endif // TORCH_VERSION_MAJOR >= 2 && TORCH_VERSION_MINOR > 3

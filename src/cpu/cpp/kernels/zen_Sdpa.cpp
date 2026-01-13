@@ -7,8 +7,6 @@
  * PyTorch commit ID: d990dad
  ******************************************************************************/
 
-#include <torch/torch.h>
-#if TORCH_VERSION_MAJOR >= 2 && TORCH_VERSION_MINOR > 3
 #include <ATen/Parallel.h>
 #include <ATen/core/Tensor.h>
 #include <ATen/cpu/vec/functional.h>
@@ -16,6 +14,7 @@
 #include <ATen/native/CPUBlas.h>
 #include <ATen/native/cpu/utils.h>
 #include <c10/util/irange.h>
+#include <torch/torch.h>
 
 #ifndef AT_PER_OPERATOR_HEADERS
 #include <ATen/Functions.h>
@@ -723,4 +722,3 @@ template void flash_attention_kernel_impl_512<at::BFloat16, float>(
     const at::Tensor &, const at::Tensor &, double, bool,
     std::optional<at::Tensor>, std::optional<double>);
 } // namespace zentorch
-#endif // TORCH_VERSION_MAJOR >= 2 && TORCH_VERSION_MINOR > 3

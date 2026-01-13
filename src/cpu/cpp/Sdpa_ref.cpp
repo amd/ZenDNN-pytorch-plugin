@@ -1,5 +1,5 @@
 /******************************************************************************
- * Modifications Copyright (c) 2025 Advanced Micro Devices, Inc.
+ * Modifications Copyright (c) 2025-2026 Advanced Micro Devices, Inc.
  * All rights reserved.
  *
  * Was sourced from
@@ -15,7 +15,6 @@
 
 namespace zentorch {
 
-#if TORCH_VERSION_MAJOR >= 2 && TORCH_VERSION_MINOR > 3
 std::tuple<at::Tensor, at::Tensor> zentorch_scaled_dot_product_attention_impl(
     const at::Tensor &query, const at::Tensor &key, const at::Tensor &value,
     double dropout_p, bool is_causal, std::optional<at::Tensor> attn_mask,
@@ -106,22 +105,15 @@ std::tuple<at::Tensor, at::Tensor> zentorch_scaled_dot_product_attention_impl(
         query, key, value, dropout_p, is_causal, attn_mask, scale));
   }
 }
-#endif // TORCH_VERSION_MAJOR >= 2 && TORCH_VERSION_MINOR > 3
 
 TORCH_LIBRARY_FRAGMENT(zentorch, m) {
-// zentorch_sdpa is supported from torch version >= 2.4.0
-#if TORCH_VERSION_MAJOR >= 2 && TORCH_VERSION_MINOR > 3
   m.def("zentorch_sdpa(Tensor query, Tensor key, "
         "Tensor value , float dropout_p=0.0, "
         "bool is_causal=False, *, Tensor? attn_mask=None, float? scale=None, "
         "str zentorch_op_name = "
         "'zentorch::zentorch_sdpa')-> (Tensor, Tensor)");
-#endif // TORCH_VERSION_MAJOR >= 2 && TORCH_VERSION_MINOR > 3
 }
 TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
-// zentorch_sdpa is supported from torch version >= 2.4.0
-#if TORCH_VERSION_MAJOR >= 2 && TORCH_VERSION_MINOR > 3
   m.impl("zentorch_sdpa", zentorch::zentorch_scaled_dot_product_attention_impl);
-#endif // TORCH_VERSION_MAJOR >= 2 && TORCH_VERSION_MINOR > 3
 }
 } // namespace zentorch
