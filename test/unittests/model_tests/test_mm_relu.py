@@ -1,12 +1,10 @@
 # ******************************************************************************
-# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2026 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
 import unittest
 import torch
-from parameterized import parameterized
-from itertools import product
 from torch import nn
 import sys
 from pathlib import Path
@@ -112,17 +110,13 @@ class Test_MM_RELU_Model(AddmmTestCase):
         )
         self.assertEqual(model_output, compiled_graph_output)
 
-    # Switching to Hypothesis exposes more issues, so the existing methods are retained.
-    # Please refer ZENAI-2294 for details
-    # @AddmmTestCase.hypothesis_params_addmm_itr(
-    #     dtype_list=supported_dtypes,
-    #     freeze_list=freeze_opt
-    # )
-    @parameterized.expand(product(supported_dtypes, freeze_opt))
+    @AddmmTestCase.hypothesis_params_addmm_itr(
+        dtype_list=supported_dtypes,
+        freeze_list=freeze_opt
+    )
     @torch.inference_mode()
     def test_mm_relu1_model(self, dtype, freeze_opt):
 
-        self.data.create_unittest_data(dtype)
         model = Custom_Model_MM_ReLU1(self.data.n, self.data.m, self.data.k).eval()
         if dtype == "bfloat16":
             model = model.bfloat16()

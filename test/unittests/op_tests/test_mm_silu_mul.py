@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2026 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -57,23 +57,22 @@ class Test_MM_SiLU_Mul(MMTestCase):
             in str(context.exception)
         )
 
-    @parameterized.expand(supported_dtypes)
-    # Switching to Hypothesis exposes more issues, so the existing methods are retained.
-    # Please refer ZENAI-1966 for details
-    # @MMTestCase.hypothesis_params_mm_itr(
-    #     dtype_list=supported_dtypes,
-    # )
+    @MMTestCase.hypothesis_params_mm_itr(
+        dtype_list=supported_dtypes,
+    )
     @torch.inference_mode()
     def test_mm_silu_mul_mismatched_sizes(self, dtype):
-        self.data.create_unittest_data(dtype)
-        with self.assertRaises(RuntimeError) as context:
-            torch.ops.zentorch.zentorch_mm_silu_mul(
-                self.data.x, self.data.y, self.data.x
+        # The test will not fail when k == n
+        # When K == N, Dimensions will be compatible even after reshaping
+        if self.data.k != self.data.n:
+            with self.assertRaises(RuntimeError) as context:
+                torch.ops.zentorch.zentorch_mm_silu_mul(
+                    self.data.x, self.data.y, self.data.x
+                )
+            self.assertTrue(
+                "unsupported shapes for mat1, mat2 and post op buffers"
+                in str(context.exception)
             )
-        self.assertTrue(
-            "unsupported shapes for mat1, mat2 and post op buffers"
-            in str(context.exception)
-        )
 
 
 if __name__ == "__main__":

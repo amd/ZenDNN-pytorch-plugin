@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2026 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -128,39 +128,38 @@ class Test_Addmm_Op(MMTestCase):
             torch.ops.zentorch.zentorch_addmm(input_1_1, self.data.x, self.data.y),
         )
 
-    @parameterized.expand(supported_dtypes)
-    # Switching to Hypothesis exposes more issues, so the existing methods are retained.
-    # Please refer ZENAI-1946 for details
-    # @MMTestCase.hypothesis_params_mm_itr(
-    #     dtype_list=supported_dtypes
-    # )
+    @MMTestCase.hypothesis_params_mm_itr(
+        dtype_list=supported_dtypes
+    )
     @torch.inference_mode()
     def test_addmm_mismatched_dimensions(self, dtype):
-        self.data.create_unittest_data(dtype)
-        with self.assertRaises(RuntimeError) as context:
-            torch.ops.zentorch.zentorch_addmm(
-                self.data.x,
-                self.data.x,
-                torch.reshape(
+        # The test will not fail when k == n
+        # When K == N, Dimensions will be compatible even after reshaping
+        if self.data.k != self.data.n:
+            with self.assertRaises(RuntimeError) as context:
+                torch.ops.zentorch.zentorch_addmm(
                     self.data.x,
-                    (list(self.data.x.shape)[0], list(self.data.x.shape)[1], 1),
-                ),
+                    self.data.x,
+                    torch.reshape(
+                        self.data.x,
+                        (list(self.data.x.shape)[0], list(self.data.x.shape)[1], 1),
+                    ),
+                )
+            self.assertTrue(
+                "unsupported dims for self, mat1 and mat2" in str(context.exception)
             )
-        self.assertTrue(
-            "unsupported dims for self, mat1 and mat2" in str(context.exception)
-        )
-        with self.assertRaises(RuntimeError) as context:
-            torch.ops.zentorch.zentorch_addmm(self.data.x3d, self.data.x, self.data.x)
-        self.assertTrue(
-            "Incompatible dimensions/shape for self tensor in addmm op"
-            in str(context.exception)
-        )
-        with self.assertRaises(RuntimeError) as context:
-            torch.ops.zentorch.zentorch_addmm(self.data.x, self.data.x, self.data.y)
-        self.assertTrue(
-            "Incompatible dimensions/shape for self tensor in addmm op"
-            in str(context.exception)
-        )
+            with self.assertRaises(RuntimeError) as context:
+                torch.ops.zentorch.zentorch_addmm(self.data.x3d, self.data.x, self.data.x)
+            self.assertTrue(
+                "Incompatible dimensions/shape for self tensor in addmm op"
+                in str(context.exception)
+            )
+            with self.assertRaises(RuntimeError) as context:
+                torch.ops.zentorch.zentorch_addmm(self.data.x, self.data.x, self.data.y)
+            self.assertTrue(
+                "Incompatible dimensions/shape for self tensor in addmm op"
+                in str(context.exception)
+            )
 
     @MMTestCase.hypothesis_params_mm_itr(
         dtype_list=['int']

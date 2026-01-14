@@ -1,12 +1,10 @@
 # ******************************************************************************
-# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2026 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
 import unittest
 import torch
-from parameterized import parameterized
-from itertools import product
 from torch import nn
 import sys
 from pathlib import Path
@@ -140,17 +138,12 @@ class Test_Addmm_1dbias_Model(AddmmTestCase):
         self.assertEqual(counters["zentorch"]["zentorch_addmm_1dbias"], 3)
         self.assertEqual(native_output, compiled_output)
 
-    @parameterized.expand(product(supported_dtypes, freeze_opt))
-    # Switching to Hypothesis exposes more issues, so the existing methods are retained.
-    # Please refer ZENAI-1973 for details
-    # @AddmmTestCase.hypothesis_params_addmm_itr(
-    #     dtype_list=supported_dtypes,
-    #     freeze_list=freeze_opt
-    # )
+    @AddmmTestCase.hypothesis_params_addmm_itr(
+        dtype_list=supported_dtypes,
+        freeze_list=freeze_opt
+    )
     @torch.inference_mode()
     def test_addmm_1dbias_relu_model(self, dtype, freeze_opt):
-
-        self.data.create_unittest_data(dtype)
 
         model = Custom_Model_Addmm_1dbias_Relu(
             self.data.k, self.data.get_torch_type(dtype)
@@ -169,17 +162,12 @@ class Test_Addmm_1dbias_Model(AddmmTestCase):
         self.assertEqual(counters["zentorch"]["zentorch_addmm_1dbias"], 6)
         self.assertEqual(native_output, compiled_output)
 
-    @parameterized.expand(product(supported_dtypes, freeze_opt))
-    # Switching to Hypothesis exposes more issues, so the existing methods are retained.
-    # Please refer ZENAI-1972 for details
-    # @AddmmTestCase.hypothesis_params_addmm_itr(
-    #     dtype_list=supported_dtypes,
-    #     freeze_list=freeze_opt
-    # )
+    @AddmmTestCase.hypothesis_params_addmm_itr(
+        dtype_list=supported_dtypes,
+        freeze_list=freeze_opt
+    )
     @torch.inference_mode()
     def test_addmm_1dbias_relu_gelu_model(self, dtype, freeze_opt):
-
-        self.data.create_unittest_data(dtype)
 
         model = Custom_Model_Addmm_1dbias_Relu_Gelu(
             self.data.k, self.data.get_torch_type(dtype)

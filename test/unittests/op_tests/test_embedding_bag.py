@@ -1,12 +1,10 @@
 # ******************************************************************************
-# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2026 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
 import unittest
-from itertools import product
 import torch
-from parameterized import parameterized
 import sys
 from pathlib import Path
 
@@ -25,15 +23,11 @@ from unittest_utils import (  # noqa: 402
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class Test_Embedding_Bag(EmbTestCase):
-    @parameterized.expand(supported_dtypes)
-    # Switching to Hypothesis exposess more issues, so the existing methods are retained.
-    # Please refer ZENAI-1901 for details
-    # @EmbTestCase.hypothesis_params_emb_itr(
-    #     dtype_list=supported_dtypes,
-    # )
+    @EmbTestCase.hypothesis_params_emb_itr(
+        dtype_list=supported_dtypes,
+    )
     def test_embedding_bag(self, dtype):
 
-        self.data.create_unittest_data(dtype)
         y_eb, _, _, _ = torch._C._VariableFunctions._embedding_bag(
             self.data.embedding_matrix,
             self.data.emb_input,
@@ -57,29 +51,16 @@ class Test_Embedding_Bag(EmbTestCase):
         )
         self.assertEqual(y_eb, y_ebz)
 
-    @parameterized.expand(
-        product(
-            supported_dtypes,
-            mode_opt,
-            include_last_offset_opt,
-            sparse_opt,
-            scale_grad_opt,
-        )
+    @EmbTestCase.hypothesis_params_emb_itr(
+        dtype_list=supported_dtypes,
+        mode_opt_list=mode_opt,
+        include_last_offset_opt_list=include_last_offset_opt,
+        sparse_opt_list=sparse_opt,
+        scale_grad_opt_list=scale_grad_opt,
     )
-    # Switching to Hypothesis exposes more issues, so the existing methods are retained.
-    # Please refer ZENAI-1902 for details
-    # @EmbTestCase.hypothesis_params_emb_itr(
-    #     dtype_list=supported_dtypes,
-    #     mode_opt_list=mode_opt,
-    #     include_last_offset_opt_list=include_last_offset_opt,
-    #     sparse_opt_list=sparse_opt,
-    #     scale_grad_opt_list=scale_grad_opt,
-    # )
     def test_embedding_bag_sparse_scale_mode(
         self, dtype, mode, include_last_offset, sprs_opt, scale_opt
     ):
-
-        self.data.create_unittest_data(dtype)
 
         # max mode is not supported whenever any of the sparse_opt
         # or scale_grad_opt is True
