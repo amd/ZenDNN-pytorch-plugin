@@ -90,15 +90,29 @@ def check_alpha_beta_bias(match: Match) -> bool:
 def is_placeholder(
     weight_idx: int, bias_idx: Optional[int] = None
 ) -> Callable[[Match], bool]:
+    def _unwrap_bf16_convert(node):
+        # Schema - prims::convert_element_type(Tensor a, ScalarType dtype) -> Tensor
+        # %convert_element_type_843 : [num_users=1] =
+        #   call_function[target=torch.ops.prims.convert_element_type.default]
+        #   (args = (%getitem_192, torch.bfloat16), kwargs = {})
+
+        # unwrap convert_element_type only if dtype is bf16
+        if node.target != torch.ops.prims.convert_element_type.default:
+            return node
+        if node.args[1] != torch.bfloat16:
+            return node
+        return node.args[0]
+
     def fn(match: Match) -> bool:
         # get_attr is a corner case in export path
-        if match.args[weight_idx].op not in ("placeholder", "get_attr"):
+        weight_node = _unwrap_bf16_convert(match.args[weight_idx])
+        if weight_node.op not in ("placeholder", "get_attr"):
             return False
         if bias_idx is not None:
-            if match.args[bias_idx].op not in ("placeholder", "get_attr"):
+            bias_node = _unwrap_bf16_convert(match.args[bias_idx])
+            if bias_node.op not in ("placeholder", "get_attr"):
                 return False
-            else:
-                return check_alpha_beta_bias(match)
+            return check_alpha_beta_bias(match)
         return True
 
     return fn
