@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2026 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -177,7 +177,8 @@ def emb_ops_horizontal_fusion(fx_graph):
     zentorch_embed_ops_dict = {
         zt_ops.zentorch_embedding_bag.default: zt_ops.zentorch_horizontal_embedding_bag_group.default,
         zt_ops.zentorch_embedding.default: zt_ops.zentorch_horizontal_embedding_group.default,
-        # zt_ops.zentorch_quant_embedding_bag.default: zt_ops.zentorch_horizontal_quant_embedding_bag_group.default,
+        zt_ops.zentorch_quant_embedding_bag.default: zt_ops.zentorch_horizontal_quant_embedding_bag_group.default,
+        zt_ops.zentorch_quant_embedding_bag.out: zt_ops.zentorch_horizontal_quant_embedding_bag_group.out,
     }
 
     # Storage for all groups found in the graph

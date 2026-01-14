@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
+ * Copyright (c) 2024-2026 Advanced Micro Devices, Inc.
  * All rights reserved.
  ******************************************************************************/
 #pragma once
@@ -23,6 +23,24 @@ inline void zen_embedding_weight_check(const at::Tensor &weight) {
   // check if datatype is either Float32 or Bfloat16
   ZENTORCH_CHECK(is_weight_fp32 ^ is_weight_bf16,
                  "zentorch_embedding only supports Float and BFloat16");
+}
+
+inline void zen_quant_embed_tensor_check(const at::Tensor &weight,
+                                         const at::Tensor &indices,
+                                         const at::Tensor &offsets) {
+  ZENTORCH_CHECK((weight.scalar_type() == c10::ScalarType::Int),
+                 "zentorch_embedding_bag only supports int4 weights packed "
+                 "into int32_t");
+
+  // check if all the input tensors are on cpu device
+  ZENTORCH_CHECK(weight.device().is_cpu() && indices.device().is_cpu() &&
+                     offsets.device().is_cpu(),
+                 "ZenDNN EmbeddingBag expects CPU tensor inputs!");
+  // check if all the input tensors are dense format
+  ZENTORCH_CHECK((weight.layout() == c10::Layout::Strided) &&
+                     (indices.layout() == c10::Layout::Strided) &&
+                     (offsets.layout() == c10::Layout::Strided),
+                 "ZenDNN EmbeddingBag expects dense tensor inputs!");
 }
 
 inline void set_embedding_context_attributes(

@@ -453,6 +453,113 @@ def meta_zentorch_horizontal_embedding_group(
     return output_list
 
 
+@register_meta("zentorch_quant_embedding_bag", "out")
+def meta_zentorch_quant_embedding_bag_out(
+    output,
+    weight,
+    indices,
+    offsets,
+    num_bits_per_weight,
+    output_dtype,
+    scale_grad_by_freq=False,
+    mode=0,
+    sparse=False,
+    per_sample_weights=None,
+    include_last_offset=False,
+    padding_idx=-1,
+):
+    return
+
+
+@register_meta("zentorch_quant_embedding_bag")
+def meta_zentorch_quant_embedding_bag(
+    weight,
+    indices,
+    offsets,
+    num_bits_per_weight,
+    output_dtype,
+    scale_grad_by_freq=False,
+    mode=0,
+    sparse=False,
+    per_sample_weights=None,
+    include_last_offset=False,
+    padding_idx=-1,
+):
+    # TODO Remove this assumption
+    # Currently the scale is packed as float16
+    # zero point is also packed as float16
+    # so scale+zp takes 32bits which is equal
+    # to one element of packed embedding bag vector
+    scale_tensor = torch.empty(0, dtype=torch.bfloat16)
+    zp_tensor = torch.empty(0, dtype=torch.bfloat16)
+    num_scale_zp_dim = (
+        scale_tensor.element_size() + zp_tensor.element_size()
+    ) / weight.element_size()
+    embedding_dim = weight.size(1) - num_scale_zp_dim
+    bits_in_1_byte = 8
+    num_bits_per_packed_weight = weight.element_size() * bits_in_1_byte
+    output_embedding_dim = int(
+        embedding_dim * (num_bits_per_packed_weight / num_bits_per_weight)
+    )
+    num_bags = offsets.size(0)
+    if include_last_offset:
+        num_bags = num_bags - 1
+    output = torch.empty(
+        num_bags, output_embedding_dim, dtype=output_dtype, device="meta"
+    )
+
+    return output
+
+
+@register_meta("zentorch_horizontal_quant_embedding_bag_group")
+def meta_zentorch_horizontal_quant_embedding_bag_group(
+    weight,
+    indices,
+    offsets,
+    num_bits_per_weight,
+    output_dtype,
+    scale_grad_by_freq,
+    mode,
+    sparse,
+    per_sample_weights,
+    include_last_offset,
+    padding_idx,
+):
+    output_list = []
+
+    for i in range(len(weight)):
+        output = meta_zentorch_quant_embedding_bag(
+            weight[i],
+            indices[i],
+            offsets[i],
+            num_bits_per_weight,
+            output_dtype,
+            include_last_offset=include_last_offset[i],
+        )
+
+        output_list.append(output)
+
+    return output_list
+
+
+@register_meta("zentorch_horizontal_quant_embedding_bag_group", "out")
+def meta_zentorch_horizontal_quant_embedding_bag_group_out(
+    outputs,
+    weight,
+    indices,
+    offsets,
+    num_bits_per_weight,
+    output_dtype,
+    scale_grad_by_freq,
+    mode,
+    sparse,
+    per_sample_weights,
+    include_last_offset,
+    padding_idx,
+):
+    return
+
+
 zentorch_addmm_mappings = {
     0: meta_zentorch_addmm,
     1: meta_zentorch_addmm_relu,
@@ -720,6 +827,10 @@ make_fallback(torch.ops.zentorch.zentorch_mm_gelu_tanh)
 make_fallback(torch.ops.zentorch.zentorch_mm_gelu_erf)
 make_fallback(torch.ops.zentorch.zentorch_horizontal_embedding_bag_group)
 make_fallback(torch.ops.zentorch.zentorch_horizontal_embedding_group)
+make_fallback(torch.ops.zentorch.zentorch_quant_embedding_bag)
+make_fallback(torch.ops.zentorch.zentorch_quant_embedding_bag.out)
+make_fallback(torch.ops.zentorch.zentorch_horizontal_quant_embedding_bag_group)
+make_fallback(torch.ops.zentorch.zentorch_horizontal_quant_embedding_bag_group.out)
 make_fallback(torch.ops.zentorch.zentorch_rope)
 make_fallback(torch.ops.zentorch.zentorch_masked_multihead_self_attention)
 make_fallback(torch.ops.zentorch.zentorch_weight_prepack_for_linear)
