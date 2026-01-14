@@ -150,6 +150,7 @@ def get_required_ipex_version(pt_version):
 PACKAGE_NAME = "zentorch"
 PACKAGE_VERSION = "5.2.0"
 PT_VERSION = __version__
+ZENTORCH_VLLM_PLUGIN_BUILD = os.getenv("ZENTORCH_VLLM_PLUGIN_BUILD", "1") != "0"
 
 # Initializing all the parameters for the setup function
 project_root_dir = os.path.abspath(os.path.dirname(__file__))
@@ -208,8 +209,9 @@ _build_config += '__torchversion__ = "{}"\n'.format(PT_VERSION)
 packages = [
     PACKAGE_NAME,
     PACKAGE_NAME + ".llm",
-    PACKAGE_NAME + ".vllm"
 ]
+if ZENTORCH_VLLM_PLUGIN_BUILD:
+    packages.append(PACKAGE_NAME + ".vllm")
 extras_require = {}
 
 # maybe_valid_ipex_version will contain either the valid ipex version
@@ -265,7 +267,7 @@ def main():
                 # same callable, but this group is invoked for runtime patches
                 "zentorch_general = zentorch.vllm:register",
             ],
-        },
+        } if ZENTORCH_VLLM_PLUGIN_BUILD else {},
     )
 
 
