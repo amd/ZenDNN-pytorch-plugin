@@ -760,4 +760,217 @@ def qlinear_reorder_optimizations(fx_graph):
                 pred_node = curr_node
     stable_topological_sort(fx_graph)
     fx_graph.lint()
+
+
+# Updated qkv_fusion pass to concat weights and biases and run on new linear ops
+def qkv_fusion_new(fx_graph):
+    logger.info("Fusing QKV parallel linear operations.")
+
+    qkv_fusion_len = 3
+    groups = []
+    nodes_visited = set()
+
+    # Loop over the graph to find groups of QKV nodes (3 linear nodes with the same input)
+    for node in fx_graph.nodes:
+        if (
+            node.target == zt_ops.zentorch_linear_unary.default
+            and node not in nodes_visited
+        ):
+            input_node = node.args[0]
+            users = list(input_node.users.keys())
+            input_users = []
+            for user in users:
+                if user.target == zt_ops.zentorch_linear_unary.default:
+                    input_users.append(user)
+            # Check if this input has exactly 3 users (Q, K, V)
+            if len(input_users) != qkv_fusion_len:
+                continue
+            # Check that nodes are independent (no dependencies between them)
+            nodes_are_dependent = (
+                find_path(fx_graph, input_users[0], input_users[1])
+                or find_path(fx_graph, input_users[1], input_users[2])
+                or find_path(fx_graph, input_users[0], input_users[2])
+            )
+            if nodes_are_dependent:
+                logger.info("QKV nodes are dependent, skipping fusion")
+                continue
+
+            # Check that all nodes have consistent bias usage (all have bias or none have bias)
+            q_node_schema = input_users[0].target._schema
+            arg_indices = {arg.name: i for i, arg in enumerate(q_node_schema.arguments)}
+            bias_idx = arg_indices["bias"]
+
+            q_has_bias = (
+                len(input_users[0].args) > bias_idx
+                and input_users[0].args[bias_idx] is not None
+            )
+            k_has_bias = (
+                len(input_users[1].args) > bias_idx
+                and input_users[1].args[bias_idx] is not None
+            )
+            v_has_bias = (
+                len(input_users[2].args) > bias_idx
+                and input_users[2].args[bias_idx] is not None
+            )
+
+            if not (q_has_bias == k_has_bias == v_has_bias):
+                logger.info("QKV nodes have inconsistent bias usage, skipping fusion")
+                continue
+
+            groups.append(input_users)
+            nodes_visited.update(input_users)
+
+    # Loop over the QKV groups collected for fusion. Concatenate the weights and biases(if any) of the three linear nodes
+    # in each group. Create a new linear node with same input but fused(concatenated) weight and bias.
+    # Split the fused node result back into QKV nodes and remove the original linear nodes.
+    nodes_to_remove = []
+    for group in groups:
+        # Extract Q, K, V nodes
+        q_node, k_node, v_node = group[0], group[1], group[2]
+        input_tensor = q_node.args[0]
+
+        q_node_schema = q_node.target._schema
+        arg_indices = {arg.name: i for i, arg in enumerate(q_node_schema.arguments)}
+        weight_idx = arg_indices["weight"]
+        bias_idx = arg_indices["bias"]
+
+        # Get metadata from original weight tensors
+        q_weight_meta = q_node.args[weight_idx].meta["val"]
+        k_weight_meta = k_node.args[weight_idx].meta["val"]
+        v_weight_meta = v_node.args[weight_idx].meta["val"]
+
+        # Create concatenated weight: cat([Wq, Wk, Wv], dim=0)
+        with fx_graph.inserting_after(v_node):
+            fused_weight = fx_graph.create_node(
+                op="call_function",
+                target=at_ops.cat.default,
+                args=(
+                    [
+                        q_node.args[weight_idx],
+                        k_node.args[weight_idx],
+                        v_node.args[weight_idx],
+                    ],
+                    0,
+                ),
+            )
+
+            # Add metadata for fused weight
+            fused_weight_shape = list(q_weight_meta.shape)
+            fused_weight_shape[0] = (
+                q_weight_meta.shape[0] + k_weight_meta.shape[0] + v_weight_meta.shape[0]
+            )
+            fused_weight.meta["val"] = torch.empty(
+                fused_weight_shape,
+                dtype=q_weight_meta.dtype,
+                device=q_weight_meta.device,
+            )
+
+            # Create concatenated bias if it exists: cat([bq, bk, bv], dim=0)
+            fused_bias = None
+            if len(q_node.args) > bias_idx and q_node.args[bias_idx] is not None:
+                q_bias_meta = q_node.args[bias_idx].meta["val"]
+                k_bias_meta = k_node.args[bias_idx].meta["val"]
+                v_bias_meta = v_node.args[bias_idx].meta["val"]
+
+                fused_bias = fx_graph.create_node(
+                    op="call_function",
+                    target=at_ops.cat.default,
+                    args=(
+                        [
+                            q_node.args[bias_idx],
+                            k_node.args[bias_idx],
+                            v_node.args[bias_idx],
+                        ],
+                        0,
+                    ),
+                )
+
+                # Add metadata for fused bias
+                fused_bias_shape = [
+                    q_bias_meta.shape[0] + k_bias_meta.shape[0] + v_bias_meta.shape[0]
+                ]
+                fused_bias.meta["val"] = torch.empty(
+                    fused_bias_shape, dtype=q_bias_meta.dtype, device=q_bias_meta.device
+                )
+
+        # Create fused QKV linear operation: X @ Wqkv + bqkv
+        qkv_node_args = [input_tensor, fused_weight, fused_bias]
+        with fx_graph.inserting_after(fused_bias if fused_bias else fused_weight):
+            qkv_fused_node = fx_graph.create_node(
+                op="call_function",
+                target=zt_ops.zentorch_linear_unary.default,
+                args=tuple(qkv_node_args),
+            )
+
+            # Add metadata for the fused QKV output
+            input_meta = input_tensor.meta["val"]
+            output_shape = list(input_meta.shape)
+            output_shape[-1] = fused_weight.meta["val"].shape[0]  # Output dimension
+            qkv_fused_node.meta["val"] = torch.empty(
+                output_shape, dtype=input_meta.dtype, device=input_meta.device
+            )
+
+        counters["zentorch"]["qkv_fusion_linear"] += 1
+
+        # Split the fused output back into Q, K, V
+        # Get the output dimensions from the original weight shapes
+        q_output_dim = q_weight_meta.shape[0]
+        k_output_dim = k_weight_meta.shape[0]
+        v_output_dim = v_weight_meta.shape[0]
+
+        # Create split nodes to extract Q, K, V from the fused output
+        split_sections = [q_output_dim, k_output_dim, v_output_dim]
+        with fx_graph.inserting_after(qkv_fused_node):
+            split_node = fx_graph.create_node(
+                op="call_function",
+                target=at_ops.split.default,
+                args=(qkv_fused_node, split_sections, -1),
+            )
+
+            # Add metadata for split node (returns a tuple/list of tensors)
+            qkv_output_meta = qkv_fused_node.meta["val"]
+            q_shape = list(qkv_output_meta.shape)
+            k_shape = list(qkv_output_meta.shape)
+            v_shape = list(qkv_output_meta.shape)
+            q_shape[-1] = q_output_dim
+            k_shape[-1] = k_output_dim
+            v_shape[-1] = v_output_dim
+
+            # Split returns a tuple of tensors
+            split_node.meta["val"] = (
+                torch.empty(
+                    q_shape, dtype=qkv_output_meta.dtype, device=qkv_output_meta.device
+                ),
+                torch.empty(
+                    k_shape, dtype=qkv_output_meta.dtype, device=qkv_output_meta.device
+                ),
+                torch.empty(
+                    v_shape, dtype=qkv_output_meta.dtype, device=qkv_output_meta.device
+                ),
+            )
+
+        # Create getitem nodes to extract individual Q, K, V tensors
+        for idx, original_node in enumerate([q_node, k_node, v_node]):
+            with fx_graph.inserting_after(split_node):
+                getitem_node = fx_graph.create_node(
+                    op="call_function",
+                    target=operator.getitem,
+                    args=(split_node, idx),
+                )
+
+                # Add metadata for getitem node
+                getitem_node.meta["val"] = split_node.meta["val"][idx]
+
+            # Replace all uses of the original node with the split output
+            original_node.replace_all_uses_with(getitem_node)
+            nodes_to_remove.append(original_node)
+
+    # Clean up: Remove original Q, K, V nodes
+    for node in nodes_to_remove:
+        fx_graph.erase_node(node)
+
+    if len(nodes_to_remove) > 0:
+        stable_topological_sort(fx_graph)
+        fx_graph.lint()
+
     return fx_graph
