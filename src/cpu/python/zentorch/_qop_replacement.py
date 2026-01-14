@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2025 Advanced Micro Devices, Inc.
+# Copyright (c) 2025-2026 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -818,9 +818,11 @@ def replace_with_zentorch_qops(graph):
             subsystem="replace_with_zentorch_qops",
         )
 
+        # fx_graph.owning module should return the GraphModule object that owns the graph
+        assert graph.owning_module is not None, "Graph has no owning module"
         replacements = GraphTransformObserver(
-            graph, "replace_with_zentorch_qops"
-        ).apply_gm_pass(matcher_pass.apply)
+            graph.owning_module, "replace_with_zentorch_qops"
+        ).apply_graph_pass(matcher_pass.apply)
 
         if replacements is not None:
             stable_topological_sort(graph)

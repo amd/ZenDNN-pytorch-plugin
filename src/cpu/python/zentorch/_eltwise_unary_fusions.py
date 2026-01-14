@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2025 Advanced Micro Devices, Inc.
+# Copyright (c) 2025-2026 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -1213,7 +1213,9 @@ def zentorch_eltwise_unary_fusions(fx_graph):
         subsystem="zentorch_eltwise_unary_fusions",
     )
     if config.pattern_matcher:
-        GraphTransformObserver(fx_graph, "pass_pattern").apply_gm_pass(
+        # fx_graph.owning module should return the GraphModule object that owns the graph
+        assert fx_graph.owning_module is not None, "Graph has no owning module"
+        GraphTransformObserver(fx_graph.owning_module, "pass_pattern").apply_graph_pass(
             pass_pattern.apply
         )
     stable_topological_sort(fx_graph)
