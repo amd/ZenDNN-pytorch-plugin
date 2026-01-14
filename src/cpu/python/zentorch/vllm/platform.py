@@ -44,6 +44,7 @@ def _create_platform():
             cc = vllm_config.compilation_config
 
             if is_v11():
+                # CompilationLevel changed to CompilationMode in vLLM 0.11.1
                 from vllm.config import CompilationLevel
 
                 cc.level = CompilationLevel.DYNAMO_ONCE

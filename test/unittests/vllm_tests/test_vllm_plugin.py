@@ -56,11 +56,15 @@ class TestVersionParsing(unittest.TestCase):
         """VERSION_MAP should return correct family for supported versions."""
         from zentorch.vllm.core import _base_version, _VERSION_MAP
 
-        # v11 family
+        # v11 family (0.11.0)
         self.assertEqual(_VERSION_MAP.get(_base_version("0.11.0")), "v11")
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.11.1")), "v11")
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.11.2")), "v11")
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.11.1.dev0+cpu")), "v11")
+
+        # v11_1 family (0.11.1)
+        self.assertEqual(_VERSION_MAP.get(_base_version("0.11.1")), "v11_1")
+        self.assertEqual(_VERSION_MAP.get(_base_version("0.11.1.dev0+cpu")), "v11_1")
+
+        # v11_2 family (0.11.2)
+        self.assertEqual(_VERSION_MAP.get(_base_version("0.11.2")), "v11_2")
 
         # v12 family
         self.assertEqual(_VERSION_MAP.get(_base_version("0.12.0")), "v12")
@@ -155,7 +159,7 @@ class TestPatchRegistration(unittest.TestCase):
         family = get_version_family()
 
         # These patches apply to all versions (0.11-0.13)
-        universal_patches = ["CompilationConfigRepr", "OneDNNDisable", "InternVLDtype"]
+        universal_patches = ["CompilationConfigRepr", "OneDNNDisable"]
         for patch_name in universal_patches:
             self.assertIn(
                 patch_name,

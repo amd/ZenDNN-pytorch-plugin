@@ -14,7 +14,7 @@ Patches (each with version decorator):
 - IPEX flash attention (0.11 only)
 - CompilationConfig repr (all versions)
 - oneDNN disable (all versions)
-- InternVL dtype fix (all versions)
+- InternVL dtype fix (0.11 only)
 
 Reference: https://blog.vllm.ai/2025/11/20/vllm-plugin-system.html
 """
@@ -163,9 +163,9 @@ class OneDNNDisablePatch:
             return False
 
 
-@vllm_version_range(min_ver="0.11.0", max_ver="0.13.99")
+@vllm_version("0.11.0")
 class InternVLDtypePatch:
-    """Fix InternVL video dtype issue."""
+    """Fix InternVL video dtype issue (0.11 only)."""
 
     @classmethod
     def apply(cls) -> bool:
