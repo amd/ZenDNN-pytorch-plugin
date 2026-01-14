@@ -108,9 +108,9 @@ for NOF_INSTANCES in ${LST_NOF_INSTANCES[@]}; do
     for DATA_TYPE in ${LST_DATA_TYPE[@]}; do
 
         if [[ $DATA_TYPE == "float32" ]]; then
-            ENV_ZENDNN_MATMUL_ALGO="FP32:2,BF16:2"
+            ENV_ZENDNNL_MATMUL_ALGO=1
         else
-            ENV_ZENDNN_MATMUL_ALGO="FP32:1,BF16:1"
+            ENV_ZENDNNL_MATMUL_ALGO=1
         fi
 
         for SEQUENCE_LENGTH in ${LST_SEQUENCE_LENGTH[@]}; do
@@ -134,7 +134,7 @@ for NOF_INSTANCES in ${LST_NOF_INSTANCES[@]}; do
                      KMP_PLAIN_BARRIER_PATTERN=dist,dist KMP_REDUCTION_BARRIER_PATTERN=dist,dist \
                      KMP_AFFINITY=granularity=fine,compact,1,0 \
                      LD_PRELOAD=${CONDA_PREFIX}/lib/libtcmalloc.so:${CONDA_PREFIX}/lib/libiomp5.so \
-                     ZENDNN_WEIGHT_CACHE_CAPACITY=1024 ZENDNN_MATMUL_ALGO=${ENV_ZENDNN_MATMUL_ALGO} ZENDNN_PRIMITIVE_CACHE_CAPACITY=1024 ZENDNN_WEIGHT_CACHING=1 \
+                     ZENDNN_WEIGHT_CACHE_CAPACITY=1024 ZENDNNL_MATMUL_ALGO=${ENV_ZENDNNL_MATMUL_ALGO} ZENDNN_PRIMITIVE_CACHE_CAPACITY=1024 ZENDNN_WEIGHT_CACHING=1 \
                      python bert_base_scripts/run_bert_ds_mp.py -mt 'bert-base-uncased' -zt -ws 20 -nr ${NOF_INSTANCES} -sl ${SEQUENCE_LENGTH} -dt ${DATA_TYPE} \
                      -sys ${SYSTEM_TYPE} -hcpu ${NOF_HOST_LOGICAL_CPU} \
                      | grep -e \"Average processing time:\" -e \"Duration:\" "

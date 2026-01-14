@@ -156,6 +156,8 @@ cd ZenDNN-pytorch-plugin
 
 >Note: Build from the master branch generates zentorch 5.2 pre-release plugin.
 
+>Note: ```export ZENDNNL_MANYLINUX_BUILD=1``` is needed for build from source for RHEL/FEDORA/Almalinux/CentOS OS families
+
 ### 2.2.1. Preparing third party repositories
 
 Build setup downloads the ZenDNN, AOCL BLIS and FBGEMM repos into `third_party` folder.

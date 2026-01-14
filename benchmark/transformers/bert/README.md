@@ -29,7 +29,7 @@ Modify the configuration, to match your machine's specifications. The script cur
 
 ```shell
 export ENV_OMP_NUM_THREADS=2  # the number of cores used per instance (1, 2, ...)
-export ENV_ZENDNN_MATMUL_ALGO="FP32:2,BF16:2" # for float32 # "FP32:1,BF16:1" - for bfloat16
+export ENV_ZENDNNL_MATMUL_ALGO=1 # for float32 # "FP32:1,BF16:1" - for bfloat16
 export NOF_INSTANCES=48 # - number of instances to be run (1, 2, ...)
 export SEQUENCE_LENGTH=256 # token length (32, 64, 128, 256)
 export DATA_TYPE=float32 # data type (float32, bfloat16)

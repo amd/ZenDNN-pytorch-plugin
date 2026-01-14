@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ******************************************************************************
-# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2026 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -120,6 +120,15 @@ export KMP_PLAIN_BARRIER_PATTERN=dist,dist
 export KMP_REDUCTION_BARRIER_PATTERN=dist,dist
 export KMP_AFFINITY=granularity=fine,compact,1,0
 
+# Below flags should be enabled irrespective of LOA / Primitive Op settings
+export TORCHINDUCTOR_FREEZING=1
+export ZENTORCH_LINEAR=1
+
+# LOA settings
+export USE_ZENDNN_MATMUL_DIRECT=1
+
+# Primitive Op settings
+export USE_ZENDNN_MATMUL_DIRECT=0
 
 echo "OMP_WAIT_POLICY=$OMP_WAIT_POLICY"
 echo "OMP_DYNAMIC=$OMP_DYNAMIC"
@@ -130,7 +139,6 @@ echo "KMP_FORKJOIN_BARRIER_PATTERN=$KMP_FORKJOIN_BARRIER_PATTERN"
 echo "KMP_PLAIN_BARRIER_PATTERN=$KMP_PLAIN_BARRIER_PATTERN"
 echo "KMP_REDUCTION_BARRIER_PATTERN=$KMP_REDUCTION_BARRIER_PATTERN"
 echo "KMP_AFFINITY=$KMP_AFFINITY"
-
 
 if [ -f "/usr/local/lib/libjemalloc.so" ]; then
     export LD_PRELOAD=/usr/local/lib/libjemalloc.so:$LD_PRELOAD
@@ -193,47 +201,47 @@ if [ "$framework" = "zentorch" ]; then
 
     if [ "$model" = "cnn" ]; then
         if [ "$precision" = "fp32" ]; then
-            export ZENDNN_MATMUL_ALGO=FP32:4
+            export ZENDNNL_MATMUL_ALGO=1
         elif [ "$precision" = "int8" ]; then
-            export ZENDNN_MATMUL_ALGO=INT8:4
+            export ZENDNNL_MATMUL_ALGO=1
         elif [ "$precision" = "bf16_amp" ]; then
-            export ZENDNN_MATMUL_ALGO=BF16:4
+            export ZENDNNL_MATMUL_ALGO=1
         elif [ "$precision" = "bf16" ]; then
-            export ZENDNN_MATMUL_ALGO=BF16:4
+            export ZENDNNL_MATMUL_ALGO=1
         fi
     elif [ "$model" = "nlp" ]; then
         if [ "$precision" = "fp32" ]; then
-            export ZENDNN_MATMUL_ALGO=FP32:2
+            export ZENDNNL_MATMUL_ALGO=1
         elif [ "$precision" = "bf16_amp" ]; then
-            export ZENDNN_MATMUL_ALGO=BF16:4
+            export ZENDNNL_MATMUL_ALGO=1
         elif [ "$precision" = "bf16" ]; then
-            export ZENDNN_MATMUL_ALGO=BF16:0
+            export ZENDNNL_MATMUL_ALGO=1
         elif [ "$precision" = "int8" ]; then
-            export ZENDNN_MATMUL_ALGO=INT8:4
+            export ZENDNNL_MATMUL_ALGO=1
         fi
     elif [ "$model" = "recsys" ]; then
         if [ "$precision" = "fp32" ]; then
-            export ZENDNN_MATMUL_ALGO=FP32:2
+            export ZENDNNL_MATMUL_ALGO=1
         elif [ "$precision" = "bf16" ]; then
-            export ZENDNN_MATMUL_ALGO=BF16:2
+            export ZENDNNL_MATMUL_ALGO=1
         elif [ "$precision" = "bf16_amp" ]; then
-            export ZENDNN_MATMUL_ALGO=BF16:4
+            export ZENDNNL_MATMUL_ALGO=1
         elif [ "$precision" = "int8" ]; then
-            export ZENDNN_MATMUL_ALGO=INT8:2
+            export ZENDNNL_MATMUL_ALGO=1
         fi
     elif [ "$model" = "llm" ]; then
         if { [ "$precision" = "bf16" ] || [ "$precision" = "woq" ]; };  then
-            export ZENDNN_MATMUL_ALGO=BF16:0
+            export ZENDNNL_MATMUL_ALGO=1
         elif [ "$precision" = "fp32" ]; then
-            export ZENDNN_MATMUL_ALGO=FP32:0
+            export ZENDNNL_MATMUL_ALGO=1
         elif [ "$precision" = "bf16_amp" ]; then
-            export ZENDNN_MATMUL_ALGO=BF16:4
+            export ZENDNNL_MATMUL_ALGO=1
         elif [ "$precision" = "int8" ]; then
-            export ZENDNN_MATMUL_ALGO=INT8:2
+            export ZENDNNL_MATMUL_ALGO=1
         fi
     fi
 
-    echo "ZENDNN_MATMUL_ALGO = $ZENDNN_MATMUL_ALGO"
+    echo "ZENDNNL_MATMUL_ALGO = $ZENDNNL_MATMUL_ALGO"
     export ZENDNN_PRIMITIVE_CACHE_CAPACITY=1024
     echo "ZENDNN_PRIMITIVE_CACHE_CAPACITY = $ZENDNN_PRIMITIVE_CACHE_CAPACITY"
 

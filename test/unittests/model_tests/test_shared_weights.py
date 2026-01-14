@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2025 Advanced Micro Devices, Inc.
+# Copyright (c) 2026 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -104,10 +104,10 @@ class Test_Shared_Weights(Zentorch_TestCase):
     def setUp(self):
         # Store the original environment variable
         self.original_weight_caching = os.environ.get("ZENDNN_WEIGHT_CACHING", None)
-        self.original_matmul_algo = os.environ.get("ZENDNN_MATMUL_ALGO", None)
+        self.original_matmul_algo = os.environ.get("ZENDNNL_MATMUL_ALGO", None)
         # Set the environment variable to 2
         os.environ["ZENDNN_WEIGHT_CACHING"] = "2"
-        os.environ["ZENDNN_MATMUL_ALGO"] = "BF16:1"
+        os.environ["ZENDNNL_MATMUL_ALGO"] = "BF16:1"
 
     def tearDown(self):
         # Restore the original environment variable
@@ -117,9 +117,9 @@ class Test_Shared_Weights(Zentorch_TestCase):
             del os.environ["ZENDNN_WEIGHT_CACHING"]
 
         if self.original_matmul_algo is not None:
-            os.environ["ZENDNN_MATMUL_ALGO"] = self.original_matmul_algo
+            os.environ["ZENDNNL_MATMUL_ALGO"] = self.original_matmul_algo
         else:
-            del os.environ["ZENDNN_MATMUL_ALGO"]
+            del os.environ["ZENDNNL_MATMUL_ALGO"]
 
     @torch.inference_mode()
     def test_shared_weights(self):

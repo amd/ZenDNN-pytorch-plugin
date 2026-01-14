@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ******************************************************************************
-# Copyright (c) 2025 Advanced Micro Devices, Inc.
+# Copyright (c) 2026 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -110,22 +110,31 @@ fi
 
 echo "Extracted path to $condavar is $extracted_path/$condavar"
 
+# Below flags should be enabled irrespective of LOA / Primitive Op settings
+export TORCHINDUCTOR_FREEZING=1
+export ZENTORCH_LINEAR=1
+
+# LOA settings
+export USE_ZENDNN_MATMUL_DIRECT=1
+
+# Primitive Op settings
+export USE_ZENDNN_MATMUL_DIRECT=0
 
 if [ "$precision" = "fp32" ]; then
-   export ZENDNN_MATMUL_ALGO=FP32:2
+   export ZENDNNL_MATMUL_ALGO=1
    export ZENDNN_EB_THREAD_TYPE=1
 elif [ "$precision" = "bf16" ]; then
-   export ZENDNN_MATMUL_ALGO=BF16:2
+   export ZENDNNL_MATMUL_ALGO=1
    export ZENDNN_EB_THREAD_TYPE=1
 elif [ "$precision" = "int8" ]; then
-   export ZENDNN_MATMUL_ALGO=INT8:2
+   export ZENDNNL_MATMUL_ALGO=1
    export ZENDNN_EB_THREAD_TYPE=2
 elif [ "$precision" = "default" ]; then
-   export ZENDNN_MATMUL_ALGO=FP32:2,BF16:2,INT8:2
+   export ZENDNNL_MATMUL_ALGO=1
    export ZENDNN_EB_THREAD_TYPE=2
 fi
 
 
 
 echo "ZENDNN_EB_THREAD_TYPE = $ZENDNN_EB_THREAD_TYPE"
-echo "ZENDNN_MATMUL_ALGO = $ZENDNN_MATMUL_ALGO"
+echo "ZENDNNL_MATMUL_ALGO = $ZENDNNL_MATMUL_ALGO"
