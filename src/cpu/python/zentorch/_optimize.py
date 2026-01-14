@@ -22,6 +22,7 @@ from ._custom_op_replacement import (
     inplace_cat_fusion,
     emb_ops_horizontal_fusion,
     qkv_fusion_new,
+    qlinear_reorder_optimizations,
 )
 from ._prepack_pass import add_zentorch_weight_prepack_ops
 from ._eltwise_unary_fusions import zentorch_eltwise_unary_fusions
@@ -107,6 +108,9 @@ def optimize(fx_graph):
 
     # eltwise fusion replacements
     optimized_graph = fusions_graph_pass(optimized_graph)
+
+    # Reorder optimization for serialized qlinear_* ops.
+    optimized_graph = qlinear_reorder_optimizations(optimized_graph)
 
     optimized_graph = inplace_cat_fusion(optimized_graph)
 

@@ -760,6 +760,7 @@ def qlinear_reorder_optimizations(fx_graph):
                 pred_node = curr_node
     stable_topological_sort(fx_graph)
     fx_graph.lint()
+    return fx_graph
 
 
 # Updated qkv_fusion pass to concat weights and biases and run on new linear ops
