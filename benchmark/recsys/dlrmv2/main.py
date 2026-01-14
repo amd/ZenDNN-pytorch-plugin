@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2025 Advanced Micro Devices, Inc.
+# Copyright (c) 2025-2026 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -28,6 +28,10 @@ cpus_per_instance = int(
 )  # number of CPU cores per instance
 
 args = get_args()
+
+if args.enable_freezing:
+    torch._inductor.config.freezing = True
+
 ds = get_dataset(dataset=args.dataset, dataset_path=args.dataset_path)
 
 
@@ -52,6 +56,7 @@ def profiled_run(model, densex, index, offset):
 
 def sub_process(
     model,
+    model_type,
     sample_inputs,
     task_list,
     result_tensor,
@@ -67,6 +72,9 @@ def sub_process(
     i,
 ):
     zentorch.utils.thread_bind(affinity)
+    if model_type == "export_quant32":
+        model = model.module(check_guards=False)
+        model = torch.compile(model, backend="zentorch")
 
     densex, index, offset, labels = sample_inputs
 
@@ -181,6 +189,7 @@ if __name__ == "__main__":
             target=sub_process,
             args=(
                 compiled_model,
+                args.model,
                 sample_inputs,
                 task_lists[i],
                 result_tensor,

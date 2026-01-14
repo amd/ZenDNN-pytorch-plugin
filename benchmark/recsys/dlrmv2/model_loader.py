@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2025 Advanced Micro Devices, Inc.
+# Copyright (c) 2025-2026 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -121,15 +121,32 @@ def get_compiled_model(args):
             raise RuntimeError(
                 f"Failed to load quant16 model from {args.model_path}. Error: {e}"
             ) from e
+    elif args.model == "export_quant32":
+        try:
+            import torchao  # noqa: F401
+            model = torch.export.load(args.model_path)
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to load export_quant32 model from {args.model_path}. Error: {e}"
+            ) from e
     else:
         raise ValueError(
             f"Unsupported model type: {args.model}. Supported types are: quant32, fp32, qdq_model, quant16."
         )
     print("Sharing memory", flush=True)
-    model = model.cpu().share_memory()
+    if args.model == "export_quant32":
+        for _, tensor in model.state_dict.items():
+            if isinstance(tensor, torch.Tensor):
+                tensor.share_memory_()  # Move to shared memory
+    else:
+        model = model.cpu().share_memory()
     print("share_memory ready", flush=True)
     try:
-        compiled_graph = torch.compile(model, backend="zentorch")
+        if args.model == "export_quant32":
+            # As model is exported program, compile pass will be added in the subprocess
+            compiled_graph = model
+        else:
+            compiled_graph = torch.compile(model, backend="zentorch")
     except Exception as e:
         raise RuntimeError(f"Failed to compile model with zentorch. Error: {e}") from e
 

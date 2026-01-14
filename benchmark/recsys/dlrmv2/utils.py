@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2025 Advanced Micro Devices, Inc.
+# Copyright (c) 2025-2026 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 import argparse
@@ -68,11 +68,14 @@ def get_args():
     parser.add_argument(
         "--model",
         type=str,
-        default="quant32",
-        help="type of model to load [quant32,fp32,qdq,quant16]",
+        default="export_quant32",
+        help="type of model to load [quant32,fp32,qdq,quant16,export_quant32]",
     )
     parser.add_argument(
         "--enable_profiling", action="store_true", help="Enable profiling"
+    )
+    parser.add_argument(
+        "--enable_freezing", action="store_true", help="Enables torch inductor freezing"
     )
     args = parser.parse_args()
     return args
