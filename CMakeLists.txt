@@ -1,5 +1,5 @@
 #******************************************************************************
-# Copyright (c) 2023-2025 Advanced Micro Devices, Inc.
+# Copyright (c) 2023-2026 Advanced Micro Devices, Inc.
 # All rights reserved.
 #******************************************************************************
 
@@ -38,6 +38,11 @@ set(ZENTORCH_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/src/cpu/cpp/")
 list(REMOVE_ITEM ZENTORCH_CPP_SOURCES "${CMAKE_SOURCE_DIR}/src/cpu/cpp/Bindings.cpp")
 
 add_library(zentorch SHARED ${ZENTORCH_CPP_SOURCES})
+
+target_compile_options(zentorch
+    PUBLIC
+    -ffile-prefix-map=${CMAKE_SOURCE_DIR}/=
+)
 
 add_dependencies(CPUkernels zendnnl::zendnnl_archive)
 add_dependencies(zentorch CPUkernels zendnnl::zendnnl_archive)
