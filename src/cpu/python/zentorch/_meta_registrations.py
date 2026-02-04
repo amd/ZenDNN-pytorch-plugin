@@ -32,61 +32,6 @@ def register_meta(op_name, overload_name="default"):
 # More details can be found from below link
 # https://pytorch.org/docs/stable/torch.compiler_fake_tensor.html
 
-if hasattr(torch.ops.zentorch, "zentorch_attention_reshape_and_cache"):
-
-    @register_meta("zentorch_attention_reshape_and_cache")
-    def meta_zentorch_reshape_and_cache(
-        key, value, key_cache, value_cache, slot_mapping
-    ):
-        return None
-
-
-if hasattr(torch.ops.zentorch, "zentorch_attention_single_query_cached_kv_attention"):
-
-    @register_meta("zentorch_attention_single_query_cached_kv_attention")
-    def meta_zentorch_single_query_cached_kv_attention(
-        out,
-        query,
-        key_cache,
-        value_cache,
-        head_mapping,
-        scale,
-        block_tables,
-        context_lens,
-        block_size,
-        max_context_len,
-        alibi_slopes,
-    ):
-        return out.new_empty(out.size())
-
-
-if hasattr(torch.ops.zentorch, "zentorch_attention_flash_attn_varlen"):
-
-    @register_meta("zentorch_attention_flash_attn_varlen")
-    def meta_zentorch_flash_attn_varlen(
-        out,
-        query,
-        key_cache,
-        value_cache,
-        cu_seqlens_q,
-        cu_seqlens_k,
-        max_seqlen_q,
-        max_seqlen_k,
-        softmax_scale,
-        is_causal,
-        block_table,
-        alibi_slopes,
-        window_size_left,
-        window_size_right,
-        kv_cache_dtype,
-        k_scale,
-        v_scale,
-        softcap,
-        zentorch_op_name="",
-    ):
-        return None
-
-
 @register_meta("zentorch_addmm")
 def meta_zentorch_addmm(
     bias,
@@ -840,9 +785,3 @@ make_fallback(torch.ops.zentorch.zentorch_qlinear_sigmoid)
 make_fallback(torch.ops.zentorch.zentorch_qlinear_mul_add)
 if hasattr(torch.ops.zentorch, "zentorch_sdpa"):
     make_fallback(torch.ops.zentorch.zentorch_sdpa)
-if hasattr(torch.ops.zentorch, "zentorch_attention_reshape_and_cache"):
-    make_fallback(torch.ops.zentorch.zentorch_attention_reshape_and_cache)
-if hasattr(torch.ops.zentorch, "zentorch_attention_single_query_cached_kv_attention"):
-    make_fallback(
-        torch.ops.zentorch.zentorch_attention_single_query_cached_kv_attention
-    )

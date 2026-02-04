@@ -10,7 +10,6 @@
 The **zentorch vLLM plugin** integrates [zentorch](https://github.com/amd/ZenDNN-pytorch-plugin) with [vLLM's V1 engine](https://docs.vllm.ai/en/stable/usage/v1_guide/) to deliver optimized large language model inference on AMD EPYC™ CPUs. By leveraging ZenDNN's highly optimized kernels, this plugin accelerates both attention and non-attention operations in vLLM, providing significant throughput improvements for popular LLMs
 
 The plugin uses vLLM's platform and general plugin entry points to:
-- Replace vLLM's attention with zentorch's optimized PagedAttention
 - Inject zentorch optimization passes into `torch.compile`
 - Disable replacement with Intel oneDNN kernels to enable replacement with zentorch kernels
 - Enable CPU-only profiling
@@ -30,15 +29,15 @@ The plugin uses vLLM's platform and general plugin entry points to:
 
 | Component | Version | Notes |
 |-----------|---------|-------|
-| vLLM | 0.11.0 - 0.14.1 | Profiler fixes applied per version |
+| vLLM | 0.12.0 - 0.14.1 | Profiler fixes applied per version |
 | Python | 3.10+ | |
-| PyTorch | 2.8/2.9.1+ | Auto-installed by vLLM |
+| PyTorch | 2.9.1+ | Auto-installed by vLLM |
 
 ---
 
 ## Architecture
 
-When both vLLM and the `zentorch` package are installed, vLLM automatically detects the zentorch platform and replaces its default attention mechanism with the highly optimized zentorch PagedAttention kernel.
+When both vLLM and the `zentorch` package are installed, vLLM automatically detects the zentorch platform and uses zentorch optimizations via `torch.compile`.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -54,7 +53,6 @@ When both vLLM and the `zentorch` package are installed, vLLM automatically dete
 │  └── Patches profiler(version-specific)                     │
 ├─────────────────────────────────────────────────────────────┤
 │  Monkey Patches (applied early)                             │
-│  ├── PagedAttention → zentorch implementation               │
 │  ├── CompilationConfig.__repr__ → Handle custom passes      │
 │  └── _supports_onednn = False → Use zentorch linear         │
 ├─────────────────────────────────────────────────────────────┤
@@ -63,7 +61,7 @@ When both vLLM and the `zentorch` package are installed, vLLM automatically dete
 └─────────────────────────────────────────────────────────────┘
 ```
 
-This kernel leverages AMD EPYC specific intrinsics and optimizations to accelerate computations on AMD EPYC CPUs. However, the plugin may also function on other x86 CPUs that meet the required ISA. Further, we use zentorch to compile the LLM with `torch.compile`, replacing the native ops with zentorch's optimized ops.
+The plugin leverages AMD EPYC specific intrinsics and optimizations to accelerate computations on AMD EPYC CPUs. However, it may also function on other x86 CPUs that meet the required ISA. We use zentorch to compile the LLM with `torch.compile`, replacing the native ops with zentorch's optimized ops.
 
 ## Key Components
 
@@ -77,10 +75,6 @@ This kernel leverages AMD EPYC specific intrinsics and optimizations to accelera
 - Registered via `vllm.platform_plugins` and `vllm.general_plugins`
 - Applies patches before model initialization
 - Validates vLLM version compatibility
-
-**PagedAttention** (`attention.py`)
-- Replaces vLLM's CPU attention backend with zentorch optimized paged attention kernel
-- Drop-in replacement, no code changes required
 
 ---
 
@@ -99,7 +93,7 @@ This kernel leverages AMD EPYC specific intrinsics and optimizations to accelera
 2. **Build vLLM from Source**
    - Follow the official [vLLM Installation Guide](https://docs.vllm.ai/en/stable/getting_started/installation/cpu/#build-wheel-from-source) for detailed, step-by-step instructions.
    - **Important:** Pre-built vLLM CPU binaries are available from [0.13.0](https://docs.vllm.ai/en/stable/getting_started/installation/cpu/#pre-built-wheels). You must build vLLM from source to enable CPU support for previous supported versions.
-   - Supported versions: 0.11.x, 0.12.0, 0.13.0, 0.14.0, 0.14.1. Check out the appropriate release tag before building.
+   - Supported versions: 0.12.0, 0.13.0, 0.14.0, 0.14.1. Check out the appropriate release tag before building.
 
 3. **Install zentorch:**
    Refer to the [zentorch Installation Guide](https://github.com/amd/ZenDNN-pytorch-plugin?tab=readme-ov-file#2-installation) for detailed instructions.
@@ -178,7 +172,7 @@ vllm bench throughput \
 
 If you don't see "Platform plugin zentorch is activated":
 1. Verify zentorch is installed: `python -c "import zentorch"`
-2. Check vLLM version: `python -c "import vllm; print(vllm.__version__)"` (must be 0.11.0 - 0.14.1)
+2. Check vLLM version: `python -c "import vllm; print(vllm.__version__)"` (must be 0.12.0 - 0.14.1)
 
 ### Stale Compilation Cache
 

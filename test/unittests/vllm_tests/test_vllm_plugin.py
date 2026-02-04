@@ -7,13 +7,13 @@
 Unit tests for zentorch.vllm plugin.
 
 Tests verify:
-- Version compatibility checks for supported versions (0.11.x, 0.12.0, 0.13.0, 0.14.0, 0.14.1)
+- Version compatibility checks for supported versions (0.12.0, 0.13.0, 0.14.0, 0.14.1)
 - Version parsing logic
 - Patch registration and application
 - Individual patch functionality (oneDNN disable, CompilationConfig repr, etc.)
 - Platform configuration
 
-Supported vLLM versions: 0.11.0, 0.11.1, 0.11.2, 0.12.0, 0.13.0, 0.14.0, 0.14.1
+Supported vLLM versions: 0.12.0, 0.13.0, 0.14.0, 0.14.1
 """
 
 import sys
@@ -43,8 +43,6 @@ class TestVersionParsing(unittest.TestCase):
         """_base_version should strip dev/rc/local suffixes."""
         from zentorch.vllm.core import _base_version
 
-        self.assertEqual(_base_version("0.11.0"), "0.11.0")
-        self.assertEqual(_base_version("0.11.1.dev0+cpu"), "0.11.1")
         self.assertEqual(_base_version("0.12.0.dev1+gb8b302cde.d20251203.cpu"), "0.12.0")
         self.assertEqual(_base_version("0.13.0rc1+cpu"), "0.13.0")
         self.assertEqual(_base_version("0.13.0rc0"), "0.13.0")
@@ -54,23 +52,13 @@ class TestVersionParsing(unittest.TestCase):
         """VERSION_MAP should contain all supported base versions."""
         from zentorch.vllm.core import _VERSION_MAP
 
-        expected_versions = ["0.11.0", "0.11.1", "0.11.2", "0.12.0", "0.13.0", "0.14.0", "0.14.1"]
+        expected_versions = ["0.12.0", "0.13.0", "0.14.0", "0.14.1"]
         for ver in expected_versions:
             self.assertIn(ver, _VERSION_MAP, f"{ver} should be in VERSION_MAP")
 
     def test_version_family_detection_supported(self):
         """VERSION_MAP should return correct family for supported versions."""
         from zentorch.vllm.core import _base_version, _VERSION_MAP
-
-        # v11 family (0.11.0)
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.11.0")), "v11")
-
-        # v11_1 family (0.11.1)
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.11.1")), "v11_1")
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.11.1.dev0+cpu")), "v11_1")
-
-        # v11_2 family (0.11.2)
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.11.2")), "v11_2")
 
         # v12 family
         self.assertEqual(_VERSION_MAP.get(_base_version("0.12.0")), "v12")
@@ -92,7 +80,7 @@ class TestVersionParsing(unittest.TestCase):
         """VERSION_MAP should return None for unsupported versions."""
         from zentorch.vllm.core import _base_version, _VERSION_MAP
 
-        unsupported = ["0.9.1", "0.10.0", "0.10.5", "0.15.0", "1.0.0"]
+        unsupported = ["0.9.1", "0.10.0", "0.10.5", "0.11.0", "0.11.1", "0.11.2", "0.15.0", "1.0.0"]
         for ver in unsupported:
             self.assertIsNone(
                 _VERSION_MAP.get(_base_version(ver)),
@@ -150,12 +138,8 @@ class TestPatchRegistration(unittest.TestCase):
         register()  # Ensure patches are registered
 
         expected_patches = [
-            "PagedAttention",
-            "IPEXFlashAttention",
             "CompilationConfigRepr",
             "OneDNNDisable",
-            "InternVLDtype",
-            "CPUProfiler",
             "CPUProfilerV12",
             "CPUProfilerV13",
         ]
@@ -176,7 +160,7 @@ class TestPatchRegistration(unittest.TestCase):
         register()
         family = get_version_family()
 
-        # These patches apply to all versions (0.11.x, 0.12.0, 0.13.0, 0.14.0, 0.14.1)
+        # These patches apply to all versions (0.12.0, 0.13.0, 0.14.0, 0.14.1)
         universal_patches = ["CompilationConfigRepr", "OneDNNDisable"]
         for patch_name in universal_patches:
             self.assertIn(
@@ -291,46 +275,6 @@ class TestZentorchOptimizePass(unittest.TestCase):
         self.assertTrue(callable(optimize_pass))
 
 
-class TestPagedAttention(unittest.TestCase):
-    """Test PagedAttention implementation."""
-
-    def test_paged_attention_supported_head_sizes(self):
-        """PagedAttention should report supported head sizes."""
-        from zentorch.vllm.attention import PagedAttention
-
-        supported = PagedAttention.get_supported_head_sizes()
-        self.assertIsInstance(supported, list)
-        self.assertIn(64, supported)
-        self.assertIn(128, supported)
-
-    def test_paged_attention_repr(self):
-        """PagedAttention repr should identify zentorch backend."""
-        from zentorch.vllm.attention import PagedAttention
-
-        pa = PagedAttention()
-        repr_str = repr(pa)
-        self.assertIn("zentorch", repr_str)
-        self.assertIn("cpu", repr_str)
-
-    def test_paged_attention_has_required_methods(self):
-        """PagedAttention should have all required static methods."""
-        from zentorch.vllm.attention import PagedAttention
-
-        required_methods = [
-            "get_supported_head_sizes",
-            "get_kv_cache_shape",
-            "split_kv_cache",
-            "write_to_paged_cache",
-            "flash_attn_varlen_func",
-            "forward_decode",
-        ]
-        for method in required_methods:
-            self.assertTrue(
-                hasattr(PagedAttention, method),
-                f"PagedAttention should have {method}",
-            )
-
-
 # =============================================================================
 # Test Runner
 # =============================================================================
@@ -348,7 +292,6 @@ def run_tests():
     suite.addTests(loader.loadTestsFromTestCase(TestCompilationConfigPatch))
     suite.addTests(loader.loadTestsFromTestCase(TestPlatformConfiguration))
     suite.addTests(loader.loadTestsFromTestCase(TestZentorchOptimizePass))
-    suite.addTests(loader.loadTestsFromTestCase(TestPagedAttention))
 
     runner = unittest.TextTestRunner(verbosity=2)
     result = runner.run(suite)

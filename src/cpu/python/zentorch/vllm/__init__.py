@@ -10,18 +10,14 @@ Entry points:
 - vllm.general_plugins  -> applies early patches
 
 Patches (each with version decorator):
-- PagedAttention (0.11 only)
-- IPEX flash attention (0.11 only)
 - CompilationConfig repr (all versions)
 - oneDNN disable (all versions)
-- InternVL dtype fix (0.11 only)
 
 Reference: https://blog.vllm.ai/2025/11/20/vllm-plugin-system.html
 """
 
 from __future__ import annotations
 
-import os
 import sys
 from typing import Optional
 import torch
@@ -33,6 +29,12 @@ from zentorch.vllm.core import (
     manager,
     get_version_family,
     is_v12,
+    VLLM_MIN_VERSION,
+    VLLM_MAX_VERSION,
+    VLLM_V12,
+    VLLM_V13,
+    VLLM_V14,
+    VLLM_V14_1,
 )
 
 
@@ -40,58 +42,11 @@ logger = get_logger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Patches (0.11 only)
-# ---------------------------------------------------------------------------
-
-
-@vllm_version("0.11.0", "0.11.1", "0.11.2")
-class PagedAttentionPatch:
-    """Replace vLLM's PagedAttention with zentorch implementation."""
-
-    @classmethod
-    def apply(cls) -> bool:
-        try:
-            import vllm.v1.attention.backends.cpu_attn as cpu_attn_module
-            from zentorch.vllm.attention import PagedAttention
-
-            cpu_attn_module._get_paged_attn_impl = lambda: PagedAttention
-            logger.info("[zentorch] Patched PagedAttention")
-            return True
-        except ImportError:
-            logger.debug("[zentorch] PagedAttention patch deferred")
-            return False
-
-
-@vllm_version("0.11.0", "0.11.1", "0.11.2")
-class IPEXFlashAttentionPatch:
-    """Replace IPEX flash_attn_varlen_func with zentorch."""
-
-    @classmethod
-    def apply(cls) -> bool:
-        if os.environ.get("DISABLE_ZENTORCH_FLASH_ATTENTION_VARLEN", "0") == "1":
-            logger.info("[zentorch] IPEX patch disabled via env")
-            return False
-
-        try:
-            import intel_extension_for_pytorch.llm.modules as ipex_modules
-            from zentorch.vllm.attention import PagedAttention
-
-            ipex_modules.PagedAttention.flash_attn_varlen_func = (
-                PagedAttention.flash_attn_varlen_func
-            )
-            logger.info("[zentorch] Patched IPEX flash_attn_varlen_func")
-            return True
-        except ImportError:
-            logger.debug("[zentorch] IPEX patch deferred")
-            return False
-
-
-# ---------------------------------------------------------------------------
 # Patches (all versions)
 # ---------------------------------------------------------------------------
 
 
-@vllm_version_range(min_ver="0.11.0", max_ver="0.14.1")
+@vllm_version_range(min_ver=VLLM_MIN_VERSION, max_ver=VLLM_MAX_VERSION)
 class CompilationConfigReprPatch:
     """Fix CompilationConfig repr for pydantic serialization."""
 
@@ -149,7 +104,7 @@ class CompilationConfigReprPatch:
             return False
 
 
-@vllm_version_range(min_ver="0.11.0", max_ver="0.14.1")
+@vllm_version_range(min_ver=VLLM_MIN_VERSION, max_ver=VLLM_MAX_VERSION)
 class OneDNNDisablePatch:
     """Disable oneDNN GEMM to use zentorch.zentorch_linear_unary()."""
 
@@ -165,7 +120,7 @@ class OneDNNDisablePatch:
             return False
 
 
-@vllm_version_range(min_ver="0.12.0", max_ver="0.14.0")
+@vllm_version_range(min_ver=VLLM_MIN_VERSION, max_ver=VLLM_MAX_VERSION)
 class DispatchCPUUnquantizedGemmPatch:
     """Fix Freezing issue by overwriting dispatch_cpu_unquantized_gemm."""
 
@@ -198,96 +153,7 @@ class DispatchCPUUnquantizedGemmPatch:
             return False
 
 
-@vllm_version("0.11.0")
-class InternVLDtypePatch:
-    """Fix InternVL video dtype issue (0.11 only)."""
-
-    @classmethod
-    def apply(cls) -> bool:
-        try:
-            import numpy as np
-            from vllm.multimodal import profiling as profiling_module
-
-            if hasattr(profiling_module.BaseDummyInputsBuilder, "_zentorch_patched"):
-                return True
-
-            def patched_get_dummy_videos(self, width, height, num_frames, num_videos):
-                if num_videos == 0:
-                    return []
-                return [
-                    np.full((num_frames, width, height, 3), 255, dtype=np.uint8)
-                ] * num_videos
-
-            profiling_module.BaseDummyInputsBuilder._get_dummy_videos = (
-                patched_get_dummy_videos
-            )
-            profiling_module.BaseDummyInputsBuilder._zentorch_patched = True
-            logger.info("[zentorch] Patched InternVL dtype")
-            return True
-        except ImportError:
-            return False
-
-
-@vllm_version("0.11.0", "0.11.1", "0.11.2")
-class CPUProfilerPatch:
-    """Patch Worker profiler for CPU-only profiling (0.11 only)."""
-
-    @classmethod
-    def apply(cls) -> bool:
-        import torch
-
-        try:
-            import vllm.envs as envs
-            import vllm.v1.worker.gpu_worker as worker_module
-        except ImportError:
-            return False
-
-        if hasattr(worker_module.Worker, "_zentorch_profiler_patched"):
-            return True
-
-        Worker = worker_module.Worker
-        orig_init = Worker.__init__
-
-        def patched_init(self, *a, **kw):
-            orig_init(self, *a, **kw)
-            if self.profiler:
-                record_shapes = getattr(
-                    envs, "VLLM_TORCH_PROFILER_RECORD_SHAPES", False
-                )
-                profile_memory = getattr(
-                    envs, "VLLM_TORCH_PROFILER_WITH_PROFILE_MEMORY", False
-                )
-                with_stack = getattr(envs, "VLLM_TORCH_PROFILER_WITH_STACK", False)
-                with_flops = getattr(envs, "VLLM_TORCH_PROFILER_WITH_FLOPS", False)
-                self.profiler = torch.profiler.profile(
-                    activities=[torch.profiler.ProfilerActivity.CPU],
-                    record_shapes=record_shapes,
-                    profile_memory=profile_memory,
-                    with_stack=with_stack,
-                    with_flops=with_flops,
-                )
-
-        def patched_profile(self, is_start=True):
-            if not self.profiler:
-                raise RuntimeError("Profiler not enabled")
-            if is_start:
-                self.profiler.start()
-            else:
-                self.profiler.stop()
-                logger.info(
-                    "\n%s",
-                    self.profiler.key_averages().table(sort_by="self_cpu_time_total"),
-                )
-
-        Worker.__init__ = patched_init
-        Worker.profile = patched_profile
-        Worker._zentorch_profiler_patched = True
-        logger.info("[zentorch] Patched Worker profiler (0.11)")
-
-        return True
-
-
-@vllm_version("0.12.0")
+@vllm_version(VLLM_V12)
 class CPUProfilerPatchV12:
     """Stub: Actual patching happens in platform.py check_and_update_config."""
 
@@ -298,7 +164,7 @@ class CPUProfilerPatchV12:
         return True
 
 
-@vllm_version("0.13.0", "0.14.1")
+@vllm_version(VLLM_V13, VLLM_V14, VLLM_V14_1)
 class CPUProfilerPatchV13:
     """Stub: Actual patching happens in platform.py check_and_update_config."""
 
@@ -432,13 +298,9 @@ def _register_patches():
     if _REGISTERED:
         return
 
-    manager.register("PagedAttention", PagedAttentionPatch)
-    manager.register("IPEXFlashAttention", IPEXFlashAttentionPatch)
     manager.register("CompilationConfigRepr", CompilationConfigReprPatch)
     manager.register("OneDNNDisable", OneDNNDisablePatch)
     manager.register("DispatchCPUUnquantizedGemm", DispatchCPUUnquantizedGemmPatch)
-    manager.register("InternVLDtype", InternVLDtypePatch)
-    manager.register("CPUProfiler", CPUProfilerPatch)
     manager.register("CPUProfilerV12", CPUProfilerPatchV12)
     manager.register("CPUProfilerV13", CPUProfilerPatchV13)
 
@@ -469,8 +331,12 @@ def register() -> Optional[str]:
 
     if family is None:
         logger.warning(
-            "[zentorch] Unsupported vLLM %s. Supports: 0.11.x, 0.12.0, 0.13.0, 0.14.0, 0.14.1",
+            "[zentorch] Unsupported vLLM %s. Supports: %s, %s, %s, %s",
             vllm_ver,
+            VLLM_V12,
+            VLLM_V13,
+            VLLM_V14,
+            VLLM_V14_1,
         )
         return None
 

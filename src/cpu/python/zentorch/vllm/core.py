@@ -20,15 +20,21 @@ from zentorch._logging import get_logger
 
 logger = get_logger(__name__)
 
+# Supported vLLM versions
+VLLM_MIN_VERSION = "0.12.0"
+VLLM_MAX_VERSION = "0.14.1"
+
+VLLM_V12 = "0.12.0"
+VLLM_V13 = "0.13.0"
+VLLM_V14 = "0.14.0"
+VLLM_V14_1 = "0.14.1"
+
 # Version -> family mapping
 _VERSION_MAP = {
-    "0.11.0": "v11",
-    "0.11.1": "v11_1",
-    "0.11.2": "v11_2",
-    "0.12.0": "v12",
-    "0.13.0": "v13",
-    "0.14.0": "v14",
-    "0.14.1": "v14_1",
+    VLLM_V12: "v12",
+    VLLM_V13: "v13",
+    VLLM_V14: "v14",
+    VLLM_V14_1: "v14_1",
 }
 
 
@@ -50,23 +56,11 @@ def _base_version(ver: str) -> str:
 
 
 def get_version_family() -> Optional[str]:
-    """Return 'v11', 'v11_1', 'v11_2', 'v12', 'v13', 'v14' or None."""
+    """Return 'v12', 'v13', 'v14' or None."""
     ver = get_vllm_version()
     if ver is None:
         return None
     return _VERSION_MAP.get(_base_version(ver))
-
-
-def is_v11() -> bool:
-    return get_version_family() == "v11"
-
-
-def is_v11_1() -> bool:
-    return get_version_family() == "v11_1"
-
-
-def is_v11_2() -> bool:
-    return get_version_family() == "v11_2"
 
 
 def is_v12() -> bool:
@@ -93,7 +87,7 @@ def vllm_version(*versions: str) -> Callable[[Type], Type]:
     """Decorator: apply patch only for specific vLLM versions.
 
     Usage:
-        @vllm_version("0.11.0", "0.11.1")
+        @vllm_version("0.12.0", "0.13.0")
         class MyPatch:
             pass
     """
@@ -127,7 +121,7 @@ def vllm_version_range(
     """Decorator: apply patch for a version range.
 
     Usage:
-        @vllm_version_range(min_ver="0.11.0", max_ver="0.14.1")
+        @vllm_version_range(min_ver="0.12.0", max_ver="0.14.1")
         class MyPatch:
             pass
     """
