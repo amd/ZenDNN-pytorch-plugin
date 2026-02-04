@@ -1,7 +1,10 @@
 # ******************************************************************************
-# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2026 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
+
+# Todo: This file can be removed later when mm pattern is cleaned up
+# since similar testcase is handled in test_linear_unary.py and test_linear_binary.py.
 
 import unittest
 import torch
@@ -60,13 +63,14 @@ class Test_MM_SiLU_Mul_Model(MMTestCase):
     def test_mm_silu_mul_with_bias_model(self, dtype, freeze_opt):
         model = Custom_Model_MM_Silu_Mul(self.data, bias=True)
         model_input = self.data.input.view(1, self.data.m, self.data.n)
-        if dtype == "bfloat16" and zentorch._C.is_bf16_supported():
-            model = model.bfloat16()
-        else:
-            self.skipTest(
-                "Warning: Skipping Bfloat16 Testcases since they are not "
-                + "supported on this hardware"
-            )
+        if dtype == "bfloat16":
+            if zentorch._C.is_bf16_supported():
+                model = model.bfloat16()
+            else:
+                self.skipTest(
+                    "Warning: Skipping Bfloat16 Testcases since they are not "
+                    + "supported on this hardware"
+                )
         model_output = model(model_input)
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
@@ -74,16 +78,16 @@ class Test_MM_SiLU_Mul_Model(MMTestCase):
         # autocast subtest
         with self.subTest(dtype="float32"):
             self.assertEqual(
-                counters["zentorch"]["pattern_matcher_addmm_1dbias_silu_mul"], 0
+                counters["zentorch"]["zentorch_linear_silu"], 0
             )
             with torch.autocast("cpu"):
                 _ = compiled_graph(model_input)
                 self.assertEqual(
-                    counters["zentorch"]["pattern_matcher_addmm_1dbias_silu_mul"], 1
+                    counters["zentorch"]["zentorch_linear_silu"], 1
                 )
                 counters.clear()
         self.assertEqual(
-            counters["zentorch"]["pattern_matcher_addmm_1dbias_silu_mul"], 0
+            counters["zentorch"]["zentorch_linear_mul"], 0
         )
         compiled_graph_output = test_with_freeze_opt(
             compiled_graph,
@@ -91,7 +95,7 @@ class Test_MM_SiLU_Mul_Model(MMTestCase):
             freeze_opt
         )
         self.assertEqual(
-            counters["zentorch"]["pattern_matcher_addmm_1dbias_silu_mul"], 1
+            counters["zentorch"]["zentorch_linear_mul"], 1
         )
         self.assertEqual(model_output, compiled_graph_output)
 
@@ -103,31 +107,32 @@ class Test_MM_SiLU_Mul_Model(MMTestCase):
     def test_mm_silu_mul_without_bias_model(self, dtype, freeze_opt):
         model = Custom_Model_MM_Silu_Mul(self.data, bias=False)
         model_input = self.data.input.view(1, self.data.m, self.data.n)
-        if dtype == "bfloat16" and zentorch._C.is_bf16_supported():
-            model = model.bfloat16()
-        else:
-            self.skipTest(
-                "Warning: Skipping Bfloat16 Testcases since they are not "
-                + "supported on this hardware"
-            )
+        if dtype == "bfloat16":
+            if zentorch._C.is_bf16_supported():
+                model = model.bfloat16()
+            else:
+                self.skipTest(
+                    "Warning: Skipping Bfloat16 Testcases since they are not "
+                    + "supported on this hardware"
+                )
         model_output = model(model_input)
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
         counters.clear()
         # autocast subtest
         with self.subTest(dtype="float32"):
-            self.assertEqual(counters["zentorch"]["pattern_matcher_mm_silu_mul"], 0)
+            self.assertEqual(counters["zentorch"]["zentorch_linear_silu"], 0)
             with torch.autocast("cpu"):
                 _ = compiled_graph(model_input)
-                self.assertEqual(counters["zentorch"]["pattern_matcher_mm_silu_mul"], 1)
+                self.assertEqual(counters["zentorch"]["zentorch_linear_silu"], 1)
                 counters.clear()
-        self.assertEqual(counters["zentorch"]["pattern_matcher_mm_silu_mul"], 0)
+        self.assertEqual(counters["zentorch"]["zentorch_linear_mul"], 0)
         compiled_graph_output = test_with_freeze_opt(
             compiled_graph,
             (model_input),
             freeze_opt
         )
-        self.assertEqual(counters["zentorch"]["pattern_matcher_mm_silu_mul"], 1)
+        self.assertEqual(counters["zentorch"]["zentorch_linear_mul"], 1)
         self.assertEqual(model_output, compiled_graph_output)
 
 
