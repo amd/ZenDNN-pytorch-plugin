@@ -816,4 +816,20 @@ set_matmul_operator_attributes(matmul_operator_t &matmul_operator,
     }
   }
 }
+
+inline void create_zendnnl_quantized_tensor(const at::Tensor &tensor,
+                                            tensor_t &z_tensor,
+                                            std::string_view name) {
+  if (tensor.dim() <= 1) {
+    // The library's current implementation requires the tensors in the form
+    // of 2d tensors. Hence the {1, numel} for the tensors is used.
+    unsigned long tensor_numel = tensor.numel();
+    set_zendnnl_tensor_attributes(tensor, z_tensor, name,
+                                  false /* is_weight_prepacked */,
+                                  {1, tensor_numel}, {tensor_numel, 1});
+  } else {
+    set_zendnnl_tensor_attributes(tensor, z_tensor, name);
+  }
+}
+
 } // namespace zentorch

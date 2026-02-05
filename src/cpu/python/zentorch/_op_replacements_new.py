@@ -20,7 +20,6 @@ from torch._inductor.pattern_matcher import (
 )
 from torch.fx.graph import Graph
 
-
 pass_pattern = PatternMatcherPass()
 aten = torch.ops.aten
 zentorch = torch.ops.zentorch
@@ -287,6 +286,68 @@ def addmm_linear_replacement_nd(
 
     match.replace_by_example(
         repl, [bias, mat_1, size, mat_2, dims, size_1, beta, alpha]
+    )
+
+
+# WOQ (Weight-Only Quantization) linear replacement
+# IntxWeightOnly per-channel pattern replacement
+@register_graph_pattern(
+    CallFunction(
+        aten.mm,
+        Arg(),  # input tensor
+        CallFunction(
+            aten.permute,
+            CallFunction(
+                aten.mul,
+                CallFunction(
+                    aten.sub,
+                    CallFunction(
+                        torch.ops.prims.convert_element_type.default,
+                        Arg(),  # Weight tensor int8
+                        torch.bfloat16,
+                    ),
+                    CallFunction(
+                        torch.ops.prims.convert_element_type.default,
+                        Arg(),  # Weight zero points int8
+                        torch.bfloat16,
+                    ),
+                ),
+                Arg(),  # scale tensor bfloat16
+            ),
+            Arg(),  # dims
+        ),
+    ),
+    pass_dict=pass_pattern,
+)
+def intxweightonly_linear_replacement(
+    match: Match,
+    input_tensor: Any,
+    weight_tensor: Any,
+    weight_zero_points: Any,
+    weight_scales: Any,
+    dims: Any,
+) -> None:
+    def repl(
+        input_tensor: Any,
+        weight_tensor: Any,
+        weight_zero_points: Any,
+        weight_scales: Any,
+        dims: Any,
+    ) -> torch.Tensor:
+        # dims is not used for per-channel pattern
+        packed_weight = zentorch.zentorch_weight_from_int4pack_and_repack(weight_tensor)
+        counters["zentorch"]["zentorch_woq_linear"] += 1
+        return zentorch.zentorch_woq_linear(
+            input_tensor,
+            packed_weight,
+            -1,  # group_size is not used for per-channel pattern
+            weight_scales,
+            weight_zero_points,
+            zentorch_op_name="zentorch_woq_linear",
+        )
+
+    match.replace_by_example(
+        repl, [input_tensor, weight_tensor, weight_zero_points, weight_scales, dims]
     )
 
 

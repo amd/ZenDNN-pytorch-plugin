@@ -89,7 +89,12 @@ def meta_zentorch_addmm_gelu_erf(
 
 @register_meta("zentorch_linear_unary")
 def meta_zentorch_linear_unary(
-    input, weight, bias=None, is_weight_prepacked=False, post_op="none", zentorch_op_name="zentorch::zentorch_linear_unary"
+    input,
+    weight,
+    bias=None,
+    is_weight_prepacked=False,
+    post_op="none",
+    zentorch_op_name="zentorch::zentorch_linear_unary",
 ):
     out_dim = list(input.size())
     out_dim[-1] = weight.size(0)
@@ -742,6 +747,71 @@ def meta_zentorch_qlinear_mul_add(
     return add_input.new_empty((add_input.size()), dtype=output_dtype)
 
 
+@register_meta("zentorch_woq_linear")
+def meta_zentorch_woq_linear(
+    input,
+    weight,
+    group_size,  # int64_t in C++ - comes as Python int
+    weight_scales,
+    weight_zero_points,
+    zentorch_op_name="zentorch::zentorch_woq_linear",
+):
+    out_dim = list(input.size())
+    out_dim[-1] = weight.shape[0]
+    return input.new_empty(out_dim, dtype=input.dtype)
+
+
+@register_meta("zentorch_woq_linear_relu")
+def meta_zentorch_woq_linear_relu(
+    input,
+    weight,
+    group_size,
+    weight_scales,
+    weight_zero_points,
+    zentorch_op_name="zentorch::zentorch_woq_linear_relu",
+):
+    return meta_zentorch_woq_linear(
+        input, weight, group_size, weight_scales, weight_zero_points, zentorch_op_name
+    )
+
+
+@register_meta("zentorch_woq_linear_sigmoid")
+def meta_zentorch_woq_linear_sigmoid(
+    input,
+    weight,
+    group_size,
+    weight_scales,
+    weight_zero_points,
+    zentorch_op_name="zentorch::zentorch_woq_linear_sigmoid",
+):
+    return meta_zentorch_woq_linear(
+        input, weight, group_size, weight_scales, weight_zero_points, zentorch_op_name
+    )
+
+
+@register_meta("zentorch_woq_linear_mul_add")
+def meta_zentorch_woq_linear_mul_add(
+    input,
+    weight,
+    group_size,
+    weight_scales,
+    weight_zero_points,
+    mul_input,
+    add_input,
+    zentorch_op_name="zentorch::zentorch_woq_linear_mul_add",
+):
+    # The output shape matches add_input, dtype follows
+    return add_input.new_empty((add_input.size()), dtype=input.dtype)
+
+
+@register_meta("zentorch_weight_from_int4pack_and_repack")
+def meta_zentorch_weight_from_int4pack_and_repack(unpacked_weight):
+    # Returns a packed weight tensor of shape [N, K/8]
+    K = unpacked_weight.size(1)
+    K_packed = K // 8
+    return unpacked_weight.new_empty((unpacked_weight.size(0), K_packed))
+
+
 make_fallback(torch.ops.zentorch.zentorch_addmm)
 make_fallback(torch.ops.zentorch.zentorch_addmm_relu)
 make_fallback(torch.ops.zentorch.zentorch_addmm_silu)
@@ -783,5 +853,10 @@ make_fallback(torch.ops.zentorch.zentorch_qlinear)
 make_fallback(torch.ops.zentorch.zentorch_qlinear_relu)
 make_fallback(torch.ops.zentorch.zentorch_qlinear_sigmoid)
 make_fallback(torch.ops.zentorch.zentorch_qlinear_mul_add)
+make_fallback(torch.ops.zentorch.zentorch_woq_linear)
+make_fallback(torch.ops.zentorch.zentorch_woq_linear_relu)
+make_fallback(torch.ops.zentorch.zentorch_woq_linear_sigmoid)
+make_fallback(torch.ops.zentorch.zentorch_woq_linear_mul_add)
+make_fallback(torch.ops.zentorch.zentorch_weight_from_int4pack_and_repack)
 if hasattr(torch.ops.zentorch, "zentorch_sdpa"):
     make_fallback(torch.ops.zentorch.zentorch_sdpa)

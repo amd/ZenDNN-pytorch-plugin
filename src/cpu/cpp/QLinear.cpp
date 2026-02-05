@@ -215,32 +215,16 @@ void zendnnl_quantized_matmul_impl(
 
   using tensor_opt_ref = std::optional<std::reference_wrapper<tensor_t>>;
 
-  auto create_zendnnl_tensor = [](const at::Tensor &tensor, tensor_t &z_tensor,
-                                  std::string_view name) {
-    if (tensor.dim() <= 1) {
-      // The library's current implementation requires the tensors in the form
-      // of 2d tensors. Hence the {1, numel} for the tensors is used.
-      unsigned long tensor_numel = tensor.numel();
-      set_zendnnl_tensor_attributes(tensor, z_tensor, name,
-                                    false /* is_weight_prepacked */,
-                                    {1, tensor_numel}, {tensor_numel, 1});
-    } else {
-      set_zendnnl_tensor_attributes(tensor, z_tensor, name);
-    }
-
-    LOG(INFO) << "Created " << name << " tensor";
-  };
-
   tensor_t z_input_scales = tensor_t();
   tensor_opt_ref z_input_scales_opt_ref = std::nullopt;
-  create_zendnnl_tensor(input_scales, z_input_scales, "input_scales");
+  create_zendnnl_quantized_tensor(input_scales, z_input_scales, "input_scales");
   z_input_scales_opt_ref = tensor_opt_ref(std::ref(z_input_scales));
 
   tensor_t z_input_zero_points = tensor_t();
   tensor_opt_ref z_input_zero_points_opt_ref = std::nullopt;
   if (input_zero_points_defined) {
-    create_zendnnl_tensor(input_zero_points, z_input_zero_points,
-                          "input_zero_points");
+    create_zendnnl_quantized_tensor(input_zero_points, z_input_zero_points,
+                                    "input_zero_points");
     z_input_zero_points_opt_ref = tensor_opt_ref(std::ref(z_input_zero_points));
   }
 
@@ -255,7 +239,8 @@ void zendnnl_quantized_matmul_impl(
   tensor_t z_weight_scales = tensor_t();
   tensor_opt_ref z_weight_scales_opt_ref = std::nullopt;
   if (weight_scales.defined()) {
-    create_zendnnl_tensor(weight_scales, z_weight_scales, "weight_scales");
+    create_zendnnl_quantized_tensor(weight_scales, z_weight_scales,
+                                    "weight_scales");
     z_weight_scales_opt_ref = tensor_opt_ref(std::ref(z_weight_scales));
   }
 
@@ -263,7 +248,7 @@ void zendnnl_quantized_matmul_impl(
   // Support for weight_zero_points.
   // tensor_t z_weight_zero_points = tensor_t();
   // if (weight_zero_points.defined()) {
-  // create_zendnnl_tensor(weight_zero_points, z_weight_zero_points,
+  // create_zendnnl_quantized_tensor(weight_zero_points, z_weight_zero_points,
   // "weight_zero_points");
   // }
 
@@ -295,19 +280,19 @@ void zendnnl_quantized_matmul_impl(
   // Get scales and zero points memory for the matmul operation.
   tensor_t z_dst_rq_output_scales = tensor_t();
   if (output_scales_defined) {
-    create_zendnnl_tensor(inv_output_scales, z_dst_rq_output_scales,
-                          "dst_rq_output_scales");
+    create_zendnnl_quantized_tensor(inv_output_scales, z_dst_rq_output_scales,
+                                    "dst_rq_output_scales");
   }
 
   tensor_t z_output_zero_points = tensor_t();
   if (output_zero_points_defined) {
     // The condition here was `if (output_zero_points_t.dim() == 1)`, which is
-    // slightly different from the ones where we are using create_zendnnl_tensor
-    // function in majority of the cases. In majority of the cases, the
-    // condition was `if (tensor.dim() <= 1)`. So, if there is any accuracy
-    // mismatch, this is a good starting point to debug.
-    create_zendnnl_tensor(output_zero_points_t, z_output_zero_points,
-                          "output_zero_points");
+    // slightly different from the ones where we are using
+    // create_zendnnl_quantized_tensor function in majority of the cases. In
+    // majority of the cases, the condition was `if (tensor.dim() <= 1)`. So, if
+    // there is any accuracy mismatch, this is a good starting point to debug.
+    create_zendnnl_quantized_tensor(output_zero_points_t, z_output_zero_points,
+                                    "output_zero_points");
   }
 
   tensor_t z_result = tensor_t();
