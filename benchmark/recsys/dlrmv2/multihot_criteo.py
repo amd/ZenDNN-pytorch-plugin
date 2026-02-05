@@ -423,7 +423,17 @@ class MultihotCriteoPipe:
         # read .npy header
         zf.open(npy_name, "r")
         version = np.lib.format.read_magic(zf.fp)
-        shape, fortran_order, dtype = np.lib.format._read_array_header(zf.fp, version)
+        # Use public API for compatibility with NumPy 2.0+
+        # As numpy has both read_array_header_1_0 and read_array_header_2_0,
+        # we need to check the version before calling the function.
+        if hasattr(np.lib.format, "read_array_header_2_0") and version >= (2, 0):
+            shape, fortran_order, dtype = np.lib.format.read_array_header_2_0(zf.fp)
+        elif hasattr(np.lib.format, "read_array_header_1_0") and version >= (1, 0):
+            shape, fortran_order, dtype = np.lib.format.read_array_header_1_0(zf.fp)
+        elif hasattr(np.lib.format, "_read_array_header"):
+            shape, fortran_order, dtype = np.lib.format._read_array_header(zf.fp, version)
+        else:
+            raise ValueError("Incompatible numpy version")
         assert (
             dtype == "int32"
         ), f"sparse multi-hot dtype is {dtype} but should be int32"
