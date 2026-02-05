@@ -32,6 +32,7 @@ Table of Contents
 - [Logging and Debugging](#5-logging-and-debugging)
   - [ZenDNN logs](#51-zendnn-logs)
   - [_zentorch_ logs](#52-zentorch-logs)
+    - [Understanding Profiler Output with Operator Fusion](#521-understanding-profiler-output-with-operator-fusion)
   - [Support for `TORCH_COMPILE_DEBUG`](#53-support-for-torch_compile_debug)
 - [Performance tuning and Benchmarking](#6-performance-tuning-and-benchmarking)
 - [Additional Utilities](#7-additional-utilities)
@@ -178,7 +179,7 @@ pip install torch==2.10.0 --index-url https://download.pytorch.org/whl/cpu
 >* This README uses Python 3.10.
 >* Zentorch follows PyTorch’s Python version compatibility. For PyTorch 2.10.0, Zentorch supports Python versions 3.10 through 3.13, and the same range applies to PyTorch 2.9.1. For other PyTorch releases, refer to the PyTorch Release Compatibility Matrix
 .
->* Zentorch does not support Python 3.13T or Python 3.14. 
+>* Zentorch does not support Python 3.13T or Python 3.14.
 
 #### 2.2.2.3. Install Dependencies
 ```bash
@@ -250,7 +251,7 @@ compiled_model = torch.compile(model, backend='zentorch')
 with torch.no_grad(), zentorch.freezing_enabled():
     output = compiled_model(input)
 ```
->**Notes:** 
+>**Notes:**
 >* zentorch.freezing_enabled() is deprecated and will be removed in next release. Please use ```export TORCHINDUCTOR_FREEZING=1``` to enable freezing path for zentorch.
 >*  _zentorch_ is able to do the zentorch op replacements in both non-inference and inference modes. But some of the _zentorch_ optimizations are only supported for the inference mode, so it is recommended to use `torch.no_grad()` if you are running the model for inference only.
 
@@ -359,6 +360,36 @@ The default level of logs is **WARNING** for both cpp and python sources but can
 >**Note:** The log levels are the same as those provided by the python logging module.
 
 >**Info:** Since all OPs implemented in _zentorch_ are registered with torch using the TORCH_LIBRARY(), TORCH_LIBRARY_FRAGMENT() and TORCH_LIBRARY_IMPL() macros in bindings, the PyTorch profiler can be used without any modifications to measure the op level performance.
+
+### 5.2.1 Understanding Profiler Output with Operator Fusion
+When profiling models optimized with _zentorch_, the profiler output reflects how _zentorch_ tracks operator fusion using a hierarchical structure.
+
+The hierarchical structure of an umbrella function like `zentorch_linear_unary` looks like:
+
+```
+zentorch::zentorch_linear_unary
+  ├── zentorch::zentorch_linear
+  ├── zentorch::zentorch_linear_relu
+  ├── zentorch::zentorch_linear_gelu_erf
+  ├── zentorch::zentorch_linear_tanh
+  ├── ...
+```
+
+_zentorch_ uses umbrella functions to track fused operations, with internal `record_function` calls for each fusion pattern. In the profiler output:
+
+- **Outer/umbrella function** — records the overall fused operation execution time
+- **Inner record functions** — track individual fusion components for debugging
+
+As a result, "Self CPU %" is typically small for umbrella functions (time in the function itself), while "CPU total %" is larger (includes all child operations within the fusion).
+
+For example, in the snippet below, `zentorch::zentorch_linear_unary` is the umbrella function with a low "Self CPU" of 134.041us but a high "CPU total" of 22.196ms, while `zentorch::zentorch_linear_tanh` is one of its inner fused operations:
+
+```
+Name                                 Self CPU %    Self CPU    CPU total %    CPU total
+---------------------------------------------------------------------------------------
+zentorch::zentorch_linear_unary         0.29%      134.041us      47.74%      22.196ms
+zentorch::zentorch_linear_tanh          0.07%       33.491us       0.20%      92.271us
+```
 
 ## 5.3 Support for `TORCH_COMPILE_DEBUG`
 PyTorch offers a debugging toolbox that comprises a built-in stats and trace function. This functionality facilitates the display of the time spent by each compilation phase, output code, output graph visualization, and IR dump. `TORCH_COMPILE_DEBUG` invokes this debugging tool that allows for better problem-solving while troubleshooting the internal issues of TorchDynamo and TorchInductor. This functionality works for the models optimized using _zentorch_, so it can be leveraged to debug these models as well. To enable this functionality, users can either set the environment variable `TORCH_COMPILE_DEBUG=1` or specify the environment variable with the runnable file (e.g., test.py) as input.
