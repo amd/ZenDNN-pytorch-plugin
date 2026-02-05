@@ -25,7 +25,9 @@ Table of Contents
   - [CNN Models](#42-cnn-models)
   - [HuggingFace NLP models](#43-huggingface-nlp-models)
   - [HuggingFace Generative LLM models](#44-huggingface-generative-llm-models)
-  - [Weight only Quantized models](#45-weight-only-quantized-models)
+  - [Weight Only Quantized Models](#45-weight-only-quantized-models)
+    - [Quantizing Models](#451-quantizing-models)
+    - [Running Quantized Models](#452-running-quantized-models)
   - [vLLM Zentorch Plugin](#46-vllm-zentorch-plugin)
 - [Logging and Debugging](#5-logging-and-debugging)
   - [ZenDNN logs](#51-zendnn-logs)
@@ -269,9 +271,66 @@ with torch.no_grad():
 ```
 ## 4.4 HuggingFace Generative LLM models
 
->**Note:** The `zentorch.llm.optimize` API has been deprecated. You can run generative models using `torch.compile(model, backend="zentorch")`, but for optimal performance we recommend using vLLM. Please refer to [section 4.5 vLLM Zentorch Plugin](#45-vllm-zentorch-plugin) for more details.
+>**Note:** The `zentorch.llm.optimize` API has been deprecated. You can run generative models using `torch.compile(model, backend="zentorch")`, but for optimal performance we recommend using vLLM. Please refer to [section 4.6 vLLM Zentorch Plugin](#46-vllm-zentorch-plugin) for more details.
 
-## 4.5 vLLM Zentorch Plugin
+## 4.5 Weight Only Quantized Models
+
+zentorch supports Weight Only Quantization (WOQ) models with per-channel quantization support. This enables efficient INT4 quantized inference for large language models on AMD EPYC™ CPUs, providing significant memory savings while maintaining model accuracy.
+
+Models can be quantized using the `IntxWeightOnlyConfig` from TorchAO.
+
+### 4.5.1 Quantizing Models
+
+To quantize a HuggingFace model using INT4 weight-only quantization with symmetric per-channel quantization, follow these steps:
+
+```python
+import torch
+from transformers import TorchAoConfig, AutoModelForCausalLM, AutoTokenizer
+from torchao.quantization.quant_api import IntxWeightOnlyConfig
+from torchao.quantization.quant_primitives import MappingType
+
+model_name = "meta-llama/Llama-3.2-1B-Instruct"
+output_dir = "./quantized_model"
+
+# Step 1: Create quantization config with INT4 symmetric per-channel quantization
+quantization_config = TorchAoConfig(
+    IntxWeightOnlyConfig(
+        weight_dtype=torch.int4,
+        mapping_type=MappingType.SYMMETRIC,
+        scale_dtype=torch.bfloat16
+    )
+)
+
+# Step 2: Load and quantize the model
+quantized_model = AutoModelForCausalLM.from_pretrained(
+    model_name,
+    torch_dtype=torch.bfloat16,
+    device_map="cpu",
+    quantization_config=quantization_config,
+    trust_remote_code=True
+)
+
+# Step 3: Save the quantized model
+quantized_model.save_pretrained(output_dir, safe_serialization=False)
+
+# Step 4: Save the tokenizer
+tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+tokenizer.save_pretrained(output_dir)
+```
+
+>**Notes:**
+>* Ensure you have the required dependencies installed: `pip install transformers torchao`
+>* The `MappingType.SYMMETRIC` option enables symmetric quantization which is recommended for optimal performance with zentorch.
+>* The `scale_dtype=torch.bfloat16` ensures compatibility with AMD EPYC™ CPU optimizations.
+>* Use `safe_serialization=False` when saving for compatibility with zentorch.
+
+### 4.5.2 Running Quantized Models
+
+Quantized models can be run using vLLM with the zentorch backend. Refer to [section 4.6 vLLM Zentorch Plugin](#46-vllm-zentorch-plugin) for detailed instructions on running models with vLLM.
+
+>**Note:** When running quantized models, use the path to your quantized model directory (e.g., `./quantized_model`) as the model path instead of the original HuggingFace model name.
+
+## 4.6 vLLM Zentorch Plugin
 
 The vLLM-ZenTorch plugin enhances the capabilities of the vLLM inference engine, enabling plug-and-play acceleration of large language model inference on AMD EPYC™ CPUs. By incorporating ZenTorch with vLLM, users can experience substantial throughput enhancements for LLM workloads without requiring any modifications to their existing code.
 
