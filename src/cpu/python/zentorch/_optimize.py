@@ -6,6 +6,7 @@
 import zentorch._C  # noqa
 import os
 from torch._inductor import config
+from torch._inductor.fx_utils import FakeTensorUpdater
 
 # import the custom logging module
 from ._logging import get_logger
@@ -63,6 +64,8 @@ def optimize(fx_graph):
     # Replacing ops with zentorch ops (to be moved down or replaced)
     optimized_graph = replace_with_zentorch_ops(pattern_matched_model)
 
+    fake_tensor_updater = FakeTensorUpdater(optimized_graph)
+
     optimized_graph = replace_with_composite_zentorch_ops(optimized_graph)
 
     # Quantization pattern replacement
@@ -74,6 +77,8 @@ def optimize(fx_graph):
     if config.freezing:
         # qkv_fusion pass with zentorch linear ops
         optimized_graph = qkv_fusion(optimized_graph)
+        # update fake tensor metadata
+        fake_tensor_updater.incremental_update()
 
     if (
         config.freezing

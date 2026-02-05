@@ -8,6 +8,7 @@ import torch
 from torch import nn
 import sys
 import os
+import copy
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
@@ -67,6 +68,68 @@ class Custom_Model_QKV_Linear_4(nn.Module):
 
         # Return concatenated for easy comparison
         return torch.cat([l1, l2, l3, l4], dim=-1)
+
+
+@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
+class Custom_Model_QKV_Linear_Longformer(nn.Module):
+    """
+    Matches Longformer's pattern:
+    - Input is permuted before linear (simulating transformer hidden states)
+    - Q goes through div, view, permute, view, as_strided, then to bmm
+    - K goes through view, permute, view, as_strided, then to bmm
+    - V is returned directly
+    """
+
+    def __init__(self, dtype, hidden_size=768, num_heads=12):
+        super(Custom_Model_QKV_Linear_Longformer, self).__init__()
+        self.hidden_size = hidden_size
+        self.num_heads = num_heads
+        self.head_dim = hidden_size // num_heads
+
+        self.q_proj = nn.Linear(hidden_size, hidden_size, dtype=dtype)
+        self.k_proj = nn.Linear(hidden_size, hidden_size, dtype=dtype)
+        self.v_proj = nn.Linear(hidden_size, hidden_size, dtype=dtype)
+
+        self.scale = self.head_dim**0.5
+
+    def forward(self, x):
+        # x: [batch, seq_len, hidden] but we permute like Longformer does
+        # Simulating: permute = [1, 0, 2] on input
+        x_permuted = x.permute(1, 0, 2)  # [seq_len, batch, hidden]
+        q = self.q_proj(x_permuted)
+        k = self.k_proj(x_permuted)
+        v = self.v_proj(x_permuted)
+
+        seq_len, batch_size, _ = q.shape
+
+        # Q path: view -> permute -> view -> as_strided -> bmm
+        q = q / self.scale
+        q = q.view(seq_len, batch_size, self.num_heads, self.head_dim)
+        q = q.permute(1, 0, 2, 3)  # [batch, seq, heads, head_dim]
+        q = q.permute(0, 2, 1, 3)  # [batch, heads, seq, head_dim]
+        q = q.reshape(self.num_heads, batch_size, seq_len, self.head_dim)
+        q = q.reshape(self.num_heads, batch_size * seq_len, self.head_dim)
+        q = q.as_strided(
+            (self.num_heads, batch_size * seq_len, self.head_dim),
+            (self.head_dim, self.num_heads * self.head_dim, 1),
+        )
+
+        # K path: view -> permute -> view -> as_strided -> transpose for bmm
+        k = k.view(seq_len, batch_size, self.num_heads, self.head_dim)
+        k = k.permute(1, 0, 2, 3)  # [batch, seq, heads, head_dim]
+        k = k.permute(0, 2, 1, 3)  # [batch, heads, seq, head_dim]
+        k = k.reshape(self.num_heads, batch_size, seq_len, self.head_dim)
+        k = k.reshape(self.num_heads, batch_size * seq_len, self.head_dim)
+        k = k.as_strided(
+            (self.num_heads, batch_size * seq_len, self.head_dim),
+            (self.head_dim, self.num_heads * self.head_dim, 1),
+        )
+        k = k.permute(0, 2, 1)  # [heads, head_dim, seq]
+
+        # BMM: Q @ K^T
+        attn = torch.bmm(q, k)  # [heads, seq, seq]
+
+        return attn, v
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
@@ -142,6 +205,57 @@ class Test_QKV_Fusion_Linear_Model(AddmmTestCase):
                 in message
                 for message in cm.output
             )
+        )
+
+    @AddmmTestCase.hypothesis_params_addmm_itr(
+        dtype_list=supported_dtypes,
+        freeze_list=[True],
+    )
+    @torch.inference_mode()
+    def test_qkv_fusion_linear_longformer_model(self, dtype, freeze_opt=True):
+        """Test QKV fusion with Longformer-style pattern (permutations and as_strided)"""
+        torch.manual_seed(42)
+
+        # Create model with Longformer-style QKV pattern
+        model = Custom_Model_QKV_Linear_Longformer(
+            dtype=DataTypes.get_torch_type(dtype), hidden_size=768, num_heads=12
+        )
+        # Create input tensor with shape (batch_size, seq_len, hidden_size)
+        input_tensor = torch.randn(1, 512, 768, dtype=DataTypes.get_torch_type(dtype))
+
+        # Inductor backend with freezing
+        reset_dynamo()
+        inductor_model = torch.compile(
+            copy.deepcopy(model), backend="inductor", options={"freezing": True}
+        )
+        inductor_output = test_with_freeze_opt(
+            inductor_model, (input_tensor,), freeze_opt=True
+        )
+
+        # Zentorch backend with freezing
+        reset_dynamo()
+        counters.clear()
+        self.assertEqual(counters["zentorch"]["qkv_fusion_linear"], 0)
+        self.assertEqual(counters["zentorch"]["qkv_fusion_linear_contiguous"], 0)
+        zentorch_model = torch.compile(copy.deepcopy(model), backend="zentorch")
+        zentorch_output = test_with_freeze_opt(
+            zentorch_model, (input_tensor,), freeze_opt=True
+        )
+        self.assertEqual(counters["zentorch"]["qkv_fusion_linear"], 1)
+        self.assertEqual(counters["zentorch"]["qkv_fusion_linear_contiguous"], 1)
+
+        # Compare both attn and v outputs
+        self.assertTrue(
+            torch.allclose(
+                inductor_output[0], zentorch_output[0], rtol=1e-3, atol=1e-3
+            ),
+            f"Attention tensors don't match. Max diff: {(inductor_output[0] - zentorch_output[0]).abs().max().item()}",
+        )
+        self.assertTrue(
+            torch.allclose(
+                inductor_output[1], zentorch_output[1], rtol=1e-3, atol=1e-3
+            ),
+            f"V tensors don't match. Max diff: {(inductor_output[1] - zentorch_output[1]).abs().max().item()}",
         )
 
 
