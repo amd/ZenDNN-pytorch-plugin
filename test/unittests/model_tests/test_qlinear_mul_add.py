@@ -31,8 +31,10 @@ from unittest_utils import (  # noqa: 402
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class Custom_Model_Qlinear_Mul_Add(nn.Module):
-    def __init__(self) -> None:
+    def __init__(self, mul_arg_pos: int = 0, add_arg_pos: int = 0) -> None:
         super(Custom_Model_Qlinear_Mul_Add, self).__init__()
+        self.mul_arg_pos = mul_arg_pos
+        self.add_arg_pos = add_arg_pos
 
     def forward(
         self,
@@ -57,8 +59,14 @@ class Custom_Model_Qlinear_Mul_Add(nn.Module):
             weight_zero_points,
             output_dtype=output_dtype,
         )
-        mul_output = torch.mul(qlinear_output, mul_input)
-        add_output = torch.add(mul_output, add_input)
+        if self.mul_arg_pos == 0:
+            mul_output = torch.mul(qlinear_output, mul_input)
+        else:
+            mul_output = torch.mul(mul_input, qlinear_output)
+        if self.add_arg_pos == 0:
+            add_output = torch.add(mul_output, add_input)
+        else:
+            add_output = torch.add(add_input, mul_output)
         return add_output.to(output_dtype)
 
 
@@ -102,45 +110,66 @@ class Test_Qlinear_Mul_Add_Model(QLinearTestCase):
         ):
             self.skipTest("Skipping test, bias dtype has to match post-ops dtype.")
 
-        model = Custom_Model_Qlinear_Mul_Add()
-        zentorch_model = copy.deepcopy(model)
-        model_output = model(
-            self.data.x_for_qlinear[input_dtype][input_dim],
-            self.data.y_int8[q_weight_idx],
-            self.data.bias_for_qlinear[bias_opt_idx],
-            self.data.x_scales["per_tensor"],
-            get_comp_zero_points(
-                self.data.x_zero_points["per_tensor"][input_dtype][q_zero_points_dtype]
-            ),
-            self.data.y_scales[q_granularity_val],
-            get_comp_zero_points(self.data.y_zero_points[q_granularity_val]),
-            self.data.binary_input[input_dim],
-            self.data.binary_input[input_dim],
-            output_dtype=self.data.get_torch_type(output_dtype),
-        )
+        # Define position combinations for mul/add operands
+        MUL_ADD_POSITIONS = {
+            "mul_arg_first_add_arg_first": {"mul_arg_pos": 0, "add_arg_pos": 0},
+            "mul_arg_first_add_arg_second": {"mul_arg_pos": 0, "add_arg_pos": 1},
+            "mul_arg_second_add_arg_first": {"mul_arg_pos": 1, "add_arg_pos": 0},
+            "mul_arg_second_add_arg_second": {"mul_arg_pos": 1, "add_arg_pos": 1},
+        }
 
-        counters.clear()
-        self.assertEqual(counters["zentorch"]["pattern_matcher_qlinear_mul_add"], 0)
+        for pos_name, pos_config in MUL_ADD_POSITIONS.items():
+            with self.subTest(position=pos_name):
+                torch_output_dtype = self.data.get_torch_type(dtype)
+                model = Custom_Model_Qlinear_Mul_Add(
+                    mul_arg_pos=pos_config["mul_arg_pos"],
+                    add_arg_pos=pos_config["add_arg_pos"],
+                )
+                zentorch_model = copy.deepcopy(model)
+                model_output = model(
+                    self.data.x_for_qlinear[input_dtype][input_dim],
+                    self.data.y_int8[q_weight_idx],
+                    self.data.bias_for_qlinear[bias_opt_idx],
+                    self.data.x_scales["per_tensor"],
+                    get_comp_zero_points(
+                        self.data.x_zero_points["per_tensor"][input_dtype][q_zero_points_dtype]
+                    ),
+                    self.data.y_scales[q_granularity_val],
+                    get_comp_zero_points(self.data.y_zero_points[q_granularity_val]),
+                    self.data.binary_input[input_dim],
+                    self.data.binary_input[input_dim],
+                    output_dtype=torch_output_dtype,
+                )
 
-        reset_dynamo()
-        zentorch_model = torch.compile(zentorch_model, backend="zentorch")
+                counters.clear()
+                self.assertEqual(counters["zentorch"]["qlinear_mul_add"], 0)
 
-        zentorch_output = zentorch_model(
-            self.data.x_for_qlinear[input_dtype][input_dim],
-            self.data.y_int8[q_weight_idx],
-            self.data.bias_for_qlinear[bias_opt_idx],
-            self.data.x_scales["per_tensor"],
-            get_comp_zero_points(
-                self.data.x_zero_points["per_tensor"][input_dtype][q_zero_points_dtype]
-            ),
-            self.data.y_scales[q_granularity_val],
-            get_comp_zero_points(self.data.y_zero_points[q_granularity_val]),
-            self.data.binary_input[input_dim],
-            self.data.binary_input[input_dim],
-            output_dtype=self.data.get_torch_type(output_dtype),
-        )
-        self.assertEqual(counters["zentorch"]["pattern_matcher_qlinear_mul_add"], 1)
-        self.assertEqual(model_output, zentorch_output, atol=1e-2, rtol=1e-2)
+                reset_dynamo()
+                zentorch_model = torch.compile(zentorch_model, backend="zentorch")
+
+                zentorch_output = zentorch_model(
+                    self.data.x_for_qlinear[input_dtype][input_dim],
+                    self.data.y_int8[q_weight_idx],
+                    self.data.bias_for_qlinear[bias_opt_idx],
+                    self.data.x_scales["per_tensor"],
+                    get_comp_zero_points(
+                        self.data.x_zero_points["per_tensor"][input_dtype][q_zero_points_dtype]
+                    ),
+                    self.data.y_scales[q_granularity_val],
+                    get_comp_zero_points(self.data.y_zero_points[q_granularity_val]),
+                    self.data.binary_input[input_dim],
+                    self.data.binary_input[input_dim],
+                    output_dtype=torch_output_dtype,
+                )
+
+                # TODO: Remove this once we have a proper fix for bfloat16 performance issue.
+                # Hence doing the fusion only when the dtype is float32.
+                if dtype == "float32":
+                    self.assertEqual(counters["zentorch"]["qlinear_mul_add"], 1)
+                elif dtype == "bfloat16":
+                    self.assertEqual(counters["zentorch"]["qlinear_mul_add"], 0)
+
+                self.assertEqual(model_output, zentorch_output, atol=1e-2, rtol=1e-2)
 
 
 if __name__ == "__main__":

@@ -79,7 +79,6 @@ from zentorch_test_utils import (  # noqa: 402 # noqa: F401
     torch,
     DataTypes,
     SEED,
-
     # common variables
     B_RANGE,
     M_RANGE,
@@ -91,7 +90,6 @@ from zentorch_test_utils import (  # noqa: 402 # noqa: F401
     MATRIX_DIM_2_RANGE,
     MATRIX_DIM_3_RANGE,
     MATRIX_DIM_4_RANGE,
-
     # conv vars
     CONV_BS_RANGE,
     CONV_C_RANGE,
@@ -103,16 +101,13 @@ from zentorch_test_utils import (  # noqa: 402 # noqa: F401
     conv_stride,
     conv_padding,
     CONV_DILATION2,
-
     # emb vars
     EMB_R_RANGE,
     EMB_W_RANGE,
     EMB_D_RANGE,
     EMB_MLP_OPT,
-
     # mm vars
     MM_INPUT_SCALER_RANGE,
-
     # woq variables
     WOQ_M_RANGE,
     WOQ_X_RANGE,
@@ -120,7 +115,6 @@ from zentorch_test_utils import (  # noqa: 402 # noqa: F401
     WOQ_K_RANGE,
     woq_dtypes,
     WOQ_QZEROS_NONZERO_DIM_RANGE,
-
     # add_xD variables
     MM_ADD_1D_M_RANGE,
     MM_ADD_1D_K_RANGE,
@@ -135,10 +129,13 @@ from zentorch_test_utils import (  # noqa: 402 # noqa: F401
     MM_ADD_3D_Q_RANGE,
 )
 
-
 path = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
-DUMP_ERRORS = os.getenv("ZENTORCH_UNITTEST_DUMP_ERROR_TENSORS", "0").lower() in ("1", "true", "yes")
+DUMP_ERRORS = os.getenv("ZENTORCH_UNITTEST_DUMP_ERROR_TENSORS", "0").lower() in (
+    "1",
+    "true",
+    "yes",
+)
 USE_RANDOM_SEED = os.getenv("ZENTORCH_RANDOM_SEED", "0").lower() in ("1", "true", "yes")
 
 
@@ -416,7 +413,7 @@ class AddmmTestCase(Zentorch_TestCase):
         y3d,
         input,
         input3d,
-        input1d
+        input1d,
     ):
         self.data.create_data_addmm(
             dtype=dtype,
@@ -519,87 +516,83 @@ class AddmmTestCase(Zentorch_TestCase):
         hypStr += f"nRange=Range({n},{n}), "
 
         matrix_dim_1 = draw(
-            st.integers(
-                matrix_dim_1_Range.get_min(),
-                matrix_dim_1_Range.get_max()
-            )
+            st.integers(matrix_dim_1_Range.get_min(), matrix_dim_1_Range.get_max())
         )
         hypStr += f"matrix_dim_1_Range=Range({matrix_dim_1},{matrix_dim_1}), "
         matrix_dim_2 = draw(
-            st.integers(
-                matrix_dim_2_Range.get_min(),
-                matrix_dim_2_Range.get_max()
-            )
+            st.integers(matrix_dim_2_Range.get_min(), matrix_dim_2_Range.get_max())
         )
         hypStr += f"matrix_dim_2_Range=Range({matrix_dim_2},{matrix_dim_2}), "
         matrix_dim_3 = draw(
-            st.integers(
-                matrix_dim_3_Range.get_min(),
-                matrix_dim_3_Range.get_max()
-            )
+            st.integers(matrix_dim_3_Range.get_min(), matrix_dim_3_Range.get_max())
         )
         hypStr += f"matrix_dim_3_Range=Range({matrix_dim_3},{matrix_dim_3}), "
         matrix_dim_4 = draw(
-            st.integers(
-                matrix_dim_4_Range.get_min(),
-                matrix_dim_4_Range.get_max()
-            )
+            st.integers(matrix_dim_4_Range.get_min(), matrix_dim_4_Range.get_max())
         )
         hypStr += f"matrix_dim_4_Range=Range({matrix_dim_4},{matrix_dim_4}), "
 
         torch_type = DataTypes.get_torch_type(dtype)
 
         M = [
-            torch.randn(matrix_dim_1, matrix_dim_3, generator=generator).type(torch_type),
+            torch.randn(matrix_dim_1, matrix_dim_3, generator=generator).type(
+                torch_type
+            ),
             torch.randn(matrix_dim_3, generator=generator).type(torch_type),
         ]
 
-        T1 = [torch.randn(2, matrix_dim_3, matrix_dim_3, generator=generator).type(torch_type)]
+        T1 = [
+            torch.randn(2, matrix_dim_3, matrix_dim_3, generator=generator).type(
+                torch_type
+            )
+        ]
 
         x1 = [
-            torch.randn(matrix_dim_1, matrix_dim_2, generator=generator).type(torch_type),
-            torch.randn(matrix_dim_2, matrix_dim_1, generator=generator).transpose(0, 1).type(torch_type),
+            torch.randn(matrix_dim_1, matrix_dim_2, generator=generator).type(
+                torch_type
+            ),
+            torch.randn(matrix_dim_2, matrix_dim_1, generator=generator)
+            .transpose(0, 1)
+            .type(torch_type),
         ]
 
         y1 = [
-            torch.randn(matrix_dim_2, matrix_dim_3, generator=generator).type(torch_type),
-            torch.randn(matrix_dim_3, matrix_dim_2, generator=generator).transpose(1, 0).type(torch_type),
+            torch.randn(matrix_dim_2, matrix_dim_3, generator=generator).type(
+                torch_type
+            ),
+            torch.randn(matrix_dim_3, matrix_dim_2, generator=generator)
+            .transpose(1, 0)
+            .type(torch_type),
         ]
 
-        M2 = torch.randn(matrix_dim_1, matrix_dim_3, matrix_dim_4, generator=generator).type(torch_type)
+        M2 = torch.randn(
+            matrix_dim_1, matrix_dim_3, matrix_dim_4, generator=generator
+        ).type(torch_type)
 
         M3 = torch.randn(matrix_dim_4, generator=generator).type(torch_type)
 
         x2 = [
-            torch.randn(matrix_dim_1, matrix_dim_3, matrix_dim_2, generator=generator).type(torch_type),
             torch.randn(
-                matrix_dim_1,
-                matrix_dim_2,
-                matrix_dim_3,
-                generator=generator
-            ).transpose(1, 2).type(torch_type),
-            torch.randn(
-                matrix_dim_3,
-                matrix_dim_1,
-                matrix_dim_2,
-                generator=generator
-            ).transpose(0, 1).type(torch_type),
+                matrix_dim_1, matrix_dim_3, matrix_dim_2, generator=generator
+            ).type(torch_type),
+            torch.randn(matrix_dim_1, matrix_dim_2, matrix_dim_3, generator=generator)
+            .transpose(1, 2)
+            .type(torch_type),
+            torch.randn(matrix_dim_3, matrix_dim_1, matrix_dim_2, generator=generator)
+            .transpose(0, 1)
+            .type(torch_type),
         ]
 
         y2 = [
-            torch.randn(matrix_dim_1, matrix_dim_2, matrix_dim_4, generator=generator).type(torch_type),
             torch.randn(
-                matrix_dim_1,
-                matrix_dim_4,
-                matrix_dim_2,
-                generator=generator
-            ).transpose(1, 2).type(torch_type),
-            torch.randn(
-                matrix_dim_4,
-                matrix_dim_2,
-                matrix_dim_1,
-                generator=generator
-            ).transpose(0, 2).type(torch_type),
+                matrix_dim_1, matrix_dim_2, matrix_dim_4, generator=generator
+            ).type(torch_type),
+            torch.randn(matrix_dim_1, matrix_dim_4, matrix_dim_2, generator=generator)
+            .transpose(1, 2)
+            .type(torch_type),
+            torch.randn(matrix_dim_4, matrix_dim_2, matrix_dim_1, generator=generator)
+            .transpose(0, 2)
+            .type(torch_type),
         ]
 
         x = torch.randn(m, k, generator=generator).type(torch_type)
@@ -690,7 +683,7 @@ class AddmmTestCase(Zentorch_TestCase):
             )
             def wrapper(obj, val, *args, **kwargs):
                 try:
-                    (hypStr, tensor_seed, dtype, freeze, *_) = val
+                    hypStr, tensor_seed, dtype, freeze, *_ = val
 
                     if not hasattr(obj, "getData") or not isinstance(
                         obj.getData(), Test_Data
@@ -702,8 +695,8 @@ class AddmmTestCase(Zentorch_TestCase):
                     obj.createDataFromVal(val)
 
                     test_args = {
-                        'dtype': dtype,
-                        'freeze_opt': freeze,
+                        "dtype": dtype,
+                        "freeze_opt": freeze,
                     }
 
                     required_args = inspect.signature(function).parameters.keys()
@@ -712,7 +705,7 @@ class AddmmTestCase(Zentorch_TestCase):
                         obj,
                         *args,
                         **{k: v for k, v in test_args.items() if k in required_args},
-                        **kwargs
+                        **kwargs,
                     )
                 except Exception as e:
                     if not isinstance(e, unittest.SkipTest):
@@ -763,80 +756,47 @@ class AddmmTestCase(Zentorch_TestCase):
         dtype = draw(st.sampled_from(dtype_list))
         hypStr += f"dtype_list=[{dtype!r}]"
         mm_add_1D_m = draw(
-            st.integers(
-                mm_add_1D_m_Range.get_min(),
-                mm_add_1D_m_Range.get_max()
-            )
+            st.integers(mm_add_1D_m_Range.get_min(), mm_add_1D_m_Range.get_max())
         )
         hypStr += f"mm_add_1D_m_Range=Range({mm_add_1D_m}, {mm_add_1D_m}), "
         mm_add_1D_k = draw(
-            st.integers(
-                mm_add_1D_k_Range.get_min(),
-                mm_add_1D_k_Range.get_max()
-            )
+            st.integers(mm_add_1D_k_Range.get_min(), mm_add_1D_k_Range.get_max())
         )
         hypStr += f"mm_add_1D_k_Range=Range({mm_add_1D_k}, {mm_add_1D_k}), "
         mm_add_1D_n = draw(
-            st.integers(
-                mm_add_1D_n_Range.get_min(),
-                mm_add_1D_n_Range.get_max()
-            )
+            st.integers(mm_add_1D_n_Range.get_min(), mm_add_1D_n_Range.get_max())
         )
         hypStr += f"mm_add_1D_n_Range=Range({mm_add_1D_n}, {mm_add_1D_n}), "
         mm_add_2D_m = draw(
-            st.integers(
-                mm_add_2D_m_Range.get_min(),
-                mm_add_2D_m_Range.get_max()
-            )
+            st.integers(mm_add_2D_m_Range.get_min(), mm_add_2D_m_Range.get_max())
         )
         hypStr += f"mm_add_2D_m_Range=Range({mm_add_2D_m}, {mm_add_2D_m}), "
         mm_add_2D_k = draw(
-            st.integers(
-                mm_add_2D_k_Range.get_min(),
-                mm_add_2D_k_Range.get_max()
-            )
+            st.integers(mm_add_2D_k_Range.get_min(), mm_add_2D_k_Range.get_max())
         )
         hypStr += f"mm_add_2D_k_Range=Range({mm_add_2D_k}, {mm_add_2D_k}), "
         mm_add_2D_n = draw(
-            st.integers(
-                mm_add_2D_n_Range.get_min(),
-                mm_add_2D_n_Range.get_max()
-            )
+            st.integers(mm_add_2D_n_Range.get_min(), mm_add_2D_n_Range.get_max())
         )
         hypStr += f"mm_add_2D_n_Range=Range({mm_add_2D_n}, {mm_add_2D_n}), "
         mm_add_3D_m = draw(
-            st.integers(
-                mm_add_3D_m_Range.get_min(),
-                mm_add_3D_m_Range.get_max()
-            )
+            st.integers(mm_add_3D_m_Range.get_min(), mm_add_3D_m_Range.get_max())
         )
         hypStr += f"mm_add_3D_m_Range=Range({mm_add_3D_m}, {mm_add_3D_m}), "
         mm_add_3D_k = draw(
-            st.integers(
-                mm_add_3D_k_Range.get_min(),
-                mm_add_3D_k_Range.get_max()
-            )
+            st.integers(mm_add_3D_k_Range.get_min(), mm_add_3D_k_Range.get_max())
         )
         hypStr += f"mm_add_3D_k_Range=Range({mm_add_3D_k}, {mm_add_3D_k}), "
         mm_add_3D_n = draw(
-            st.integers(
-                mm_add_3D_n_Range.get_min(),
-                mm_add_3D_n_Range.get_max()
-            )
+            st.integers(mm_add_3D_n_Range.get_min(), mm_add_3D_n_Range.get_max())
         )
         hypStr += f"mm_add_3D_n_Range=Range({mm_add_3D_n}, {mm_add_3D_n}), "
         mm_add_3D_p = draw(
-            st.integers(
-                mm_add_3D_p_Range.get_min(),
-                mm_add_3D_p_Range.get_max()
-            )
+            st.integers(mm_add_3D_p_Range.get_min(), mm_add_3D_p_Range.get_max())
         )
         hypStr += f"mm_add_3D_p_Range=Range({mm_add_3D_p}, {mm_add_3D_p}), "
         mm_add_3D_q = draw(
-            st.integers(
-                mm_add_3D_q_Range.get_min(),
-                mm_add_3D_q_Range.get_max()
-            )
+            st.integers(mm_add_3D_q_Range.get_min(), mm_add_3D_q_Range.get_max())
         )
         hypStr += f"mm_add_3D_q_Range=Range({mm_add_3D_q}, {mm_add_3D_q}), "
 
@@ -857,7 +817,9 @@ class AddmmTestCase(Zentorch_TestCase):
         mm_add_3D = [
             torch.rand(mm_add_3D_m, mm_add_3D_k, generator=generator).type(torch_type),
             torch.rand(mm_add_3D_k, mm_add_3D_n, generator=generator).type(torch_type),
-            torch.rand(mm_add_3D_p, mm_add_3D_q, mm_add_3D_n, generator=generator).type(torch_type),
+            torch.rand(mm_add_3D_p, mm_add_3D_q, mm_add_3D_n, generator=generator).type(
+                torch_type
+            ),
         ]
 
         return (
@@ -939,11 +901,11 @@ class AddmmTestCase(Zentorch_TestCase):
                         dtype=dtype,
                         mm_add_1D=mm_add_1D,
                         mm_add_2D=mm_add_2D,
-                        mm_add_3D=mm_add_3D
+                        mm_add_3D=mm_add_3D,
                     )
 
                     test_args = {
-                        'dtype': dtype,
+                        "dtype": dtype,
                     }
 
                     required_args = inspect.signature(function).parameters.keys()
@@ -952,7 +914,7 @@ class AddmmTestCase(Zentorch_TestCase):
                         obj,
                         *args,
                         **{k: v for k, v in test_args.items() if k in required_args},
-                        **kwargs
+                        **kwargs,
                     )
                 except Exception as e:
                     if not isinstance(e, unittest.SkipTest):
@@ -995,7 +957,7 @@ class ConvTestCase(Zentorch_TestCase):
         output_padding,
         conv_input3d,
         conv_weight3d,
-        dilation2
+        dilation2,
     ):
         self.data.create_data_conv(
             dtype=dtype,
@@ -1095,20 +1057,16 @@ class ConvTestCase(Zentorch_TestCase):
 
         torch_type = DataTypes.get_torch_type(dtype)
 
-        conv_input = torch.randn(
-            conv_bs,
-            conv_c,
-            conv_h,
-            conv_wd,
-            generator=generator
-        ).type(torch_type).to(memory_format=torch.channels_last)
-        conv_weight = torch.randn(
-            conv_oc,
-            conv_c,
-            conv_kh,
-            conv_kw,
-            generator=generator
-        ).type(torch_type).to(memory_format=torch.channels_last)
+        conv_input = (
+            torch.randn(conv_bs, conv_c, conv_h, conv_wd, generator=generator)
+            .type(torch_type)
+            .to(memory_format=torch.channels_last)
+        )
+        conv_weight = (
+            torch.randn(conv_oc, conv_c, conv_kh, conv_kw, generator=generator)
+            .type(torch_type)
+            .to(memory_format=torch.channels_last)
+        )
         conv_bias = torch.randn(conv_oc, generator=generator).type(torch_type)
 
         stride = stride
@@ -1116,8 +1074,12 @@ class ConvTestCase(Zentorch_TestCase):
         dilation = [1, 1]
         output_padding = [0, 0]
 
-        conv_input3d = torch.randn(conv_bs, conv_c, conv_kh, generator=generator).type(torch_type)
-        conv_weight3d = torch.randn(conv_oc, conv_c, conv_kh, generator=generator).type(torch_type)
+        conv_input3d = torch.randn(conv_bs, conv_c, conv_kh, generator=generator).type(
+            torch_type
+        )
+        conv_weight3d = torch.randn(conv_oc, conv_c, conv_kh, generator=generator).type(
+            torch_type
+        )
         dilation2 = conv_dilation2
 
         return (
@@ -1186,14 +1148,7 @@ class ConvTestCase(Zentorch_TestCase):
             )
             def wrapper(obj, val, *args, **kwargs):
                 try:
-                    (
-                        hypStr,
-                        tensor_seed,
-                        dtype,
-                        freeze,
-                        stride,
-                        padding,
-                        *_) = val
+                    hypStr, tensor_seed, dtype, freeze, stride, padding, *_ = val
 
                     if not hasattr(obj, "getData") or not isinstance(
                         obj.getData(), Test_Data
@@ -1204,10 +1159,10 @@ class ConvTestCase(Zentorch_TestCase):
 
                     obj.createDataFromVal(val)
                     test_args = {
-                        'dtype': dtype,
-                        'freeze_opt': freeze,
-                        'stride': stride,
-                        'padding': padding,
+                        "dtype": dtype,
+                        "freeze_opt": freeze,
+                        "stride": stride,
+                        "padding": padding,
                     }
 
                     required_args = inspect.signature(function).parameters.keys()
@@ -1216,7 +1171,7 @@ class ConvTestCase(Zentorch_TestCase):
                         obj,
                         *args,
                         **{k: v for k, v in test_args.items() if k in required_args},
-                        **kwargs
+                        **kwargs,
                     )
                 except Exception as e:
                     if not isinstance(e, unittest.SkipTest):
@@ -1248,15 +1203,7 @@ class EmbTestCase(Zentorch_TestCase):
         return self.data
 
     def createData(
-        self,
-        dtype,
-        R,
-        W,
-        k,
-        embedding_matrix,
-        emb_input,
-        offsets,
-        mlp_inputs
+        self, dtype, R, W, k, embedding_matrix, emb_input, offsets, mlp_inputs
     ):
         self.data.create_data_emb(
             dtype=dtype,
@@ -1266,7 +1213,7 @@ class EmbTestCase(Zentorch_TestCase):
             embedding_matrix=embedding_matrix,
             emb_input=emb_input,
             offsets=offsets,
-            mlp_inputs=mlp_inputs
+            mlp_inputs=mlp_inputs,
         )
 
     def createDataFromVal(self, val):
@@ -1344,7 +1291,9 @@ class EmbTestCase(Zentorch_TestCase):
 
         torch_type = DataTypes.get_torch_type(dtype)
 
-        embedding_matrix = torch.randn(R, k, generator=generator).type(torch_type)   # Here K value holds the value from emb_d
+        embedding_matrix = torch.randn(R, k, generator=generator).type(
+            torch_type
+        )  # Here K value holds the value from emb_d
         emb_input = torch.randint(0, R, (W,), generator=generator)
         offsets = torch.tensor([0, W])
         mlp_inputs = torch.randn(emb_mlp, k, generator=generator)
@@ -1410,12 +1359,7 @@ class EmbTestCase(Zentorch_TestCase):
                     tensor_seed=tensor_seed,
                 )
             )
-            def wrapper(
-                obj,
-                val,
-                *args,
-                **kwargs
-            ):
+            def wrapper(obj, val, *args, **kwargs):
                 try:
                     if not hasattr(obj, "getData") or not isinstance(
                         obj.getData(), Test_Data
@@ -1433,18 +1377,19 @@ class EmbTestCase(Zentorch_TestCase):
                         include_last_offset,
                         sparse,
                         scale_grad,
-                        *_) = val
+                        *_,
+                    ) = val
 
                     obj.createDataFromVal(val)
 
                     # Prepare the arguments to pass to the test function
                     test_args = {
-                        'dtype': dtype,
-                        'freeze_opt': freeze,
-                        'mode' : mode,
-                        'include_last_offset' : include_last_offset,
-                        'sprs_opt' : sparse,
-                        'scale_opt' : scale_grad,
+                        "dtype": dtype,
+                        "freeze_opt": freeze,
+                        "mode": mode,
+                        "include_last_offset": include_last_offset,
+                        "sprs_opt": sparse,
+                        "scale_opt": scale_grad,
                     }
 
                     # Get the required argument names for the test function
@@ -1455,7 +1400,7 @@ class EmbTestCase(Zentorch_TestCase):
                         obj,
                         *args,
                         **{k: v for k, v in test_args.items() if k in required_args},
-                        **kwargs
+                        **kwargs,
                     )
                 except Exception as e:
                     if not isinstance(e, unittest.SkipTest):
@@ -1506,7 +1451,7 @@ class MMTestCase(Zentorch_TestCase):
         B,
         x3d,
         y3d,
-        input3d
+        input3d,
     ):
         self.data.create_data_mm(
             dtype=dtype,
@@ -1553,7 +1498,7 @@ class MMTestCase(Zentorch_TestCase):
             B,
             x3d,
             y3d,
-            input3d
+            input3d,
         ) = val
 
         self.createData(
@@ -1613,8 +1558,7 @@ class MMTestCase(Zentorch_TestCase):
         hypStr += f"nRange=Range({n},{n}), "
         mm_input_scalar = draw(
             st.integers(
-                mm_input_scaler_Range.get_min(),
-                mm_input_scaler_Range.get_max()
+                mm_input_scaler_Range.get_min(), mm_input_scaler_Range.get_max()
             )
         )
 
@@ -1630,7 +1574,9 @@ class MMTestCase(Zentorch_TestCase):
         if torch_type in [torch.bfloat16, torch.float32]:
             input_scalar = torch.rand((), generator=generator).type(torch_type)
         else:
-            input_scalar = torch.randint(0, mm_input_scalar, (), generator=generator).type(torch_type)
+            input_scalar = torch.randint(
+                0, mm_input_scalar, (), generator=generator
+            ).type(torch_type)
 
         empty_bias = torch.zeros(0).type(torch_type)
         result_m = torch.zeros(int(m)).type(torch_type)
@@ -1707,7 +1653,7 @@ class MMTestCase(Zentorch_TestCase):
             )
             def wrapper(obj, val, *args, **kwargs):
                 try:
-                    (hypStr, updated_tensor_seed, dtype, freeze, *_) = val
+                    hypStr, updated_tensor_seed, dtype, freeze, *_ = val
 
                     if not hasattr(obj, "getData") or not isinstance(
                         obj.getData(), Test_Data
@@ -1779,7 +1725,9 @@ class WOQTestCase(Zentorch_TestCase):
         woq_scales,
         woq_qzeros,
         woq_qzeros_nonzero,
-        woq_bias, input3d, input1d
+        woq_bias,
+        input3d,
+        input1d,
     ):
         self.data.create_data_woq(
             dtype=dtype,
@@ -1916,7 +1864,7 @@ class WOQTestCase(Zentorch_TestCase):
         woq_qzeros_nonzero_dim = draw(
             st.integers(
                 woq_qzeros_nonzero_dim_Range.get_min(),
-                woq_qzeros_nonzero_dim_Range.get_max()
+                woq_qzeros_nonzero_dim_Range.get_max(),
             )
         )
         hypStr += f"woq_qzeros_nonzero_dim_Range=Range({woq_qzeros_nonzero_dim}, {woq_qzeros_nonzero_dim}), "
@@ -1970,9 +1918,7 @@ class WOQTestCase(Zentorch_TestCase):
         }
         woq_qzeros = [
             None,
-            torch.zeros(
-                woq_k // group_size, woq_n // packing_ratio
-            ).type(torch.int32),
+            torch.zeros(woq_k // group_size, woq_n // packing_ratio).type(torch.int32),
         ]
         woq_qzeros_nonzero = torch.randint(
             1,
@@ -2015,7 +1961,7 @@ class WOQTestCase(Zentorch_TestCase):
             woq_qzeros_nonzero,
             woq_bias,
             input3d,
-            input1d
+            input1d,
         )
 
     @staticmethod
@@ -2038,7 +1984,15 @@ class WOQTestCase(Zentorch_TestCase):
         tensor_seed=0,
     ):
         skip_reason = None
-        if not all([woq_dtypes_list, input_dim_opt_list, bias_opt_list, woq_qzeros_opt_list, scales_dtype_list]):
+        if not all(
+            [
+                woq_dtypes_list,
+                input_dim_opt_list,
+                bias_opt_list,
+                woq_qzeros_opt_list,
+                scales_dtype_list,
+            ]
+        ):
             skip_reason = "one or more required input lists are empty"
 
         def hypothesis_params_woq_itr_impl(function):
@@ -2103,13 +2057,13 @@ class WOQTestCase(Zentorch_TestCase):
                     obj.createDataFromVal(val)
 
                     test_args = {
-                        'dtype': dtype,
-                        'scales_dtype': scales_dtype,
-                        'woq_input_dim': woq_input_dim,
-                        'woq_bias_idx': woq_bias_idx,
-                        'woq_qzeros_idx': woq_qzeros_idx,
-                        'group_size_val': group_size_val,
-                        'freeze_opt': freeze,
+                        "dtype": dtype,
+                        "scales_dtype": scales_dtype,
+                        "woq_input_dim": woq_input_dim,
+                        "woq_bias_idx": woq_bias_idx,
+                        "woq_qzeros_idx": woq_qzeros_idx,
+                        "group_size_val": group_size_val,
+                        "freeze_opt": freeze,
                     }
                     required_args = inspect.signature(function).parameters.keys()
 
@@ -2117,7 +2071,7 @@ class WOQTestCase(Zentorch_TestCase):
                         obj,
                         *args,
                         **{k: v for k, v in test_args.items() if k in required_args},
-                        **kwargs
+                        **kwargs,
                     )
                 except Exception as e:
                     if not isinstance(e, unittest.SkipTest):
@@ -2179,7 +2133,7 @@ class QLinearTestCase(Zentorch_TestCase):
         y1,
         x3d,
         y3d,
-        input3d
+        input3d,
     ):
         self.data.create_data_qlinear(
             dtype,
@@ -2211,7 +2165,7 @@ class QLinearTestCase(Zentorch_TestCase):
             y1=y1,
             x3d=x3d,
             y3d=y3d,
-            input3d=input3d
+            input3d=input3d,
         )
 
     def createDataFromVal(self, val):
@@ -2357,24 +2311,15 @@ class QLinearTestCase(Zentorch_TestCase):
         q_linear_eltwise = draw(st.sampled_from(list(qlinear_eltwise_opt_list)))
         hypStr += f"q_linear_eltwise=[{q_linear_eltwise}], "
         matrix_dim_1 = draw(
-            st.integers(
-                matrix_dim_1_Range.get_min(),
-                matrix_dim_1_Range.get_max()
-            )
+            st.integers(matrix_dim_1_Range.get_min(), matrix_dim_1_Range.get_max())
         )
         hypStr += f"matrix_dim_1_Range=Range({matrix_dim_1}, {matrix_dim_1}), "
         matrix_dim_2 = draw(
-            st.integers(
-                matrix_dim_2_Range.get_min(),
-                matrix_dim_2_Range.get_max()
-            )
+            st.integers(matrix_dim_2_Range.get_min(), matrix_dim_2_Range.get_max())
         )
         hypStr += f"matrix_dim_2_Range=Range({matrix_dim_2}, {matrix_dim_2}), "
         matrix_dim_3 = draw(
-            st.integers(
-                matrix_dim_3_Range.get_min(),
-                matrix_dim_3_Range.get_max()
-            )
+            st.integers(matrix_dim_3_Range.get_min(), matrix_dim_3_Range.get_max())
         )
         hypStr += f"matrix_dim_3_Range=Range({matrix_dim_3}, {matrix_dim_3}), "
 
@@ -2391,10 +2336,17 @@ class QLinearTestCase(Zentorch_TestCase):
         ]
         bias_for_qlinear_square = [
             None,
-            torch.randn(k, generator=generator).type(torch_type)]
+            torch.randn(k, generator=generator).type(torch_type),
+        ]
+
+        # Scales will be divided with, so it can't be zero and recommended to be positive.
         y_scales_square = {
-            "per_tensor": torch.randn((1,), generator=generator).type(torch.float32),
-            "per_channel": torch.randn(k, generator=generator).type(torch.float32),
+            "per_tensor": (1 + torch.abs(torch.randn((1,), generator=generator))).type(
+                torch.float32
+            ),
+            "per_channel": (1 + torch.abs(torch.randn(k, generator=generator))).type(
+                torch.float32
+            ),
         }
         y_zero_points_square = {
             "per_tensor": torch.tensor(0).type(torch.int8),
@@ -2433,65 +2385,55 @@ class QLinearTestCase(Zentorch_TestCase):
             },
             "uint8": {
                 2: torch.randint(
-                    0,
-                    constants.zero_point_max,
-                    (m, k),
-                    generator=generator
+                    0, constants.zero_point_max, (m, k), generator=generator
                 ).type(torch.uint8),
-                3: torch.randint(0, constants.zero_point_max, (
-                    m,
-                    p,
-                    k
-                ),
-                    generator=generator
+                3: torch.randint(
+                    0, constants.zero_point_max, (m, p, k), generator=generator
                 ).type(torch.uint8),
-                4: torch.randint(0, constants.zero_point_max, (
-                    m,
-                    p,
-                    q,
-                    k
-                ), generator=generator
+                4: torch.randint(
+                    0, constants.zero_point_max, (m, p, q, k), generator=generator
                 ).type(torch.uint8),
             },
         }
         y_int8 = [
             torch.randint(
-                constants.y_int8_min,
-                constants.y_int8_max,
-                (k, n), generator=generator).type(torch.int8).t(),
+                constants.y_int8_min, constants.y_int8_max, (k, n), generator=generator
+            )
+            .type(torch.int8)
+            .t(),
             torch.randint(
-                constants.y_int8_min,
-                constants.y_int8_max,
-                (n, k), generator=generator).type(torch.int8),
+                constants.y_int8_min, constants.y_int8_max, (n, k), generator=generator
+            ).type(torch.int8),
         ]
         binary_input = {
-            2: torch.randn(m, n, generator=generator),
-            3: torch.randn(m, p, n, generator=generator),
-            4: torch.randn(m, p, q, n, generator=generator),
+            2: torch.randn(m, n, generator=generator, dtype=torch_type),
+            3: torch.randn(m, p, n, generator=generator, dtype=torch_type),
+            4: torch.randn(m, p, q, n, generator=generator, dtype=torch_type),
         }
         bias_for_qlinear = [
             None,
             torch.randn(n, generator=generator).type(torch_type),
         ]
+
+        # Scales will be divided with, so it can't be zero and recommended to be positive.
         x_scales = {
-            "per_tensor": torch.randn((1,), generator=generator).type(torch.float32),
+            "per_tensor": (1 + torch.abs(torch.randn((1,), generator=generator))).type(
+                torch.float32
+            ),
         }
         x_zero_points = {
             "per_tensor": {
                 "float32": {
                     "int8": torch.tensor(0).type(torch.int8),
                     "uint8": torch.randint(
-                        0,
-                        constants.zero_point_max,
-                        (1,),
-                        generator=generator).type(torch.uint8),
+                        0, constants.zero_point_max, (1,), generator=generator
+                    ).type(torch.uint8),
                 },
                 "bfloat16": {
                     "int8": torch.tensor(0).type(torch.int8),
                     "uint8": torch.randint(
-                        0,
-                        constants.zero_point_max,
-                        (1,), generator=generator).type(torch.uint8),
+                        0, constants.zero_point_max, (1,), generator=generator
+                    ).type(torch.uint8),
                 },
                 "int8": {
                     "int8": torch.zeros(1).type(torch.int8),
@@ -2499,21 +2441,23 @@ class QLinearTestCase(Zentorch_TestCase):
                 },
                 "uint8": {
                     "int8": torch.randint(
-                        0,
-                        constants.zero_point_max,
-                        (1,),
-                        generator=generator).type(torch.uint8),
+                        0, constants.zero_point_max, (1,), generator=generator
+                    ).type(torch.uint8),
                     "uint8": torch.randint(
-                        0,
-                        constants.zero_point_max,
-                        (1,),
-                        generator=generator).type(torch.uint8),
+                        0, constants.zero_point_max, (1,), generator=generator
+                    ).type(torch.uint8),
                 },
             },
         }
+
+        # Scales will be divided with, so it can't be zero and recommended to be positive.
         y_scales = {
-            "per_tensor": torch.randn((1,), generator=generator).type(torch.float32),
-            "per_channel": torch.randn(n, generator=generator).type(torch.float32),
+            "per_tensor": (1 + torch.abs(torch.randn((1,), generator=generator))).type(
+                torch.float32
+            ),
+            "per_channel": (1 + torch.abs(torch.randn(n, generator=generator))).type(
+                torch.float32
+            ),
         }
         y_zero_points = {
             "per_tensor": torch.tensor(0).type(torch.int8),
@@ -2528,10 +2472,16 @@ class QLinearTestCase(Zentorch_TestCase):
                     "positive_scales": None,
                 },
                 "uint8": {
-                    "positive_scales": torch.rand((1,), generator=generator).type(torch.float32),
+                    # Scales will be divided with, so it can't be zero and recommended to be positive.
+                    "positive_scales": (
+                        1 + torch.abs(torch.randn((1,), generator=generator))
+                    ).type(torch.float32),
                 },
                 "int8": {
-                    "positive_scales": torch.rand((1,), generator=generator).type(torch.float32),
+                    # Scales will be divided with, so it can't be zero and recommended to be positive.
+                    "positive_scales": (
+                        1 + torch.abs(torch.randn((1,), generator=generator))
+                    ).type(torch.float32),
                 },
             }
         }
@@ -2540,31 +2490,32 @@ class QLinearTestCase(Zentorch_TestCase):
                 "float32": None,
                 "bfloat16": None,
                 "uint8": torch.randint(
-                    0,
-                    constants.zero_point_max,
-                    (1,),
-                    generator=generator
+                    0, constants.zero_point_max, (1,), generator=generator
                 ).type(torch.uint8),
                 "int8": torch.zeros(1).type(torch.int8),
             },
         }
-        wrong_scales_per_channel = torch.randn(n + 1, generator=generator).type(torch.float32)
+        wrong_scales_per_channel = torch.randn(n + 1, generator=generator).type(
+            torch.float32
+        )
         wrong_zero_points_per_channel = torch.zeros(n + 1).type(torch.int8)
         y = torch.randn(k, n, generator=generator).type(torch_type)
         input1d = torch.randn(n, generator=generator).type(torch_type)
         x1 = [
-            torch.randn(matrix_dim_1, matrix_dim_2, generator=generator).type(torch_type),
-            torch.randn(
-                matrix_dim_2,
-                matrix_dim_1,
-                generator=generator).transpose(0, 1).type(torch_type),
+            torch.randn(matrix_dim_1, matrix_dim_2, generator=generator).type(
+                torch_type
+            ),
+            torch.randn(matrix_dim_2, matrix_dim_1, generator=generator)
+            .transpose(0, 1)
+            .type(torch_type),
         ]
         y1 = [
-            torch.randn(matrix_dim_2, matrix_dim_3, generator=generator).type(torch_type),
-            torch.randn(
-                matrix_dim_3,
-                matrix_dim_2,
-                generator=generator).transpose(1, 0).type(torch_type),
+            torch.randn(matrix_dim_2, matrix_dim_3, generator=generator).type(
+                torch_type
+            ),
+            torch.randn(matrix_dim_3, matrix_dim_2, generator=generator)
+            .transpose(1, 0)
+            .type(torch_type),
         ]
         x3d = torch.randn(b, m, k, generator=generator).type(torch_type)
         y3d = torch.randn(b, k, n, generator=generator).type(torch_type)
@@ -2638,8 +2589,17 @@ class QLinearTestCase(Zentorch_TestCase):
         tensor_seed=0,
     ):
         skip_reason = None
-        if not all([input_dim_opt_list, q_weight_list_opt_list, bias_opt_list, q_granularity_opt_list,
-                    q_zero_points_dtype_opt_list, q_linear_dtype_opt_list, dtype_list]):
+        if not all(
+            [
+                input_dim_opt_list,
+                q_weight_list_opt_list,
+                bias_opt_list,
+                q_granularity_opt_list,
+                q_zero_points_dtype_opt_list,
+                q_linear_dtype_opt_list,
+                dtype_list,
+            ]
+        ):
             skip_reason = "one or more required input lists are empty"
 
         def hypothesis_params_qlinear_itr_impl(function):
@@ -2760,20 +2720,13 @@ class SDPATestCase(Zentorch_TestCase):
     def getData(self):
         return self.data
 
-    def createData(
-        self,
-        dtype,
-        sdpa_query,
-        sdpa_key,
-        sdpa_value,
-        mask_shape
-    ):
+    def createData(self, dtype, sdpa_query, sdpa_key, sdpa_value, mask_shape):
         self.data.create_data_SDPA(
             dtype=dtype,
             sdpa_query=sdpa_query,
             sdpa_key=sdpa_key,
             sdpa_value=sdpa_value,
-            mask_shape=mask_shape
+            mask_shape=mask_shape,
         )
 
     def createDataFromVal(self, val):
@@ -2789,7 +2742,7 @@ class SDPATestCase(Zentorch_TestCase):
             sdpa_query,
             sdpa_key,
             sdpa_value,
-            mask_shape
+            mask_shape,
         ) = val
         self.createData(
             dtype=dtype,
@@ -2912,12 +2865,7 @@ class SDPATestCase(Zentorch_TestCase):
                     tensor_seed=tensor_seed,
                 )
             )
-            def wrapper(
-                obj,
-                val,
-                *args,
-                **kwargs
-            ):
+            def wrapper(obj, val, *args, **kwargs):
                 try:
                     if not hasattr(obj, "getData") or not isinstance(
                         obj.getData(), Test_Data
@@ -2939,15 +2887,16 @@ class SDPATestCase(Zentorch_TestCase):
                         sdpa_key,
                         sdpa_value,
                         mask_shape,
-                        *_) = val
+                        *_,
+                    ) = val
 
                     obj.createDataFromVal(val)
 
                     # Prepare the arguments to pass to the test function
                     test_args = {
-                        'dtype': dtype,
-                        'mask_type': mask,
-                        'head_dim': head_dim,
+                        "dtype": dtype,
+                        "mask_type": mask,
+                        "head_dim": head_dim,
                     }
 
                     # Get the required argument names for the test function
@@ -2958,7 +2907,7 @@ class SDPATestCase(Zentorch_TestCase):
                         obj,
                         *args,
                         **{k: v for k, v in test_args.items() if k in required_args},
-                        **kwargs
+                        **kwargs,
                     )
                 except Exception as e:
                     if not isinstance(e, unittest.SkipTest):

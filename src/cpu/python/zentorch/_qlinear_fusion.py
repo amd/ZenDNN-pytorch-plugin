@@ -14,13 +14,12 @@ from torch._inductor.pattern_matcher import (
     Match,
     stable_topological_sort,
 )
+from ._utils import counters
 
 matcher_pass = PatternMatcherPass(pass_name="qlinear_fusion_pass")
 aten = torch.ops.aten
 zentorch = torch.ops.zentorch
 torch_decomp = torch.ops.quantized_decomposed
-
-# QLinear->Q-DQ->Mul->Add pattern fusion
 
 
 # Replacement implementation
@@ -52,47 +51,44 @@ def _qlinear_q_dq_mul_add_replacement_impl(
     return (output,)
 
 
-# Pattern
+# TODO
+# As soon as the performance issue for bfloat16 is fixed, this check will be removed.
+def is_mul_add_fp32(match: Match, mul_input_idx: int, add_input_idx: int) -> bool:
+    mul_input = match.args[mul_input_idx]
+    add_input = match.args[add_input_idx]
+    return mul_input.meta["val"].dtype == torch.float32 and add_input.meta["val"].dtype == torch.float32
+
+
+# Pattern 1
+#
+# (mul_input) (QLinear)
+#       \     /
+#        (mul) (add_input)
+#           \     /
+#            (add)
 @register_graph_pattern(
     CallFunction(
         aten.add.Tensor,
         CallFunction(  # Mul
             aten.mul.Tensor,
             Arg(),  # Mul input
-            CallFunction(  # Dequantize input
-                torch_decomp.dequantize_per_tensor.default,
-                CallFunction(  # Quantize input
-                    torch_decomp.quantize_per_tensor.default,
-                    CallFunction(  # QLinear
-                        zentorch.zentorch_qlinear.default,
-                        Arg(),  # Input
-                        Arg(),  # Weight
-                        Arg(),  # Bias
-                        Arg(),  # Input scales
-                        Arg(),  # Input zero points
-                        Arg(),  # Weight scales
-                        Arg(),  # Weight zero points
-                    ),
-                    Arg(),
-                    Arg(),
-                    0,
-                    255,
-                    torch.uint8,
-                ),
-                Arg(),
-                Arg(),
-                0,
-                255,
-                torch.uint8,
+            CallFunction(  # QLinear
+                zentorch.zentorch_qlinear.default,
+                Arg(),  # Input
+                Arg(),  # Weight
+                Arg(),  # Bias
+                Arg(),  # Input scales
+                Arg(),  # Input zero points
+                Arg(),  # Weight scales
+                Arg(),  # Weight zero points
             ),
         ),
         Arg(),  # Add input
     ),
     pass_dict=matcher_pass,
+    extra_check=functools.partial(is_mul_add_fp32, mul_input_idx=0, add_input_idx=8)
 )
-# We are not using the q_scale, q_zero_point, dq_scale, dq_zero_point arguments,
-# as we are not utilizing the Quantized Quantize and Dequantize ops introduced before the mul op.
-def qlinear_q_dq_mul_add_replacement_decorated(
+def qlinear_mul_add_pattern_1(
     match: Match,
     mul_input,
     input,
@@ -102,12 +98,9 @@ def qlinear_q_dq_mul_add_replacement_decorated(
     input_zero_points,
     weight_scales,
     weight_zero_points,
-    q_scale,
-    q_zero_point,
-    dq_scale,
-    dq_zero_point,
     add_input,
 ):
+    counters["zentorch"]["qlinear_mul_add"] += 1
     match.replace_by_example(
         _qlinear_q_dq_mul_add_replacement_impl,
         [
@@ -124,8 +117,178 @@ def qlinear_q_dq_mul_add_replacement_decorated(
     )
 
 
-# TODO : Add isometric pattern fusion for QLinear->Q-DQ->Mul->Add pattern
-# Current pattern is applicable only to the quantized MLPerf DLRMv2 model.
+# Pattern 2
+#
+#     (mul_input) (QLinear)
+#           \     /
+# (add_input)(mul)
+#       \     /
+#        (add)
+@register_graph_pattern(
+    CallFunction(
+        aten.add.Tensor,
+        Arg(),  # Add input
+        CallFunction(  # Mul
+            aten.mul.Tensor,
+            Arg(),  # Mul input
+            CallFunction(  # QLinear
+                zentorch.zentorch_qlinear.default,
+                Arg(),  # Input
+                Arg(),  # Weight
+                Arg(),  # Bias
+                Arg(),  # Input scales
+                Arg(),  # Input zero points
+                Arg(),  # Weight scales
+                Arg(),  # Weight zero points
+            ),
+        ),
+    ),
+    pass_dict=matcher_pass,
+    extra_check=functools.partial(is_mul_add_fp32, mul_input_idx=1, add_input_idx=0)
+)
+def qlinear_mul_add_pattern_2(
+    match: Match,
+    add_input,
+    mul_input,
+    input,
+    weight,
+    bias,
+    input_scales,
+    input_zero_points,
+    weight_scales,
+    weight_zero_points,
+):
+    counters["zentorch"]["qlinear_mul_add"] += 1
+    match.replace_by_example(
+        _qlinear_q_dq_mul_add_replacement_impl,
+        [
+            input,
+            weight,
+            bias,
+            input_scales,
+            input_zero_points,
+            weight_scales,
+            weight_zero_points,
+            mul_input,
+            add_input,
+        ],
+    )
+
+
+# Pattern 3
+#
+# (QLinear)(mul_input)
+#        \     /
+#         (mul) (add_input)
+#             \     /
+#              (add)
+@register_graph_pattern(
+    CallFunction(
+        aten.add.Tensor,
+        CallFunction(  # Mul
+            aten.mul.Tensor,
+            CallFunction(  # QLinear
+                zentorch.zentorch_qlinear.default,
+                Arg(),  # Input
+                Arg(),  # Weight
+                Arg(),  # Bias
+                Arg(),  # Input scales
+                Arg(),  # Input zero points
+                Arg(),  # Weight scales
+                Arg(),  # Weight zero points
+            ),
+            Arg(),  # Mul input
+        ),
+        Arg(),  # Add input
+    ),
+    pass_dict=matcher_pass,
+    extra_check=functools.partial(is_mul_add_fp32, mul_input_idx=7, add_input_idx=8)
+)
+def qlinear_mul_add_pattern_3(
+    match: Match,
+    input,
+    weight,
+    bias,
+    input_scales,
+    input_zero_points,
+    weight_scales,
+    weight_zero_points,
+    mul_input,
+    add_input,
+):
+    counters["zentorch"]["qlinear_mul_add"] += 1
+    match.replace_by_example(
+        _qlinear_q_dq_mul_add_replacement_impl,
+        [
+            input,
+            weight,
+            bias,
+            input_scales,
+            input_zero_points,
+            weight_scales,
+            weight_zero_points,
+            mul_input,
+            add_input,
+        ],
+    )
+
+
+# Pattern 4
+#
+#    (QLinear)(mul_input)
+#           \     /
+# (add_input)(mul)
+#       \     /
+#        (add)
+@register_graph_pattern(
+    CallFunction(
+        aten.add.Tensor,
+        Arg(),  # Add input
+        CallFunction(  # Mul
+            aten.mul.Tensor,
+            CallFunction(  # QLinear
+                zentorch.zentorch_qlinear.default,
+                Arg(),  # Input
+                Arg(),  # Weight
+                Arg(),  # Bias
+                Arg(),  # Input scales
+                Arg(),  # Input zero points
+                Arg(),  # Weight scales
+                Arg(),  # Weight zero points
+            ),
+            Arg(),  # Mul input
+        ),
+    ),
+    pass_dict=matcher_pass,
+    extra_check=functools.partial(is_mul_add_fp32, mul_input_idx=8, add_input_idx=0)
+)
+def qlinear_mul_add_pattern_4(
+    match: Match,
+    add_input,
+    input,
+    weight,
+    bias,
+    input_scales,
+    input_zero_points,
+    weight_scales,
+    weight_zero_points,
+    mul_input,
+):
+    counters["zentorch"]["qlinear_mul_add"] += 1
+    match.replace_by_example(
+        _qlinear_q_dq_mul_add_replacement_impl,
+        [
+            input,
+            weight,
+            bias,
+            input_scales,
+            input_zero_points,
+            weight_scales,
+            weight_zero_points,
+            mul_input,
+            add_input,
+        ],
+    )
 
 
 def qlinear_fusion_pass(graph):

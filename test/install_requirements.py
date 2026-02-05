@@ -3,11 +3,13 @@
 # All rights reserved.
 # ******************************************************************************
 
-import importlib.util as importutil
+from importlib.util import find_spec
+from importlib.metadata import version
 import torch
 import subprocess
+import sys
 
-_all_ = ["transformers", "expecttest==0.1.6", "parameterized"]
+BASE_REQUIREMENTS = ["transformers", "expecttest==0.1.6", "parameterized"]
 
 
 def install_package(cmd):
@@ -43,7 +45,7 @@ def install(packages):
 
 if __name__ == "__main__":
 
-    install(_all_)
+    install(BASE_REQUIREMENTS)
     extra_args = (
         " --index-url https://download.pytorch.org/whl/cpu"
         if not torch.version.cuda
@@ -51,7 +53,7 @@ if __name__ == "__main__":
     )
     torch_version = torch.__version__
     torch_version = torch_version.split("+")[0]
-    torchvision_compatibilty = {
+    torchvision_compatibility = {
         # "2.0.0": "torchvision==0.15.0",
         # "2.0.1": "torchvision==0.15.2",
         # "2.1.0": "torchvision==0.16.0",
@@ -73,16 +75,56 @@ if __name__ == "__main__":
         "2.9.1": "torchvision==0.24.1",
         "2.10.0": "torchvision==0.25.0",
     }
-    if importutil.find_spec("torchvision") is not None:
-        print("Warning: Torchvision already installed, skipping installing it")
-        exit(1)
-    elif torch_version in torchvision_compatibilty:
-        torchvision_cmd = [torchvision_compatibilty[torch_version] + extra_args]
-        install(torchvision_cmd)
+
+    torchao_compatibility = {
+        "2.9.1": "torchao==0.15.0",
+        # Torch 2.10 might give a warning suggesting to install torchao of latest version, but 0.15.0 is the latest
+        # version currently.
+        "2.10.0": "torchao==0.15.0",
+    }
+
+    if find_spec("torchao") is not None:
+        if torch_version not in torchao_compatibility:
+            print("Torch version not supported for torchao compatibility check")
+            sys.exit(1)
+        pkg_version = version("torchao").split("+")[0]
+        torchao_compatible_version = torchao_compatibility[torch_version].split("==")[1]
+        if pkg_version != torchao_compatible_version:
+            print(
+                f"Torchao version is not compatible with the installed torch version. \
+                    Expected: {torchao_compatible_version}, Found: {pkg_version}"
+            )
+            sys.exit(1)
     else:
-        print(
-            "Couldnot find the valid torchvision version which is \
-compatibility with installed torch version. Supported Torch versions \
-are 2.6.*/2.7.*/2.8.*/2.9.*/2.10.*"
-        )
-        exit(1)
+        if torch_version in torchao_compatibility:
+            torchao_cmd = [torchao_compatibility[torch_version] + extra_args]
+            install(torchao_cmd)
+        else:
+            print("Could not find the valid torchao version which is \
+                compatible with installed torch version. Supported Torch versions \
+                are 2.9.1 and 2.10.0")
+            sys.exit(1)
+
+    if find_spec("torchvision") is not None:
+        if torch_version not in torchvision_compatibility:
+            print("Torch version not supported for torchvision compatibility check")
+            sys.exit(1)
+        pkg_version = version("torchvision").split("+")[0]
+        torchvision_compatible_version = torchvision_compatibility[torch_version].split(
+            "=="
+        )[1]
+        if pkg_version != torchvision_compatible_version:
+            print(
+                f"Torchvision version is not compatible with the installed torch version. \
+                    Expected: {torchvision_compatible_version}, Found: {pkg_version}"
+            )
+            sys.exit(1)
+    else:
+        if torch_version in torchvision_compatibility:
+            torchvision_cmd = [torchvision_compatibility[torch_version] + extra_args]
+            install(torchvision_cmd)
+        else:
+            print("Could not find the valid torchvision version which is \
+                compatible with installed torch version. Supported Torch versions \
+                are 2.6.0/2.7.0/2.8.0/2.9.0/2.9.1/2.10.0")
+            sys.exit(1)
