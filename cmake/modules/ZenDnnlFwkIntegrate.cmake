@@ -1,5 +1,5 @@
 # *******************************************************************************
-# * Copyright (c) 2023-2025 Advanced Micro Devices, Inc. All rights reserved.
+# * Copyright (c) 2023-2026 Advanced Micro Devices, Inc. All rights reserved.
 # *
 # * Licensed under the Apache License, Version 2.0 (the "License");
 # * you may not use this file except in compliance with the License.
@@ -136,6 +136,13 @@ zendnnl_add_option(NAME ZENDNNL_DEPENDS_LIBXSMM
   CACHE_STRING "zendnnl libxsmm dependency"
   COMMAND_LIST ZNL_CMAKE_ARGS)
 
+# set if zendnnl depends on fbgemm, default is ON.
+zendnnl_add_option(NAME ZENDNNL_DEPENDS_FBGEMM
+  VALUE ON
+  TYPE BOOL
+  CACHE_STRING "zendnnl fbgemm dependency"
+  COMMAND_LIST ZNL_CMAKE_ARGS)
+
 # set path of amdblis if amdblis is injected. if the framework
 # does not inject it, set it to "" (empty string).
 zendnnl_add_option(NAME ZENDNNL_AMDBLIS_FWK_DIR
@@ -156,6 +163,22 @@ zendnnl_add_option(NAME ZENDNNL_ONEDNN_FWK_DIR
   VALUE ""
   TYPE PATH
   CACHE_STRING "zendnnl onednnn framework path"
+  COMMAND_LIST ZNL_CMAKE_ARGS)
+
+# set path of libxsmm if onednn is injected. if the framework
+# does not inject it, set it to "" (empty string).
+zendnnl_add_option(NAME ZENDNNL_LIBXSMM_FWK_DIR
+  VALUE ""
+  TYPE PATH
+  CACHE_STRING "zendnnl libxsmm framework path"
+  COMMAND_LIST ZNL_CMAKE_ARGS)
+
+# set path of fbgemm if onednn is injected. if the framework
+# does not inject it, set it to "" (empty string).
+zendnnl_add_option(NAME ZENDNNL_FBGEMM_FWK_DIR
+  VALUE ""
+  TYPE PATH
+  CACHE_STRING "zendnnl fbgemm framework path"
   COMMAND_LIST ZNL_CMAKE_ARGS)
 
 # try to find pre-built package
@@ -230,44 +253,80 @@ else()
 
   target_link_libraries(zendnnl_library INTERFACE nlohmann_json::nlohmann_json)
 
-  if (ZENDNNL_DEPENDS_LIBXSMM)
-    # libxsmm dependency
-    zendnnl_add_dependency(NAME libxsmm
-      PATH "${ZENDNNL_INSTALL_PREFIX}/deps/libxsmm"
-      ARCHIVE_FILE "libxsmm.a"
-      ALIAS "libxsmm::libxsmm"
-      DEPENDS fwk_zendnnl)
-
-    target_link_libraries(zendnnl_library INTERFACE libxsmm::libxsmm)
-  endif()
-
-    # aoclutils dependency
+  # aoclutils dependency - requires WHOLE_ARCHIVE (matching ZenDNN's internal config)
   if (DEFINED ENV{ZENDNNL_MANYLINUX_BUILD})
-
     zendnnl_add_dependency(NAME aoclutils
       PATH "${ZENDNNL_INSTALL_PREFIX}/deps/aoclutils"
       LIB_SUFFIX lib64
       ARCHIVE_FILE "libaoclutils.a"
       ALIAS "au::aoclutils"
       DEPENDS fwk_zendnnl)
-    target_link_libraries(zendnnl_library INTERFACE au::aoclutils)
+    target_link_libraries(zendnnl_library INTERFACE "$<LINK_LIBRARY:WHOLE_ARCHIVE,au::aoclutils>")
 
+    # au_cpuid dependency (INTERFACE only - symbols already in aoclutils)
     zendnnl_add_dependency(NAME aucpuid
       PATH "${ZENDNNL_INSTALL_PREFIX}/deps/aoclutils"
       LIB_SUFFIX lib64
       ARCHIVE_FILE "libau_cpuid.a"
       ALIAS "au::au_cpuid"
       DEPENDS fwk_zendnnl)
-
     target_link_libraries(zendnnl_library INTERFACE au::au_cpuid)
 
+    # aocldlp dependency - requires WHOLE_ARCHIVE (matching ZenDNN's internal config)
+    # IMPORTANT: Must be linked right after aoclutils for proper initialization order
+    if (ZENDNNL_DEPENDS_AOCLDLP)
+      zendnnl_add_dependency(NAME aocldlp
+        PATH "${ZENDNNL_INSTALL_PREFIX}/deps/aocldlp"
+        ARCHIVE_FILE "libaocl-dlp.a"
+        ALIAS "aocldlp::aocl_dlp_static"
+        DEPENDS fwk_zendnnl)
+      target_link_libraries(zendnnl_library INTERFACE "$<LINK_LIBRARY:WHOLE_ARCHIVE,aocldlp::aocl_dlp_static>")
+    endif()
+
+    # oneDNN dependency - requires WHOLE_ARCHIVE (matching ZenDNN's internal config)
     zendnnl_add_dependency(NAME onednn
       PATH "${ZENDNNL_INSTALL_PREFIX}/deps/onednn"
       LIB_SUFFIX lib64
       ARCHIVE_FILE "libdnnl.a"
       ALIAS "DNNL::dnnl"
       DEPENDS fwk_zendnnl)
-    target_link_libraries(zendnnl_library INTERFACE DNNL::dnnl)
+    target_link_libraries(zendnnl_library INTERFACE "$<LINK_LIBRARY:WHOLE_ARCHIVE,DNNL::dnnl>")
+
+    # libxsmm dependency - requires WHOLE_ARCHIVE (matching ZenDNN's internal config)
+    if (ZENDNNL_DEPENDS_LIBXSMM)
+      zendnnl_add_dependency(NAME libxsmm
+        PATH "${ZENDNNL_INSTALL_PREFIX}/deps/libxsmm"
+        ARCHIVE_FILE "libxsmm.a"
+        ALIAS "libxsmm::libxsmm"
+        DEPENDS fwk_zendnnl)
+      target_link_libraries(zendnnl_library INTERFACE "$<LINK_LIBRARY:WHOLE_ARCHIVE,libxsmm::libxsmm>")
+    endif()
+
+    # fbgemm dependency - requires WHOLE_ARCHIVE (matching ZenDNN's internal config)
+    if (ZENDNNL_DEPENDS_FBGEMM)
+      # FBGEMM's dependencies: asmjit and cpuinfo
+      zendnnl_add_dependency(NAME asmjit
+        PATH "${ZENDNNL_INSTALL_PREFIX}/deps/fbgemm"
+        LIB_SUFFIX lib64
+        ARCHIVE_FILE "libasmjit.a"
+        ALIAS "fbgemm::asmjit"
+        DEPENDS fwk_zendnnl)
+      zendnnl_add_dependency(NAME cpuinfo
+        PATH "${ZENDNNL_INSTALL_PREFIX}/deps/fbgemm"
+        LIB_SUFFIX lib64
+        ARCHIVE_FILE "libcpuinfo.a"
+        ALIAS "fbgemm::cpuinfo"
+        DEPENDS fwk_zendnnl)
+      zendnnl_add_dependency(NAME fbgemm
+        PATH "${ZENDNNL_INSTALL_PREFIX}/deps/fbgemm"
+        LIB_SUFFIX lib64
+        ARCHIVE_FILE "libfbgemm.a"
+        ALIAS "fbgemm::fbgemm_archive"
+        DEPENDS fwk_zendnnl)
+      target_link_libraries(zendnnl_library INTERFACE "$<LINK_LIBRARY:WHOLE_ARCHIVE,fbgemm::fbgemm_archive>")
+      target_link_libraries(zendnnl_library INTERFACE fbgemm::asmjit)
+      target_link_libraries(zendnnl_library INTERFACE fbgemm::cpuinfo)
+    endif()
 
   else()
     zendnnl_add_dependency(NAME aoclutils
@@ -275,46 +334,67 @@ else()
       ARCHIVE_FILE "libaoclutils.a"
       ALIAS "au::aoclutils"
       DEPENDS fwk_zendnnl)
+    target_link_libraries(zendnnl_library INTERFACE "$<LINK_LIBRARY:WHOLE_ARCHIVE,au::aoclutils>")
 
-    target_link_libraries(zendnnl_library INTERFACE au::aoclutils)
-
+    # au_cpuid dependency (INTERFACE only - symbols already in aoclutils)
     zendnnl_add_dependency(NAME aucpuid
       PATH "${ZENDNNL_INSTALL_PREFIX}/deps/aoclutils"
       ARCHIVE_FILE "libau_cpuid.a"
       ALIAS "au::au_cpuid"
       DEPENDS fwk_zendnnl)
-
     target_link_libraries(zendnnl_library INTERFACE au::au_cpuid)
 
+    # aocldlp dependency - requires WHOLE_ARCHIVE (matching ZenDNN's internal config)
+    # IMPORTANT: Must be linked right after aoclutils for proper initialization order
+    if (ZENDNNL_DEPENDS_AOCLDLP)
+      zendnnl_add_dependency(NAME aocldlp
+        PATH "${ZENDNNL_INSTALL_PREFIX}/deps/aocldlp"
+        ARCHIVE_FILE "libaocl-dlp.a"
+        ALIAS "aocldlp::aocl_dlp_static"
+        DEPENDS fwk_zendnnl)
+      target_link_libraries(zendnnl_library INTERFACE "$<LINK_LIBRARY:WHOLE_ARCHIVE,aocldlp::aocl_dlp_static>")
+    endif()
+
+    # oneDNN dependency - requires WHOLE_ARCHIVE (matching ZenDNN's internal config)
     zendnnl_add_dependency(NAME onednn
       PATH "${ZENDNNL_INSTALL_PREFIX}/deps/onednn"
       ARCHIVE_FILE "libdnnl.a"
       ALIAS "DNNL::dnnl"
       DEPENDS fwk_zendnnl)
+    target_link_libraries(zendnnl_library INTERFACE "$<LINK_LIBRARY:WHOLE_ARCHIVE,DNNL::dnnl>")
 
-    target_link_libraries(zendnnl_library INTERFACE DNNL::dnnl)
-
-  endif()
-
-  # amdblis dependency
-  if (ZENDNNL_DEPENDS_AMDBLIS)
-      zendnnl_add_dependency(NAME amdblis
-        PATH "${ZENDNNL_INSTALL_PREFIX}/deps/amdblis"
-        ARCHIVE_FILE "libblis-mt.a"
-        ALIAS "amdblis::amdblis_archive"
+    # libxsmm dependency - requires WHOLE_ARCHIVE (matching ZenDNN's internal config)
+    if (ZENDNNL_DEPENDS_LIBXSMM)
+      zendnnl_add_dependency(NAME libxsmm
+        PATH "${ZENDNNL_INSTALL_PREFIX}/deps/libxsmm"
+        ARCHIVE_FILE "libxsmm.a"
+        ALIAS "libxsmm::libxsmm"
         DEPENDS fwk_zendnnl)
+      target_link_libraries(zendnnl_library INTERFACE "$<LINK_LIBRARY:WHOLE_ARCHIVE,libxsmm::libxsmm>")
+    endif()
 
-      target_link_libraries(zendnnl_library INTERFACE amdblis::amdblis_archive)
-  endif()
-
-  if (ZENDNNL_DEPENDS_AOCLDLP)
-    zendnnl_add_dependency(NAME aocldlp
-    PATH "${ZENDNNL_INSTALL_PREFIX}/deps/aocldlp"
-    ARCHIVE_FILE "libaocl-dlp.a"
-    ALIAS "aocldlp::aocldlp"
-    DEPENDS fwk_zendnnl)
-
-    target_link_libraries(zendnnl_library INTERFACE aocldlp::aocldlp)
+    # fbgemm dependency - requires WHOLE_ARCHIVE (matching ZenDNN's internal config)
+    if (ZENDNNL_DEPENDS_FBGEMM)
+      # FBGEMM's dependencies: asmjit and cpuinfo
+      zendnnl_add_dependency(NAME asmjit
+        PATH "${ZENDNNL_INSTALL_PREFIX}/deps/fbgemm"
+        ARCHIVE_FILE "libasmjit.a"
+        ALIAS "fbgemm::asmjit"
+        DEPENDS fwk_zendnnl)
+      zendnnl_add_dependency(NAME cpuinfo
+        PATH "${ZENDNNL_INSTALL_PREFIX}/deps/fbgemm"
+        ARCHIVE_FILE "libcpuinfo.a"
+        ALIAS "fbgemm::cpuinfo"
+        DEPENDS fwk_zendnnl)
+      zendnnl_add_dependency(NAME fbgemm
+        PATH "${ZENDNNL_INSTALL_PREFIX}/deps/fbgemm"
+        ARCHIVE_FILE "libfbgemm.a"
+        ALIAS "fbgemm::fbgemm_archive"
+        DEPENDS fwk_zendnnl)
+      target_link_libraries(zendnnl_library INTERFACE "$<LINK_LIBRARY:WHOLE_ARCHIVE,fbgemm::fbgemm_archive>")
+      target_link_libraries(zendnnl_library INTERFACE fbgemm::asmjit)
+      target_link_libraries(zendnnl_library INTERFACE fbgemm::cpuinfo)
+    endif()
   endif()
 
   add_library(zendnnl::zendnnl_archive ALIAS zendnnl_library)
