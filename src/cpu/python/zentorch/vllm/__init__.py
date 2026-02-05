@@ -35,10 +35,97 @@ from zentorch.vllm.core import (
     VLLM_V13,
     VLLM_V14,
     VLLM_V14_1,
+    VLLM_V15,
+    VLLM_V15_1,
 )
 
-
 logger = get_logger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# PyTorch FakeTensorMode Patch (torch version aware)
+# ---------------------------------------------------------------------------
+
+_FAKETENSOR_PATCH_APPLIED = False
+
+
+def _apply_faketensor_subclass_patch() -> bool:
+    """Fix PyTorch FakeTensorMode's handling of Parameter subclasses.
+
+    The bug: torch/_subclasses/fake_tensor.py uses `type(x) is not torch.nn.Parameter`
+    which incorrectly rejects Parameter subclasses (like vLLM's ModelWeightParameter).
+
+    The fix: Change to `not isinstance(x, torch.nn.Parameter)` so Parameter subclasses
+    are recognized as Parameters and handled correctly by FakeTensorMode.
+
+    This enables TORCHINDUCTOR_FREEZING=1 to work with vLLM's custom Parameter types.
+
+    Returns:
+        True if patch was applied, False if not needed or failed.
+    """
+    global _FAKETENSOR_PATCH_APPLIED
+
+    if _FAKETENSOR_PATCH_APPLIED:
+        return True
+
+    # Only apply for PyTorch 2.10+ where freezing with custom ops is used
+    from torch.torch_version import TorchVersion
+
+    if TorchVersion(torch.__version__) < (2, 10):
+        logger.debug("[zentorch] FakeTensor patch not needed for PyTorch < 2.10")
+        return False
+
+    try:
+        import torch._subclasses.fake_tensor as fake_tensor_module
+
+        # Check if the function exists and needs patching
+        if not hasattr(fake_tensor_module, "_check_for_subclass_arg"):
+            logger.debug("[zentorch] _check_for_subclass_arg not found, skipping patch")
+            return False
+
+        original_fn = fake_tensor_module._check_for_subclass_arg
+
+        # Check if already patched
+        if hasattr(original_fn, "_zentorch_patched"):
+            _FAKETENSOR_PATCH_APPLIED = True
+            return True
+
+        # Create fixed version
+        def _check_for_subclass_arg_fixed(x: object) -> bool:
+            """Fixed version: uses isinstance() for Parameter check.
+
+            This allows Parameter subclasses (like ModelWeightParameter) to be
+            handled by FakeTensorMode's registered fake implementations rather
+            than returning NotImplemented.
+            """
+            from torch import Tensor
+            from torch._subclasses.fake_tensor import FakeTensor
+
+            return (
+                not isinstance(x, FakeTensor)
+                and isinstance(x, Tensor)
+                and type(x) is not Tensor
+                and not isinstance(x, torch.nn.Parameter)  # FIXED: was `type(x) is not`
+            )
+
+        _check_for_subclass_arg_fixed._zentorch_patched = True
+
+        # Apply the patch
+        fake_tensor_module._check_for_subclass_arg = _check_for_subclass_arg_fixed
+
+        # Also patch _check_for_subclass which uses _check_for_subclass_arg
+        # The function iterates over args and calls _check_for_subclass_arg
+        # Since we patched the helper, the main function will use our fixed version
+
+        _FAKETENSOR_PATCH_APPLIED = True
+        logger.info(
+            "[zentorch] Patched FakeTensorMode._check_for_subclass_arg for Parameter subclass support"
+        )
+        return True
+
+    except Exception:
+        logger.warning("[zentorch] Failed to patch FakeTensorMode", exc_info=True)
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -130,6 +217,10 @@ class DispatchCPUUnquantizedGemmPatch:
             layer: torch.nn.Module,
             remove_weight: bool,
         ) -> None:
+            # Skip for missing layers (meta tensors) - matches vLLM 0.15.0 behavior
+            if layer.weight.is_meta:
+                layer.cpu_linear = torch.nn.functional.linear
+                return
             weights_copy = layer.weight.detach()
             layer.cpu_linear = (
                 lambda x, weight, bias: torch.ops.zentorch.zentorch_linear_unary(
@@ -164,9 +255,16 @@ class CPUProfilerPatchV12:
         return True
 
 
-@vllm_version(VLLM_V13, VLLM_V14, VLLM_V14_1)
+@vllm_version(VLLM_V13, VLLM_V14, VLLM_V14_1, VLLM_V15, VLLM_V15_1)
 class CPUProfilerPatchV13:
-    """Stub: Actual patching happens in platform.py check_and_update_config."""
+    """Stub: Actual patching happens in platform.py check_and_update_config.
+
+    For 0.15.0, CPUWorker properly uses TorchProfilerWrapper natively,
+    so no additional patching is required.
+
+    TODO: Remove 0.15.x from this patch
+
+    """
 
     @classmethod
     def apply(cls) -> bool:
@@ -331,18 +429,25 @@ def register() -> Optional[str]:
 
     if family is None:
         logger.warning(
-            "[zentorch] Unsupported vLLM %s. Supports: %s, %s, %s, %s",
+            "[zentorch] Unsupported vLLM %s. Supports: %s, %s, %s, %s, %s, %s",
             vllm_ver,
             VLLM_V12,
             VLLM_V13,
             VLLM_V14,
             VLLM_V14_1,
+            VLLM_V15,
+            VLLM_V15_1,
         )
         return None
 
     # Only initialize once per process
     if not _INITIALIZED:
         logger.info("[zentorch] vLLM %s detected (family: %s)", vllm_ver, family)
+
+        # CRITICAL: Apply PyTorch FakeTensorMode patch FIRST
+        # This must run before any torch.compile to fix Parameter subclass handling
+        # Required for TORCHINDUCTOR_FREEZING=1 to work with vLLM's ModelWeightParameter
+        _apply_faketensor_subclass_patch()
 
         # Register and apply all patches (decorators handle version filtering)
         _register_patches()
