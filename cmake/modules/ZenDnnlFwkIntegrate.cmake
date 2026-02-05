@@ -210,13 +210,23 @@ else()
 
   add_library(zendnnl_library STATIC IMPORTED GLOBAL)
   add_dependencies(zendnnl_library fwk_zendnnl)
-  set_target_properties(zendnnl_library
-    PROPERTIES
-    IMPORTED_LOCATION "${ZENDNNL_LIBRARY_LIB_DIR}/libzendnnl_archive.a"
-    INCLUDE_DIRECTORIES "${ZENDNNL_LIBRARY_INC_DIR}"
-    INTERFACE_INCLUDE_DIRECTORIES "${ZENDNNL_LIBRARY_INC_DIR}")
+  if(MSVC)
+    set_target_properties(zendnnl_library
+      PROPERTIES
+      IMPORTED_LOCATION "${ZENDNNL_LIBRARY_LIB_DIR}/zendnnl_archive.lib"
+      INCLUDE_DIRECTORIES "${ZENDNNL_LIBRARY_INC_DIR}"
+      INTERFACE_INCLUDE_DIRECTORIES "${ZENDNNL_LIBRARY_INC_DIR}")
+  else()
+    set_target_properties(zendnnl_library
+      PROPERTIES
+      IMPORTED_LOCATION "${ZENDNNL_LIBRARY_LIB_DIR}/libzendnnl_archive.a"
+      INCLUDE_DIRECTORIES "${ZENDNNL_LIBRARY_INC_DIR}"
+      INTERFACE_INCLUDE_DIRECTORIES "${ZENDNNL_LIBRARY_INC_DIR}")
+  endif()
 
-  target_link_options(zendnnl_library INTERFACE "-fopenmp")
+  if(NOT MSVC)
+    target_link_options(zendnnl_library INTERFACE "-fopenmp")
+  endif()
   target_link_libraries(zendnnl_library
     INTERFACE OpenMP::OpenMP_CXX
     INTERFACE ${CMAKE_DL_LIBS})
@@ -232,13 +242,28 @@ else()
 
   if (ZENDNNL_DEPENDS_LIBXSMM)
     # libxsmm dependency
+    if(MSVC)
+      set(_LIBXSMM_ARCHIVE "libxsmm.lib")
+    else()
+      set(_LIBXSMM_ARCHIVE "libxsmm.a")
+    endif()
     zendnnl_add_dependency(NAME libxsmm
       PATH "${ZENDNNL_INSTALL_PREFIX}/deps/libxsmm"
-      ARCHIVE_FILE "libxsmm.a"
+      ARCHIVE_FILE "${_LIBXSMM_ARCHIVE}"
       ALIAS "libxsmm::libxsmm"
       DEPENDS fwk_zendnnl)
 
     target_link_libraries(zendnnl_library INTERFACE libxsmm::libxsmm)
+  endif()
+
+  if(MSVC)
+    set(_AOCLUTILS_ARCHIVE "aoclutils.lib")
+    set(_AUCPUID_ARCHIVE "au_cpuid.lib")
+    set(_DNNL_ARCHIVE "dnnl.lib")
+  else()
+    set(_AOCLUTILS_ARCHIVE "libaoclutils.a")
+    set(_AUCPUID_ARCHIVE "libau_cpuid.a")
+    set(_DNNL_ARCHIVE "libdnnl.a")
   endif()
 
     # aoclutils dependency
@@ -247,7 +272,7 @@ else()
     zendnnl_add_dependency(NAME aoclutils
       PATH "${ZENDNNL_INSTALL_PREFIX}/deps/aoclutils"
       LIB_SUFFIX lib64
-      ARCHIVE_FILE "libaoclutils.a"
+      ARCHIVE_FILE "${_AOCLUTILS_ARCHIVE}"
       ALIAS "au::aoclutils"
       DEPENDS fwk_zendnnl)
     target_link_libraries(zendnnl_library INTERFACE au::aoclutils)
@@ -255,7 +280,7 @@ else()
     zendnnl_add_dependency(NAME aucpuid
       PATH "${ZENDNNL_INSTALL_PREFIX}/deps/aoclutils"
       LIB_SUFFIX lib64
-      ARCHIVE_FILE "libau_cpuid.a"
+      ARCHIVE_FILE "${_AUCPUID_ARCHIVE}"
       ALIAS "au::au_cpuid"
       DEPENDS fwk_zendnnl)
 
@@ -264,7 +289,7 @@ else()
     zendnnl_add_dependency(NAME onednn
       PATH "${ZENDNNL_INSTALL_PREFIX}/deps/onednn"
       LIB_SUFFIX lib64
-      ARCHIVE_FILE "libdnnl.a"
+      ARCHIVE_FILE "${_DNNL_ARCHIVE}"
       ALIAS "DNNL::dnnl"
       DEPENDS fwk_zendnnl)
     target_link_libraries(zendnnl_library INTERFACE DNNL::dnnl)
@@ -272,7 +297,7 @@ else()
   else()
     zendnnl_add_dependency(NAME aoclutils
       PATH "${ZENDNNL_INSTALL_PREFIX}/deps/aoclutils"
-      ARCHIVE_FILE "libaoclutils.a"
+      ARCHIVE_FILE "${_AOCLUTILS_ARCHIVE}"
       ALIAS "au::aoclutils"
       DEPENDS fwk_zendnnl)
 
@@ -280,7 +305,7 @@ else()
 
     zendnnl_add_dependency(NAME aucpuid
       PATH "${ZENDNNL_INSTALL_PREFIX}/deps/aoclutils"
-      ARCHIVE_FILE "libau_cpuid.a"
+      ARCHIVE_FILE "${_AUCPUID_ARCHIVE}"
       ALIAS "au::au_cpuid"
       DEPENDS fwk_zendnnl)
 
@@ -288,7 +313,7 @@ else()
 
     zendnnl_add_dependency(NAME onednn
       PATH "${ZENDNNL_INSTALL_PREFIX}/deps/onednn"
-      ARCHIVE_FILE "libdnnl.a"
+      ARCHIVE_FILE "${_DNNL_ARCHIVE}"
       ALIAS "DNNL::dnnl"
       DEPENDS fwk_zendnnl)
 
@@ -298,9 +323,14 @@ else()
 
   # amdblis dependency
   if (ZENDNNL_DEPENDS_AMDBLIS)
+      if(MSVC)
+        set(_BLIS_ARCHIVE "blis-mt.lib")
+      else()
+        set(_BLIS_ARCHIVE "libblis-mt.a")
+      endif()
       zendnnl_add_dependency(NAME amdblis
         PATH "${ZENDNNL_INSTALL_PREFIX}/deps/amdblis"
-        ARCHIVE_FILE "libblis-mt.a"
+        ARCHIVE_FILE "${_BLIS_ARCHIVE}"
         ALIAS "amdblis::amdblis_archive"
         DEPENDS fwk_zendnnl)
 
@@ -308,9 +338,14 @@ else()
   endif()
 
   if (ZENDNNL_DEPENDS_AOCLDLP)
+    if(MSVC)
+      set(_AOCLDLP_ARCHIVE "aocl-dlp.lib")
+    else()
+      set(_AOCLDLP_ARCHIVE "libaocl-dlp.a")
+    endif()
     zendnnl_add_dependency(NAME aocldlp
     PATH "${ZENDNNL_INSTALL_PREFIX}/deps/aocldlp"
-    ARCHIVE_FILE "libaocl-dlp.a"
+    ARCHIVE_FILE "${_AOCLDLP_ARCHIVE}"
     ALIAS "aocldlp::aocldlp"
     DEPENDS fwk_zendnnl)
 

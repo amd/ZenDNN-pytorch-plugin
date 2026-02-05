@@ -8,3 +8,4 @@ __pycache__
 benchmark/recsys/dlrmv2-mlperf/mlperf.conf
 benchmark/recsys/dlrmv2-mlperf/output
 .hypothesis
+_codeql_detected_source_root

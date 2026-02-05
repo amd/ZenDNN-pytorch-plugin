@@ -199,6 +199,59 @@ zentorch-5.2.0-cp310-cp310-linux_x86_64.whl
 ```bash
 python setup.py clean --all
 ```
+
+### 2.2.3. Windows build (Experimental)
+
+>**Note:** Windows support is experimental. The build system has been made cross-platform,
+>but full functionality depends on ZenDNN and its dependencies being available for Windows.
+>An AMD EPYC™ CPU with AVX-512 support is still required.
+
+#### 2.2.3.1. Prerequisites
+
+* [Visual Studio 2019 or later](https://visualstudio.microsoft.com/) with the
+  "Desktop development with C++" workload (provides MSVC and CMake).
+* [Git for Windows](https://gitforwindows.org/)
+* Python 3.10+ (via conda or the official installer)
+
+#### 2.2.3.2. Create conda environment for the build
+
+```cmd
+conda create -n pt-zentorch python=3.10 -y
+conda activate pt-zentorch
+```
+
+#### 2.2.3.3. Install PyTorch v2.10.0
+
+```cmd
+pip install torch==2.10.0 --index-url https://download.pytorch.org/whl/cpu
+```
+
+#### 2.2.3.4. Install Dependencies
+
+```cmd
+pip install -r requirements.txt
+```
+
+#### 2.2.3.5. Build from a Visual Studio Developer Command Prompt
+
+Open a **"x64 Native Tools Command Prompt for VS"** (or run `vcvarsall.bat x64`), then:
+
+```cmd
+python setup.py bdist_wheel
+```
+
+#### 2.2.3.6. Install the wheel file
+
+```cmd
+cd dist
+pip install zentorch-5.2.0-cp310-cp310-win_amd64.whl
+```
+
+#### 2.2.3.7. Build Cleanup
+
+```cmd
+python setup.py clean --all
+```
 # 3. Unit Tests
 
 ## 3.1 Install Unit tests Dependencies

@@ -47,7 +47,8 @@ add_dependencies(zentorch CPUkernels zendnnl::zendnnl_archive)
 target_compile_features(zentorch PUBLIC cxx_std_17)
 
 set_target_properties(zentorch PROPERTIES
-                      LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/lib/)
+                      LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/lib/
+                      RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/lib/)
 
 target_include_directories(zentorch PUBLIC
                             ${ZENTORCH_INCLUDE_DIR}
@@ -66,7 +67,7 @@ message(STATUS "zentorch PROJECT_NAME, ${PROJECT_NAME}")
 add_custom_command(
     TARGET zentorch  POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy
-            ${CMAKE_CURRENT_BINARY_DIR}/lib/libzentorch.so
+            $<TARGET_FILE:zentorch>
             ${CMAKE_SOURCE_DIR}/${INSTALL_LIB_DIR}/${PROJECT_NAME}/)
 
 # Set default build type

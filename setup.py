@@ -10,8 +10,11 @@ from torch.torch_version import __version__
 from os.path import join as Path
 import os
 import subprocess
+import sys
 import torch
 import warnings
+
+IS_WINDOWS = sys.platform == "win32"
 
 if parse(__version__) < parse("2.9.1"):
     raise ImportError(
@@ -41,7 +44,9 @@ class CustomBuildExtension(BuildExtension):
         os.makedirs(os.path.join(self.build_temp, "lib"), exist_ok=True)
         os.makedirs(os.path.join(self.build_lib), exist_ok=True)
 
-        rc, out, err = subproc_communicate("which python")
+        rc, out, err = subproc_communicate(
+            "where python" if IS_WINDOWS else "which python"
+        )
         if rc == 0:
             out = out.split("\n")[0]
             os.environ["PYTHON_PATH"] = out.strip()
@@ -74,7 +79,16 @@ class CustomBuildExtension(BuildExtension):
 
         self.spawn(cmake_cmd)
 
-        self.spawn(["make", "-j", str(os.cpu_count()), "-C", self.build_temp])
+        build_cmd = [
+            "cmake",
+            "--build",
+            self.build_temp,
+            "--config",
+            build_type,
+            "--parallel",
+            str(os.cpu_count()),
+        ]
+        self.spawn(build_cmd)
 
         super().run()
 
@@ -86,8 +100,13 @@ class CustomBuildExtension(BuildExtension):
 
         extension = self.extensions[0]
 
+        if IS_WINDOWS:
+            zentorch_lib = "zentorch.dll"
+        else:
+            zentorch_lib = "libzentorch.so"
+
         extra_objects = [
-            Path(project_root_dir, self.build_lib, PACKAGE_NAME, "libzentorch.so"),
+            Path(project_root_dir, self.build_lib, PACKAGE_NAME, zentorch_lib),
         ]
 
         extension.extra_objects.extend(extra_objects)
@@ -146,25 +165,36 @@ wheel_file_dependencies = [
 # -Wno-unknown-pragma is for [unroll pragma], to be removed
 # -fopenmp is needed for omp related pragmas (simd etc.)
 zentorch_compile_args = [
-    "-Wall",
-    "-Werror",
-    "-fopenmp",
-    "-Wno-unknown-pragmas",
     "-DZENTORCH_VERSION_HASH=" + git_sha,
     "-DZENTORCH_VERSION=" + PACKAGE_VERSION,
     "-DPT_VERSION=" + PT_VERSION,
 ]
 
+if IS_WINDOWS:
+    zentorch_compile_args += [
+        "/W3",
+        "/WX",
+        "/openmp",
+    ]
+else:
+    zentorch_compile_args += [
+        "-Wall",
+        "-Werror",
+        "-fopenmp",
+        "-Wno-unknown-pragmas",
+    ]
+
 # Enable C++11 ABI compilation for zentorch
 # if PyTorch was built with ABI support.
-zentorch_compile_args += [
-    f"-D_GLIBCXX_USE_CXX11_ABI={int(torch._C._GLIBCXX_USE_CXX11_ABI)}"
-]
+if not IS_WINDOWS:
+    zentorch_compile_args += [
+        f"-D_GLIBCXX_USE_CXX11_ABI={int(torch._C._GLIBCXX_USE_CXX11_ABI)}"
+    ]
 
-# add the "-O2" optimization only when we are doing release build
+# add the optimization flag only when we are doing release build
 # check for release build
 if not os.getenv("DEBUG", 0):
-    zentorch_compile_args += ["-O2"]
+    zentorch_compile_args += ["/O2"] if IS_WINDOWS else ["-O2"]
 
 
 long_description = ""
@@ -214,7 +244,7 @@ def main():
                 sources=sources,
                 include_dirs=include_dirs,
                 extra_compile_args=zentorch_compile_args,
-                extra_link_args=['-Wl,-rpath,$ORIGIN'],
+                extra_link_args=[] if IS_WINDOWS else ['-Wl,-rpath,$ORIGIN'],
             )
         ],
         cmdclass={

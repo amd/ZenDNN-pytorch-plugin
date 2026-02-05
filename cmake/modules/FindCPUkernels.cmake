@@ -11,10 +11,15 @@ find_package(Torch REQUIRED)
 file(GLOB cpu_kernels "${CMAKE_CURRENT_SOURCE_DIR}/src/cpu/cpp/kernels/*.cpp")
 
 # setting necessary flags for .cpp files
-set(FLAGS "-Wall -Werror -Wno-unknown-pragmas -Wno-error=uninitialized \
-          -Wno-error=maybe-uninitialized -fPIC -fopenmp -fno-math-errno \
-          -fno-trapping-math -O2 -std=c++17 -mavx512f -mavx512bf16 \
-          -mavx512vl -mavx512dq -DCPU_CAPABILITY_AVX512")
+if(MSVC)
+  set(FLAGS "/W3 /WX /openmp /O2 /std:c++17 /arch:AVX512 \
+            /DCPU_CAPABILITY_AVX512")
+else()
+  set(FLAGS "-Wall -Werror -Wno-unknown-pragmas -Wno-error=uninitialized \
+            -Wno-error=maybe-uninitialized -fPIC -fopenmp -fno-math-errno \
+            -fno-trapping-math -O2 -std=c++17 -mavx512f -mavx512bf16 \
+            -mavx512vl -mavx512dq -DCPU_CAPABILITY_AVX512")
+endif()
 
 set_source_files_properties(${cpu_kernels} PROPERTIES COMPILE_FLAGS "${FLAGS}")
 
@@ -30,8 +35,13 @@ target_include_directories(CPUkernels PUBLIC
 
 target_link_libraries(CPUkernels PUBLIC zendnnl::zendnnl_archive)
 
-LIST(APPEND MHA_LIBRARIES ${CMAKE_CURRENT_BINARY_DIR}/lib/libCPUkernels.a)
 set(MHA_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src/cpu/cpp/kernels/")
+
+if(MSVC)
+  LIST(APPEND MHA_LIBRARIES ${CMAKE_CURRENT_BINARY_DIR}/lib/CPUkernels.lib)
+else()
+  LIST(APPEND MHA_LIBRARIES ${CMAKE_CURRENT_BINARY_DIR}/lib/libCPUkernels.a)
+endif()
 
 SET(MHA_FOUND ON)
 
