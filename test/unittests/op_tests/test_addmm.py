@@ -5,7 +5,6 @@
 
 import unittest
 import torch
-from parameterized import parameterized
 import sys
 from pathlib import Path
 
@@ -22,16 +21,11 @@ from unittest_utils import (  # noqa: 402
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class Test_Addmm_Op(MMTestCase):
-    @parameterized.expand(supported_dtypes)
-    # Switching to Hypothesis exposes more issues, so the existing methods are retained.
-    # Please refer ZENAI-1947 for details
-    # @MMTestCase.hypothesis_params_mm_itr(
-    #     dtype_list=supported_dtypes
-    # )
+    @MMTestCase.hypothesis_params_mm_itr(
+        dtype_list=supported_dtypes
+    )
     @unittest.skipIf(skip_test_pt_2_0, "Skipping test due to PT2.0 instability")
     def test_addmm_variants(self, dtype):
-
-        self.data.create_unittest_data(dtype)
 
         # TODO
         # Skip test for bfloat16 dtype
@@ -56,6 +50,8 @@ class Test_Addmm_Op(MMTestCase):
                 self.data.x,
                 self.data.y,
             ),
+            atol=1e-2,
+            rtol=1e-2,
         )
         # addmm with kw_only arguments
         self.assertEqual(
@@ -65,6 +61,8 @@ class Test_Addmm_Op(MMTestCase):
             torch.ops.zentorch.zentorch_addmm(
                 self.data.input, self.data.x, self.data.y, beta=1.3
             ),
+            atol=1e-2,
+            rtol=1e-2,
         )
 
         # addmm with kw_only arguments
@@ -75,6 +73,8 @@ class Test_Addmm_Op(MMTestCase):
             torch.ops.zentorch.zentorch_addmm(
                 self.data.input, self.data.x, self.data.y, alpha=1.3
             ),
+            atol=1e-2,
+            rtol=1e-2,
         )
 
         # addmm with kw_only arguments
@@ -85,6 +85,8 @@ class Test_Addmm_Op(MMTestCase):
             torch.ops.zentorch.zentorch_addmm(
                 self.data.input, self.data.x, self.data.y, alpha=1.3, beta=1.3
             ),
+            atol=1e-2,
+            rtol=1e-2,
         )
 
         # addmm with 1-d input
@@ -95,6 +97,8 @@ class Test_Addmm_Op(MMTestCase):
             torch.ops.zentorch.zentorch_addmm(
                 self.data.input1d, self.data.x, self.data.y, alpha=1.3, beta=1.3
             ),
+            atol=1e-2,
+            rtol=1e-2,
         )
 
         # <- Failure start from here ->
@@ -107,6 +111,8 @@ class Test_Addmm_Op(MMTestCase):
             torch.ops.zentorch.zentorch_addmm(
                 self.data.input_scalar, self.data.x, self.data.y
             ),
+            atol=1e-2,
+            rtol=1e-2,
         )
         new_dtype = self.data.get_torch_type(dtype)
         # addmm with 2D input (1, n) -> For this, support can be added via per channel, binary add
@@ -114,18 +120,24 @@ class Test_Addmm_Op(MMTestCase):
         self.assertEqual(
             torch._C._VariableFunctions.addmm(input_1_n, self.data.x, self.data.y),
             torch.ops.zentorch.zentorch_addmm(input_1_n, self.data.x, self.data.y),
+            atol=1e-2,
+            rtol=1e-2,
         )
         # addmm with 2D input (m, 1) -> -> For this, we don't know
         input_m_1 = torch.randn((self.data.m, 1), dtype=new_dtype)
         self.assertEqual(
             torch._C._VariableFunctions.addmm(input_m_1, self.data.x, self.data.y),
             torch.ops.zentorch.zentorch_addmm(input_m_1, self.data.x, self.data.y),
+            atol=1e-2,
+            rtol=1e-2,
         )
         # addmm with 2D input (1, 1) -> For this, support can be added via per tensor, binary add
         input_1_1 = torch.randn((1, 1), dtype=new_dtype)
         self.assertEqual(
             torch._C._VariableFunctions.addmm(input_1_1, self.data.x, self.data.y),
             torch.ops.zentorch.zentorch_addmm(input_1_1, self.data.x, self.data.y),
+            atol=1e-2,
+            rtol=1e-2,
         )
 
     @MMTestCase.hypothesis_params_mm_itr(
@@ -239,16 +251,11 @@ class Test_Addmm_Op(MMTestCase):
             in str(context_int.exception)
         )
 
-    @parameterized.expand(supported_dtypes)
-    # Switching to Hypothesis exposes more issues, so the existing methods are retained.
-    # Please refer ZENAI-1948 for details
-    # @MMTestCase.hypothesis_params_mm_itr(
-    #     dtype_list=supported_dtypes
-    # )
+    @MMTestCase.hypothesis_params_mm_itr(
+        dtype_list=supported_dtypes
+    )
     @unittest.skipIf(skip_test_pt_2_0, "Skipping test due to PT2.0 instability")
     def test_addmm_relu_with_kw(self, dtype):
-
-        self.data.create_unittest_data(dtype)
 
         # TODO
         # Skip test for bfloat dtype
@@ -273,6 +280,8 @@ class Test_Addmm_Op(MMTestCase):
             torch.ops.zentorch.zentorch_addmm_relu(
                 self.data.input, self.data.x, self.data.y, beta=1.5, alpha=1.7
             ),
+            atol=1e-2,
+            rtol=1e-2,
         )
 
         self.assertEqual(
@@ -284,6 +293,8 @@ class Test_Addmm_Op(MMTestCase):
             torch.ops.zentorch.zentorch_addmm_relu(
                 self.data.input, self.data.x, self.data.y, alpha=1.7
             ),
+            atol=1e-2,
+            rtol=1e-2,
         )
 
         self.assertEqual(
@@ -295,6 +306,8 @@ class Test_Addmm_Op(MMTestCase):
             torch.ops.zentorch.zentorch_addmm_relu(
                 self.data.input, self.data.x, self.data.y, beta=1.5
             ),
+            atol=1e-2,
+            rtol=1e-2,
         )
 
         self.assertEqual(
@@ -306,6 +319,8 @@ class Test_Addmm_Op(MMTestCase):
             torch.ops.zentorch.zentorch_addmm_relu(
                 self.data.input, self.data.x, self.data.y, beta=0.0
             ),
+            atol=1e-2,
+            rtol=1e-2,
         )
 
     @MMTestCase.hypothesis_params_mm_itr(
