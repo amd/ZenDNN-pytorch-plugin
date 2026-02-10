@@ -1,10 +1,11 @@
 # ******************************************************************************
-# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2026 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
 import unittest
 import torch
+from parameterized import parameterized
 import sys
 from pathlib import Path
 
@@ -20,12 +21,17 @@ from unittest_utils import (  # noqa: E402
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class Test_BMM_Op(MMTestCase):
-    @MMTestCase.hypothesis_params_mm_itr(
-        dtype_list=supported_dtypes
-    )
+    @parameterized.expand(supported_dtypes)
+    # Disabling the hypothesis test for BMM variants due to instability observed in CI Test
+    # Issue is from DLP library side
+    # TO Track Issue Jira: ZENAI-2994
+    # @MMTestCase.hypothesis_params_mm_itr(
+    #     dtype_list=supported_dtypes
+    # )
     @unittest.skipIf(skip_test_pt_2_0, "Skipping test due to PT2.0 instability")
     def test_bmm_variants(self, dtype):
 
+        self.data.create_unittest_data(dtype)
         self.assertEqual(
             torch._C._VariableFunctions.bmm(self.data.x3d, self.data.y3d),
             torch.ops.zentorch.zentorch_bmm(self.data.x3d, self.data.y3d),
