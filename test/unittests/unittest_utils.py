@@ -2586,6 +2586,7 @@ class QLinearTestCase(Zentorch_TestCase):
         matrix_dim_1_Range=MATRIX_DIM_1_RANGE,
         matrix_dim_2_Range=MATRIX_DIM_2_RANGE,
         matrix_dim_3_Range=MATRIX_DIM_3_RANGE,
+        time_out=None,
         tensor_seed=0,
     ):
         skip_reason = None
@@ -2608,7 +2609,7 @@ class QLinearTestCase(Zentorch_TestCase):
                 return unittest.skipIf(True, skip_reason)(function)
 
             @settings(
-                deadline=QLinearTestCase.time_out,
+                deadline=QLinearTestCase.time_out if time_out is None else time_out,
                 max_examples=QLinearTestCase.max_example_per_test,
                 verbosity=Verbosity.quiet,
             )

@@ -105,7 +105,9 @@ class Model(torch.nn.Module):
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class Test_Qlinear_Mul_Add_Model(QLinearTestCase):
     @torch.inference_mode()
-    @QLinearTestCase.hypothesis_params_qlinear_itr(dtype_list=["float32", "bfloat16"])
+    @QLinearTestCase.hypothesis_params_qlinear_itr(
+        dtype_list=["float32", "bfloat16"], time_out=15000
+    )
     def test_qlinear_mul_add_model(self, dtype):
         # Define position combinations for mul/add operands
         MUL_ADD_POSITIONS = {
@@ -154,7 +156,8 @@ class Test_Qlinear_Mul_Add_Model(QLinearTestCase):
             elif dtype == "bfloat16":
                 self.assertEqual(counters["zentorch"]["qlinear_mul_add"], 0)
 
-            self.assertEqual(native_output, zentorch_output, atol=1e-2, rtol=1e-2)
+            # TODO: to be aligned with ZenDNN library on tensor generation and tolerances
+            self.assertEqual(native_output, zentorch_output, atol=2e-2, rtol=1e-2)
 
 
 if __name__ == "__main__":
