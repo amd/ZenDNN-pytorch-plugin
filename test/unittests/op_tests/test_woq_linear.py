@@ -10,6 +10,7 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
 from unittest_utils import (  # noqa: 402
+    Zentorch_TestCase,
     has_zentorch,
     zentorch,
     run_tests,
@@ -17,7 +18,7 @@ from unittest_utils import (  # noqa: 402
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
-class Test_WOQLinear(unittest.TestCase):
+class Test_WOQLinear(Zentorch_TestCase):
     qmin, qmax = -8, 7
 
     def quantize_weight(self, weight):

@@ -33,11 +33,85 @@ void zentorch_woq_linear_impl(const at::Tensor &input, const at::Tensor &weight,
   // where each int32 contains 8 packed int4 values
   TORCH_CHECK(weight.dtype() == torch::kInt32,
               "weight must have dtype int32, got ", weight.dtype());
-  int packed_factor = 8;
+
   // transpose weight: [N, K/8] -> [K/8, N]
   auto weight_transposed = weight.transpose(0, 1);
-  auto weight_scales_transposed = weight_scales.transpose(0, 1);
+
+  // TODO
+  // Check if this can be done in the graph passes/op replacements
+  // Since these are constant tensors, we can fold them as well.
   auto weight_zero_points_transposed = weight_zero_points.transpose(0, 1);
+  auto weight_scales_transposed = weight_scales.transpose(0, 1);
+
+  constexpr int kInt4PackedPerInt32 = 8; // 8 int4 values packed per int32
+  const auto unpackedK = weight_transposed.size(0) * kInt4PackedPerInt32;
+
+  status_t status;
+  const int int_env_value =
+      EnvReader::getEnvVariableAsInt("USE_ZENDNN_MATMUL_DIRECT");
+  const bool use_zendnnl_direct_kernel = static_cast<bool>(int_env_value);
+  if (use_zendnnl_direct_kernel) {
+    // Get dimensions at runtime (cannot use constexpr)
+    // Weight is packed format [K/8, N] (transposed), unpacked is [K, N]
+    const auto M = input.size(0);
+    const auto K = input.size(1);
+    const auto N = weight_transposed.size(1);
+
+    zendnnl::lowoha::matmul::matmul_quantization_params_t quantization_params;
+
+    // Setup per-group quantization parameters
+    // weight scale
+    quantization_params.wei_scale.buff = weight_scales_transposed.data_ptr();
+    quantization_params.wei_scale.dt =
+        get_zendnnl_dtype(weight_scales_transposed);
+    quantization_params.wei_scale.dims = weight_scales_transposed.sizes().vec();
+
+    // weight zero point
+    quantization_params.wei_zp.buff = weight_zero_points_transposed.data_ptr();
+    quantization_params.wei_zp.dt =
+        get_zendnnl_dtype(weight_zero_points_transposed);
+    quantization_params.wei_zp.dims =
+        weight_zero_points_transposed.sizes().vec();
+
+    // Configure data types for WOQ
+    zendnnl::lowoha::matmul::matmul_data_types dtypes;
+    dtypes.src = get_zendnnl_dtype(input);
+    dtypes.wei = data_type_t::s4;
+    dtypes.dst = get_zendnnl_dtype(result); // Match actual result tensor dtype
+
+    zendnnl::lowoha::matmul::matmul_params params;
+    params.dtypes = dtypes;
+    // Add quantization params to matmul params
+    params.quant_params = quantization_params;
+    params.plugin_op = zentorch_op_name;
+    // Batch parameters
+    zendnnl::lowoha::matmul::matmul_batch_params_t batch_params;
+    batch_params.Batch_A = 1;
+    batch_params.Batch_B = 1;
+
+    // Get actual tensor strides
+    // For row-major layout ('r'), leading dimension is the number of columns
+    // lda = stride in first dimension for input (row-major)
+    // ldb = stride in second dimension for weight (column-major packed tensor)
+    // ldc = stride in first dimension for result (row-major)
+    const auto lda = input.stride(0);
+    const auto ldb = unpackedK;
+    const auto ldc = N;
+
+    status = zendnnl::lowoha::matmul::matmul_direct(
+        'r', is_transposed(input), is_transposed(weight_transposed), M, N, K,
+        1.0f /* alpha */, input.data_ptr(), lda, weight_transposed.data_ptr(),
+        ldb, nullptr, // no bias
+        0.0f /* beta */, result.data_ptr(), ldc,
+        true /* is_weights_const (required for WOQ) */, batch_params, params);
+
+    ZENTORCH_CHECK(
+        status == status_t::success,
+        "matmul_direct execution failed for zentorch_woq_linear_impl");
+
+    LOG(INFO) << "zendnnl_direct_kernel completed successfully";
+    return;
+  }
 
   using tensor_opt_ref = std::optional<std::reference_wrapper<tensor_t>>;
   tensor_t woq_input, woq_weight, woq_result, woq_weight_scales,
@@ -45,9 +119,10 @@ void zentorch_woq_linear_impl(const at::Tensor &input, const at::Tensor &weight,
 
   set_zendnnl_tensor_attributes(input, woq_input, "woq_input",
                                 false /* is_weight_prepacked */);
+
   tensor_opt_ref woq_weight_scales_opt_ref = std::nullopt;
-  create_zendnnl_quantized_tensor(weight_scales_transposed.contiguous(),
-                                  woq_weight_scales, "woq_weight_scales");
+  create_zendnnl_quantized_tensor(weight_scales_transposed, woq_weight_scales,
+                                  "woq_weight_scales");
   woq_weight_scales_opt_ref = tensor_opt_ref(std::ref(woq_weight_scales));
 
   tensor_opt_ref woq_weight_zero_points_opt_ref = std::nullopt;
@@ -58,19 +133,12 @@ void zentorch_woq_linear_impl(const at::Tensor &input, const at::Tensor &weight,
       tensor_opt_ref(std::ref(woq_weight_zero_points));
 
   // Weight is int32 packed: each int32 contains 8 int4 values
-  // weight_transposed shape: [K/8, N]
-  // Logical int4 tensor size: [K, N] = [weight_transposed.size(0) * 8, N]
-  // Each int32 = 4 bytes = 8 int4 values (each int4 = 0.5 bytes)
-  // nbytes = (K * N) / 2 = weight_transposed.size(0) * 8 * N / 2
-  //        = weight_transposed.size(0) * 4 * N
-  //        = weight_transposed.numel() * 4
   set_zendnnl_tensor_attributes(
       weight_transposed.data_ptr(), data_type_t::s4, woq_weight, "woq_weight",
       false /* is_weight_prepacked */,
-      {static_cast<size_t>(weight_transposed.size(0)) * packed_factor,
+      {static_cast<size_t>(unpackedK),
        static_cast<size_t>(weight_transposed.size(1))} /* tensor_sizes */,
-      {1UL, static_cast<size_t>(weight_transposed.size(0) *
-                                packed_factor)} /* tensor_strides */,
+      {1UL, static_cast<size_t>(unpackedK)} /* tensor_strides */,
       {} /* tensor_aligned_sizes */,
       static_cast<int64_t>(weight_transposed.numel() * 4) /* nbytes */,
       woq_weight_scales_opt_ref, woq_weight_zero_points_opt_ref);
@@ -87,11 +155,11 @@ void zentorch_woq_linear_impl(const at::Tensor &input, const at::Tensor &weight,
   set_matmul_operator_attributes(matmul_operator, matmul_context, woq_input,
                                  woq_result, post_op_ids, post_op_buffers,
                                  zentorch_op_name);
-  status_t status = matmul_operator.execute();
+
+  status = matmul_operator.execute();
   ZENTORCH_CHECK(status == status_t::success, "operator ",
                  matmul_operator.get_name(),
                  " execution failed for zentorch_matmul_impl.");
-
   LOG(INFO) << "Finished executing: " << __FUNCTION__ << "!\n";
 }
 
@@ -106,31 +174,27 @@ at::Tensor zentorch_woq_linear_unary(const at::Tensor &input,
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
 
-  // Weight is int32 packed: shape [N, K/8] where each int32 has 8 int4 values
-  // Create a view tensor with logical dimensions [N, K] for output size calc
-  // Logical K = weight.size(1) * 8
-  auto weight_logical_transposed = at::empty(
-      {weight.size(1) * 8, weight.size(0)}, weight.options().dtype(at::kFloat));
-
   // `input` is viewed as 2d for matmul computation.
   auto input_2d_view =
       get_contiguous_view(input).view(get_2d_size_for_tensor(input));
   // `result` tensor's dtype will be same as input dtype.
-  auto output_sz =
-      get_matmul_and_linear_output_sizes(input, weight_logical_transposed);
-  auto output_strides = get_matmul_and_linear_output_strides(output_sz);
+
+  // Performing this calculation here to avoid calling
+  // get_matmul_and_linear_output_sizes and
+  // get_matmul_and_linear_output_strides, since we know that the tensors will
+  // always be 2D and calculations are trivial.
+  const auto output_sz =
+      std::vector<int64_t>({input_2d_view.size(0), weight.size(0)});
+  const auto output_strides = std::vector<int64_t>({weight.size(0), 1});
 
   at::Tensor result =
       at::detail::empty_strided_cpu(output_sz, output_strides, input.options());
-
-  // `result` is viewed as 2d for matmul computation.
-  at::Tensor result_2d_view = result.view(get_2d_size_for_tensor(result));
 
   // Set unary post ops.
   std::vector<at::Tensor> post_op_buffers = {};
   std::vector<int64_t> post_op_ids = {fuse};
 
-  zentorch_woq_linear_impl(input_2d_view, weight, result_2d_view, group_size,
+  zentorch_woq_linear_impl(input_2d_view, weight, result, group_size,
                            weight_scales, weight_zero_points, post_op_ids,
                            post_op_buffers, zentorch_op_name);
 
@@ -146,12 +210,6 @@ inline at::Tensor zentorch_woq_linear_binary_binary(
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
 
-  // Weight is int32 packed: shape [N, K/8] where each int32 has 8 int4 values
-  // Create a view tensor with logical dimensions [N, K] for output size calc
-  // Logical K = weight.size(1) * 8
-  auto weight_logical = at::empty({weight.size(0), weight.size(1) * 8},
-                                  weight.options().dtype(at::kFloat));
-
   // `input` is viewed as 2d for matmul computation.
   auto input_2d_view =
       get_contiguous_view(input).view(get_2d_size_for_tensor(input));
@@ -160,15 +218,16 @@ inline at::Tensor zentorch_woq_linear_binary_binary(
   auto binary2_input_2d_view = get_contiguous_view(binary2_input)
                                    .view(get_2d_size_for_tensor(binary2_input));
 
-  // `result` tensor's dtype will depend on output_dtype argument.
-  auto output_sz = get_matmul_and_linear_output_sizes(input, weight_logical);
-  auto output_strides = get_matmul_and_linear_output_strides(output_sz);
+  // Performing this calculation here to avoid calling
+  // get_matmul_and_linear_output_sizes and
+  // get_matmul_and_linear_output_strides, since we know that the tensors will
+  // always be 2D and calculations are trivial.
+  const auto output_sz =
+      std::vector<int64_t>({input_2d_view.size(0), weight.size(0)});
+  const auto output_strides = std::vector<int64_t>({weight.size(0), 1});
 
   at::Tensor result =
       at::detail::empty_strided_cpu(output_sz, output_strides, input.options());
-
-  // `result` is viewed as 2d for matmul computation.
-  at::Tensor result_2d_view = result.view(get_2d_size_for_tensor(result));
 
   std::vector<at::Tensor> post_op_buffers = {binary1_input_2d_view,
                                              binary2_input_2d_view};
@@ -177,7 +236,7 @@ inline at::Tensor zentorch_woq_linear_binary_binary(
   LOG(INFO) << "Calling  zentorch_woq_linear_impl from " << __FUNCTION__
             << "!\n";
 
-  zentorch_woq_linear_impl(input_2d_view, weight, result_2d_view, group_size,
+  zentorch_woq_linear_impl(input_2d_view, weight, result, group_size,
                            weight_scales, weight_zero_points, post_op_ids,
                            post_op_buffers, zentorch_op_name);
   return result;
