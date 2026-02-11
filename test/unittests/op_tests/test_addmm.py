@@ -40,6 +40,9 @@ class Test_Addmm_Op(MMTestCase):
                 "Skipping test for specific dimensions " "(5, 8), (8, 9), (5, 9)"
             )
 
+        # TODO
+        # Tensor Generation and Tolerance Calculation will be aligned with ZenDNN library in future.
+
         # addmm
         self.assertEqual(
             torch._C._VariableFunctions.addmm(
@@ -269,6 +272,9 @@ class Test_Addmm_Op(MMTestCase):
             self.skipTest(
                 "Skipping test for specific dimensions " "(5, 8), (8, 9), (5, 9)"
             )
+
+        # TODO
+        # Tensor Generation and Tolerance Calculation will be aligned with ZenDNN library in future.
 
         # addmm->relu
         self.assertEqual(

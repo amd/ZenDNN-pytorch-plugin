@@ -33,6 +33,10 @@ class Test_Addmm_SiLU_Mul(AddmmTestCase):
         zentorch_output = torch.ops.zentorch.zentorch_addmm_silu_mul(
             bias, self.data.x, self.data.y, self.data.input
         )
+
+        # TODO
+        # Tensor Generation and Tolerance Calculation will be aligned with ZenDNN library in future.
+
         self.assertEqual(native_output, zentorch_output, atol=1e-2, rtol=1e-2)
 
     @AddmmTestCase.hypothesis_params_addmm_itr(

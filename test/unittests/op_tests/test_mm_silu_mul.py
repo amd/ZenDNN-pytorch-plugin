@@ -31,6 +31,10 @@ class Test_MM_SiLU_Mul(MMTestCase):
         zentorch_output = torch.ops.zentorch.zentorch_mm_silu_mul(
             self.data.x, self.data.y, self.data.input
         )
+
+        # TODO
+        # Tensor Generation and Tolerance Calculation will be aligned with ZenDNN library in future.
+
         self.assertEqual(native_output, zentorch_output, atol=1e-2, rtol=1e-2)
 
     @MMTestCase.hypothesis_params_mm_itr(

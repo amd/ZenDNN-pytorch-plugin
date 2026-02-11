@@ -27,6 +27,9 @@ class Test_MM_Silu(MMTestCase):
         native_output = torch.nn.functional.silu(torch.matmul(self.data.x, self.data.y))
         zentorch_output = torch.ops.zentorch.zentorch_mm_silu(self.data.x, self.data.y)
 
+        # TODO
+        # Tensor Generation and Tolerance Calculation will be aligned with ZenDNN library in future.
+
         self.assertEqual(native_output, zentorch_output, atol=1e-2, rtol=1e-2)
 
 
