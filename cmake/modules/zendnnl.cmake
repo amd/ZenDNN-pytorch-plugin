@@ -1,7 +1,7 @@
-#******************************************************************************
+#*******************************************************************************
 # Copyright (c) 2023-2026 Advanced Micro Devices, Inc.
 # All rights reserved.
-#******************************************************************************
+#*******************************************************************************
 
 # IF (NOT ZENDNNL_FOUND)
 
@@ -23,7 +23,7 @@ IF("$ENV{ZENTORCH_USE_LOCAL_ZENDNN}" EQUAL 0)
 
     FetchContent_Declare(ZenDNN
     GIT_REPOSITORY https://github.com/amd/ZenDNN.git
-    GIT_TAG r5.2_rc1
+    GIT_TAG r5.2_rc3
     SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/ZenDNN"
     SOURCE_SUBDIR "not-available"
     )
