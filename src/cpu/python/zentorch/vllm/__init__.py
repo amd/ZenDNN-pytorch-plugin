@@ -43,6 +43,78 @@ logger = get_logger(__name__)
 
 
 # ---------------------------------------------------------------------------
+# PyTorch mainline backports (fixes present in mainline but not in 2.10)
+# ---------------------------------------------------------------------------
+
+_FXGRAPHCACHE_PATCH_APPLIED = False
+
+
+def _apply_fxgraphcache_pickle_patch() -> bool:
+    """Backport PyTorch mainline fix: add ValueError to FxGraphCachePickler.dumps().
+
+    PyTorch mainline already catches ValueError in FxGraphCachePickler.dumps(),
+    but PyTorch 2.10 does not. Without this, pickle fast mode (self.fast = True)
+    crashes on cyclic object references instead of gracefully bypassing the cache.
+
+    Returns:
+        True if patch was applied, False if not needed or failed.
+    """
+    global _FXGRAPHCACHE_PATCH_APPLIED
+
+    if _FXGRAPHCACHE_PATCH_APPLIED:
+        return True
+
+    # Only needed for PyTorch 2.10.0 which is missing the mainline fix.
+    from torch.torch_version import TorchVersion
+
+    if TorchVersion(torch.__version__) < (2, 10):
+        logger.debug("[zentorch] FxGraphCache pickle patch only applies to PyTorch 2.10.0")
+        return False
+
+    import pickle
+
+    try:
+        from torch._inductor.codecache import FxGraphCachePickler
+
+        original_dumps = FxGraphCachePickler.dumps
+
+        # Check if already patched
+        if hasattr(original_dumps, "_zentorch_patched"):
+            _FXGRAPHCACHE_PATCH_APPLIED = True
+            return True
+
+        def patched_dumps(self, obj):
+            """Mainline backport: catches ValueError from cyclic Logger refs."""
+            try:
+                self.dump(obj)
+                return self._stream.getvalue()
+            except (TypeError, AttributeError, pickle.PicklingError, ValueError) as e:
+                from torch._inductor.codecache import BypassFxGraphCache
+                import logging
+
+                logging.getLogger("torch._inductor.codecache").warning(
+                    "Failed to pickle cache key", exc_info=True
+                )
+                raise BypassFxGraphCache("Failed to pickle cache key") from e
+            finally:
+                self._stream.seek(0)
+                self._stream.truncate(0)
+
+        patched_dumps._zentorch_patched = True
+        FxGraphCachePickler.dumps = patched_dumps
+
+        _FXGRAPHCACHE_PATCH_APPLIED = True
+        logger.info(
+            "[zentorch] Backported mainline ValueError fix to FxGraphCachePickler.dumps"
+        )
+        return True
+
+    except (ImportError, AttributeError):
+        logger.debug("[zentorch] FxGraphCachePickler patch not applicable")
+        return False
+
+
+# ---------------------------------------------------------------------------
 # PyTorch FakeTensorMode Patch (torch version aware)
 # ---------------------------------------------------------------------------
 
@@ -439,10 +511,13 @@ def register() -> Optional[str]:
     if not _INITIALIZED:
         logger.info("[zentorch] vLLM %s detected (family: %s)", vllm_ver, family)
 
-        # CRITICAL: Apply PyTorch FakeTensorMode patch FIRST
-        # This must run before any torch.compile to fix Parameter subclass handling
-        # Required for TORCHINDUCTOR_FREEZING=1 to work with vLLM's ModelWeightParameter
+        # CRITICAL: Apply PyTorch mainline backports FIRST
+        # These fixes exist in mainline but are missing from PyTorch 2.10.
+        # They must run before any torch.compile invocation.
+        # 1. isinstance() fix for Parameter subclasses in FakeTensorMode
         _apply_faketensor_subclass_patch()
+        # 2. ValueError catch for cyclic Logger refs in FxGraphCachePickler
+        _apply_fxgraphcache_pickle_patch()
 
         # Register and apply all patches (decorators handle version filtering)
         _register_patches()

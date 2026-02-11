@@ -113,6 +113,8 @@ No code changes are required. Once installed, simply run your vLLM inference wor
 
 ### Environment Configuration
 
+> **Note:** The plugin is recommended to be run with `ZENDNNL_MATMUL_ALGO=1` (the default).
+
 ### Environment Variables
 
 ```bash
