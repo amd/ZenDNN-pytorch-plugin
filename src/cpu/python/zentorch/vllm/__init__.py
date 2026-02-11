@@ -50,18 +50,13 @@ _FAKETENSOR_PATCH_APPLIED = False
 
 
 def _apply_faketensor_subclass_patch() -> bool:
-    """Fix PyTorch FakeTensorMode's handling of Parameter subclasses.
+    """Fix _check_for_subclass_arg to recognize Parameter subclasses.
 
-    The bug: torch/_subclasses/fake_tensor.py uses `type(x) is not torch.nn.Parameter`
-    which incorrectly rejects Parameter subclasses (like vLLM's ModelWeightParameter).
+    Uses issubclass(type(x), Parameter) instead of `type(x) is not Parameter`
+    so vLLM's ModelWeightParameter is treated as a Parameter by FakeTensorMode.
+    Needed for TORCHINDUCTOR_FREEZING=1.
 
-    The fix: Change to `not isinstance(x, torch.nn.Parameter)` so Parameter subclasses
-    are recognized as Parameters and handled correctly by FakeTensorMode.
-
-    This enables TORCHINDUCTOR_FREEZING=1 to work with vLLM's custom Parameter types.
-
-    Returns:
-        True if patch was applied, False if not needed or failed.
+    Returns True if patch was applied, False if not needed or failed.
     """
     global _FAKETENSOR_PATCH_APPLIED
 
@@ -92,7 +87,7 @@ def _apply_faketensor_subclass_patch() -> bool:
 
         # Create fixed version
         def _check_for_subclass_arg_fixed(x: object) -> bool:
-            """Fixed version: uses isinstance() for Parameter check.
+            """Fixed version: uses issubclass() for Parameter check.
 
             This allows Parameter subclasses (like ModelWeightParameter) to be
             handled by FakeTensorMode's registered fake implementations rather
@@ -105,7 +100,7 @@ def _apply_faketensor_subclass_patch() -> bool:
                 not isinstance(x, FakeTensor)
                 and isinstance(x, Tensor)
                 and type(x) is not Tensor
-                and not isinstance(x, torch.nn.Parameter)  # FIXED: was `type(x) is not`
+                and not issubclass(type(x), torch.nn.Parameter)
             )
 
         _check_for_subclass_arg_fixed._zentorch_patched = True
