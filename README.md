@@ -43,12 +43,9 @@ Table of Contents
 
 ## 1.1. Overview
 
-__The latest stable ZenDNN Plugin for PyTorch* (zentorch) [5.1](https://github.com/amd/ZenDNN-pytorch-plugin/tree/r5.1).__
+__The latest stable ZenDNN Plugin for PyTorch* (zentorch) [5.2](https://github.com/amd/ZenDNN-pytorch-plugin/tree/r5.2).__
 
-
-__The main branch contains pre-release zentorch 5.2 plugin.__
-
-zentorch 5.2 pre-release plugin is the PyTorch plugin which comes with ZenDNN 5.2 pre-release.
+zentorch 5.2 plugin is the PyTorch plugin which comes with ZenDNN 5.2.
 This upgrade continues the focus on optimizing inference with Recommender Systems and Large Language Models on AMD EPYC™ CPUs. It includes AMD EPYC™ enhancements for bfloat16 performance, expanded support for cutting-edge models like Llama 3.1 and 3.2, Microsoft Phi, and more as well as support for INT4 quantized datatype.
 This includes the advanced Activation-Aware Weight Quantization (AWQ) algorithm for LLMs and quantized support for the DLRM-v2 model with int8 weights.
 This also includes support for running generative models with vLLM.
@@ -58,7 +55,7 @@ They also incorporate optimized embedding bag kernels and enhanced zenMatMul mat
 
 Combined with PyTorch's torch.compile, zentorch transforms deep learning pipelines into finely-tuned, AMD-specific engines, delivering unparalleled efficiency and speed for large-scale inference workloads
 
-The zentorch 5.2 pre-release plugin seamlessly works with PyTorch versions including 2.10.0 and 2.9.1, offering a high-performance experience for deep learning on AMD EPYC™ platforms.
+The zentorch 5.2 plugin seamlessly works with PyTorch versions including 2.10.0 and 2.9.1, offering a high-performance experience for deep learning on AMD EPYC™ platforms.
 
 >**Note:** We recommend using Torch 2.9.1 or higher as there is a known [issue](https://github.com/pytorch/pytorch/pull/166338) with Torch 2.9.0 that leads to longer compilation time with zentorch backend. The issue has been fixed in later versions.
 
@@ -112,7 +109,7 @@ Refer to the [support matrix](https://www.amd.com/en/developer/zendnn.html#getti
 # 2. Installation
 
 _zentorch_ can be installed using binary wheel file or can be built from source itself.
-Only stable releases are available as binary wheel files. The latest stable release is _zentorch_ v5.1.0 which supports PyTorch v2.6.0 and v2.7.0. Zentorch 5.2 pre-release can be built from source and supports PyTorch v2.9.1 and v2.10.0.
+Only stable releases are available as binary wheel files. The latest stable release is _zentorch_ v5.2.0 which supports PyTorch v2.10.0 and v2.9.1.
 
 ## 2.1. From Binaries
 
@@ -121,15 +118,15 @@ Only stable releases are available as binary wheel files. The latest stable rele
 ```bash
 pip uninstall zentorch
 ```
-* Install PyTorch v2.7.0
+* Install PyTorch v2.10.0
 ```bash
-pip install torch==2.7.0 --index-url https://download.pytorch.org/whl/cpu
+pip install torch==2.10.0 --index-url https://download.pytorch.org/whl/cpu
 ```
 * Use one of two methods to install zentorch:
 
 Using pip utility
 ```bash
-pip install zentorch==5.1.0
+pip install zentorch==5.2.0
 ```
 or
 
@@ -140,9 +137,9 @@ Using the release package.
 > Run the following commands to unzip the package and install the binary.
 
 ```bash
-unzip ZENTORCH_v5.1.0_Python_v3.10.zip
-cd ZENTORCH_v5.1.0_Python_v3.10/
-pip install zentorch-5.1.0-cp310-cp310-manylinux_2_28_x86_64.whl
+unzip ZENTORCH_v5.2.0_Python_v3.10.zip
+cd ZENTORCH_v5.2.0_Python_v3.10/
+pip install zentorch-5.2.0-cp310-cp310-manylinux_2_28_x86_64.whl
 ```
 >**Notes:**
 >* Dependent packages 'numpy' and 'torch' will be installed by '_zentorch_' if not already present.
@@ -155,8 +152,7 @@ git clone https://github.com/amd/ZenDNN-pytorch-plugin.git
 cd ZenDNN-pytorch-plugin
 ```
 >**Notes:**
->* The repository defaults to the master branch.
->* Build from the master branch generates zentorch 5.2 pre-release plugin.
+>* The repository defaults to the master branch. To build the stable 5.2 release, checkout the r5.2 branch: ```git checkout r5.2```
 >* ```export ZENDNNL_MANYLINUX_BUILD=1``` is needed for build from source for RHEL/FEDORA/Almalinux/CentOS OS families
 
 ### 2.2.1. Preparing third party repositories
@@ -177,9 +173,8 @@ pip install torch==2.10.0 --index-url https://download.pytorch.org/whl/cpu
 ```
 >**Notes:**
 >* This README uses Python 3.10.
->* Zentorch follows PyTorch’s Python version compatibility. For PyTorch 2.10.0, Zentorch supports Python versions 3.10 through 3.13, and the same range applies to PyTorch 2.9.1. For other PyTorch releases, refer to the PyTorch Release Compatibility Matrix
-.
->* Zentorch does not support Python 3.13T or Python 3.14.
+>* Zentorch follows PyTorch’s Python version compatibility. For PyTorch 2.10.0, Zentorch supports Python versions 3.10 through 3.13, and the same range applies to PyTorch 2.9.1. For other PyTorch releases, refer to the [PyTorch Release Compatibility Matrix](https://github.com/pytorch/pytorch/blob/main/RELEASE.md#release-compatibility-matrix).
+>* Zentorch does not support experimental versions of Python (3.13T/3.14/3.14T)
 
 #### 2.2.2.3. Install Dependencies
 ```bash
@@ -196,8 +191,7 @@ python setup.py bdist_wheel
 cd dist
 pip install zentorch-5.2.0-cp310-cp310-linux_x86_64.whl
 ```
->**Note:** If you build from the main branch, the generated wheel file will be named:
-zentorch-5.2.0-cp310-cp310-linux_x86_64.whl
+>**Note:** The generated wheel file will be named zentorch-5.2.0-cp310-cp310-linux_x86_64.whl
 #### 2.2.2.6. Build Cleanup
 ```bash
 python setup.py clean --all
@@ -276,7 +270,7 @@ with torch.no_grad():
 
 ## 4.5 Weight Only Quantized Models
 
-zentorch supports Weight Only Quantization (WOQ) models with per-channel quantization support. This enables efficient INT4 quantized inference for large language models on AMD EPYC™ CPUs, providing significant memory savings while maintaining model accuracy.
+zentorch supports Weight Only Quantization (WOQ) models with per-channel and per-group quantization support. This enables efficient INT4 quantized inference for large language models on AMD EPYC™ CPUs, providing significant memory savings while maintaining model accuracy.
 
 Models can be quantized using the `IntxWeightOnlyConfig` from TorchAO.
 
@@ -298,7 +292,8 @@ quantization_config = TorchAoConfig(
     IntxWeightOnlyConfig(
         weight_dtype=torch.int4,
         mapping_type=MappingType.SYMMETRIC,
-        scale_dtype=torch.bfloat16
+        scale_dtype=torch.bfloat16,
+        granularity=PerGroup(128)
     )
 )
 
@@ -400,7 +395,7 @@ TORCH_COMPILE_DEBUG=1 python test.py
 For more information about TORCH_COMPILE_DEBUG refer to the official PyTorch documentation available.
 
 # 6. Performance tuning and Benchmarking
-zentorch v5.2.0 pre-release plugin is supported with pre-release ZenDNN v5.2.0  plugin. Please see the **Tuning Guidelines** section of ZenDNN User Guide for performance tuning. ZenDNN User Guide can be downloaded from [here](https://developer.amd.com/zendnn)
+zentorch v5.2.0 plugin is supported with ZenDNN v5.2.0 plugin. Please see the **Tuning Guidelines** section of ZenDNN User Guide for performance tuning. ZenDNN User Guide can be downloaded from [here](https://developer.amd.com/zendnn)
 
 # 7. Additional Utilities:
 
