@@ -12,7 +12,6 @@ namespace zentorch {
 using namespace zendnnl::interface;
 void zentorch_woq_linear_impl(const at::Tensor &input, const at::Tensor &weight,
                               const at::Tensor &bias, at::Tensor &result,
-                              const int64_t group_size,
                               const at::Tensor &weight_scales,
                               const at::Tensor &weight_zero_points,
                               const std::vector<int64_t> &post_op_ids,
@@ -23,7 +22,6 @@ void zentorch_woq_linear_impl(const at::Tensor &input, const at::Tensor &weight,
             << "Executing function: " << __FUNCTION__;
   LOG(INFO) << "input dimensions: " << input.sizes();
   LOG(INFO) << "weight dimensions: " << weight.sizes();
-  LOG(INFO) << "group_size: " << group_size;
   LOG(INFO) << "weight_scales dimensions: " << weight_scales.sizes();
   LOG(INFO) << "weight_zero_points dimensions: " << weight_zero_points.sizes();
   LOG(INFO) << "result dimensions: " << result.sizes();
@@ -41,8 +39,11 @@ void zentorch_woq_linear_impl(const at::Tensor &input, const at::Tensor &weight,
   // TODO
   // Check if this can be done in the graph passes/op replacements
   // Since these are constant tensors, we can fold them as well.
-  auto weight_zero_points_transposed = weight_zero_points.transpose(0, 1);
-  auto weight_scales_transposed = weight_scales.transpose(0, 1);
+  // .contiguous() needs to be removed and aligned with library team
+  // to fix it in the graph or library.
+  auto weight_zero_points_transposed =
+      weight_zero_points.transpose(0, 1).contiguous();
+  auto weight_scales_transposed = weight_scales.transpose(0, 1).contiguous();
 
   constexpr int kInt4PackedPerInt32 = 8; // 8 int4 values packed per int32
   const auto unpackedK = weight_transposed.size(0) * kInt4PackedPerInt32;
@@ -176,10 +177,12 @@ void zentorch_woq_linear_impl(const at::Tensor &input, const at::Tensor &weight,
 }
 
 template <UNARY_POST_OP fuse>
-at::Tensor zentorch_woq_linear_unary(
-    const at::Tensor &input, const at::Tensor &weight, const int64_t group_size,
-    const at::Tensor &weight_scales, const at::Tensor &weight_zero_points,
-    const std::optional<at::Tensor> &bias, std::string zentorch_op_name) {
+at::Tensor zentorch_woq_linear_unary(const at::Tensor &input,
+                                     const at::Tensor &weight,
+                                     const at::Tensor &weight_scales,
+                                     const at::Tensor &weight_zero_points,
+                                     const std::optional<at::Tensor> &bias,
+                                     std::string zentorch_op_name) {
 
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
@@ -207,16 +210,16 @@ at::Tensor zentorch_woq_linear_unary(
   std::vector<at::Tensor> post_op_buffers = {};
   std::vector<int64_t> post_op_ids = {fuse};
 
-  zentorch_woq_linear_impl(input_2d_view, weight, bias_t, result, group_size,
-                           weight_scales, weight_zero_points, post_op_ids,
-                           post_op_buffers, zentorch_op_name);
+  zentorch_woq_linear_impl(input_2d_view, weight, bias_t, result, weight_scales,
+                           weight_zero_points, post_op_ids, post_op_buffers,
+                           zentorch_op_name);
 
   return result;
 }
 
 template <UNARY_POST_OP fuse1, BINARY_POST_OP fuse2>
 inline at::Tensor zentorch_woq_linear_unary_binary(
-    const at::Tensor &input, const at::Tensor &weight, const int64_t group_size,
+    const at::Tensor &input, const at::Tensor &weight,
     const at::Tensor &weight_scales, const at::Tensor &weight_zero_points,
     const at::Tensor &binary_input, const std::optional<at::Tensor> &bias,
     std::string zentorch_op_name) {
@@ -251,15 +254,15 @@ inline at::Tensor zentorch_woq_linear_unary_binary(
   LOG(INFO) << "Calling  zentorch_woq_linear_impl from " << __FUNCTION__
             << "!\n";
 
-  zentorch_woq_linear_impl(input_2d_view, weight, bias_t, result, group_size,
-                           weight_scales, weight_zero_points, post_op_ids,
-                           post_op_buffers, zentorch_op_name);
+  zentorch_woq_linear_impl(input_2d_view, weight, bias_t, result, weight_scales,
+                           weight_zero_points, post_op_ids, post_op_buffers,
+                           zentorch_op_name);
   return result;
 }
 
 template <BINARY_POST_OP fuse1, BINARY_POST_OP fuse2>
 inline at::Tensor zentorch_woq_linear_binary_binary(
-    const at::Tensor &input, const at::Tensor &weight, const int64_t group_size,
+    const at::Tensor &input, const at::Tensor &weight,
     const at::Tensor &weight_scales, const at::Tensor &weight_zero_points,
     const at::Tensor &binary1_input, const at::Tensor &binary2_input,
     const std::optional<at::Tensor> &bias, std::string zentorch_op_name) {
@@ -296,9 +299,9 @@ inline at::Tensor zentorch_woq_linear_binary_binary(
   LOG(INFO) << "Calling  zentorch_woq_linear_impl from " << __FUNCTION__
             << "!\n";
 
-  zentorch_woq_linear_impl(input_2d_view, weight, bias_t, result, group_size,
-                           weight_scales, weight_zero_points, post_op_ids,
-                           post_op_buffers, zentorch_op_name);
+  zentorch_woq_linear_impl(input_2d_view, weight, bias_t, result, weight_scales,
+                           weight_zero_points, post_op_ids, post_op_buffers,
+                           zentorch_op_name);
   return result;
 }
 
@@ -370,21 +373,20 @@ zentorch_weight_from_int4pack_and_repack(const at::Tensor &unpacked_weight) {
 
 TORCH_LIBRARY_FRAGMENT(zentorch, m) {
   m.def("zentorch_woq_linear(Tensor input, Tensor weight, "
-        "int group_size, Tensor weight_scales, Tensor weight_zero_points, "
+        "Tensor weight_scales, Tensor weight_zero_points, "
         "Tensor? bias=None, "
         "*, str zentorch_op_name='zentorch::zentorch_woq_linear') -> Tensor");
   m.def(
-      "zentorch_woq_linear_relu(Tensor input, Tensor weight, int group_size, "
+      "zentorch_woq_linear_relu(Tensor input, Tensor weight,"
       "Tensor weight_scales, Tensor weight_zero_points, Tensor? bias=None, *, "
       "str zentorch_op_name="
       "'zentorch::zentorch_woq_linear_relu') -> Tensor");
-  m.def("zentorch_woq_linear_sigmoid(Tensor input, Tensor weight, int "
-        "group_size, "
+  m.def("zentorch_woq_linear_sigmoid(Tensor input, Tensor weight,"
         "Tensor weight_scales, Tensor weight_zero_points, Tensor? bias=None, "
         "*, str "
         "zentorch_op_name='zentorch::zentorch_woq_linear_sigmoid') -> Tensor");
-  m.def("zentorch_woq_linear_mul_add(Tensor input, Tensor weight, int "
-        "group_size, Tensor weight_scales, Tensor weight_zero_points, "
+  m.def("zentorch_woq_linear_mul_add(Tensor input, Tensor weight,"
+        "Tensor weight_scales, Tensor weight_zero_points, "
         "Tensor mul_input, Tensor add_input, Tensor? bias=None, *, str "
         "zentorch_op_name="
         "'zentorch::zentorch_woq_linear_mul_add') -> Tensor",

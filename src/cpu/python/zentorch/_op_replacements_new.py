@@ -368,7 +368,6 @@ def intx_weight_only_linear_replacement_no_bias(
         return zentorch.zentorch_woq_linear(
             input_tensor,
             packed_weight,
-            -1,  # group_size is not used for per-channel pattern
             weight_scales,
             weight_zero_points,
             None,  # no bias for mm pattern
@@ -445,7 +444,6 @@ def intx_weight_only_linear_replacement(
         return zentorch.zentorch_woq_linear(
             input_tensor,
             packed_weight,
-            -1,  # group_size is not used for per-channel pattern
             weight_scales,
             weight_zero_points,
             bias_tensor,  # bias tensor is not used for per-channel pattern
@@ -460,6 +458,183 @@ def intx_weight_only_linear_replacement(
             weight_tensor,
             weight_zero_points,
             weight_scales,
+            dims,
+        ],
+    )
+
+
+# IntxWeightOnly per-group pattern replacement
+#             convert_element  convert_element_type
+#                      |           |
+#                        \       /
+#                           sub
+#                            |
+#                           mul
+#                            |
+#                           view
+#                            |
+#                          permute
+#                            |
+#                            mm
+# Pattern 1: aten.mm (no bias) - 6 args
+@register_graph_pattern(
+    CallFunction(
+        aten.mm,
+        Arg(),  # input tensor
+        CallFunction(
+            aten.permute,
+            CallFunction(
+                aten.view,
+                CallFunction(
+                    aten.mul,
+                    CallFunction(
+                        aten.sub,
+                        CallFunction(
+                            torch.ops.prims.convert_element_type.default,
+                            Arg(),  # Weight tensor int8
+                            torch.bfloat16,
+                        ),
+                        CallFunction(
+                            torch.ops.prims.convert_element_type.default,
+                            Arg(),  # Weight zero points int8
+                            torch.bfloat16,
+                        ),
+                    ),
+                    Arg(),  # scale tensor bfloat16
+                ),
+                Arg(),  # view shape
+            ),
+            Arg(),  # dims
+        ),
+    ),
+    pass_dict=pass_pattern,
+    extra_check=weight_dtype_check(1),
+)
+def intxweightonly_linear_replacement_per_group(
+    match: Match,
+    input_tensor: Any,
+    weight_tensor: Any,
+    weight_zero_points: Any,
+    weight_scales: Any,
+    view_shape: Any,
+    dims: Any,
+) -> None:
+    def repl(
+        input_tensor: Any,
+        weight_tensor: Any,
+        weight_zero_points: Any,
+        weight_scales: Any,
+        view_shape: Any,
+        dims: Any,
+    ) -> torch.Tensor:
+        # weight tensor, weight_scales and weight_zero_points need to be reshaped from 3D to 2D.
+        packed_weight = zentorch.zentorch_weight_from_int4pack_and_repack(weight_tensor.view(view_shape))
+        weight_scales = weight_scales.view(weight_scales.shape[0], -1)
+        weight_zero_points = weight_zero_points.view(weight_zero_points.shape[0], -1)
+        counters["zentorch"]["zentorch_woq_linear"] += 1
+        return zentorch.zentorch_woq_linear(
+            input_tensor,
+            packed_weight,
+            weight_scales,
+            weight_zero_points,
+            None,  # no bias for mm pattern
+            zentorch_op_name="zentorch_woq_linear",
+        )
+
+    match.replace_by_example(
+        repl,
+        [input_tensor, weight_tensor, weight_zero_points, weight_scales, view_shape, dims],
+    )
+
+
+# Pattern 2: aten.addmm (with bias) - 7 args
+#             convert_element  convert_element_type
+#                      |           |
+#                        \       /
+#                           sub
+#                            |
+#                           mul
+#                            |
+#                           view
+#                            |
+#                         permute
+#                            |
+#                          addmm
+@register_graph_pattern(
+    CallFunction(
+        aten.addmm,
+        Arg(),  # bias tensor
+        Arg(),  # input tensor
+        CallFunction(
+            aten.permute,
+            CallFunction(
+                aten.view,
+                CallFunction(
+                    aten.mul,
+                    CallFunction(
+                        aten.sub,
+                        CallFunction(
+                            torch.ops.prims.convert_element_type.default,
+                            Arg(),  # Weight tensor int8
+                            torch.bfloat16,
+                        ),
+                        CallFunction(
+                            torch.ops.prims.convert_element_type.default,
+                            Arg(),  # Weight zero points int8
+                            torch.bfloat16,
+                        ),
+                    ),
+                    Arg(),  # scale tensor bfloat16
+                ),
+                Arg(),  # view shape
+            ),
+            Arg(),  # dims
+        ),
+    ),
+    pass_dict=pass_pattern,
+    extra_check=bias_dim_check(0, 2),
+)
+def intxweightonly_linear_replacement_per_group_with_bias(
+    match: Match,
+    bias_tensor: Any,
+    input_tensor: Any,
+    weight_tensor: Any,
+    weight_zero_points: Any,
+    weight_scales: Any,
+    view_shape: Any,
+    dims: Any,
+) -> None:
+    def repl(
+        bias_tensor: Any,
+        input_tensor: Any,
+        weight_tensor: Any,
+        weight_zero_points: Any,
+        weight_scales: Any,
+        view_shape: Any,
+        dims: Any,
+    ) -> torch.Tensor:
+        # weight tensor, weight_scales and weight_zero_points need to be reshaped from 3D to 2D.
+        packed_weight = zentorch.zentorch_weight_from_int4pack_and_repack(weight_tensor.view(view_shape))
+        weight_scales = weight_scales.view(weight_scales.shape[0], -1)
+        weight_zero_points = weight_zero_points.view(weight_zero_points.shape[0], -1)
+        counters["zentorch"]["zentorch_woq_linear"] += 1
+        return zentorch.zentorch_woq_linear(
+            input_tensor,
+            packed_weight,
+            weight_scales,
+            weight_zero_points,
+            bias_tensor,  # bias tensor for addmm pattern
+            zentorch_op_name="zentorch_woq_linear",
+        )
+    match.replace_by_example(
+        repl,
+        [
+            bias_tensor,
+            input_tensor,
+            weight_tensor,
+            weight_zero_points,
+            weight_scales,
+            view_shape,
             dims,
         ],
     )

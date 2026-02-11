@@ -72,7 +72,7 @@ class Test_WOQLinear(Zentorch_TestCase):
 
         # Run zentorch WOQ linear (expects scale and zero_point as (out_features, 1))
         zentorch_result = torch.ops.zentorch.zentorch_woq_linear(
-            input, packed_weight, -1, scale, zero_point, None  # no bias
+            input, packed_weight, scale, zero_point, None  # no bias
         )
         # Run PyTorch linear with dequantized weight
         pytorch_result = torch.nn.functional.linear(input, dq_weight.to(torch.bfloat16))

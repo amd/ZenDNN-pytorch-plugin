@@ -751,7 +751,6 @@ def meta_zentorch_qlinear_mul_add(
 def meta_zentorch_woq_linear(
     input,
     weight,
-    group_size,  # int64_t in C++ - comes as Python int
     weight_scales,
     weight_zero_points,
     bias=None,
@@ -766,14 +765,13 @@ def meta_zentorch_woq_linear(
 def meta_zentorch_woq_linear_relu(
     input,
     weight,
-    group_size,
     weight_scales,
     weight_zero_points,
     bias=None,
     zentorch_op_name="zentorch::zentorch_woq_linear_relu",
 ):
     return meta_zentorch_woq_linear(
-        input, weight, group_size, weight_scales, weight_zero_points, bias,
+        input, weight, weight_scales, weight_zero_points, bias,
         zentorch_op_name,
     )
 
@@ -782,14 +780,13 @@ def meta_zentorch_woq_linear_relu(
 def meta_zentorch_woq_linear_sigmoid(
     input,
     weight,
-    group_size,
     weight_scales,
     weight_zero_points,
     bias=None,
     zentorch_op_name="zentorch::zentorch_woq_linear_sigmoid",
 ):
     return meta_zentorch_woq_linear(
-        input, weight, group_size, weight_scales, weight_zero_points, bias,
+        input, weight, weight_scales, weight_zero_points, bias,
         zentorch_op_name,
     )
 
@@ -798,7 +795,6 @@ def meta_zentorch_woq_linear_sigmoid(
 def meta_zentorch_woq_linear_mul_add(
     input,
     weight,
-    group_size,
     weight_scales,
     weight_zero_points,
     mul_input,
