@@ -289,8 +289,35 @@ def addmm_linear_replacement_nd(
     )
 
 
+def weight_dtype_check(idx: int):
+    def fn(match: Match) -> bool:
+        return match.args[idx].meta["val"].dtype == torch.int8
+
+    return fn
+
+
+def bias_dim_check(idx: int, idx_2: int):
+    def fn(match: Match) -> bool:
+        return match.args[idx].meta["val"].dim() == 1 and weight_dtype_check(idx_2)(
+            match
+        )
+
+    return fn
+
+
 # WOQ (Weight-Only Quantization) linear replacement
 # IntxWeightOnly per-channel pattern replacement
+#             convert_element  convert_element_type
+#                      |           |
+#                        \       /
+#                           sub
+#                            |
+#                           mul
+#                            |
+#                         permute
+#                           |
+#                           mm
+# Pattern 1: aten.mm (no bias) - 5 args
 @register_graph_pattern(
     CallFunction(
         aten.mm,
@@ -318,8 +345,9 @@ def addmm_linear_replacement_nd(
         ),
     ),
     pass_dict=pass_pattern,
+    extra_check=weight_dtype_check(1),
 )
-def intxweightonly_linear_replacement(
+def intx_weight_only_linear_replacement_no_bias(
     match: Match,
     input_tensor: Any,
     weight_tensor: Any,
@@ -343,11 +371,97 @@ def intxweightonly_linear_replacement(
             -1,  # group_size is not used for per-channel pattern
             weight_scales,
             weight_zero_points,
+            None,  # no bias for mm pattern
             zentorch_op_name="zentorch_woq_linear",
         )
 
     match.replace_by_example(
-        repl, [input_tensor, weight_tensor, weight_zero_points, weight_scales, dims]
+        repl,
+        [input_tensor, weight_tensor, weight_zero_points, weight_scales, dims],
+    )
+
+
+#             convert_element  convert_element_type
+#                      |           |
+#                        \       /
+#                           sub
+#                            |
+#                           mul
+#                            |
+#                         permute
+#                            |
+#                          addmm
+# Pattern 2: aten.addmm (with bias) - 6 args
+@register_graph_pattern(
+    CallFunction(
+        aten.addmm,
+        Arg(),  # bias tensor
+        Arg(),  # input tensor
+        CallFunction(
+            aten.permute,
+            CallFunction(
+                aten.mul,
+                CallFunction(
+                    aten.sub,
+                    CallFunction(
+                        torch.ops.prims.convert_element_type.default,
+                        Arg(),  # Weight tensor int8
+                        torch.bfloat16,
+                    ),
+                    CallFunction(
+                        torch.ops.prims.convert_element_type.default,
+                        Arg(),  # Weight zero points int8
+                        torch.bfloat16,
+                    ),
+                ),
+                Arg(),  # scale tensor bfloat16
+            ),
+            Arg(),  # dims
+        ),
+    ),
+    pass_dict=pass_pattern,
+    extra_check=bias_dim_check(0, 2),
+)
+def intx_weight_only_linear_replacement(
+    match: Match,
+    bias_tensor: Any,
+    input_tensor: Any,
+    weight_tensor: Any,
+    weight_zero_points: Any,
+    weight_scales: Any,
+    dims: Any,
+) -> None:
+    def repl(
+        bias_tensor: Any,
+        input_tensor: Any,
+        weight_tensor: Any,
+        weight_zero_points: Any,
+        weight_scales: Any,
+        dims: Any,
+    ) -> torch.Tensor:
+        # dims is not used for per-channel pattern
+        packed_weight = zentorch.zentorch_weight_from_int4pack_and_repack(weight_tensor)
+        counters["zentorch"]["zentorch_woq_linear"] += 1
+        return zentorch.zentorch_woq_linear(
+            input_tensor,
+            packed_weight,
+            -1,  # group_size is not used for per-channel pattern
+            weight_scales,
+            weight_zero_points,
+            bias_tensor,  # bias tensor is not used for per-channel pattern
+            zentorch_op_name="zentorch_woq_linear",
+        )
+
+    match.replace_by_example(
+        repl,
+        [
+            bias_tensor,
+            input_tensor,
+            weight_tensor,
+            weight_zero_points,
+            weight_scales,
+            dims,
+        ],
     )
 
 

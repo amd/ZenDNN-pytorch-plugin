@@ -754,6 +754,7 @@ def meta_zentorch_woq_linear(
     group_size,  # int64_t in C++ - comes as Python int
     weight_scales,
     weight_zero_points,
+    bias=None,
     zentorch_op_name="zentorch::zentorch_woq_linear",
 ):
     out_dim = list(input.size())
@@ -768,10 +769,12 @@ def meta_zentorch_woq_linear_relu(
     group_size,
     weight_scales,
     weight_zero_points,
+    bias=None,
     zentorch_op_name="zentorch::zentorch_woq_linear_relu",
 ):
     return meta_zentorch_woq_linear(
-        input, weight, group_size, weight_scales, weight_zero_points, zentorch_op_name
+        input, weight, group_size, weight_scales, weight_zero_points, bias,
+        zentorch_op_name,
     )
 
 
@@ -782,10 +785,12 @@ def meta_zentorch_woq_linear_sigmoid(
     group_size,
     weight_scales,
     weight_zero_points,
+    bias=None,
     zentorch_op_name="zentorch::zentorch_woq_linear_sigmoid",
 ):
     return meta_zentorch_woq_linear(
-        input, weight, group_size, weight_scales, weight_zero_points, zentorch_op_name
+        input, weight, group_size, weight_scales, weight_zero_points, bias,
+        zentorch_op_name,
     )
 
 
@@ -798,6 +803,7 @@ def meta_zentorch_woq_linear_mul_add(
     weight_zero_points,
     mul_input,
     add_input,
+    bias=None,
     zentorch_op_name="zentorch::zentorch_woq_linear_mul_add",
 ):
     # The output shape matches add_input, dtype follows
