@@ -7,7 +7,7 @@
 
 ## Overview
 
-The **zentorch vLLM plugin** integrates [zentorch](https://github.com/amd/ZenDNN-pytorch-plugin) with [vLLM's V1 engine](https://docs.vllm.ai/en/stable/usage/v1_guide/) to deliver optimized large language model inference on AMD EPYC™ CPUs. By leveraging ZenDNN's highly optimized kernels, this plugin accelerates both attention and non-attention operations in vLLM, providing significant throughput improvements for popular LLMs
+The **zentorch vLLM plugin** integrates [zentorch](https://github.com/amd/ZenDNN-pytorch-plugin) with [vLLM's V1 engine](https://docs.vllm.ai/en/stable/usage/v1_guide/) to deliver optimized large language model inference on AMD EPYC™ CPUs. By leveraging ZenDNN's highly optimized kernels, this plugin accelerates both attention and non-attention operations in vLLM, providing significant throughput improvements for popular LLMs.
 
 The plugin uses vLLM's platform and general plugin entry points to:
 - Inject zentorch optimization passes into `torch.compile`
@@ -31,7 +31,7 @@ The plugin uses vLLM's platform and general plugin entry points to:
 |-----------|---------|-------|
 | vLLM | 0.12.0 - 0.15.1 | V1 engine fully supported |
 | Python | 3.10+ | |
-| PyTorch | 2.9.1/2.10 | Auto-installed by vLLM |
+| PyTorch | 2.9.1/2.10.0 | Auto-installed by vLLM |
 
 ---
 
@@ -50,7 +50,7 @@ When both vLLM and the `zentorch` package are installed, vLLM automatically dete
 │  ZenCPUPlatform                                             │
 │  ├── Configures torch.compile with inductor backend         │
 │  ├── Injects zentorch.optimize_pass for ZenDNN kernels      │
-│  └── Patches profiler(version-specific)                     │
+│  └── Patches profiler (version-specific)                    │
 ├─────────────────────────────────────────────────────────────┤
 │  Monkey Patches (applied early)                             │
 │  ├── CompilationConfig.__repr__ → Handle custom passes      │
@@ -62,6 +62,8 @@ When both vLLM and the `zentorch` package are installed, vLLM automatically dete
 ```
 
 The plugin leverages AMD EPYC specific intrinsics and optimizations to accelerate computations on AMD EPYC CPUs. However, it may also function on other x86 CPUs that meet the required ISA. We use zentorch to compile the LLM with `torch.compile`, replacing the native ops with zentorch's optimized ops.
+
+---
 
 ## Key Components
 
@@ -90,13 +92,27 @@ The plugin leverages AMD EPYC specific intrinsics and optimizations to accelerat
    conda activate vllm-env
    ```
 
-2. **Build vLLM from Source**
+2. **Build vLLM from Source:**
    - Follow the official [vLLM Installation Guide](https://docs.vllm.ai/en/stable/getting_started/installation/cpu/#build-wheel-from-source) for detailed, step-by-step instructions.
-   - **Important:** Pre-built vLLM CPU binaries are available from [0.13.0](https://docs.vllm.ai/en/stable/getting_started/installation/cpu/#pre-built-wheels). You must build vLLM from source to enable CPU support for previous supported versions.
+
+     > **Important:** Pre-built vLLM CPU binaries are available from [0.13.0](https://docs.vllm.ai/en/stable/getting_started/installation/cpu/#pre-built-wheels). You must build vLLM from source to enable CPU support for previous supported versions.
+
    - Supported versions: 0.12.0, 0.13.0, 0.14.0, 0.14.1, 0.15.0, 0.15.1. Check out the appropriate release tag before building.
 
 3. **Install zentorch:**
-   Refer to the [zentorch Installation Guide](https://github.com/amd/ZenDNN-pytorch-plugin?tab=readme-ov-file#2-installation) for detailed instructions.
+
+   | vLLM version | PyTorch version (auto-installed by vLLM) | zentorch install method |
+   |--------------|-----------------|------------------------|
+   | 0.12.0 - 0.14.1 | 2.9.1 | Build from source |
+   | 0.15.0 - 0.15.1 | 2.10.0 | PyPI or source |
+
+   - **From PyPI** (vLLM 0.15.0+):
+     ```bash
+     pip install zentorch
+     ```
+
+   - **From source** (all supported versions):
+     Follow the [zentorch Installation Guide](https://github.com/amd/ZenDNN-pytorch-plugin?tab=readme-ov-file#2-installation).
 
 ---
 
@@ -115,18 +131,24 @@ No code changes are required. Once installed, simply run your vLLM inference wor
 
 > **Note:** The plugin is recommended to be run with `ZENDNNL_MATMUL_ALGO=1` (the default).
 
-### Environment Variables
+#### Environment Variables
 
 ```bash
-export TORCHINDUCTOR_FREEZING=1 # Only supported from vLLM version 0.12.0 onwards.
-# vLLM CPU settings
-export VLLM_CPU_KVCACHE_SPACE=90  # GB for KV cache
-export VLLM_CPU_OMP_THREADS_BIND=0-95  # CPU cores to use
+export TORCHINDUCTOR_FREEZING=1          # Only supported from vLLM version 0.12.0 onwards
+export VLLM_CPU_KVCACHE_SPACE=90         # GB for KV cache
+export VLLM_CPU_OMP_THREADS_BIND=0-95    # CPU cores to use
+```
 
-# Performance libraries
+#### Performance Libraries
+
+Install and preload `tcmalloc` and `llvm-openmp` for best performance:
+
+```bash
+# tcmalloc
 sudo apt-get install libtcmalloc-minimal4
 export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libtcmalloc_minimal.so.4:$LD_PRELOAD
-# Install llvm-openmp
+
+# llvm-openmp
 conda install -c conda-forge llvm-openmp=18.1.8=hf5423f3_1 -y
 export LD_PRELOAD="<install_path>/miniconda3/pkgs/llvm-openmp-18.1.8-hf5423f3_1/lib/libiomp5.so:$LD_PRELOAD"
 ```
@@ -182,6 +204,8 @@ After updating zentorch, clear the inductor cache:
 ```bash
 rm -rf ~/.cache/torch_inductor /tmp/torchinductor_*
 ```
+
+---
 
 ## Support
 
