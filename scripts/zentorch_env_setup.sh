@@ -120,15 +120,9 @@ export KMP_PLAIN_BARRIER_PATTERN=dist,dist
 export KMP_REDUCTION_BARRIER_PATTERN=dist,dist
 export KMP_AFFINITY=granularity=fine,compact,1,0
 
-# Below flags should be enabled irrespective of LOA / Primitive Op settings
+# Below flags should be enabled 
 export TORCHINDUCTOR_FREEZING=1
-export ZENTORCH_LINEAR=1
 
-# LOA settings
-export USE_ZENDNN_MATMUL_DIRECT=1
-
-# Primitive Op settings
-export USE_ZENDNN_MATMUL_DIRECT=0
 
 echo "OMP_WAIT_POLICY=$OMP_WAIT_POLICY"
 echo "OMP_DYNAMIC=$OMP_DYNAMIC"
@@ -139,6 +133,7 @@ echo "KMP_FORKJOIN_BARRIER_PATTERN=$KMP_FORKJOIN_BARRIER_PATTERN"
 echo "KMP_PLAIN_BARRIER_PATTERN=$KMP_PLAIN_BARRIER_PATTERN"
 echo "KMP_REDUCTION_BARRIER_PATTERN=$KMP_REDUCTION_BARRIER_PATTERN"
 echo "KMP_AFFINITY=$KMP_AFFINITY"
+echo "TORCHINDUCTOR_FREEZING=$TORCHINDUCTOR_FREEZING"
 
 if [ -f "/usr/local/lib/libjemalloc.so" ]; then
     export LD_PRELOAD=/usr/local/lib/libjemalloc.so:$LD_PRELOAD
