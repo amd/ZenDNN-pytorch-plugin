@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2026 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -68,13 +68,9 @@ class Test_Embedding_Bag_Model(EmbTestCase):
         zen_compiled_graph_output = test_with_freeze_opt(
             zen_compiled_graph, (input), freeze_opt
         )
-        # TODO
-        # Increased tolerent for bfloat16 dtype by atol=1e-03, rtol=0.01
-        # Getting failure due to higer diff than allowed
-        # Change will restore after fix
-        # ZENAI-858
+
         self.assertEqual(
-            zen_compiled_graph_output, ind_compiled_graph_output, atol=1e-3, rtol=0.01
+            zen_compiled_graph_output, ind_compiled_graph_output
         )
 
 

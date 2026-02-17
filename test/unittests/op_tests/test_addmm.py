@@ -28,19 +28,6 @@ class Test_Addmm_Op(MMTestCase):
     def test_addmm_variants(self, dtype):
 
         # TODO
-        # Skip test for bfloat16 dtype
-        # for shape of x = (5, 8), y = (8, 9), and input = (5, 9)
-        # ZENAI-858
-        if (
-            self.data.x.size() == (5, 8)
-            and self.data.y.size() == (8, 9)
-            and self.data.input.size() == (5, 9)
-        ):
-            self.skipTest(
-                "Skipping test for specific dimensions " "(5, 8), (8, 9), (5, 9)"
-            )
-
-        # TODO
         # Tensor Generation and Tolerance Calculation will be aligned with ZenDNN library in future.
 
         # addmm
@@ -259,19 +246,6 @@ class Test_Addmm_Op(MMTestCase):
     )
     @unittest.skipIf(skip_test_pt_2_0, "Skipping test due to PT2.0 instability")
     def test_addmm_relu_with_kw(self, dtype):
-
-        # TODO
-        # Skip test for bfloat dtype
-        # for shape of x = (5, 8), y = (8, 9), and input = (5, 9)
-        # ZENAI-858
-        if (
-            self.data.x.size() == (5, 8)
-            and self.data.y.size() == (8, 9)
-            and self.data.input.size() == (5, 9)
-        ):
-            self.skipTest(
-                "Skipping test for specific dimensions " "(5, 8), (8, 9), (5, 9)"
-            )
 
         # TODO
         # Tensor Generation and Tolerance Calculation will be aligned with ZenDNN library in future.
