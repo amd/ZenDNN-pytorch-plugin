@@ -307,17 +307,17 @@ def bias_dim_check(idx: int, idx_2: int):
 
 # WOQ (Weight-Only Quantization) linear replacement
 # IntxWeightOnly per-channel pattern replacement
-#             convert_element  convert_element_type
-#                      |           |
-#                        \       /
-#                           sub
-#                            |
-#                           mul
-#                            |
-#                         permute
-#                           |
-#                           mm
 # Pattern 1: aten.mm (no bias) - 5 args
+# convert_element_type(inp1, to_bf16)    convert_element_type(inp2, to_bf16)
+#                                   \     /
+#                               sub(inp1, inp2)
+#                                      |
+#                               mul(inp1, scale)
+#                                      |
+#                               permute(inp1)
+#                                      |
+#                               mm(inp, inp1)
+# mm(input, permute(mul(sub(to_bf16(weight), to_bf16(zp)), scale)))
 @register_graph_pattern(
     CallFunction(
         aten.mm,
@@ -347,7 +347,7 @@ def bias_dim_check(idx: int, idx_2: int):
     pass_dict=pass_pattern,
     extra_check=weight_dtype_check(1),
 )
-def intx_weight_only_linear_replacement_no_bias(
+def intx_weight_only_linear_replacement_per_channel_no_bias(
     match: Match,
     input_tensor: Any,
     weight_tensor: Any,
@@ -380,17 +380,17 @@ def intx_weight_only_linear_replacement_no_bias(
     )
 
 
-#             convert_element  convert_element_type
-#                      |           |
-#                        \       /
-#                           sub
-#                            |
-#                           mul
-#                            |
-#                         permute
-#                            |
-#                          addmm
 # Pattern 2: aten.addmm (with bias) - 6 args
+# convert_element_type(inp1, to_bf16)    convert_element_type(inp2, to_bf16)
+#                                   \     /
+#                               sub(inp1, inp2)
+#                                      |
+#                               mul(inp1, scale)
+#                                      |
+#                         permute(inp1, dims)
+#                                      |
+#                           addmm(bias, inp, inp1)
+# addmm(bias, input, permute(mul(sub(to_bf16(weight), to_bf16(zp)), scale)))
 @register_graph_pattern(
     CallFunction(
         aten.addmm,
@@ -421,7 +421,7 @@ def intx_weight_only_linear_replacement_no_bias(
     pass_dict=pass_pattern,
     extra_check=bias_dim_check(0, 2),
 )
-def intx_weight_only_linear_replacement(
+def intx_weight_only_linear_replacement_per_channel_with_bias(
     match: Match,
     bias_tensor: Any,
     input_tensor: Any,
@@ -464,19 +464,19 @@ def intx_weight_only_linear_replacement(
 
 
 # IntxWeightOnly per-group pattern replacement
-#             convert_element  convert_element_type
-#                      |           |
-#                        \       /
-#                           sub
-#                            |
-#                           mul
-#                            |
-#                           view
-#                            |
-#                          permute
-#                            |
-#                            mm
 # Pattern 1: aten.mm (no bias) - 6 args
+# convert_element_type(inp1, to_bf16)    convert_element_type(inp2, to_bf16)
+#                                   \     /
+#                               sub(inp1, inp2)
+#                                      |
+#                               mul(inp1, scale)
+#                                      |
+#                               view(inp1, [x_2d, y_2d])
+#                                      |
+#                               permute(inp1, dims)
+#                                      |
+#                               mm(inp, inp1)
+# mm(input, permute(view(mul(sub(to_bf16(weight), to_bf16(zp)), scale))))
 @register_graph_pattern(
     CallFunction(
         aten.mm,
@@ -510,7 +510,7 @@ def intx_weight_only_linear_replacement(
     pass_dict=pass_pattern,
     extra_check=weight_dtype_check(1),
 )
-def intxweightonly_linear_replacement_per_group(
+def intx_weight_only_linear_replacement_per_group_no_bias(
     match: Match,
     input_tensor: Any,
     weight_tensor: Any,
@@ -548,18 +548,18 @@ def intxweightonly_linear_replacement_per_group(
 
 
 # Pattern 2: aten.addmm (with bias) - 7 args
-#             convert_element  convert_element_type
-#                      |           |
-#                        \       /
-#                           sub
-#                            |
-#                           mul
-#                            |
-#                           view
-#                            |
-#                         permute
-#                            |
-#                          addmm
+# convert_element_type(inp1, to_bf16)    convert_element_type(inp2, to_bf16)
+#                                   \     /
+#                               sub(inp1, inp2)
+#                                      |
+#                               mul(inp1, scale)
+#                                      |
+#                          view(inp1, [x_2d, y_2d])
+#                                      |
+#                            permute(inp1, dims)
+#                                      |
+#                           addmm(bias, inp, inp1)
+# addmm(bias, input, permute(view(mul(sub(to_bf16(weight), to_bf16(zp)), scale))))
 @register_graph_pattern(
     CallFunction(
         aten.addmm,
@@ -594,7 +594,7 @@ def intxweightonly_linear_replacement_per_group(
     pass_dict=pass_pattern,
     extra_check=bias_dim_check(0, 2),
 )
-def intxweightonly_linear_replacement_per_group_with_bias(
+def intx_weight_only_linear_replacement_per_group_with_bias(
     match: Match,
     bias_tensor: Any,
     input_tensor: Any,
