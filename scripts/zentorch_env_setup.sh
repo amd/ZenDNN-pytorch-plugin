@@ -13,7 +13,7 @@ display_help(){
     echo "Usage: Activate your working conda environment other than base"
     echo "Usage: source $script_path/$script_name --framework zentorch --model llm/recsys/cnn/nlp --threads num_threads --precision bf16/fp32/woq/bf16_amp/int8"
     echo "Options:"
-    echo " --framework, -f            Specify the framework ['zentorch]"
+    echo " --framework, -f            Specify the framework ['zentorch']"
     echo " --model, -m                Specify the model ['llm', 'recsys', 'cnn', 'nlp'] (if not specified this option, by default set to llm)"
     echo " --threads, -t              Specify the num of threads. (if not specified this option, by default set to number of CPUs available on your system.)"
     echo " --precision, -p            Specify the precision ['bf16_amp', 'bf16','fp32','woq','int8'] (if not specified this option, by default set to bf16)"
@@ -99,7 +99,7 @@ if ! ( ( [[ "$model" = "cnn" ]] && { [ "$precision" = "fp32" ] || [ "$precision"
        || ( [[ "$model" = "llm" ]] && { [ "$precision" = "bf16" ] || [ "$precision" = "woq" ] || [ "$precision" = "fp32" ] || [ "$precision" = "int8" ] || [ "$precision" = "bf16_amp" ]; } ) ); then
     echo "Invalid combination of model = $model and precision = $precision. Please choose a valid combination."
     display_help
-    exit
+    return
 fi
 
 # Output the selected framework and model

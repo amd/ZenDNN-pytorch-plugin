@@ -77,7 +77,7 @@ precision=$(echo "$precision" | tr '[:upper:]' '[:lower:]')
 if ! ( [ "$precision" = "fp32" ] || [ "$precision" = "int8" ] || [ "$precision" = "bf16" ] || [ "$precision" = "default" ]; ); then
     echo "Invalid combination of model = $model and precision = $precision. Please choose a valid combination."
     display_help
-    exit
+    return
 fi
 
 # Output the selected model
