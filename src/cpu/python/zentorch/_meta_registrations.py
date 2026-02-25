@@ -757,7 +757,7 @@ def meta_zentorch_woq_linear(
     zentorch_op_name="zentorch::zentorch_woq_linear",
 ):
     out_dim = list(input.size())
-    out_dim[-1] = weight.shape[0]
+    out_dim[-1] = weight.shape[1]
     return input.new_empty(out_dim, dtype=input.dtype)
 
 

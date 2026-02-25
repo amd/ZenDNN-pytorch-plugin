@@ -363,7 +363,12 @@ def intx_weight_only_linear_replacement_per_channel_no_bias(
         dims: Any,
     ) -> torch.Tensor:
         # dims is not used for per-channel pattern
-        packed_weight = zentorch.zentorch_weight_from_int4pack_and_repack(weight_tensor)
+        # weight tensor, weight_scales and weight_zero_points need to be reshaped from 3D to 2D and transposed.
+        # scales and zero points need to be in contiguous memory format.
+        # transpose weight: [N, K/8] -> [K/8, N]
+        packed_weight = zentorch.zentorch_weight_from_int4pack_and_repack(weight_tensor).transpose(0, 1)
+        weight_scales = weight_scales.transpose(0, 1).contiguous()
+        weight_zero_points = weight_zero_points.transpose(0, 1).contiguous()
         counters["zentorch"]["zentorch_woq_linear"] += 1
         return zentorch.zentorch_woq_linear(
             input_tensor,
@@ -439,7 +444,12 @@ def intx_weight_only_linear_replacement_per_channel_with_bias(
         dims: Any,
     ) -> torch.Tensor:
         # dims is not used for per-channel pattern
-        packed_weight = zentorch.zentorch_weight_from_int4pack_and_repack(weight_tensor)
+        # weight tensor, weight_scales and weight_zero_points need to be reshaped from 3D to 2D and transposed.
+        # scales and zero points need to be in contiguous memory format.
+        # transpose weight: [N, K/8] -> [K/8, N]
+        packed_weight = zentorch.zentorch_weight_from_int4pack_and_repack(weight_tensor).transpose(0, 1)
+        weight_scales = weight_scales.transpose(0, 1).contiguous()
+        weight_zero_points = weight_zero_points.transpose(0, 1).contiguous()
         counters["zentorch"]["zentorch_woq_linear"] += 1
         return zentorch.zentorch_woq_linear(
             input_tensor,
@@ -527,10 +537,12 @@ def intx_weight_only_linear_replacement_per_group_no_bias(
         view_shape: Any,
         dims: Any,
     ) -> torch.Tensor:
-        # weight tensor, weight_scales and weight_zero_points need to be reshaped from 3D to 2D.
-        packed_weight = zentorch.zentorch_weight_from_int4pack_and_repack(weight_tensor.view(view_shape))
-        weight_scales = weight_scales.view(weight_scales.shape[0], -1)
-        weight_zero_points = weight_zero_points.view(weight_zero_points.shape[0], -1)
+        # weight tensor, weight_scales and weight_zero_points need to be reshaped from 3D to 2D and transposed.
+        # scales and zero points need to be in contiguous memory format.
+        # transpose weight: [N, K/8] -> [K/8, N]
+        packed_weight = zentorch.zentorch_weight_from_int4pack_and_repack(weight_tensor.view(view_shape)).transpose(0, 1)
+        weight_scales = weight_scales.view(weight_scales.shape[0], -1).transpose(0, 1).contiguous()
+        weight_zero_points = weight_zero_points.view(weight_zero_points.shape[0], -1).transpose(0, 1).contiguous()
         counters["zentorch"]["zentorch_woq_linear"] += 1
         return zentorch.zentorch_woq_linear(
             input_tensor,
@@ -613,10 +625,12 @@ def intx_weight_only_linear_replacement_per_group_with_bias(
         view_shape: Any,
         dims: Any,
     ) -> torch.Tensor:
-        # weight tensor, weight_scales and weight_zero_points need to be reshaped from 3D to 2D.
-        packed_weight = zentorch.zentorch_weight_from_int4pack_and_repack(weight_tensor.view(view_shape))
-        weight_scales = weight_scales.view(weight_scales.shape[0], -1)
-        weight_zero_points = weight_zero_points.view(weight_zero_points.shape[0], -1)
+        # weight tensor, weight_scales and weight_zero_points need to be reshaped from 3D to 2D and transposed.
+        # scales and zero points need to be in contiguous memory format.
+        # transpose weight: [N, K/8] -> [K/8, N]
+        packed_weight = zentorch.zentorch_weight_from_int4pack_and_repack(weight_tensor.view(view_shape)).transpose(0, 1)
+        weight_scales = weight_scales.view(weight_scales.shape[0], -1).transpose(0, 1).contiguous()
+        weight_zero_points = weight_zero_points.view(weight_zero_points.shape[0], -1).transpose(0, 1).contiguous()
         counters["zentorch"]["zentorch_woq_linear"] += 1
         return zentorch.zentorch_woq_linear(
             input_tensor,
