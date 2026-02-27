@@ -320,6 +320,9 @@ tokenizer.save_pretrained(output_dir)
 >* The `scale_dtype=torch.bfloat16` ensures compatibility with AMD EPYC™ CPU optimizations.
 >* Use `safe_serialization=False` when saving for compatibility with zentorch.
 
+Statically quantizing the models-
+* To statically quantize the recommender system model(eg., DLRM-v2), please refer to `examples/quantization/torchao/DLRM-v2/README.md`
+
 ### 4.5.2 Running Quantized Models
 
 Quantized models can be run using vLLM with the zentorch backend. Refer to [section 4.6 vLLM Zentorch Plugin](#46-vllm-zentorch-plugin) for detailed instructions on running models with vLLM.
