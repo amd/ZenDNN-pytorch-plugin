@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2026 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -22,7 +22,7 @@ matcher_pass = PatternMatcherPass()
 
 # for fake tensors
 @init_once_fakemode
-def lazy_init():
+def lazy_init(input_device=None):
     from ._fusion_patterns import _replace_init
 
     _replace_init()
