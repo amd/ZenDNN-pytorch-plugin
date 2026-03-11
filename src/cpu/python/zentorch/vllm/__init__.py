@@ -37,6 +37,8 @@ from zentorch.vllm.core import (
     VLLM_V14_1,
     VLLM_V15,
     VLLM_V15_1,
+    VLLM_V16,
+    VLLM_V17,
 )
 
 logger = get_logger(__name__)
@@ -322,15 +324,13 @@ class CPUProfilerPatchV12:
         return True
 
 
-@vllm_version(VLLM_V13, VLLM_V14, VLLM_V14_1, VLLM_V15, VLLM_V15_1)
+@vllm_version(VLLM_V13, VLLM_V14, VLLM_V14_1, VLLM_V15, VLLM_V15_1, VLLM_V16, VLLM_V17)
 class CPUProfilerPatchV13:
     """Stub: Actual patching happens in platform.py check_and_update_config.
 
-    For 0.15.0, CPUWorker properly uses TorchProfilerWrapper natively,
-    so no additional patching is required.
-
-    TODO: Remove 0.15.x from this patch
-
+    For 0.15.0+, CPUWorker properly uses TorchProfilerWrapper natively.
+    The profiler wrapper._stop patch still suppresses meaningless cuda-time
+    output on CPU-only runs.
     """
 
     @classmethod
@@ -496,7 +496,7 @@ def register() -> Optional[str]:
 
     if family is None:
         logger.warning(
-            "[zentorch] Unsupported vLLM %s. Supports: %s, %s, %s, %s, %s, %s",
+            "[zentorch] Unsupported vLLM %s. Supports: %s, %s, %s, %s, %s, %s, %s, %s",
             vllm_ver,
             VLLM_V12,
             VLLM_V13,
@@ -504,6 +504,8 @@ def register() -> Optional[str]:
             VLLM_V14_1,
             VLLM_V15,
             VLLM_V15_1,
+            VLLM_V16,
+            VLLM_V17,
         )
         return None
 

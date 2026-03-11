@@ -5,13 +5,14 @@
 
 import torch  # noqa
 import inspect
+import base64
 from torch._inductor import config
 from torch._dynamo import register_backend
 from ._utils import is_version_compatible_import
 from torch._inductor.compile_fx import compile_fx, compile_fx_inner
 from torch._inductor.custom_graph_pass import CustomGraphPass, get_hash_for_files
 from ._optimize import optimize
-from typing import Callable, List, Optional
+from typing import Callable, List, Optional, Any
 from ._logging import get_logger
 from torch._functorch.aot_autograd import aot_module_simplified
 from torch.torch_version import TorchVersion
@@ -29,14 +30,24 @@ class OptimizePass(CustomGraphPass):
     def __call__(self, graph: torch.fx.Graph):
         optimize(graph)
 
+    def __bytes_to_str(self, byte_str: Any) -> Any:
+        if not isinstance(byte_str, bytes):
+            return byte_str
+        byte_str_b = base64.b64encode(byte_str)
+        byte_str_s = byte_str_b.decode('utf-8')
+        return byte_str_s
+
     def uuid(self):
         # needed for inductor caching
-        return get_hash_for_files((__file__,))
+        uuid_val = get_hash_for_files((__file__,))
+        uuid_val_str = self.__bytes_to_str(uuid_val)
+        return uuid_val_str
 
     def __repr__(self):
         try:
             uuid_val = self.uuid()
-            return f"OptimizePass(uuid={uuid_val!r})"
+            uuid_val_str = self.__bytes_to_str(uuid_val)
+            return f"OptimizePass(uuid={uuid_val_str!r})"
         except Exception:
             return "OptimizePass(uuid=<error>)"
 

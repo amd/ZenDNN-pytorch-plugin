@@ -6,12 +6,12 @@
 """zentorch CPU Platform for vLLM.
 
 Supports:
-- 0.12.0/0.13.0/0.14.0/0.14.1/0.15.0/0.15.1: CompilationMode, AttentionBackendEnum, native CPU attention
+- 0.12.0 - 0.17.0: CompilationMode, AttentionBackendEnum, native CPU attention
 """
 
 from typing import TYPE_CHECKING
 
-from zentorch.vllm.core import is_v13, is_v14, is_v14_1, is_v15, is_v15_1
+from zentorch.vllm.core import is_v13, is_v14, is_v14_1, is_v15, is_v15_1, is_v16, is_v17
 
 if TYPE_CHECKING:
     from vllm.config import VllmConfig
@@ -70,7 +70,7 @@ def _create_platform():
             0.12: Patched in __init__.py register() (must run before worker creation)
             0.13/0.14/0.15+: Suppresses redundant cuda-time table output for CPU
             """
-            if is_v13() or is_v14() or is_v14_1() or is_v15() or is_v15_1():
+            if is_v13() or is_v14() or is_v14_1() or is_v15() or is_v15_1() or is_v16() or is_v17():
                 cls._patch_profiler_v13_v14()
             # 0.12 is handled via _apply_profiler_patch_v12() in __init__.py register()
 
