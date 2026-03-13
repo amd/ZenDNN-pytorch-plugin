@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2023-2025 Advanced Micro Devices, Inc.
+# Copyright (c) 2023-2026 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -165,4 +165,18 @@ def find_path(fx_graph, start_node, end_node):
             if user_node not in visited:
                 stack.append(user_node)
 
+    return False
+
+
+def _is_used_by_zentorch_qlinear(node):
+    """Check if any user of this node is a zentorch qlinear* op."""
+    zentorch_qlinear_ops = {
+        torch.ops.zentorch.zentorch_qlinear.default,
+        torch.ops.zentorch.zentorch_qlinear_relu.default,
+        torch.ops.zentorch.zentorch_qlinear_sigmoid.default,
+        torch.ops.zentorch.zentorch_qlinear_mul_add.default,
+    }
+    for user in node.users:  # noqa: SIM110
+        if user.op == "call_function" and user.target in zentorch_qlinear_ops:
+            return True
     return False

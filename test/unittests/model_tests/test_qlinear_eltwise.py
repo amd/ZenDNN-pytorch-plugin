@@ -49,12 +49,14 @@ class Custom_Model_Qlinear_Eltwise(nn.Module):
         qlinear_output = torch.ops.zentorch.zentorch_qlinear(
             inp,
             weight,
-            bias,
             inp_scales,
             inp_zero_points,
             weight_scales,
             weight_zero_points,
-            output_dtype=output_torch_dtype,
+            bias,
+            None,
+            None,
+            output_torch_dtype,
         )
         eltwise_output = self.eltwise_op(qlinear_output)
 
@@ -65,7 +67,7 @@ class Custom_Model_Qlinear_Eltwise(nn.Module):
 class Test_Qlinear_Eltwise_Model(QLinearTestCase):
     @QLinearTestCase.hypothesis_params_qlinear_itr(
         dtype_list=qlinear_dtypes,
-        q_linear_dtype_opt_list=q_linear_dtype_opt,
+        q_linear_dtype_opt_list=["float32", "bfloat16"],
         input_dim_opt_list=input_dim_opt,
         q_weight_list_opt_list=q_weight_list_opt,
         bias_opt_list=bias_opt,

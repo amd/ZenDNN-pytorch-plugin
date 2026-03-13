@@ -49,29 +49,36 @@ class Custom_Model_Linear_Cat(nn.Module):
         use_zentorch=False,
     ):
         if use_zentorch:
+            if (
+                output_zero_points is not None
+                and output_zero_points.dtype == torch.uint8
+            ):
+                comp_output_zp = get_comp_zero_points(output_zero_points)
+            else:
+                comp_output_zp = None
             qlinear_output = torch.ops.zentorch.zentorch_qlinear(
                 inp,
                 weight,
-                bias,
                 inp_scales,
                 get_comp_zero_points(inp_zero_points),
                 weight_scales,
                 get_comp_zero_points(weight_zero_points),
-                output_dtype=output_dtype,
-                output_scales=output_scales,
-                output_zero_points=get_comp_zero_points(output_zero_points),
+                bias,
+                output_scales,
+                comp_output_zp,
+                output_dtype,
             )
             qlinear_relu_output = torch.ops.zentorch.zentorch_qlinear_relu(
                 inp,
                 weight,
-                bias,
                 inp_scales,
                 get_comp_zero_points(inp_zero_points),
                 weight_scales,
                 get_comp_zero_points(weight_zero_points),
-                output_dtype=output_dtype,
-                output_scales=output_scales,
-                output_zero_points=get_comp_zero_points(output_zero_points),
+                bias,
+                output_scales,
+                comp_output_zp,
+                output_dtype,
             )
         else:
             # simulated qlinear

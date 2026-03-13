@@ -53,28 +53,28 @@ class Custom_Model_Qlinear(nn.Module):
                 qlinear_output = torch.ops.zentorch.zentorch_qlinear(
                     inp,
                     weight,
-                    bias,
                     inp_scales,
                     inp_zero_points,
                     weight_scales,
                     weight_zero_points,
-                    output_dtype=output_dtype,
-                    output_scales=output_scales,
-                    output_zero_points=output_zero_points,
+                    bias,
+                    output_scales,
+                    output_zero_points,
+                    output_dtype,
                 )
             else:
                 torch.ops.zentorch.zentorch_qlinear.out(
                     qlinear_output,
                     inp,
                     weight,
-                    bias,
                     inp_scales,
                     inp_zero_points,
                     weight_scales,
                     weight_zero_points,
-                    output_dtype=output_dtype,
-                    output_scales=output_scales,
-                    output_zero_points=output_zero_points,
+                    bias,
+                    output_scales,
+                    output_zero_points,
+                    output_dtype,
                 )
         else:
             # simulated qlinear

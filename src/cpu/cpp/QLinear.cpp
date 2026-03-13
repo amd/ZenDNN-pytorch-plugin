@@ -100,6 +100,7 @@ void zendnnl_quantized_matmul_impl(
   const bool output_zero_points_defined = output_zero_points_t.defined();
 
   // Torch checks for quantized matmul.
+  // TODO: uncomment and enforce these checks later
   check_valid_dtypes_for_quantized_matmul(
       bias_t, input, weight, result, input_scales, input_zero_points,
       weight_scales, weight_zero_points, output_scales_t, output_zero_points_t,
@@ -363,17 +364,13 @@ void zentorch_quantized_matmul_impl(
 }
 
 template <UNARY_POST_OP fuse>
-void zentorch_qlinear_out_unary(at::Tensor &result, const at::Tensor &input,
-                                const at::Tensor &weight,
-                                c10::optional<at::Tensor> bias,
-                                const at::Tensor &input_scales,
-                                const at::Tensor &input_zero_points,
-                                const at::Tensor &weight_scales,
-                                const at::Tensor &weight_zero_points,
-                                c10::optional<c10::ScalarType> output_dtype,
-                                c10::optional<at::Tensor> output_scales,
-                                c10::optional<at::Tensor> output_zero_points,
-                                std::string zentorch_op_name) {
+void zentorch_qlinear_out_unary(
+    at::Tensor &result, const at::Tensor &input, const at::Tensor &weight,
+    const at::Tensor &input_scales, const at::Tensor &input_zero_points,
+    const at::Tensor &weight_scales, const at::Tensor &weight_zero_points,
+    c10::optional<at::Tensor> bias, c10::optional<at::Tensor> output_scales,
+    c10::optional<at::Tensor> output_zero_points,
+    c10::optional<c10::ScalarType> output_dtype, std::string zentorch_op_name) {
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
 
@@ -420,17 +417,13 @@ void zentorch_qlinear_out_unary(at::Tensor &result, const at::Tensor &input,
 }
 
 template <UNARY_POST_OP fuse>
-at::Tensor zentorch_qlinear_unary(const at::Tensor &input,
-                                  const at::Tensor &weight,
-                                  c10::optional<at::Tensor> bias,
-                                  const at::Tensor &input_scales,
-                                  const at::Tensor &input_zero_points,
-                                  const at::Tensor &weight_scales,
-                                  const at::Tensor &weight_zero_points,
-                                  c10::optional<c10::ScalarType> output_dtype,
-                                  c10::optional<at::Tensor> output_scales,
-                                  c10::optional<at::Tensor> output_zero_points,
-                                  std::string zentorch_op_name) {
+at::Tensor zentorch_qlinear_unary(
+    const at::Tensor &input, const at::Tensor &weight,
+    const at::Tensor &input_scales, const at::Tensor &input_zero_points,
+    const at::Tensor &weight_scales, const at::Tensor &weight_zero_points,
+    c10::optional<at::Tensor> bias, c10::optional<at::Tensor> output_scales,
+    c10::optional<at::Tensor> output_zero_points,
+    c10::optional<c10::ScalarType> output_dtype, std::string zentorch_op_name) {
 
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
@@ -438,7 +431,6 @@ at::Tensor zentorch_qlinear_unary(const at::Tensor &input,
     output_dtype = c10::kFloat;
   }
 
-  // `weight` is transposed for matmul computation.
   auto weight_transposed = weight.t();
 
   // `result` tensor's dtype will depend on output_dtype argument.
@@ -449,9 +441,9 @@ at::Tensor zentorch_qlinear_unary(const at::Tensor &input,
       output_sz, output_strides, input.options().dtype(output_dtype));
 
   zentorch_qlinear_out_unary<fuse>(
-      result, input, weight, bias, input_scales, input_zero_points,
-      weight_scales, weight_zero_points, output_dtype, output_scales,
-      output_zero_points, zentorch_op_name);
+      result, input, weight, input_scales, input_zero_points, weight_scales,
+      weight_zero_points, bias, output_scales, output_zero_points, output_dtype,
+      zentorch_op_name);
 
   return result;
 }
@@ -459,14 +451,12 @@ at::Tensor zentorch_qlinear_unary(const at::Tensor &input,
 template <BINARY_POST_OP fuse1, BINARY_POST_OP fuse2>
 inline at::Tensor zentorch_qlinear_binary_binary(
     const at::Tensor &input, const at::Tensor &weight,
-    c10::optional<at::Tensor> bias, const at::Tensor &input_scales,
-    const at::Tensor &input_zero_points, const at::Tensor &weight_scales,
-    const at::Tensor &weight_zero_points, const at::Tensor &binary1_input,
-    const at::Tensor &binary2_input,
-    c10::optional<c10::ScalarType> output_dtype,
-    c10::optional<at::Tensor> output_scales,
+    const at::Tensor &input_scales, const at::Tensor &input_zero_points,
+    const at::Tensor &weight_scales, const at::Tensor &weight_zero_points,
+    const at::Tensor &binary1_input, const at::Tensor &binary2_input,
+    c10::optional<at::Tensor> bias, c10::optional<at::Tensor> output_scales,
     c10::optional<at::Tensor> output_zero_points,
-    std::string zentorch_op_name) {
+    c10::optional<c10::ScalarType> output_dtype, std::string zentorch_op_name) {
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
   if (output_dtype.has_value()) {
@@ -534,49 +524,50 @@ inline at::Tensor zentorch_qlinear_binary_binary(
 // a default value.
 TORCH_LIBRARY_FRAGMENT(zentorch, m) {
   m.def("zentorch_qlinear(Tensor input, Tensor weight, "
-        "Tensor? bias, Tensor input_scales, Tensor input_zero_points, "
-        "Tensor weight_scales, Tensor weight_zero_points, *, "
-        "ScalarType? output_dtype=None, Tensor? output_scales=None, "
-        "Tensor? output_zero_points=None, str zentorch_op_name="
+        "Tensor input_scales, Tensor input_zero_points, "
+        "Tensor weight_scales, Tensor weight_zero_points, Tensor? bias, "
+        "Tensor? output_scales, "
+        "Tensor? output_zero_points, "
+        "ScalarType? output_dtype=None, str zentorch_op_name="
         "'zentorch::zentorch_qlinear') -> Tensor");
   m.def("zentorch_qlinear_relu(Tensor input, Tensor weight, "
-        "Tensor? bias, Tensor input_scales, Tensor input_zero_points, "
-        "Tensor weight_scales, Tensor weight_zero_points, *, "
-        "ScalarType? output_dtype=None, Tensor? "
-        "output_scales=None, "
-        "Tensor? output_zero_points=None, str zentorch_op_name="
+        "Tensor input_scales, Tensor input_zero_points, "
+        "Tensor weight_scales, Tensor weight_zero_points, Tensor? bias, "
+        "Tensor? output_scales, "
+        "Tensor? output_zero_points, "
+        "ScalarType? output_dtype=None, str zentorch_op_name="
         "'zentorch::zentorch_qlinear_relu') -> Tensor");
   m.def("zentorch_qlinear_sigmoid(Tensor input, Tensor weight, "
-        "Tensor? bias, Tensor input_scales, Tensor input_zero_points, "
-        "Tensor weight_scales, Tensor weight_zero_points, *, "
-        "ScalarType? output_dtype=None, Tensor? "
-        "output_scales=None, "
-        "Tensor? output_zero_points=None, str zentorch_op_name="
+        "Tensor input_scales, Tensor input_zero_points, "
+        "Tensor weight_scales, Tensor weight_zero_points, Tensor? bias, "
+        "Tensor? output_scales, "
+        "Tensor? output_zero_points, "
+        "ScalarType? output_dtype=None, str zentorch_op_name="
         "'zentorch::zentorch_qlinear_sigmoid') -> Tensor");
 
   m.def("zentorch_qlinear_mul_add(Tensor input, Tensor weight, "
-        "Tensor? bias, Tensor input_scales, Tensor input_zero_points, "
+        "Tensor input_scales, Tensor input_zero_points, "
         "Tensor weight_scales, Tensor weight_zero_points, Tensor "
-        " mul_input, Tensor add_input, *, "
-        "ScalarType? output_dtype=None, Tensor? "
-        "output_scales=None, "
-        "Tensor? output_zero_points=None, str zentorch_op_name="
+        " mul_input, Tensor add_input, Tensor? bias, "
+        "Tensor? output_scales, "
+        "Tensor? output_zero_points, ScalarType? output_dtype=None, str "
+        "zentorch_op_name="
         "'zentorch::zentorch_qlinear_mul_add') -> Tensor");
 
   m.def("zentorch_qlinear.out(Tensor(a!) out,"
         "Tensor input, Tensor weight, "
-        "Tensor? bias, Tensor input_scales, Tensor input_zero_points, "
-        "Tensor weight_scales, Tensor weight_zero_points, "
-        "ScalarType? output_dtype=None, Tensor? output_scales=None, "
-        "Tensor? output_zero_points=None,"
+        "Tensor input_scales, Tensor input_zero_points, "
+        "Tensor weight_scales, Tensor weight_zero_points, Tensor? bias, "
+        "Tensor? output_scales, "
+        "Tensor? output_zero_points, ScalarType? output_dtype=None, "
         "str zentorch_op_name='zentorch::zentorch_qlinear.out') -> ()");
   m.def("zentorch_qlinear_relu.out(Tensor(a!) out,"
         "Tensor input, Tensor weight, "
-        "Tensor? bias, Tensor input_scales, Tensor input_zero_points, "
+        "Tensor input_scales, Tensor input_zero_points, "
         "Tensor weight_scales, Tensor weight_zero_points, "
-        "ScalarType? output_dtype=None, Tensor? "
-        "output_scales=None, "
-        "Tensor? output_zero_points=None,"
+        "Tensor? bias, "
+        "Tensor? output_scales, "
+        "Tensor? output_zero_points, ScalarType? output_dtype=None, "
         "str zentorch_op_name="
         "'zentorch::zentorch_qlinear_relu.out') -> ()");
 }

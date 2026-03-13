@@ -620,17 +620,16 @@ def meta_zentorch_weight_prepack_for_linear(weight):
 @register_meta("zentorch_qlinear", "out")
 def meta_zentorch_qlinear_out(
     out,
-    output_stride,
     input,
     weight,
-    bias,
     input_scales,
     input_zero_points,
     weight_scales,
     weight_zero_points,
-    output_dtype=None,
-    output_scales=None,
-    output_zero_points=None,
+    bias,
+    output_scales,
+    output_zero_points,
+    output_dtype,
 ):
     return
 
@@ -638,17 +637,16 @@ def meta_zentorch_qlinear_out(
 @register_meta("zentorch_qlinear_relu", "out")
 def meta_zentorch_qlinear_relu_out(
     out,
-    output_stride,
     input,
     weight,
-    bias,
     input_scales,
     input_zero_points,
     weight_scales,
     weight_zero_points,
-    output_dtype=None,
-    output_scales=None,
-    output_zero_points=None,
+    bias,
+    output_scales,
+    output_zero_points,
+    output_dtype,
 ):
     return
 
@@ -657,14 +655,14 @@ def meta_zentorch_qlinear_relu_out(
 def meta_zentorch_qlinear(
     input,
     weight,
-    bias,
     input_scales,
     input_zero_points,
     weight_scales,
     weight_zero_points,
+    bias,
+    output_scales,
+    output_zero_points,
     output_dtype=None,
-    output_scales=None,
-    output_zero_points=None,
 ):
     if output_dtype is None:
         output_dtype = torch.float32
@@ -677,26 +675,26 @@ def meta_zentorch_qlinear(
 def meta_zentorch_qlinear_relu(
     input,
     weight,
-    bias,
     input_scales,
     input_zero_points,
     weight_scales,
     weight_zero_points,
+    bias,
+    output_scales,
+    output_zero_points,
     output_dtype=None,
-    output_scales=None,
-    output_zero_points=None,
 ):
     return meta_zentorch_qlinear(
         input,
         weight,
-        bias,
         input_scales,
         input_zero_points,
         weight_scales,
         weight_zero_points,
-        output_dtype,
+        bias,
         output_scales,
         output_zero_points,
+        output_dtype,
     )
 
 
@@ -704,26 +702,26 @@ def meta_zentorch_qlinear_relu(
 def meta_zentorch_qlinear_sigmoid(
     input,
     weight,
-    bias,
     input_scales,
     input_zero_points,
     weight_scales,
     weight_zero_points,
+    bias,
+    output_scales,
+    output_zero_points,
     output_dtype=None,
-    output_scales=None,
-    output_zero_points=None,
 ):
     return meta_zentorch_qlinear(
         input,
         weight,
-        bias,
         input_scales,
         input_zero_points,
         weight_scales,
         weight_zero_points,
-        output_dtype,
+        bias,
         output_scales,
         output_zero_points,
+        output_dtype,
     )
 
 
@@ -731,16 +729,16 @@ def meta_zentorch_qlinear_sigmoid(
 def meta_zentorch_qlinear_mul_add(
     input,
     weight,
-    bias,
     input_scales,
     input_zero_points,
     weight_scales,
     weight_zero_points,
     mul_input,
     add_input,
+    bias,
+    output_scales,
+    output_zero_points,
     output_dtype=None,
-    output_scales=None,
-    output_zero_points=None,
 ):
     if output_dtype is None:
         output_dtype = torch.float32
@@ -819,7 +817,6 @@ make_fallback(torch.ops.zentorch.zentorch_addmm_relu)
 make_fallback(torch.ops.zentorch.zentorch_addmm_silu)
 make_fallback(torch.ops.zentorch.zentorch_addmm_gelu_tanh)
 make_fallback(torch.ops.zentorch.zentorch_addmm_gelu_erf)
-make_fallback(torch.ops.zentorch.zentorch_linear_unary)
 make_fallback(torch.ops.zentorch.zentorch_linear_binary_binary)
 make_fallback(torch.ops.zentorch.zentorch_linear_unary_binary)
 make_fallback(torch.ops.zentorch.zentorch_addmm_1dbias)
@@ -830,6 +827,7 @@ make_fallback(torch.ops.zentorch.zentorch_addmm_1dbias_gelu_erf)
 make_fallback(torch.ops.zentorch.zentorch_addmm_1dbias_add)
 make_fallback(torch.ops.zentorch.zentorch_addmm_1dbias_add_add)
 make_fallback(torch.ops.zentorch.zentorch_addmm_1dbias_mul_add)
+make_fallback(torch.ops.zentorch.zentorch_linear_unary)
 make_fallback(torch.ops.zentorch.zentorch_mm_silu_mul)
 make_fallback(torch.ops.zentorch.zentorch_addmm_silu_mul)
 make_fallback(torch.ops.zentorch.zentorch_addmm_1dbias_silu_mul)

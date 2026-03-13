@@ -589,30 +589,62 @@ def qlinear_reorder_optimizations(fx_graph):
                 curr_args = curr_node.args
                 # TODO: modify the output dtype comparison after
                 # Quark v1.0.0 release.
+                # Use schema to get argument indices for both nodes
+                pred_schema = pred_node.target._schema
+                pred_arg_indices = {
+                    arg.name: i for i, arg in enumerate(pred_schema.arguments)
+                }
+                curr_schema = curr_node.target._schema
+                curr_arg_indices = {
+                    arg.name: i for i, arg in enumerate(curr_schema.arguments)
+                }
+
+                # Get predecessor's output_dtype from positional args
+                pred_output_dtype_idx = pred_arg_indices["output_dtype"]
+                pred_output_scales_idx = pred_arg_indices["output_scales"]
+                pred_output_zp_idx = pred_arg_indices["output_zero_points"]
+                pred_args = list(pred_node.args)
+                pred_output_dtype = (
+                    pred_args[pred_output_dtype_idx]
+                    if pred_output_dtype_idx < len(pred_args)
+                    else None
+                )
+                pred_output_scales = (
+                    pred_args[pred_output_scales_idx]
+                    if pred_output_scales_idx < len(pred_args)
+                    else None
+                )
+                pred_output_zp = (
+                    pred_args[pred_output_zp_idx]
+                    if pred_output_zp_idx < len(pred_args)
+                    else None
+                )
                 # if dtype is not None or
-                # if dtype is None then o/p-scales & o/p-zp should also be None
-                # and copy all the arguments, then below holds good
-                if not bool(pred_node.kwargs) or (
-                    "output_dtype" in pred_node.kwargs
-                    and pred_node.kwargs["output_dtype"]
-                    in (torch.float, torch.bfloat16)
-                ):
-                    schema = curr_node.target._schema
-                    # Map argument names to index
-                    arg_indices = {
-                        arg.name: i for i, arg in enumerate(schema.arguments)
-                    }
-                    new_kwargs = dict(pred_node.kwargs)
-                    input_scales_idx = arg_indices["input_scales"]
-                    input_zero_points_idx = arg_indices["input_zero_points"]
-                    new_kwargs["output_dtype"] = (
-                        torch.int8
-                        if curr_args[input_zero_points_idx] is None
-                        else torch.uint8
+                # if dtype is None then o/p-scales & o/p-zp should also
+                # be None and copy all the arguments, then below holds good
+                if (
+                    pred_output_dtype is None
+                    and pred_output_scales is None
+                    and pred_output_zp is None
+                ) or (
+                    pred_output_dtype is not None
+                    and pred_output_dtype
+                    in (
+                        torch.float,
+                        torch.bfloat16,
                     )
-                    new_kwargs["output_scales"] = curr_args[input_scales_idx]
-                    new_kwargs["output_zero_points"] = curr_args[input_zero_points_idx]
-                    pred_node.kwargs = new_kwargs
+                ):
+                    input_scales_idx = curr_arg_indices["input_scales"]
+                    input_zp_idx = curr_arg_indices["input_zero_points"]
+                    new_output_dtype = (
+                        torch.int8 if curr_args[input_zp_idx] is None else torch.uint8
+                    )
+                    pred_args = pred_args[:-3] + [
+                        curr_args[input_scales_idx],
+                        curr_args[input_zp_idx],
+                        new_output_dtype,
+                    ]
+                    pred_node.args = tuple(pred_args)
                     counters["zentorch"]["optimized_reorder"] += 1
                 pred_node = curr_node
     stable_topological_sort(fx_graph)

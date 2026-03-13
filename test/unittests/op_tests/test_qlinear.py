@@ -49,13 +49,15 @@ class Test_Qlinear(QLinearTestCase):
             torch.ops.zentorch.zentorch_qlinear(
                 self.data.x_for_qlinear["float32"][2],
                 self.data.y_int8[0],
-                self.data.bias_for_qlinear[0],
                 self.data.x_scales["per_tensor"],
                 get_comp_zero_points(
                     self.data.x_zero_points["per_tensor"]["float32"]["uint8"]
                 ),
                 self.data.y_scales["per_channel"],
                 get_comp_zero_points(self.data.y_zero_points["per_channel"]),
+                bias=self.data.bias_for_qlinear[0],
+                output_scales=None,
+                output_zero_points=None,
                 output_dtype=self.data.x_for_qlinear["float32"][2].dtype,
             )
         self.assertTrue(
@@ -89,7 +91,6 @@ class Test_Qlinear(QLinearTestCase):
                     torch.float16
                 ),  # unsupported dtype
                 self.data.y_int8[q_weight_idx],
-                self.data.bias_for_qlinear[bias_opt_idx],
                 self.data.x_scales["per_tensor"],
                 get_comp_zero_points(
                     self.data.x_zero_points["per_tensor"]["float32"][
@@ -98,6 +99,9 @@ class Test_Qlinear(QLinearTestCase):
                 ),
                 self.data.y_scales[q_granularity_val],
                 get_comp_zero_points(self.data.y_zero_points[q_granularity_val]),
+                bias=self.data.bias_for_qlinear[bias_opt_idx],
+                output_scales=None,
+                output_zero_points=None,
                 output_dtype=self.data.x_for_qlinear["float32"][input_dim].dtype,
             )
         self.assertTrue(
@@ -109,7 +113,6 @@ class Test_Qlinear(QLinearTestCase):
             torch.ops.zentorch.zentorch_qlinear(
                 self.data.x_for_qlinear["float32"][input_dim],
                 self.data.y,  # unsupported dtype
-                self.data.bias_for_qlinear[bias_opt_idx],
                 self.data.x_scales["per_tensor"],
                 get_comp_zero_points(
                     self.data.x_zero_points["per_tensor"]["float32"][
@@ -118,6 +121,9 @@ class Test_Qlinear(QLinearTestCase):
                 ),
                 self.data.y_scales[q_granularity_val],
                 get_comp_zero_points(self.data.y_zero_points[q_granularity_val]),
+                bias=self.data.bias_for_qlinear[bias_opt_idx],
+                output_scales=None,
+                output_zero_points=None,
                 output_dtype=self.data.x_for_qlinear["float32"][input_dim].dtype,
             )
         self.assertTrue(
@@ -129,7 +135,6 @@ class Test_Qlinear(QLinearTestCase):
             torch.ops.zentorch.zentorch_qlinear(
                 self.data.x_for_qlinear["float32"][input_dim],
                 self.data.y_int8[q_weight_idx],
-                self.data.input1d.to(torch.float16),  # unsupported dtype
                 self.data.x_scales["per_tensor"],
                 get_comp_zero_points(
                     self.data.x_zero_points["per_tensor"]["float32"][
@@ -138,6 +143,9 @@ class Test_Qlinear(QLinearTestCase):
                 ),
                 self.data.y_scales[q_granularity_val],
                 get_comp_zero_points(self.data.y_zero_points[q_granularity_val]),
+                bias=self.data.input1d.to(torch.float16),  # unsupported dtype
+                output_scales=None,
+                output_zero_points=None,
                 output_dtype=self.data.x_for_qlinear["float32"][input_dim].dtype,
             )
         self.assertTrue(
@@ -149,7 +157,6 @@ class Test_Qlinear(QLinearTestCase):
             torch.ops.zentorch.zentorch_qlinear(
                 self.data.x_for_qlinear["float32"][input_dim],
                 self.data.y_int8[q_weight_idx],
-                self.data.bias_for_qlinear[bias_opt_idx],
                 self.data.x_scales["per_tensor"].to(torch.float16),
                 get_comp_zero_points(
                     self.data.x_zero_points["per_tensor"]["float32"][
@@ -158,6 +165,9 @@ class Test_Qlinear(QLinearTestCase):
                 ),
                 self.data.y_scales[q_granularity_val],
                 get_comp_zero_points(self.data.y_zero_points[q_granularity_val]),
+                bias=self.data.bias_for_qlinear[bias_opt_idx],
+                output_scales=None,
+                output_zero_points=None,
                 output_dtype=self.data.x_for_qlinear["float32"][input_dim].dtype,
             )
         self.assertTrue("unsupported dtype for input_scales" in str(context.exception))
@@ -166,13 +176,15 @@ class Test_Qlinear(QLinearTestCase):
             torch.ops.zentorch.zentorch_qlinear(
                 self.data.x_for_qlinear["float32"][input_dim],
                 self.data.y_int8[q_weight_idx],
-                self.data.bias_for_qlinear[bias_opt_idx],
                 self.data.x_scales["per_tensor"],
                 self.data.x_zero_points["per_tensor"]["float32"]["uint8"].to(
                     torch.float
                 ),
                 self.data.y_scales[q_granularity_val],
                 get_comp_zero_points(self.data.y_zero_points[q_granularity_val]),
+                bias=self.data.bias_for_qlinear[bias_opt_idx],
+                output_scales=None,
+                output_zero_points=None,
                 output_dtype=self.data.x_for_qlinear["float32"][input_dim].dtype,
             )
         self.assertTrue(
@@ -183,7 +195,6 @@ class Test_Qlinear(QLinearTestCase):
             torch.ops.zentorch.zentorch_qlinear(
                 self.data.x_for_qlinear["float32"][input_dim],
                 self.data.y_int8[q_weight_idx],
-                self.data.bias_for_qlinear[bias_opt_idx],
                 self.data.x_scales["per_tensor"],
                 get_comp_zero_points(
                     self.data.x_zero_points["per_tensor"]["float32"][
@@ -192,6 +203,9 @@ class Test_Qlinear(QLinearTestCase):
                 ),
                 self.data.y_scales[q_granularity_val].to(torch.float16),
                 get_comp_zero_points(self.data.y_zero_points[q_granularity_val]),
+                bias=self.data.bias_for_qlinear[bias_opt_idx],
+                output_scales=None,
+                output_zero_points=None,
                 output_dtype=self.data.x_for_qlinear["float32"][input_dim].dtype,
             )
         self.assertTrue("unsupported dtype for weight_scales" in str(context.exception))
@@ -200,7 +214,6 @@ class Test_Qlinear(QLinearTestCase):
             torch.ops.zentorch.zentorch_qlinear(
                 self.data.x_for_qlinear["float32"][input_dim],
                 self.data.y_int8[q_weight_idx],
-                self.data.bias_for_qlinear[bias_opt_idx],
                 self.data.x_scales["per_tensor"],
                 get_comp_zero_points(
                     self.data.x_zero_points["per_tensor"]["float32"][
@@ -209,6 +222,9 @@ class Test_Qlinear(QLinearTestCase):
                 ),
                 self.data.y_scales[q_granularity_val],
                 self.data.y_zero_points[q_granularity_val].to(torch.float),
+                bias=self.data.bias_for_qlinear[bias_opt_idx],
+                output_scales=None,
+                output_zero_points=None,
                 output_dtype=self.data.x_for_qlinear["float32"][input_dim].dtype,
             )
         self.assertTrue(
@@ -239,7 +255,6 @@ class Test_Qlinear(QLinearTestCase):
             torch.ops.zentorch.zentorch_qlinear(
                 self.data.x1[0],  # incorrect size
                 self.data.y_int8[q_weight_idx],
-                self.data.bias_for_qlinear[bias_opt_idx],
                 self.data.x_scales["per_tensor"],
                 get_comp_zero_points(
                     self.data.x_zero_points["per_tensor"]["float32"][
@@ -248,6 +263,9 @@ class Test_Qlinear(QLinearTestCase):
                 ),
                 self.data.y_scales[q_granularity_val],
                 get_comp_zero_points(self.data.y_zero_points[q_granularity_val]),
+                bias=self.data.bias_for_qlinear[bias_opt_idx],
+                output_scales=None,
+                output_zero_points=None,
                 output_dtype=self.data.x_for_qlinear["float32"][input_dim].dtype,
             )
         self.assertTrue(
@@ -258,7 +276,6 @@ class Test_Qlinear(QLinearTestCase):
             torch.ops.zentorch.zentorch_qlinear(
                 self.data.x_for_qlinear["float32"][input_dim],
                 self.data.y1[0].to(torch.int8),  # incorrect size
-                self.data.bias_for_qlinear[bias_opt_idx],
                 self.data.x_scales["per_tensor"],
                 get_comp_zero_points(
                     self.data.x_zero_points["per_tensor"]["float32"][
@@ -267,6 +284,9 @@ class Test_Qlinear(QLinearTestCase):
                 ),
                 self.data.y_scales[q_granularity_val],
                 get_comp_zero_points(self.data.y_zero_points[q_granularity_val]),
+                bias=self.data.bias_for_qlinear[bias_opt_idx],
+                output_scales=None,
+                output_zero_points=None,
                 output_dtype=self.data.x_for_qlinear["float32"][input_dim].dtype,
             )
         self.assertTrue(
@@ -277,7 +297,6 @@ class Test_Qlinear(QLinearTestCase):
             torch.ops.zentorch.zentorch_qlinear(
                 self.data.x_for_qlinear["float32"][input_dim],
                 self.data.y_int8[q_weight_idx],
-                self.data.bias_for_qlinear[bias_opt_idx],
                 self.data.x3d,  # unsupported dims
                 get_comp_zero_points(
                     self.data.x_zero_points["per_tensor"]["float32"][
@@ -286,6 +305,9 @@ class Test_Qlinear(QLinearTestCase):
                 ),
                 self.data.y_scales[q_granularity_val],
                 get_comp_zero_points(self.data.y_zero_points[q_granularity_val]),
+                bias=self.data.bias_for_qlinear[bias_opt_idx],
+                output_scales=None,
+                output_zero_points=None,
                 output_dtype=self.data.x_for_qlinear["float32"][input_dim].dtype,
             )
         self.assertTrue(
@@ -297,11 +319,13 @@ class Test_Qlinear(QLinearTestCase):
             torch.ops.zentorch.zentorch_qlinear(
                 self.data.x_for_qlinear["float32"][input_dim],
                 self.data.y_int8[q_weight_idx],
-                self.data.bias_for_qlinear[bias_opt_idx],
                 self.data.x_scales["per_tensor"],
                 get_comp_zero_points(self.data.y3d),  # unsupported dims
                 self.data.y_scales[q_granularity_val],
                 get_comp_zero_points(self.data.y_zero_points[q_granularity_val]),
+                bias=self.data.bias_for_qlinear[bias_opt_idx],
+                output_scales=None,
+                output_zero_points=None,
                 output_dtype=self.data.x_for_qlinear["float32"][input_dim].dtype,
             )
         self.assertTrue(
@@ -313,7 +337,6 @@ class Test_Qlinear(QLinearTestCase):
             torch.ops.zentorch.zentorch_qlinear(
                 self.data.x_for_qlinear["float32"][input_dim],
                 self.data.y_int8[q_weight_idx],
-                self.data.bias_for_qlinear[bias_opt_idx],
                 self.data.x_scales["per_tensor"],
                 get_comp_zero_points(
                     self.data.x_zero_points["per_tensor"]["float32"][
@@ -322,6 +345,9 @@ class Test_Qlinear(QLinearTestCase):
                 ),
                 self.data.y3d,  # unsupported dims
                 get_comp_zero_points(self.data.y_zero_points[q_granularity_val]),
+                bias=self.data.bias_for_qlinear[bias_opt_idx],
+                output_scales=None,
+                output_zero_points=None,
                 output_dtype=self.data.x_for_qlinear["float32"][input_dim].dtype,
             )
         self.assertTrue(
@@ -333,7 +359,6 @@ class Test_Qlinear(QLinearTestCase):
             torch.ops.zentorch.zentorch_qlinear(
                 self.data.x_for_qlinear["float32"][input_dim],
                 self.data.y_int8[q_weight_idx],
-                self.data.bias_for_qlinear[bias_opt_idx],
                 self.data.x_scales["per_tensor"],
                 get_comp_zero_points(
                     self.data.x_zero_points["per_tensor"]["float32"][
@@ -342,6 +367,9 @@ class Test_Qlinear(QLinearTestCase):
                 ),
                 self.data.y_scales[q_granularity_val],
                 get_comp_zero_points(self.data.y3d),  # unsupported dims
+                bias=self.data.bias_for_qlinear[bias_opt_idx],
+                output_scales=None,
+                output_zero_points=None,
                 output_dtype=self.data.x_for_qlinear["float32"][input_dim].dtype,
             )
         self.assertTrue(
@@ -357,8 +385,9 @@ class Test_Qlinear(QLinearTestCase):
                 torch.ops.zentorch.zentorch_qlinear(
                     self.data.x_for_qlinear["float32"][input_dim],
                     self.data.y_int8[q_weight_idx],
-                    self.data.bias_for_qlinear[bias_opt_idx],
-                    self.data.y_scales["per_channel"],  # per-channel scales not supported
+                    self.data.y_scales[
+                        "per_channel"
+                    ],  # per-channel scales not supported
                     get_comp_zero_points(
                         self.data.x_zero_points["per_tensor"]["float32"][
                             q_zero_points_dtype
@@ -366,6 +395,9 @@ class Test_Qlinear(QLinearTestCase):
                     ),
                     self.data.y_scales[q_granularity_val],
                     get_comp_zero_points(self.data.y_zero_points[q_granularity_val]),
+                    bias=self.data.bias_for_qlinear[bias_opt_idx],
+                    output_scales=None,
+                    output_zero_points=None,
                     output_dtype=self.data.x_for_qlinear["float32"][input_dim].dtype,
                 )
             self.assertTrue(
@@ -381,13 +413,15 @@ class Test_Qlinear(QLinearTestCase):
                 torch.ops.zentorch.zentorch_qlinear(
                     self.data.x_for_qlinear["float32"][input_dim],
                     self.data.y_int8[q_weight_idx],
-                    self.data.bias_for_qlinear[bias_opt_idx],
                     self.data.x_scales["per_tensor"],
                     self.data.y_zero_points["per_channel"].to(
                         torch.int32
                     ),  # wrong num of zero points
                     self.data.y_scales[q_granularity_val],
                     get_comp_zero_points(self.data.y_zero_points[q_granularity_val]),
+                    bias=self.data.bias_for_qlinear[bias_opt_idx],
+                    output_scales=None,
+                    output_zero_points=None,
                     output_dtype=self.data.x_for_qlinear["float32"][input_dim].dtype,
                 )
             self.assertTrue(
@@ -399,7 +433,6 @@ class Test_Qlinear(QLinearTestCase):
             torch.ops.zentorch.zentorch_qlinear(
                 self.data.x_for_qlinear["float32"][input_dim],
                 self.data.y_int8[q_weight_idx],
-                self.data.bias_for_qlinear[bias_opt_idx],
                 self.data.x_scales["per_tensor"],
                 get_comp_zero_points(
                     self.data.x_zero_points["per_tensor"]["float32"][
@@ -408,6 +441,9 @@ class Test_Qlinear(QLinearTestCase):
                 ),
                 self.data.wrong_scales_per_channel,  # incorrect number of elements
                 get_comp_zero_points(self.data.y_zero_points[q_granularity_val]),
+                bias=self.data.bias_for_qlinear[bias_opt_idx],
+                output_scales=None,
+                output_zero_points=None,
                 output_dtype=self.data.x_for_qlinear["float32"][input_dim].dtype,
             )
         self.assertTrue(
@@ -419,7 +455,6 @@ class Test_Qlinear(QLinearTestCase):
             torch.ops.zentorch.zentorch_qlinear(
                 self.data.x_for_qlinear["float32"][input_dim],
                 self.data.y_int8[q_weight_idx],
-                self.data.bias_for_qlinear[bias_opt_idx],
                 self.data.x_scales["per_tensor"],
                 get_comp_zero_points(
                     self.data.x_zero_points["per_tensor"]["float32"][
@@ -430,6 +465,9 @@ class Test_Qlinear(QLinearTestCase):
                 self.data.wrong_zero_points_per_channel.to(
                     torch.int32
                 ),  # incorrect number of elements
+                bias=self.data.bias_for_qlinear[bias_opt_idx],
+                output_scales=None,
+                output_zero_points=None,
                 output_dtype=self.data.x_for_qlinear["float32"][input_dim].dtype,
             )
         self.assertTrue(
@@ -441,7 +479,6 @@ class Test_Qlinear(QLinearTestCase):
             torch.ops.zentorch.zentorch_qlinear(
                 self.data.x_for_qlinear["float32"][input_dim],
                 self.data.y_int8[q_weight_idx],
-                self.data.input3d,  # unsupported dims for bias
                 self.data.x_scales["per_tensor"],
                 get_comp_zero_points(
                     self.data.x_zero_points["per_tensor"]["float32"][
@@ -450,6 +487,9 @@ class Test_Qlinear(QLinearTestCase):
                 ),
                 self.data.y_scales[q_granularity_val],
                 get_comp_zero_points(self.data.y_zero_points[q_granularity_val]),
+                bias=self.data.input3d,  # unsupported dims for bias,
+                output_scales=None,
+                output_zero_points=None,
                 output_dtype=self.data.x_for_qlinear["float32"][input_dim].dtype,
             )
         self.assertTrue(
@@ -480,7 +520,6 @@ class Test_Qlinear(QLinearTestCase):
             torch.ops.zentorch.zentorch_qlinear(
                 self.data.x_for_qlinear[input_dtype][input_dim],
                 self.data.y_int8[q_weight_idx],
-                self.data.bias_for_qlinear[bias_opt_idx],
                 self.data.x_scales["per_tensor"],
                 get_comp_zero_points(
                     self.data.x_zero_points["per_tensor"][input_dtype][
@@ -489,6 +528,9 @@ class Test_Qlinear(QLinearTestCase):
                 ),
                 self.data.y_scales[q_granularity_val],
                 get_comp_zero_points(self.data.y_zero_points[q_granularity_val]),
+                bias=self.data.bias_for_qlinear[bias_opt_idx],
+                output_scales=None,
+                output_zero_points=None,
                 output_dtype=torch.float16,  # unsupported output dtype
             )
         self.assertTrue(
@@ -521,6 +563,9 @@ class Test_Qlinear(QLinearTestCase):
         self.skip_if_does_not_support_arg_combination_for_qlinear(
             bias_opt_idx, input_dtype, output_dtype
         )
+
+        actual_output_dtype = DataTypes.get_torch_type(output_dtype)
+
         # simulated qlinear
         qdq_linear_output = qdq_linear(
             self.data.x_for_qlinear[input_dtype][input_dim],
@@ -531,29 +576,32 @@ class Test_Qlinear(QLinearTestCase):
             self.data.y_scales[q_granularity_val],
             self.data.y_zero_points[q_granularity_val],
             None,
-            DataTypes.get_torch_type(output_dtype),
+            actual_output_dtype,
             self.data.output_scales["per_tensor"][output_dtype]["positive_scales"],
             self.data.output_zero_points["per_tensor"][output_dtype],
         )
-        # zentorch qlinear
+        # zentorch qlinear: only pass output_zero_points for uint8 (asymmetric)
+        if output_dtype == "uint8":
+            output_zero_points = get_comp_zero_points(
+                self.data.output_zero_points["per_tensor"][output_dtype]
+            )
+        else:
+            output_zero_points = None
         zentorch_qlinear_output = torch.ops.zentorch.zentorch_qlinear(
             self.data.x_for_qlinear[input_dtype][input_dim],
             self.data.y_int8[q_weight_idx],
-            self.data.bias_for_qlinear[bias_opt_idx],
             self.data.x_scales["per_tensor"],
             get_comp_zero_points(
                 self.data.x_zero_points["per_tensor"][input_dtype][q_zero_points_dtype]
             ),
             self.data.y_scales[q_granularity_val],
             get_comp_zero_points(self.data.y_zero_points[q_granularity_val]),
-            output_dtype=DataTypes.get_torch_type(output_dtype),
-
+            bias=self.data.bias_for_qlinear[bias_opt_idx],
             output_scales=self.data.output_scales["per_tensor"][output_dtype][
                 "positive_scales"
             ],
-            output_zero_points=get_comp_zero_points(
-                self.data.output_zero_points["per_tensor"][output_dtype]
-            ),
+            output_zero_points=output_zero_points,
+            output_dtype=actual_output_dtype,
         )
         # bf16 qlinear comparsion requires slightly higher tolerance as compared to fp32
         self.assertEqual(
@@ -598,6 +646,8 @@ class Test_Qlinear(QLinearTestCase):
             )
         )
 
+        actual_output_dtype = DataTypes.get_torch_type(output_dtype)
+
         # simulated qlinear
         qdq_linear_output = qdq_linear(
             self.data.x_for_qlinear[input_dtype][input_dim],
@@ -608,27 +658,31 @@ class Test_Qlinear(QLinearTestCase):
             zero_dim_y_scales,
             self.data.y_zero_points["per_tensor"],
             None,
-            DataTypes.get_torch_type(output_dtype),
+            actual_output_dtype,
             zero_dim_output_scales,
             self.data.output_zero_points["per_tensor"][output_dtype],
         )
 
-        # zentorch qlinear
+        # zentorch qlinear: only pass output_zero_points for uint8 (asymmetric)
+        if output_dtype == "uint8":
+            output_zero_points = get_comp_zero_points(
+                self.data.output_zero_points["per_tensor"][output_dtype]
+            )
+        else:
+            output_zero_points = None
         zentorch_qlinear_output = torch.ops.zentorch.zentorch_qlinear(
             self.data.x_for_qlinear[input_dtype][input_dim],
             self.data.y_int8[q_weight_idx],
-            self.data.bias_for_qlinear[bias_opt_idx],
             zero_dim_x_scales,
             get_comp_zero_points(
                 self.data.x_zero_points["per_tensor"][input_dtype][q_zero_points_dtype]
             ),
             zero_dim_y_scales,
             get_comp_zero_points(self.data.y_zero_points["per_tensor"]),
-            output_dtype=DataTypes.get_torch_type(output_dtype),
+            bias=self.data.bias_for_qlinear[bias_opt_idx],
             output_scales=zero_dim_output_scales,
-            output_zero_points=get_comp_zero_points(
-                self.data.output_zero_points["per_tensor"][output_dtype]
-            ),
+            output_zero_points=output_zero_points,
+            output_dtype=actual_output_dtype,
         )
 
         self.assertEqual(

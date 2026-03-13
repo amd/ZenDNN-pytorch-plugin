@@ -71,24 +71,28 @@ class Test_Qlinear_Eltwise(QLinearTestCase):
             self.data.output_zero_points["per_tensor"][output_dtype],
         )
 
-        # zentorch qlinear + eltwise fused op
+        # zentorch qlinear + eltwise fused op: only pass output_zero_points for uint8
+        if output_dtype == "uint8":
+            comp_output_zp = get_comp_zero_points(
+                self.data.output_zero_points["per_tensor"][output_dtype]
+            )
+        else:
+            comp_output_zp = None
         zentorch_qlinear_eltwise_output = qlinear_eltwise_map[eltwise_op][1](
             self.data.x_for_qlinear[input_dtype][input_dim],
             self.data.y_int8[q_weight_idx],
-            self.data.bias_for_qlinear[bias_opt_idx],
             self.data.x_scales["per_tensor"],
             get_comp_zero_points(
                 self.data.x_zero_points["per_tensor"][input_dtype][q_zero_points_dtype]
             ),
             self.data.y_scales[q_granularity_val],
             get_comp_zero_points(self.data.y_zero_points[q_granularity_val]),
-            output_dtype=self.data.get_torch_type(output_dtype),
-            output_scales=self.data.output_scales["per_tensor"][output_dtype][
+            self.data.bias_for_qlinear[bias_opt_idx],
+            self.data.output_scales["per_tensor"][output_dtype][
                 "positive_scales"
             ],
-            output_zero_points=get_comp_zero_points(
-                self.data.output_zero_points["per_tensor"][output_dtype]
-            ),
+            comp_output_zp,
+            self.data.get_torch_type(output_dtype),
         )
 
         self.assertEqual(

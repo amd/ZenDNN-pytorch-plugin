@@ -119,6 +119,7 @@ def zentorch_compile_fx_inner(
     boxed_forward_device_index=None,
     user_visible_outputs=frozenset(),
     layout_opt: Optional[bool] = None,
+    fx_wrapper: bool = False,
 ):
     logger.info("Model is passed to compile_fx_inner.")
     # From PT2.4, compile_fx_inner introduced the optional static_input_idxs
@@ -135,6 +136,7 @@ def zentorch_compile_fx_inner(
             num_fixed=num_fixed,
             is_backward=is_backward,
             graph_id=graph_id,
+            fx_wrapper=fx_wrapper,
         )
     else:
         return compile_fx_inner(
@@ -144,6 +146,7 @@ def zentorch_compile_fx_inner(
             static_input_idxs=static_input_idxs,
             is_backward=is_backward,
             graph_id=graph_id,
+            fx_wrapper=fx_wrapper,
         )
 
 

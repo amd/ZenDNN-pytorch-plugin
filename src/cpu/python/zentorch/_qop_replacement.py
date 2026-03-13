@@ -42,14 +42,14 @@ def _qint8_dq_addmm_bias_per_tensor_replacement_impl(
     output = torch.ops.zentorch.zentorch_qlinear.default(
         primals_1,
         primals_2,
-        primals_3,
         input_scale,
         input_zero_point,
-        weight_scales=weight_scale_tensor,
-        weight_zero_points=weight_zero_point_tensor,
-        output_dtype=primals_1.dtype,
-        output_scales=None,
-        output_zero_points=None,
+        weight_scale_tensor,
+        weight_zero_point_tensor,
+        primals_3,
+        None,
+        None,
+        primals_1.dtype,
     )
     return (output,)
 
@@ -138,14 +138,14 @@ def _qint8_dq_addmm_bias_per_channel_replacement_impl(
     output = torch.ops.zentorch.zentorch_qlinear.default(
         primals_1,
         primals_2,
-        primals_3,
         input_scale,
         input_zero_point,
-        weight_scales=weight_scale,
-        weight_zero_points=weight_zero_point_converted,
-        output_dtype=primals_1.dtype,
-        output_scales=None,
-        output_zero_points=None,
+        weight_scale,
+        weight_zero_point_converted,
+        primals_3,
+        None,
+        None,
+        primals_1.dtype,
     )
     return (output,)
 
@@ -297,14 +297,14 @@ def _qint8_dq_addmm_1dbias_per_tensor_channel_replacement_impl(
     output = torch.ops.zentorch.zentorch_qlinear.default(
         primals_1,
         primals_2,
-        primals_3,
         input_scales_tensor,
         input_zero_points_tensor,
-        weight_scales=weight_scale,
-        weight_zero_points=weight_zero_point_converted,
-        output_dtype=primals_1.dtype,
-        output_scales=None,
-        output_zero_points=None,
+        weight_scale,
+        weight_zero_point_converted,
+        primals_3,
+        None,
+        None,
+        primals_1.dtype,
     )
     return (output,)
 
@@ -401,14 +401,14 @@ def _qint8_dq_addmm_1dbias_view_per_tensor_channel_replacement_impl(
     output = torch.ops.zentorch.zentorch_qlinear.default(
         primals_1,
         primals_2,
-        primals_3,
         input_scales_tensor,
         input_zero_points_tensor,
-        weight_scales=weight_scale,
-        weight_zero_points=weight_zero_point_converted,
-        output_dtype=primals_1.dtype,
-        output_scales=None,
-        output_zero_points=None,
+        weight_scale,
+        weight_zero_point_converted,
+        primals_3,
+        None,
+        None,
+        primals_1.dtype,
     )
     return (output,)
 
@@ -513,14 +513,14 @@ def _qint8_dq_addmm_per_tensor_channel_replacement_impl(
     output = torch.ops.zentorch.zentorch_qlinear.default(
         primals_1,
         primals_2,
-        None,  # No bias in this case
         input_scales_tensor,
         input_zero_points_tensor,
-        weight_scales=weight_scale,
-        weight_zero_points=weight_zero_point_converted,
-        output_dtype=primals_1.dtype,
-        output_scales=None,
-        output_zero_points=None,
+        weight_scale,
+        weight_zero_point_converted,
+        None,
+        None,
+        None,
+        primals_1.dtype,
     )
     return (output,)
 
@@ -613,14 +613,14 @@ def _qint8_dq_addmm_view_per_tensor_channel_replacement_impl(
     output = torch.ops.zentorch.zentorch_qlinear.default(
         primals_1,
         primals_2,
-        None,  # No bias in this case
         input_scales_tensor,
         input_zero_points_tensor,
-        weight_scales=weight_scale,
-        weight_zero_points=weight_zero_point_converted,
-        output_dtype=primals_1.dtype,
-        output_scales=None,
-        output_zero_points=None,
+        weight_scale,
+        weight_zero_point_converted,
+        None,
+        None,
+        None,
+        primals_1.dtype,
     )
     return (output,)
 

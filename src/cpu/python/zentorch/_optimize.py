@@ -5,6 +5,7 @@
 
 import zentorch._C  # noqa
 import os
+import torch
 from torch._inductor import config
 from torch._inductor.fx_utils import FakeTensorUpdater
 
@@ -35,9 +36,43 @@ from ._qop_replacement import replace_with_zentorch_qops
 from ._unary_fusions import zentorch_unary_post_op_fusions
 from ._unary_binary_fusions import zentorch_unary_binary_post_op_fusions
 from ._binary_binary_fusions import zentorch_binary_binary_post_op_fusions
+from ._utils import _is_used_by_zentorch_qlinear
 
 # make a logger for this file
 logger = get_logger(__name__)
+
+
+def constant_fold_full_ops(graph):
+    """Replace aten.full nodes with constant scalar args with actual constant tensors."""
+    from torch.utils._mode_utils import no_dispatch
+
+    for node in list(graph.nodes):
+        if node.op == "call_function" and node.target == torch.ops.aten.full.default:
+            size_arg = node.args[0]
+            fill_value = node.args[1]
+            kwargs = node.kwargs
+            # Only fold if arguments are actual constants (not FX nodes)
+            if (
+                isinstance(size_arg, (list, tuple))
+                and all(isinstance(s, int) for s in size_arg)
+                and isinstance(fill_value, (int, float))
+                and _is_used_by_zentorch_qlinear(node)
+            ):
+                dtype = kwargs.get("dtype", torch.float32)
+                # Create tensor OUTSIDE of FakeTensorMode so it has real data
+                with no_dispatch():
+                    const_tensor = torch.full(size_arg, fill_value, dtype=dtype)
+                # Register as a graph attribute and replace node
+                attr_name = f"_folded_constant_{node.name}"
+                gm = graph.owning_module
+                gm.register_buffer(attr_name, const_tensor)
+                with graph.inserting_before(node):
+                    new_node = graph.get_attr(attr_name)
+                    new_node.meta.update(node.meta)
+                    node.replace_all_uses_with(new_node)
+                    graph.erase_node(node)
+    graph.lint()
+    return graph
 
 
 def optimize(fx_graph):
@@ -109,5 +144,8 @@ def optimize(fx_graph):
 
     # Fusion of parallel embeddingbags
     optimized_graph = emb_ops_horizontal_fusion(optimized_graph)
+    # constant folding the aten.full ops will avoid fusing them with zentorch_qlinear ops
+    if config.freezing:
+        optimized_graph = constant_fold_full_ops(optimized_graph)
 
     return optimized_graph

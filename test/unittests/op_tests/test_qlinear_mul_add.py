@@ -42,14 +42,16 @@ class Test_Qlinear_Binary(QLinearTestCase):
             torch.ops.zentorch.zentorch_qlinear_mul_add(
                 self.data.x_for_qlinear["float32"][2],
                 self.data.y_int8[0],
-                self.data.bias_for_qlinear[0],
                 self.data.x_scales["per_tensor"],
                 get_comp_zero_points(self.data.x_zero_points["per_tensor"]["float32"]["uint8"]),
                 self.data.y_scales["per_channel"],
                 get_comp_zero_points(self.data.y_zero_points["per_channel"]),
                 self.data.binary_input[2],
                 self.data.binary_input[2],
-                output_dtype=self.data.x_for_qlinear["float32"][2].dtype,
+                self.data.bias_for_qlinear[0],
+                None,
+                None,
+                self.data.x_for_qlinear["float32"][2].dtype,
             )
         self.assertTrue(
             "Zentorch's INT8 kernels require the CPU to support AVX512 instructions."
@@ -110,7 +112,6 @@ class Test_Qlinear_Binary(QLinearTestCase):
         zentorch_qlinear_mul_add_output = torch.ops.zentorch.zentorch_qlinear_mul_add(
             self.data.x_for_qlinear[input_dtype][input_dim],
             self.data.y_int8[q_weight_idx],
-            self.data.bias_for_qlinear[bias_opt_idx],
             self.data.x_scales["per_tensor"],
             get_comp_zero_points(
                 self.data.x_zero_points["per_tensor"][input_dtype][q_zero_points_dtype]
@@ -119,7 +120,10 @@ class Test_Qlinear_Binary(QLinearTestCase):
             get_comp_zero_points(self.data.y_zero_points[q_granularity_val]),
             self.data.binary_input[input_dim],
             self.data.binary_input[input_dim],
-            output_dtype=self.data.get_torch_type(output_dtype),
+            self.data.bias_for_qlinear[bias_opt_idx],
+            None,
+            None,
+            self.data.get_torch_type(output_dtype),
         )
         self.assertEqual(
             qdq_linear_mul_add_output,

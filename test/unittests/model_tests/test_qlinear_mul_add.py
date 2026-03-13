@@ -52,12 +52,14 @@ class Custom_Model_Qlinear_Mul_Add(nn.Module):
         qlinear_output = torch.ops.zentorch.zentorch_qlinear(
             inp,
             weight,
-            bias,
             inp_scales,
             inp_zero_points,
             weight_scales,
             weight_zero_points,
-            output_dtype=output_dtype,
+            bias,
+            None,
+            None,
+            output_dtype,
         )
         if self.mul_arg_pos == 0:
             mul_output = torch.mul(qlinear_output, mul_input)
@@ -120,7 +122,7 @@ class Test_Qlinear_Mul_Add_Model(QLinearTestCase):
 
         for pos_name, pos_config in MUL_ADD_POSITIONS.items():
             with self.subTest(position=pos_name):
-                torch_output_dtype = self.data.get_torch_type(dtype)
+                torch_output_dtype = self.data.get_torch_type(output_dtype)
                 model = Custom_Model_Qlinear_Mul_Add(
                     mul_arg_pos=pos_config["mul_arg_pos"],
                     add_arg_pos=pos_config["add_arg_pos"],
