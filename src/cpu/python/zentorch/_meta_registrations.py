@@ -804,6 +804,19 @@ def meta_zentorch_woq_linear_mul_add(
     return add_input.new_empty((add_input.size()), dtype=input.dtype)
 
 
+@register_meta("zentorch_dynamic_qlinear")
+def meta_zentorch_dynamic_qlinear(
+    input,
+    weight,
+    weight_scales,
+    bias=None,
+    zentorch_op_name="zentorch::zentorch_dynamic_qlinear",
+):
+    out_dim = list(input.size())
+    out_dim[-1] = weight.size(0)
+    return input.new_empty(out_dim)
+
+
 @register_meta("zentorch_weight_from_int4pack_and_repack")
 def meta_zentorch_weight_from_int4pack_and_repack(unpacked_weight):
     # Returns a packed weight tensor of shape [N, K/8]
@@ -852,6 +865,7 @@ make_fallback(torch.ops.zentorch.zentorch_woq_linear)
 make_fallback(torch.ops.zentorch.zentorch_woq_linear_relu)
 make_fallback(torch.ops.zentorch.zentorch_woq_linear_sigmoid)
 make_fallback(torch.ops.zentorch.zentorch_woq_linear_mul_add)
+make_fallback(torch.ops.zentorch.zentorch_dynamic_qlinear)
 make_fallback(torch.ops.zentorch.zentorch_weight_from_int4pack_and_repack)
 if hasattr(torch.ops.zentorch, "zentorch_sdpa"):
     make_fallback(torch.ops.zentorch.zentorch_sdpa)
