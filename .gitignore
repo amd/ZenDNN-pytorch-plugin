@@ -4,6 +4,7 @@ third_party/
 *.egg-info/
 src/cpu/cpp/Config.hpp
 src/cpu/python/zentorch/_build_info.py
+src/cpu/python/zentorch/include/
 __pycache__
 benchmark/recsys/dlrmv2-mlperf/mlperf.conf
 benchmark/recsys/dlrmv2-mlperf/output

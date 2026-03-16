@@ -51,7 +51,7 @@ def _qlinear_q_dq_mul_add_replacement_impl(
         bias,
         None,
         None,
-        input.dtype,
+        output_dtype,
     )
     return (output,)
 

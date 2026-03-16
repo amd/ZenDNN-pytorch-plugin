@@ -3,8 +3,19 @@
 # All rights reserved.
 # ******************************************************************************
 
-from ._build_info import __torchversion__ as buildtime_torchversion
-from torch.torch_version import __version__ as runtime_torchversion
+import os
+import ctypes
+
+# Load libzentorch.so with RTLD_GLOBAL so that AOTI-compiled modules can
+# find the shim functions (aoti_torch_cpu_zentorch_*)
+_lib_dir = os.path.dirname(os.path.abspath(__file__))
+_lib_path = os.path.join(_lib_dir, "libzentorch.so")
+if os.path.exists(_lib_path):
+    # The mode parameter must be passed directly to CDLL for RTLD_GLOBAL to work
+    ctypes.CDLL(_lib_path, mode=os.RTLD_GLOBAL | os.RTLD_NOW)
+
+from ._build_info import __torchversion__ as buildtime_torchversion  # noqa: E402
+from torch.torch_version import __version__ as runtime_torchversion  # noqa: E402
 
 # Pytorch lacks symbol-level compatibility, requiring extensions
 # to be pinned to the same minor version. To avoid issues, it is
@@ -40,6 +51,7 @@ from ._optimize_for_export import export_optimize_pass  # noqa
 from ._info import __config__, __version__  # noqa
 from ._compile_backend import *  # noqa
 from ._meta_registrations import *  # noqa
+from ._lowerings import *  # noqa
 from ._freeze_utils import freezing_enabled  # noqa
 from . import utils  # noqa F401
 from . import llm  # noqa F401

@@ -9,6 +9,7 @@ from packaging.version import parse
 from torch.torch_version import __version__
 from os.path import join as Path
 import os
+import shutil
 import subprocess
 import torch
 import warnings
@@ -192,6 +193,15 @@ with open(_build_info_path, "w") as f:
     f.write(_build_config)
     f.close()
 
+# Copy the AOTI shim header into the package tree so it ships with the wheel
+# and can be located at runtime via the package directory.
+_aoti_header_src = Path(project_root_dir, "src", "cpu", "cpp", "shim_cpu_zentorch.hpp")
+_aoti_include_dir = Path(
+    project_root_dir, "src", "cpu", "python", PACKAGE_NAME, "include"
+)
+os.makedirs(_aoti_include_dir, exist_ok=True)
+shutil.copy2(_aoti_header_src, _aoti_include_dir)
+
 
 def main():
     setup(
@@ -222,6 +232,7 @@ def main():
         },
         packages=packages,
         package_dir={"": Path("src", "cpu", "python")},
+        package_data={PACKAGE_NAME: ["include/*.hpp"]},
         extras_require=extras_require,
         entry_points={
             # vLLM will import this automatically when the wheel is present
