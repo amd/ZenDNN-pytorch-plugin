@@ -50,6 +50,63 @@ logger = get_logger(__name__)
 
 _FXGRAPHCACHE_PATCH_APPLIED = False
 
+# ---------------------------------------------------------------------------
+# Patch torchao Int8Tensor F.linear dispatch → zentorch_dynamic_qlinear
+#
+# torchao's Int8Tensor registers a __torch_function__ handler for F.linear
+# that decomposes into choose_qparams → quantize → _int_mm → dequant.
+# We re-register the handler so the traced graph contains a single
+# zentorch_dynamic_qlinear node instead.
+# ---------------------------------------------------------------------------
+
+_DYNAMIC_QLINEAR_PATCH_APPLIED = False
+
+
+def _register_zentorch_linear_dispatch() -> None:
+    """Patch Int8Tensor's F.linear dispatch to call zentorch_dynamic_qlinear."""
+    global _DYNAMIC_QLINEAR_PATCH_APPLIED
+
+    if _DYNAMIC_QLINEAR_PATCH_APPLIED:
+        return
+
+    try:
+        from torchao.quantization.quantize_.workflows.int8.int8_tensor import (
+            Int8Tensor,
+        )
+
+        implements = Int8Tensor.implements
+        implements_torch_function = Int8Tensor.implements_torch_function
+
+        @implements(torch.ops.aten.linear.default)
+        @implements_torch_function(torch.nn.functional.linear)
+        def _zentorch_int8_linear(func, types, args, kwargs):
+            activation_tensor = args[0]
+            weight_tensor = args[1]
+            bias = args[2] if len(args) > 2 else None
+
+            if (
+                isinstance(weight_tensor, Int8Tensor)
+                and weight_tensor.act_quant_kwargs is not None
+            ):
+                weight_int8 = weight_tensor.qdata
+                weight_scales = weight_tensor.scale
+                if weight_scales.dim() == 2 and weight_scales.shape[-1] == 1:
+                    weight_scales = weight_scales.squeeze(-1)
+                return torch.ops.zentorch.zentorch_dynamic_qlinear(
+                    activation_tensor, weight_int8, weight_scales, bias,
+                )
+
+            return func(*args, **(kwargs or {}))
+
+        _DYNAMIC_QLINEAR_PATCH_APPLIED = True
+        logger.warning(
+            "[zentorch] Patched Int8Tensor F.linear dispatch -> zentorch_dynamic_qlinear"
+        )
+    except Exception:
+        logger.warning(
+            "[zentorch] Int8Tensor F.linear patch FAILED", exc_info=True,
+        )
+
 
 def _apply_fxgraphcache_pickle_patch() -> bool:
     """Backport PyTorch mainline fix: add ValueError to FxGraphCachePickler.dumps().
@@ -347,9 +404,10 @@ class CPUProfilerPatchV12:
 class CPUProfilerPatchV13:
     """Stub: Actual patching happens in platform.py check_and_update_config.
 
-    For 0.15.0+, CPUWorker properly uses TorchProfilerWrapper natively.
-    The profiler wrapper._stop patch still suppresses meaningless cuda-time
-    output on CPU-only runs.
+    For 0.15.0+, CPUWorker properly uses TorchProfilerWrapper natively,
+    so no additional patching is required.
+    The profiler wrapper._stop patch still suppresses meaningless cuda-time table output for CPU-only.
+
     """
 
     @classmethod
@@ -540,7 +598,8 @@ def register() -> Optional[str]:
         _apply_faketensor_subclass_patch()
         # 2. ValueError catch for cyclic Logger refs in FxGraphCachePickler
         _apply_fxgraphcache_pickle_patch()
-
+        # 3. Register torchao int8 dynamic quantized linear → zentorch_dynamic_qlinear
+        _register_zentorch_linear_dispatch()
         # Register and apply all patches (decorators handle version filtering)
         _register_patches()
         manager.apply_all()

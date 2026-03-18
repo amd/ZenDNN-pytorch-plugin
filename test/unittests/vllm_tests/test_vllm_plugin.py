@@ -279,6 +279,24 @@ class TestPlatformConfiguration(unittest.TestCase):
 # =============================================================================
 
 
+class TestDynamicQLinearDispatchPatch(unittest.TestCase):
+    """Test that Int8Tensor F.linear dispatch is patched to zentorch_dynamic_qlinear."""
+
+    @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
+    @unittest.skipUnless(IS_PYTHON_3_10_OR_ABOVE, "vLLM 0.11+ requires Python 3.10+")
+    def test_patch_is_applied_after_register(self):
+        """_DYNAMIC_QLINEAR_PATCH_APPLIED should be True after register()."""
+        from zentorch.vllm import register
+
+        register()
+        from zentorch.vllm import _DYNAMIC_QLINEAR_PATCH_APPLIED
+
+        self.assertTrue(
+            _DYNAMIC_QLINEAR_PATCH_APPLIED,
+            "Int8Tensor F.linear dispatch should be patched after register()",
+        )
+
+
 class TestZentorchOptimizePass(unittest.TestCase):
     """Test that zentorch optimize_pass is available."""
 
@@ -307,6 +325,7 @@ def run_tests():
     suite.addTests(loader.loadTestsFromTestCase(TestOneDNNDisablePatch))
     suite.addTests(loader.loadTestsFromTestCase(TestCompilationConfigPatch))
     suite.addTests(loader.loadTestsFromTestCase(TestPlatformConfiguration))
+    suite.addTests(loader.loadTestsFromTestCase(TestDynamicQLinearDispatchPatch))
     suite.addTests(loader.loadTestsFromTestCase(TestZentorchOptimizePass))
 
     runner = unittest.TextTestRunner(verbosity=2)
