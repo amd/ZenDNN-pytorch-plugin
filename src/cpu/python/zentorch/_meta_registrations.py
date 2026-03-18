@@ -825,6 +825,18 @@ def meta_zentorch_weight_from_int4pack_and_repack(unpacked_weight):
     return unpacked_weight.new_empty((unpacked_weight.size(0), K_packed))
 
 
+@register_meta("zentorch_weight_from_int4pack_and_repack_for_opaque_tensor")
+def meta_zentorch_weight_from_int4pack_and_repack_for_opaque_tensor(
+    packed_weight,
+):
+    N = packed_weight.size(0)
+    # TODO: Use dtype to calculate number of bits packed instead of hardcoding "* 2"
+    # For uint4-packed input, each byte stores 2 values (4 bits each)
+    K = packed_weight.size(1) * 2
+    K_packed = K // 8
+    return packed_weight.new_empty((N, K_packed), dtype=torch.int32)
+
+
 make_fallback(torch.ops.zentorch.zentorch_addmm)
 make_fallback(torch.ops.zentorch.zentorch_addmm_relu)
 make_fallback(torch.ops.zentorch.zentorch_addmm_silu)
@@ -867,5 +879,6 @@ make_fallback(torch.ops.zentorch.zentorch_woq_linear_sigmoid)
 make_fallback(torch.ops.zentorch.zentorch_woq_linear_mul_add)
 make_fallback(torch.ops.zentorch.zentorch_dynamic_qlinear)
 make_fallback(torch.ops.zentorch.zentorch_weight_from_int4pack_and_repack)
+make_fallback(torch.ops.zentorch.zentorch_weight_from_int4pack_and_repack_for_opaque_tensor)
 if hasattr(torch.ops.zentorch, "zentorch_sdpa"):
     make_fallback(torch.ops.zentorch.zentorch_sdpa)

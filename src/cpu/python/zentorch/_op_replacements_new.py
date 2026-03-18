@@ -627,7 +627,7 @@ def intx_weight_only_linear_replacement_per_group_with_bias(
     ) -> torch.Tensor:
         # weight tensor, weight_scales and weight_zero_points need to be reshaped from 3D to 2D and transposed.
         # scales and zero points need to be in contiguous memory format.
-        # transpose weight: [N, K/8] -> [K/8, N]
+        # Repack and transpose weight: [N, K/8] -> [K/8, N]
         packed_weight = zentorch.zentorch_weight_from_int4pack_and_repack(weight_tensor.view(view_shape)).transpose(0, 1)
         weight_scales = weight_scales.view(weight_scales.shape[0], -1).transpose(0, 1).contiguous()
         weight_zero_points = weight_zero_points.view(weight_zero_points.shape[0], -1).transpose(0, 1).contiguous()
@@ -651,6 +651,60 @@ def intx_weight_only_linear_replacement_per_group_with_bias(
             view_shape,
             dims,
         ],
+    )
+
+
+# Int4OpaqueTensor pattern replacement
+# When Int4OpaqueTensor is used, aten.linear dispatches to:
+#   aten._weight_int4pack_mm_for_cpu(input, packed_weight, groupsize, scale_and_zero)
+# We replace this with zentorch ops for the opaque tensor path.
+@register_graph_pattern(
+    CallFunction(
+        aten._weight_int4pack_mm_for_cpu,
+        Arg(),  # input tensor (2D, contiguous)
+        Arg(),  # packed_weight (uint8, qdata from Int4OpaqueTensor)
+        Arg(),  # groupsize (int)
+        Arg(),  # scale_and_zero (K/group_size, N, 2)
+    ),
+    pass_dict=pass_pattern,
+)
+def int4_opaque_tensor_linear_replacement(
+    match: Match,
+    input_tensor: Any,
+    packed_weight: Any,
+    groupsize: Any,
+    scale_and_zero: Any,
+) -> None:
+    def repl(
+        input_tensor: Any,
+        packed_weight: Any,
+        groupsize: Any,
+        scale_and_zero: Any,
+    ) -> torch.Tensor:
+        repacked_weight = (
+            zentorch.zentorch_weight_from_int4pack_and_repack_for_opaque_tensor(
+                packed_weight,
+            )
+        )
+        # scale_and_zero is 3D (K/group_size, N, 2) — select on dim 2 to get 2D (K/group_size, N).
+        # No transpose needed: already in (K/group_size, N) layout expected by zentorch_woq_linear.
+        scale = scale_and_zero.select(2, 0).contiguous()
+        zero_point = scale_and_zero.select(2, 1).contiguous()
+        # transpose weight: [N, K/8] -> [K/8, N]
+        repacked_weight = repacked_weight.transpose(0, 1)
+        counters["zentorch"]["zentorch_woq_linear"] += 1
+        return zentorch.zentorch_woq_linear(
+            input_tensor,
+            repacked_weight,
+            scale,
+            zero_point,
+            None,
+            zentorch_op_name="zentorch_woq_linear",
+        )
+
+    match.replace_by_example(
+        repl,
+        [input_tensor, packed_weight, groupsize, scale_and_zero],
     )
 
 
