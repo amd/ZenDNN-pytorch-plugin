@@ -123,7 +123,7 @@ def get_commit_hash(base_dir):
 
 # Define env values
 PACKAGE_NAME = "zentorch"
-PACKAGE_VERSION = "5.2.0"
+PACKAGE_VERSION = "5.2.1"
 PT_VERSION = __version__
 ZENTORCH_VLLM_PLUGIN_BUILD = os.getenv("ZENTORCH_VLLM_PLUGIN_BUILD", "1") != "0"
 
