@@ -197,6 +197,25 @@ def _apply_faketensor_subclass_patch() -> bool:
         return False
 
 
+@vllm_version_range(min_ver=VLLM_MIN_VERSION, max_ver=VLLM_MAX_VERSION)
+class TorchAOPatch:
+    """Register TorchAO operations for Int4OpaqueTensor support."""
+
+    @classmethod
+    def apply(cls) -> bool:
+        """
+        Register torchao operations including:
+        - Int4WeightOnlyOpaqueTensorConfig to ALLOWED_AO_MODULES
+        - slice operation for Int4OpaqueTensor
+        """
+        from .torchao_register import _register_int4_opaque_tensor_config, _register_int4_slice_op
+
+        _register_int4_opaque_tensor_config()
+        _register_int4_slice_op()
+        logger.info("[zentorch] Registered TorchAO operations.")
+        return True
+
+
 # ---------------------------------------------------------------------------
 # Patches (all versions)
 # ---------------------------------------------------------------------------
@@ -468,6 +487,7 @@ def _register_patches():
     manager.register("DispatchCPUUnquantizedGemm", DispatchCPUUnquantizedGemmPatch)
     manager.register("CPUProfilerV12", CPUProfilerPatchV12)
     manager.register("CPUProfilerV13", CPUProfilerPatchV13)
+    manager.register("TorchAO", TorchAOPatch)
 
     _REGISTERED = True
 

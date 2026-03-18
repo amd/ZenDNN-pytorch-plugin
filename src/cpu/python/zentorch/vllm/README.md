@@ -32,6 +32,7 @@ The plugin uses vLLM's platform and general plugin entry points to:
 | vLLM | 0.12.0 - 0.17.0 | V1 engine fully supported |
 | Python | 3.10+ | |
 | PyTorch | 2.9.1/2.10.0 | Auto-installed by vLLM |
+| TorchAO | 0.16.0 | |
 
 ---
 
