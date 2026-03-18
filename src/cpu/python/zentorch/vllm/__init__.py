@@ -528,6 +528,114 @@ def _apply_profiler_patch_v12():
 
 
 # ---------------------------------------------------------------------------
+# RMSNorm CPU Forward Patch (deferred via import hook)
+# ---------------------------------------------------------------------------
+
+_RMSNORM_HOOK_INSTALLED = False
+
+
+def _do_patch_rmsnorm():
+    """Patch RMSNorm.forward to use vLLM's optimized C++ kernels on CPU."""
+    try:
+        from vllm.model_executor.layers.layernorm import (
+            RMSNorm,
+            rms_norm,
+            fused_add_rms_norm,
+        )
+    except ImportError:
+        return False
+
+    if hasattr(RMSNorm, "_zentorch_rmsnorm_patched"):
+        return True
+
+    def patched_forward(
+        self,
+        x: torch.Tensor,
+        residual: torch.Tensor | None = None,
+    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
+        if self.variance_size_override is not None:
+            return self.forward_native(x, residual)
+        if residual is not None:
+            return fused_add_rms_norm(
+                x, residual, self.weight.data, self.variance_epsilon
+            )
+        return rms_norm(x, self.weight.data, self.variance_epsilon)
+
+    RMSNorm.forward = patched_forward
+    RMSNorm._zentorch_rmsnorm_patched = True
+    logger.info("[zentorch] Patched RMSNorm.forward to use optimized C++ kernels on CPU")
+    return True
+
+
+class _RMSNormImportHook:
+    """Post-import hook: patch RMSNorm after layernorm module loads.
+
+    Python 3.12 only calls find_spec (silently skips find_module).
+    We cannot import the module inside find_spec and return None --
+    that causes Python to re-execute the module via the next finder,
+    hitting "Duplicate op name" assertions.
+
+    Instead we: remove ourselves, find the *real* spec via the
+    remaining finders, wrap its loader.exec_module to append our
+    patch, and return the wrapped spec.  The module loads exactly
+    once through normal means.
+    """
+
+    _LAYERNORM_MODULE = "vllm.model_executor.layers.layernorm"
+
+    def find_spec(self, fullname, path, target=None):
+        if fullname != self._LAYERNORM_MODULE:
+            return None
+        if self in sys.meta_path:
+            sys.meta_path.remove(self)
+
+        import importlib.util
+
+        spec = importlib.util.find_spec(fullname)
+        if spec is None or spec.loader is None:
+            return None
+
+        original_exec = spec.loader.exec_module
+
+        def _exec_then_patch(module):
+            original_exec(module)
+            _do_patch_rmsnorm()
+
+        spec.loader.exec_module = _exec_then_patch
+        return spec
+
+
+def _apply_rmsnorm_patch() -> bool:
+    """Install RMSNorm forward patch, deferred if the module isn't loaded yet.
+
+    Returns True if patch was applied or hook installed, False otherwise.
+    """
+    global _RMSNORM_HOOK_INSTALLED
+
+    if _RMSNORM_HOOK_INSTALLED:
+        return True
+
+    if "vllm.model_executor.layers.layernorm" in sys.modules:
+        result = _do_patch_rmsnorm()
+    else:
+        sys.meta_path.insert(0, _RMSNormImportHook())
+        logger.debug("[zentorch] Installed RMSNorm import hook")
+        result = True
+
+    _RMSNORM_HOOK_INSTALLED = True
+    return result
+
+
+@vllm_version_range(min_ver=VLLM_V15, max_ver=VLLM_MAX_VERSION)
+class RMSNormPatch:
+    """Patch RMSNorm.forward to use vLLM's optimized C++ kernels on CPU."""
+
+    @classmethod
+    def apply(cls) -> bool:
+        return _apply_rmsnorm_patch()
+
+
+# ---------------------------------------------------------------------------
 # Registration
 # ---------------------------------------------------------------------------
 
@@ -546,6 +654,7 @@ def _register_patches():
     manager.register("CPUProfilerV12", CPUProfilerPatchV12)
     manager.register("CPUProfilerV13", CPUProfilerPatchV13)
     manager.register("TorchAO", TorchAOPatch)
+    manager.register("RMSNorm", RMSNormPatch)
 
     _REGISTERED = True
 
@@ -604,9 +713,8 @@ def register() -> Optional[str]:
         _register_patches()
         manager.apply_all()
 
-        # Apply profiler patches early (before worker creation)
-        # Must be done here in register(), not in check_and_update_config(),
-        # because VllmConfig may be passed from main process (not recreated)
+        # Deferred patches: install import hooks for modules not yet loaded.
+        # These hooks fire when the target module is first imported.
         _apply_profiler_patch_v12()
 
         logger.info("[zentorch] Applied patches: %s", manager.applied)
