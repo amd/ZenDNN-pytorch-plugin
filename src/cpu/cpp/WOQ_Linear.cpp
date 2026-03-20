@@ -75,7 +75,7 @@ void zentorch_woq_linear_impl(const at::Tensor &input, const at::Tensor &weight,
     // replacement pattern
     //       so we can check weight_zero_points.defined() here directly instead
     //       of relying on dtype check.
-    const auto weight_dtype = weight_zero_points.dtype() == torch::kFloat
+    const auto weight_dtype = weight_zero_points.is_floating_point()
                                   ? data_type_t::u4  // Asymmetric quantization
                                   : data_type_t::s4; // Symmetric quantization
     zendnnl::lowoha::matmul::matmul_data_types dtypes;
@@ -139,7 +139,7 @@ void zentorch_woq_linear_impl(const at::Tensor &input, const at::Tensor &weight,
   // Weight is int32 packed: each int32 contains 8 int4 values
   // Use u4 for unsigned int4 weights,
   // s4 for signed int4 weights
-  const auto weight_dtype = weight_zero_points.dtype() == torch::kFloat
+  const auto weight_dtype = weight_zero_points.is_floating_point()
                                 ? data_type_t::u4
                                 : data_type_t::s4;
   set_zendnnl_tensor_attributes(
