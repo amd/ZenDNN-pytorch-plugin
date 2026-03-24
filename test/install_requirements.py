@@ -74,13 +74,15 @@ if __name__ == "__main__":
         "2.9.0": "torchvision==0.24.0",
         "2.9.1": "torchvision==0.24.1",
         "2.10.0": "torchvision==0.25.0",
+        "2.11.0": "torchvision==0.26.0",
     }
 
     torchao_compatibility = {
-        "2.9.1": "torchao==0.15.0",
-        # Torch 2.10 might give a warning suggesting to install torchao of latest version, but 0.15.0 is the latest
+        "2.9.1": "torchao==0.16.0",
+        # Torch 2.10 might give a warning suggesting to install torchao of latest version, but 0.16.0 is the latest
         # version currently.
-        "2.10.0": "torchao==0.15.0",
+        "2.10.0": "torchao==0.16.0",
+        "2.11.0": "torchao==0.16.0",
     }
 
     if find_spec("torchao") is not None:
@@ -102,7 +104,7 @@ if __name__ == "__main__":
         else:
             print("Could not find the valid torchao version which is \
                 compatible with installed torch version. Supported Torch versions \
-                are 2.9.1 and 2.10.0")
+                are 2.10.0 and 2.11.0")
             sys.exit(1)
 
     if find_spec("torchvision") is not None:
@@ -126,5 +128,5 @@ if __name__ == "__main__":
         else:
             print("Could not find the valid torchvision version which is \
                 compatible with installed torch version. Supported Torch versions \
-                are 2.6.0/2.7.0/2.8.0/2.9.0/2.9.1/2.10.0")
+                are 2.6.0/2.7.0/2.8.0/2.9.0/2.9.1/2.10.0/2.11.0")
             sys.exit(1)
