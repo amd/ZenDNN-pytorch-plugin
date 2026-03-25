@@ -4,11 +4,19 @@
 
 ## 1. Overview
 
-`zentorch_dynamic_qlinear` is a quantized linear operator that performs **INT8 symmetric quantization with dynamic source quantization**. It accepts BF16 or FP32 activations and pre-quantized s8 weights with quantization scales, and produces output in the same dtype as the input. The source is dynamically quantized to s8 inside the kernel at runtime, eliminating the need for the caller to pre-quantize the activations or provide source scales. The current implementation uses per-token (per-row) source scales with fixed granularity `[M, 1]`; other source scale granularities (such as per-tensor or per-group) are not yet implemented and may be added in future versions.
+`zentorch_dynamic_qlinear` is a quantized linear operator that performs **INT8 symmetric quantization with dynamic source quantization**. It accepts BF16 or FP32 activations and pre-quantized s8 weights with quantization scales, and produces output in the same dtype as the input. The source is dynamically quantized to s8 inside the kernel at runtime, eliminating the need for the caller to pre-quantize the activations or provide source scales. The current implementation uses per-token (per-row) source scales with fixed granularity `[M, 1]`.
+
+> **Note:**
+> - Other source scale granularities (such as per-tensor or per-group) are not yet implemented and may be added in future versions.
+
 
 ## 2. Motivation
 
-Static quantization relies on calibration data and pre-computed activation scales, which may not always be available or accurate for all inputs. Dynamic quantization computes activation scales at runtime, adapting to the actual data distribution.  Static quantization cannot support a more granular quantization beyond per-tensor. Per-group quantization offers finer granularity than per-tensor or per-channel, improving accuracy for models with non-uniform weight distributions across output channels (dimension N).
+Static quantization relies on calibration data collected offline to fix activation scales before deployment. While this can yield good throughput, the fixed scales may not represent the true range of activations seen at inference time, leading to clipping or under-utilization of the quantized range and, consequently, accuracy degradation.
+
+Dynamic quantization addresses this by computing activation scales at runtime, adapting to the actual data distribution of each input. This consistently preserves more of the original model's accuracy without requiring a representative calibration dataset, making it both simpler to integrate and more robust across diverse inputs.
+
+`zentorch_dynamic_qlinear` applies this approach by accepting full-precision activations (BF16/FP32) alongside pre-quantized INT8 weights. At runtime the kernel quantizes the activations, computes the matmul in INT8, and dequantizes the result back to the original dtype — all within a single `matmul_direct` call to the ZenDNN LowOHA backend.
 
 ## 3. API
 
@@ -49,20 +57,10 @@ torch.ops.zentorch.zentorch_dynamic_qlinear(
 
 ## 6. Implementation Details
 
-### 6.1 File Structure
-
-| File | Purpose |
-|------|---------|
-| `src/cpu/cpp/DynamicQLinear.cpp` | C++ implementation (validation, matmul_direct call, op registration) |
-| `src/cpu/python/zentorch/_meta_registrations.py` | Meta/FakeTensor registration for torch.compile |
-| `test/unittests/op_tests/test_dynamic_qlinear.py` | Unit tests |
-| `docs/zentorch_dynamic_qlinear.md` | This design document |
-
-### 6.2 Execution Flow
+### 6.1 Execution Flow
 
 ```
 zentorch_dynamic_qlinear()            # Public API entry point
-  ├─ AVX512 capability check
   ├─ Allocate output tensor (same dtype as input)
   ├─ Validate dtypes and shapes
   ├─ Reshape input/output to 2D
@@ -74,7 +72,7 @@ zentorch_dynamic_qlinear()            # Public API entry point
        └─ Call matmul_direct() with transB=true
 ```
 
-### 6.3 ZenDNN LowOHA Integration
+### 6.2 ZenDNN LowOHA Integration
 
 The operator uses the `matmul_direct` API with:
 - `transB = true` since weight is stored as `[N, K]` (nn.Linear layout)
@@ -83,7 +81,7 @@ The operator uses the `matmul_direct` API with:
 - `src_scale.dims = [M, 1]` for per-token granularity
 - `compute = data_type_t::s8` to indicate symmetric INT8 computation
 
-### 6.4 Weight Caching
+### 6.3 Weight Caching
 
 Since `is_weights_const = true` is passed to `matmul_direct`, the LowOHA backend automatically caches the reordered weight tensor.
 
@@ -102,4 +100,4 @@ Since `is_weights_const = true` is passed to `matmul_direct`, the LowOHA backend
 
 ## 8. Reference
 
-This operator is based on **Example 7** from the [LowOHA MatMul Operator documentation](../../../ZenDNN/docs/operator/lowoha_matmul_operator.md) (INT8 Per-Group Symmetric Quantization with Dynamic Source Quantization) and uses the `matmul_direct` API from ZenDNN's LowOHA backend.
+This operator is based on **Example 7** from the [LowOHA MatMul Operator documentation](https://github.com/amd/ZenDNN/blob/main/docs/operator/lowoha_matmul_operator.md#example-7-int8-per-group-symmetric-quantization-with-dynamic-source-quantization) (INT8 Per-Group Symmetric Quantization with Dynamic Source Quantization) and uses the `matmul_direct` API from ZenDNN's LowOHA backend.

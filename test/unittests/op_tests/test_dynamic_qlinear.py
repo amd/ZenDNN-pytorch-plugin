@@ -27,9 +27,17 @@ class Test_DynamicQLinear(Zentorch_TestCase):
         scale = abs_max / 127.0
         return torch.clamp(torch.round(src / scale), -128, 127) * scale
 
-    def _per_token_reference(self, input_2d, weight_nk_f32, weight_scales):
-        """Per-token: one scale per row of source. weight is [N, K]."""
-        dq_weight = weight_nk_f32.t() * weight_scales.float()
+    def _quantize_weight_per_channel(self, weight_float):
+        """Quantize float weight [N, K] to per-channel symmetric qint8 via PyTorch."""
+        scales = weight_float.abs().amax(dim=1).clamp(min=1e-12) / 127.0
+        zero_points = torch.zeros(weight_float.size(0), dtype=torch.long)
+        return torch.quantize_per_channel(
+            weight_float, scales, zero_points, axis=0, dtype=torch.qint8
+        )
+
+    def _per_token_reference(self, input_2d, weight_q):
+        """Per-token: one scale per row of source. weight_q is a per-channel quantized [N, K]."""
+        dq_weight = weight_q.dequantize().t()
         return torch.matmul(self._qdq_src(input_2d, dim=1), dq_weight)
 
     @torch.inference_mode()
@@ -40,14 +48,16 @@ class Test_DynamicQLinear(Zentorch_TestCase):
 
         M, K, N = 16, 128, 64
         input = torch.randn(M, K, dtype=torch.float32)
-        weight = torch.randint(-128, 128, (N, K), dtype=torch.int8)
-        weight_scales = torch.rand(1, N, dtype=torch.float32) * 0.05
+        weight_float = torch.randn(N, K, dtype=torch.float32)
+        weight_q = self._quantize_weight_per_channel(weight_float)
+        weight_int8 = weight_q.int_repr()
+        weight_scales = weight_q.q_per_channel_scales().to(torch.float32).unsqueeze(0)
 
         ref = self._per_token_reference(
-            input.reshape(M, K).float(), weight.float(), weight_scales
+            input.reshape(M, K).float(), weight_q
         ).to(input.dtype)
         out = torch.ops.zentorch.zentorch_dynamic_qlinear(
-            input, weight, weight_scales, None,
+            input, weight_int8, weight_scales, None,
         )
 
         self.assertEqual(out.dtype, torch.float32)

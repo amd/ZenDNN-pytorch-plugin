@@ -168,6 +168,7 @@ at::Tensor zentorch_dynamic_qlinear(const at::Tensor &input,
   return result;
 }
 
+// zentorch_dynamic_qlinear API is experimental.
 TORCH_LIBRARY_FRAGMENT(zentorch, m) {
   m.def("zentorch_dynamic_qlinear(Tensor input, Tensor weight, "
         "Tensor weight_scales, Tensor? bias=None, *, "
