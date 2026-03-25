@@ -59,6 +59,9 @@ The zentorch 5.2 plugin seamlessly works with PyTorch versions including 2.10.0 
 
 >**Note:** We recommend using Torch 2.9.1 or higher as there is a known [issue](https://github.com/pytorch/pytorch/pull/166338) with Torch 2.9.0 that leads to longer compilation time with zentorch backend. The issue has been fixed in later versions.
 
+In addition to stable releases, the zentorch plugin provides weekly minor releases that extend support to newer PyTorch versions. The latest minor release plugin supports PyTorch 2.11.0 and 2.10.0. These weekly releases are only available as source builds (see [From Source](#22-from-source)).
+
+
 ## Support
 
 We welcome feedback, suggestions, and bug reports. Should you have any of the these, please kindly file an issue on the ZenDNN Plugin for PyTorch Github page [here](https://github.com/amd/ZenDNN-pytorch-plugin/issues)
@@ -111,6 +114,8 @@ Refer to the [support matrix](https://www.amd.com/en/developer/zendnn.html#getti
 _zentorch_ can be installed using binary wheel file or can be built from source itself.
 Only stable releases are available as binary wheel files. The latest stable release is _zentorch_ v5.2.0 which supports PyTorch v2.10.0 and v2.9.1.
 
+Weekly development releases add support for newer PyTorch versions (currently PyTorch v2.11.0 and v2.10.0) and are only available as source builds.
+
 ## 2.1. From Binaries
 
 * Create conda or python environment and activate it.
@@ -146,13 +151,16 @@ pip install zentorch-5.2.0-cp310-cp310-manylinux_2_28_x86_64.whl
 >* If you get the error: ImportError: /lib64/libstdc++.so.6: version `GLIBCXX_.a.b.cc' not found (required by <path_to_conda>/envs/<env_name>/lib/python<py_version>/site-packages/zentorch-5.2.0-pyx.y-linux-x86_64.egg/zentorch/_C.cpython-xy-x86_64-linux-gnu.so), export LD_PRELOAD as: export LD_PRELOAD=<path_to_conda>/envs/<env_name>/lib/libstdc++.so.6:$LD_PRELOAD
 
 ## 2.2. From Source
+
+>**Note:** Weekly development releases with support for newer PyTorch versions (e.g., PyTorch v2.11.0) are only available through source builds from the master branch.
+
 Run the following commands:
 ```bash
 git clone https://github.com/amd/ZenDNN-pytorch-plugin.git
 cd ZenDNN-pytorch-plugin
 ```
 >**Notes:**
->* The repository defaults to the master branch. To build the stable 5.2 release, checkout the r5.2 branch: ```git checkout r5.2```
+>* The repository defaults to the master branch. To build with PyTorch v2.11.0 support, checkout the main branch: ```git checkout main```. To build the stable 5.2 release (supports PyTorch v2.10.0 and v2.9.1), checkout the r5.2 branch: ```git checkout r5.2```
 >* ```export ZENDNNL_MANYLINUX_BUILD=1``` is needed for build from source for RHEL/FEDORA/Almalinux/CentOS OS families
 
 ### 2.2.1. Preparing third party repositories
@@ -166,14 +174,19 @@ Build setup downloads the ZenDNN repo into `third_party` folder.
 conda create -n pt-zentorch python=3.10 -y
 conda activate pt-zentorch
 ```
-#### 2.2.2.2. Install PyTorch v2.10.0
+#### 2.2.2.2. Install PyTorch
+For the latest development release (master branch), install PyTorch v2.11.0:
 ```bash
-# Pip command
+pip install torch==2.11.0 --index-url https://download.pytorch.org/whl/cpu
+```
+Alternatively, PyTorch v2.10.0 is also supported:
+```bash
 pip install torch==2.10.0 --index-url https://download.pytorch.org/whl/cpu
 ```
+For the stable 5.2 release (r5.2 branch), install PyTorch v2.10.0 or v2.9.1.
 >**Notes:**
 >* This README uses Python 3.10.
->* Zentorch follows PyTorch’s Python version compatibility. For PyTorch 2.10.0, Zentorch supports Python versions 3.10 through 3.13, and the same range applies to PyTorch 2.9.1. For other PyTorch releases, refer to the [PyTorch Release Compatibility Matrix](https://github.com/pytorch/pytorch/blob/main/RELEASE.md#release-compatibility-matrix).
+>* Zentorch follows PyTorch’s Python version compatibility. For PyTorch 2.11.0 and 2.10.0, Zentorch supports Python versions 3.10 through 3.13, and the same range applies to PyTorch 2.9.1. For other PyTorch releases, refer to the [PyTorch Release Compatibility Matrix](https://github.com/pytorch/pytorch/blob/main/RELEASE.md#release-compatibility-matrix).
 >* Zentorch does not support experimental versions of Python (3.13T/3.14/3.14T)
 
 #### 2.2.2.3. Install Dependencies
@@ -319,9 +332,6 @@ tokenizer.save_pretrained(output_dir)
 >* The `MappingType.SYMMETRIC` option enables symmetric quantization which is recommended for optimal performance with zentorch.
 >* The `scale_dtype=torch.bfloat16` ensures compatibility with AMD EPYC™ CPU optimizations.
 >* Use `safe_serialization=False` when saving for compatibility with zentorch.
-
-Statically quantizing the models-
-* To statically quantize the recommender system model(eg., DLRM-v2), please refer to `examples/quantization/torchao/DLRM-v2/README.md`
 
 ### 4.5.2 Running Quantized Models
 
