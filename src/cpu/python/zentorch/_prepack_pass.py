@@ -44,7 +44,7 @@ def zentorch_weight_prepack_for_linear_replacement_without_bias(
 
     def repl(mat_1: Any, mat_2: Any, is_weight_prepacked: Any, post_op: Any, zentorch_op_name: Any) -> torch.Tensor:
         counters["zentorch"]["zentorch_weight_prepack_for_linear"] += 1
-        mat_2_prepacked = zentorch.zentorch_weight_prepack_for_linear(mat_2)
+        mat_2_prepacked = mat_2 if is_weight_prepacked else zentorch.zentorch_weight_prepack_for_linear(mat_2)
         return zentorch.zentorch_linear_unary(
             mat_1,
             mat_2_prepacked,
@@ -74,7 +74,7 @@ def zentorch_weight_prepack_for_linear_replacement_with_bias(
 
     def repl(mat_1: Any, mat_2: Any, bias: Any, is_weight_prepacked: Any, post_op: Any, zentorch_op_name: Any) -> torch.Tensor:
         counters["zentorch"]["zentorch_weight_prepack_for_linear"] += 1
-        mat_2_prepacked = zentorch.zentorch_weight_prepack_for_linear(mat_2)
+        mat_2_prepacked = mat_2 if is_weight_prepacked else zentorch.zentorch_weight_prepack_for_linear(mat_2)
         return zentorch.zentorch_linear_unary(
             mat_1,
             mat_2_prepacked,

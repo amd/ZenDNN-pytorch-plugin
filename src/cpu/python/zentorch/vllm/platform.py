@@ -6,17 +6,30 @@
 """zentorch CPU Platform for vLLM.
 
 Supports:
-- 0.12.0 - 0.17.0: CompilationMode, AttentionBackendEnum, native CPU attention
+- 0.12.0 - 0.18.0: CompilationMode, AttentionBackendEnum, native CPU attention
+- 0.18.0+: is_zen_cpu() for native dispatch_cpu_unquantized_gemm routing
 """
 
 from typing import TYPE_CHECKING
 
-from zentorch.vllm.core import is_v13, is_v14, is_v14_1, is_v15, is_v15_1, is_v16, is_v17
+from packaging import version as pkg_version
+
+from zentorch.vllm.core import VLLM_V13, VLLM_V18, _base_version, get_vllm_version
 
 if TYPE_CHECKING:
     from vllm.config import VllmConfig
 
 _ZenCPUPlatformImpl = None
+
+
+def _is_profiler_patch_version() -> bool:
+    """Return True when the profiler wrapper patch applies."""
+    vllm_ver = get_vllm_version()
+    if vllm_ver is None:
+        return False
+
+    parsed_version = pkg_version.parse(_base_version(vllm_ver))
+    return pkg_version.parse(VLLM_V13) <= parsed_version <= pkg_version.parse(VLLM_V18)
 
 
 def _create_platform():
@@ -35,6 +48,9 @@ def _create_platform():
 
         device_name: str = "cpu"
         device_type: str = "cpu"
+
+        def is_zen_cpu(self) -> bool:
+            return True
 
         @classmethod
         def check_and_update_config(cls, vllm_config: "VllmConfig") -> None:
@@ -68,15 +84,15 @@ def _create_platform():
             """Apply version-specific profiler patches.
 
             0.12: Patched in __init__.py register() (must run before worker creation)
-            0.13/0.14/0.15+: Suppresses redundant cuda-time table output for CPU
+            0.13-0.18: Suppresses redundant cuda-time table output for CPU
             """
-            if is_v13() or is_v14() or is_v14_1() or is_v15() or is_v15_1() or is_v16() or is_v17():
+            if _is_profiler_patch_version():
                 cls._patch_profiler_v13_v14()
             # 0.12 is handled via _apply_profiler_patch_v12() in __init__.py register()
 
         @classmethod
         def _patch_profiler_v13_v14(cls):
-            """Fix vLLM 0.13/0.14: Suppress redundant cuda-time table for CPU-only."""
+            """Fix vLLM 0.13-0.18: suppress redundant cuda-time table for CPU-only."""
             try:
                 from vllm.profiler import wrapper as wrapper_module
             except ImportError:
@@ -117,7 +133,7 @@ def _create_platform():
 
             TorchProfilerWrapper._stop = patched_stop
             TorchProfilerWrapper._zentorch_patched = True
-            logger.info("[zentorch] Patched TorchProfilerWrapper._stop (0.13)")
+            logger.info("[zentorch] Patched TorchProfilerWrapper._stop (0.13-0.18)")
 
     _ZenCPUPlatformImpl = ZenCPUPlatformImpl
     return _ZenCPUPlatformImpl

@@ -7,11 +7,11 @@
 
 ## Overview
 
-The **zentorch vLLM plugin** integrates [zentorch](https://github.com/amd/ZenDNN-pytorch-plugin) with [vLLM's V1 engine](https://docs.vllm.ai/en/stable/usage/v1_guide/) to deliver optimized large language model inference on AMD EPYC™ CPUs. By leveraging ZenDNN's highly optimized kernels, this plugin accelerates both attention and non-attention operations in vLLM, providing significant throughput improvements for popular LLMs.
+The **zentorch vLLM plugin** integrates [zentorch](https://github.com/amd/ZenDNN-pytorch-plugin) with [vLLM's V1 engine](https://docs.vllm.ai/en/stable/usage/v1_guide/) to deliver optimized large language model inference on AMD EPYC™ CPUs. By leveraging ZenDNN's highly optimized kernels, this plugin accelerates linear and embedding operations in vLLM, providing significant throughput improvements for popular LLMs.
 
 The plugin uses vLLM's platform and general plugin entry points to:
 - Inject zentorch optimization passes into `torch.compile`
-- Disable replacement with Intel oneDNN kernels to enable replacement with zentorch kernels
+- Bypass or reroute GEMM dispatch so zentorch linear kernels stay active
 - Enable CPU-only profiling
 
 ---
@@ -19,7 +19,7 @@ The plugin uses vLLM's platform and general plugin entry points to:
 ## Key Features
 
 - **Plug-and-Play Acceleration:** No code modifications required—just install zentorch alongside vLLM for automatic acceleration.
-- **Seamless vLLM Integration:** vLLM detects zentorch and transparently uses ZenDNN-optimized attention and non-attention kernels for supported CPUs.
+- **Seamless vLLM Integration:** vLLM detects zentorch and transparently uses ZenDNN-optimized linear and embedding kernels for supported CPUs.
 - **Optimized for Modern x86 CPUs:** Delivers best-in-class performance on AMD EPYC™ processors, while supporting a broad range of x86 CPUs with the necessary instruction set.
 - **Powered by ZenDNN:** Leverages AMD's ZenDNN library for state-of-the-art, CPU-optimized neural network operations.
 
@@ -29,9 +29,9 @@ The plugin uses vLLM's platform and general plugin entry points to:
 
 | Component | Version | Notes |
 |-----------|---------|-------|
-| vLLM | 0.12.0 - 0.17.0 | V1 engine fully supported |
+| vLLM | 0.15.0 - 0.18.0 | V1 engine fully supported |
 | Python | 3.10+ | |
-| PyTorch | 2.9.1/2.10.0 | Auto-installed by vLLM |
+| PyTorch | 2.10.0 | Auto-installed by vLLM |
 | TorchAO | 0.16.0 | |
 
 ---
@@ -55,10 +55,10 @@ When both vLLM and the `zentorch` package are installed, vLLM automatically dete
 ├─────────────────────────────────────────────────────────────┤
 │  Monkey Patches (applied early)                             │
 │  ├── CompilationConfig.__repr__ → Handle custom passes      │
-│  └── _supports_onednn = False → Use zentorch linear         │
+│  └── GEMM dispatch / oneDNN bypass → Use zentorch linear    │
 ├─────────────────────────────────────────────────────────────┤
 │  torch.compile (inductor + zentorch optimize_pass)          │
-│  └── Replaces aten ops with zentorch ops (mm, attention)    │
+│  └── Replaces aten ops with zentorch ops (mm, embedding)    │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -96,16 +96,15 @@ The plugin leverages AMD EPYC specific intrinsics and optimizations to accelerat
 2. **Build vLLM from Source:**
    - Follow the official [vLLM Installation Guide](https://docs.vllm.ai/en/stable/getting_started/installation/cpu/#build-wheel-from-source) for detailed, step-by-step instructions.
 
-     > **Important:** Pre-built vLLM CPU binaries are available from [0.13.0](https://docs.vllm.ai/en/stable/getting_started/installation/cpu/#pre-built-wheels). You must build vLLM from source to enable CPU support for previous supported versions.
+     > **Important:** Pre-built vLLM CPU binaries are available from [0.13.0](https://docs.vllm.ai/en/stable/getting_started/installation/cpu/#pre-built-wheels), so all currently supported versions can use the published CPU wheels.
 
-   - Supported versions: 0.12.0, 0.13.0, 0.14.0, 0.14.1, 0.15.0, 0.15.1, 0.16.0, 0.17.0. Check out the appropriate release tag before building.
+   - Supported versions: 0.15.0, 0.15.1, 0.16.0, 0.17.0, 0.17.1, 0.18.0. Check out the appropriate release tag before building.
 
 3. **Install zentorch:**
 
    | vLLM version | PyTorch version (auto-installed by vLLM) | zentorch install method |
    |--------------|-----------------|------------------------|
-   | 0.12.0 - 0.14.1 | 2.9.1 | Build from source |
-   | 0.15.0 - 0.17.0 | 2.10.0 | PyPI or source |
+   | 0.15.0 - 0.18.0 | 2.10.0 | PyPI or source |
 
    - **From PyPI** (vLLM 0.15.0+):
      ```bash
@@ -138,6 +137,7 @@ No code changes are required. Once installed, simply run your vLLM inference wor
 export TORCHINDUCTOR_FREEZING=1          # Only supported from vLLM version 0.12.0 onwards
 export VLLM_CPU_KVCACHE_SPACE=90         # GB for KV cache
 export VLLM_CPU_OMP_THREADS_BIND=0-95    # CPU cores to use
+export VLLM_USE_AOT_COMPILE=0            # Disable AOT compile - interferes with freezing
 ```
 
 #### Performance Libraries
@@ -198,25 +198,32 @@ Pre-built Docker images with vLLM and zentorch are available for quick deploymen
 ### Pulling the Image
 
 ```bash
-sudo docker pull mkmhub.amd.com/sw-aig-zendnn-vllm-zentorch-dev/vllm_v<VLLM_VER>_zentorch_v<ZT_VER>:<OS_TAG>
+docker pull amdih/zendnn_zentorch:vllm_v<VLLM_VER>_zentorch_v<ZT_VER>_<OS_TAG>_<REL_TAG>
 ```
 
-Replace `<VLLM_VER>`, `<ZT_VER>`, and `<OS_TAG>` with the desired versions. Available base images: `ubuntu22.04`, `rhel9.5`.
+Replace `<VLLM_VER>`, `<ZT_VER>`, `<OS_TAG>`, and `<REL_TAG>` with the desired values. Available OS tags: `ubuntu22.04`, `rhel9.5`.
 
-Example:
+**Ubuntu Example:**
+
 ```bash
-sudo docker pull mkmhub.amd.com/sw-aig-zendnn-vllm-zentorch-dev/vllm_v0.17.0_zentorch_v5.2.0:ubuntu22.04_2026_ww10
+docker pull amdih/zendnn_zentorch:vllm_v0.17.0_zentorch_v5.2.0_ubuntu22.04_2026_ww11
+```
+
+**RHEL Example:**
+
+```bash
+docker pull amdih/zendnn_zentorch:vllm_v0.17.0_zentorch_v5.2.0_rhel9.5_2026_ww11
 ```
 
 ### Running the Container
 
 ```bash
-sudo docker run -d --name vllm_zentorch \
+docker run -d --name vllm_zentorch \
     -v /path/to/models:/models \
-    mkmhub.amd.com/sw-aig-zendnn-vllm-zentorch-dev/vllm_v0.17.0_zentorch_v5.2.0:ubuntu22.04_2026_ww10 \
+    amdih/zendnn_zentorch:vllm_v0.17.0_zentorch_v5.2.0_ubuntu22.04_2026_ww11 \
     tail -f /dev/null
 
-sudo docker exec -it vllm_zentorch bash
+docker exec -it vllm_zentorch bash
 cd workspace
 ```
 
@@ -230,7 +237,7 @@ Mount volumes (`-v`) for model files and any datasets you need inside the contai
 
 If you don't see "Platform plugin zentorch is activated":
 1. Verify zentorch is installed: `python -c "import zentorch"`
-2. Check vLLM version: `python -c "import vllm; print(vllm.__version__)"` (must be 0.12.0 - 0.17.0)
+2. Check vLLM version: `python -c "import vllm; print(vllm.__version__)"` (must be 0.15.0 - 0.18.0)
 
 ### Stale Compilation Cache
 

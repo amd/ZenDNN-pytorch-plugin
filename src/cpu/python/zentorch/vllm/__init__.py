@@ -11,13 +11,16 @@ Entry points:
 
 Patches (each with version decorator):
 - CompilationConfig repr (all versions)
-- oneDNN disable (all versions)
+- oneDNN disable (v12-v16)
+- Import-hook GEMM dispatch patching (v17 only)
+  v18 GEMM is handled natively via is_zen_cpu() in dispatch_cpu_unquantized_gemm.
 
 Reference: https://blog.vllm.ai/2025/11/20/vllm-plugin-system.html
 """
 
 from __future__ import annotations
 
+import importlib.util
 import sys
 from typing import Optional
 import torch
@@ -29,6 +32,7 @@ from zentorch.vllm.core import (
     manager,
     get_version_family,
     is_v12,
+    is_v17,
     VLLM_MIN_VERSION,
     VLLM_MAX_VERSION,
     VLLM_V12,
@@ -39,6 +43,8 @@ from zentorch.vllm.core import (
     VLLM_V15_1,
     VLLM_V16,
     VLLM_V17,
+    VLLM_V17_1,
+    VLLM_V18,
 )
 
 logger = get_logger(__name__)
@@ -67,6 +73,12 @@ def _register_zentorch_linear_dispatch() -> None:
     global _DYNAMIC_QLINEAR_PATCH_APPLIED
 
     if _DYNAMIC_QLINEAR_PATCH_APPLIED:
+        return
+
+    if importlib.util.find_spec("torchao") is None:
+        logger.info(
+            "[zentorch] torchao not installed, skipping Int8Tensor F.linear patch"
+        )
         return
 
     try:
@@ -265,6 +277,9 @@ class TorchAOPatch:
         - Int4WeightOnlyOpaqueTensorConfig to ALLOWED_AO_MODULES
         - slice operation for Int4OpaqueTensor
         """
+        if importlib.util.find_spec("torchao") is None:
+            logger.info("[zentorch] TorchAO not installed, skipping Int4 registration")
+            return False
         from .torchao_register import _register_int4_opaque_tensor_config, _register_int4_slice_op
 
         _register_int4_opaque_tensor_config()
@@ -336,9 +351,14 @@ class CompilationConfigReprPatch:
             return False
 
 
-@vllm_version_range(min_ver=VLLM_MIN_VERSION, max_ver=VLLM_MAX_VERSION)
+@vllm_version_range(min_ver=VLLM_MIN_VERSION, max_ver=VLLM_V16)
 class OneDNNDisablePatch:
-    """Disable oneDNN GEMM to use zentorch.zentorch_linear_unary()."""
+    """Disable oneDNN GEMM to use zentorch.zentorch_linear_unary().
+
+    Not needed for v17+: handled by _V17DispatchImportHook instead, because
+    the circular import during register() causes _custom_ops to overwrite
+    our False when the module finishes loading.
+    """
 
     @classmethod
     def apply(cls) -> bool:
@@ -352,9 +372,12 @@ class OneDNNDisablePatch:
             return False
 
 
-@vllm_version_range(min_ver=VLLM_MIN_VERSION, max_ver=VLLM_MAX_VERSION)
+@vllm_version_range(min_ver=VLLM_MIN_VERSION, max_ver=VLLM_V16)
 class DispatchCPUUnquantizedGemmPatch:
-    """Fix Freezing issue by overwriting dispatch_cpu_unquantized_gemm."""
+    """Fix Freezing issue by overwriting dispatch_cpu_unquantized_gemm.
+
+    Not needed for v17+: handled by _V17DispatchImportHook.
+    """
 
     @classmethod
     def apply(cls) -> bool:
@@ -400,7 +423,7 @@ class CPUProfilerPatchV12:
         return True
 
 
-@vllm_version(VLLM_V13, VLLM_V14, VLLM_V14_1, VLLM_V15, VLLM_V15_1, VLLM_V16, VLLM_V17)
+@vllm_version(VLLM_V13, VLLM_V14, VLLM_V14_1, VLLM_V15, VLLM_V15_1, VLLM_V16, VLLM_V17, VLLM_V17_1, VLLM_V18)
 class CPUProfilerPatchV13:
     """Stub: Actual patching happens in platform.py check_and_update_config.
 
@@ -636,6 +659,131 @@ class RMSNormPatch:
 
 
 # ---------------------------------------------------------------------------
+# vLLM 0.17 GEMM Dispatch Hook
+# ---------------------------------------------------------------------------
+#
+# On vLLM 0.17 register() runs during a circular import, so
+# OneDNNDisablePatch's _supports_onednn=False gets overwritten when
+# _custom_ops finishes loading.  Instead, we install a sys.meta_path
+# hook that patches dispatch_cpu_unquantized_gemm -> F.linear the
+# moment vllm.model_executor.layers.utils is first imported (before
+# any call to it).  optimize_pass then rewrites aten.linear ->
+# zentorch_linear_unary in the inductor IR.
+#
+# Not needed for v18+: dispatch_cpu_unquantized_gemm natively checks
+# is_zen_cpu() and routes to zentorch_linear_unary.
+
+_V17_DISPATCH_HOOKS_INSTALLED = False
+
+
+def _do_patch_v17_gemm_dispatch():
+    """Patch dispatch_cpu_unquantized_gemm to bypass onednn, use F.linear."""
+    import vllm.model_executor.layers.utils as utils
+
+    if hasattr(utils.dispatch_cpu_unquantized_gemm, "_zentorch_patched"):
+        return
+
+    def _patched(layer, remove_weight):
+        layer.cpu_linear = torch.nn.functional.linear
+        return
+
+    _patched._zentorch_patched = True
+    utils.dispatch_cpu_unquantized_gemm = _patched
+    logger.info("[zentorch] Patched dispatch_cpu_unquantized_gemm (v17, F.linear bypass)")
+
+
+_V17_HOOK_PATCHES = {
+    "vllm.model_executor.layers.utils": _do_patch_v17_gemm_dispatch,
+}
+
+
+class _V17DispatchImportHook:
+    """Intercepts module imports to patch vLLM 0.17 dispatch functions.
+
+    Implements PEP 302 (find_module/load_module) for Python <= 3.11 and
+    PEP 451 (find_spec wrapping the real loader) for Python >= 3.12.
+    """
+
+    def __init__(self, pending):
+        self._pending = set(pending)
+        self._orig_loaders = {}
+
+    def _maybe_readd(self):
+        if self._pending and self not in sys.meta_path:
+            sys.meta_path.insert(0, self)
+
+    # PEP 302 (Python <= 3.11)
+    def find_module(self, fullname, path=None):
+        if fullname in self._pending:
+            return self
+        return None
+
+    def load_module(self, fullname):
+        self._pending.discard(fullname)
+        if self in sys.meta_path:
+            sys.meta_path.remove(self)
+
+        import importlib
+        module = importlib.import_module(fullname)
+
+        _V17_HOOK_PATCHES[fullname]()
+
+        self._maybe_readd()
+        return module
+
+    # PEP 451 (Python >= 3.12): wrap the real loader instead of re-importing
+    def find_spec(self, fullname, path, target=None):
+        if fullname not in self._pending:
+            return None
+        self._pending.discard(fullname)
+        if self in sys.meta_path:
+            sys.meta_path.remove(self)
+
+        import importlib.util
+        real_spec = importlib.util.find_spec(fullname)
+        if real_spec is None:
+            self._maybe_readd()
+            return None
+
+        self._orig_loaders[fullname] = real_spec.loader
+        real_spec.loader = self
+        self._maybe_readd()
+        return real_spec
+
+    def create_module(self, spec):
+        orig = self._orig_loaders.get(spec.name)
+        if orig and hasattr(orig, "create_module"):
+            return orig.create_module(spec)
+        return None
+
+    def exec_module(self, module):
+        orig = self._orig_loaders.pop(module.__name__, None)
+        if orig:
+            orig.exec_module(module)
+        _V17_HOOK_PATCHES[module.__name__]()
+
+
+def _install_v17_dispatch_hooks():
+    """Install import hooks for vLLM 0.17 GEMM dispatch patching."""
+    global _V17_DISPATCH_HOOKS_INSTALLED
+    if _V17_DISPATCH_HOOKS_INSTALLED:
+        return
+
+    pending = []
+    for modname, patcher in _V17_HOOK_PATCHES.items():
+        if modname in sys.modules:
+            patcher()
+        else:
+            pending.append(modname)
+
+    if pending:
+        sys.meta_path.insert(0, _V17DispatchImportHook(pending))
+        logger.debug("[zentorch] Installed dispatch import hooks for: %s", pending)
+
+    _V17_DISPATCH_HOOKS_INSTALLED = True
+
+
+# ---------------------------------------------------------------------------
 # Registration
 # ---------------------------------------------------------------------------
 
@@ -683,21 +831,16 @@ def register() -> Optional[str]:
 
     if family is None:
         logger.warning(
-            "[zentorch] Unsupported vLLM %s. Supports: %s, %s, %s, %s, %s, %s, %s, %s",
+            "[zentorch] Unsupported vLLM %s. Supports: %s through %s",
             vllm_ver,
-            VLLM_V12,
-            VLLM_V13,
-            VLLM_V14,
-            VLLM_V14_1,
-            VLLM_V15,
-            VLLM_V15_1,
-            VLLM_V16,
-            VLLM_V17,
+            VLLM_MIN_VERSION,
+            VLLM_MAX_VERSION,
         )
         return None
 
-    # Only initialize once per process
     if not _INITIALIZED:
+        _INITIALIZED = True
+
         logger.info("[zentorch] vLLM %s detected (family: %s)", vllm_ver, family)
 
         # CRITICAL: Apply PyTorch mainline backports FIRST
@@ -717,7 +860,9 @@ def register() -> Optional[str]:
         # These hooks fire when the target module is first imported.
         _apply_profiler_patch_v12()
 
+        if is_v17():
+            _install_v17_dispatch_hooks()
+
         logger.info("[zentorch] Applied patches: %s", manager.applied)
-        _INITIALIZED = True
 
     return "zentorch.vllm.platform.ZenCPUPlatform"

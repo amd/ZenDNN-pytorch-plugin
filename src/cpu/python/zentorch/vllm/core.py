@@ -21,8 +21,8 @@ from zentorch._logging import get_logger
 logger = get_logger(__name__)
 
 # Supported vLLM versions
-VLLM_MIN_VERSION = "0.12.0"
-VLLM_MAX_VERSION = "0.17.0"
+VLLM_MIN_VERSION = "0.15.0"
+VLLM_MAX_VERSION = "0.18.0"
 
 VLLM_V12 = "0.12.0"
 VLLM_V13 = "0.13.0"
@@ -32,17 +32,17 @@ VLLM_V15 = "0.15.0"
 VLLM_V15_1 = "0.15.1"
 VLLM_V16 = "0.16.0"
 VLLM_V17 = "0.17.0"
+VLLM_V17_1 = "0.17.1"
+VLLM_V18 = "0.18.0"
 
 # Version -> family mapping
 _VERSION_MAP = {
-    VLLM_V12: "v12",
-    VLLM_V13: "v13",
-    VLLM_V14: "v14",
-    VLLM_V14_1: "v14_1",
     VLLM_V15: "v15",
     VLLM_V15_1: "v15_1",
     VLLM_V16: "v16",
     VLLM_V17: "v17",
+    VLLM_V17_1: "v17",
+    VLLM_V18: "v18",
 }
 
 
@@ -59,12 +59,12 @@ def get_vllm_version() -> Optional[str]:
 
 
 def _base_version(ver: str) -> str:
-    """Strip dev/rc/local suffixes: '0.12.0.dev1+cpu' -> '0.12.0'"""
+    """Strip dev/rc/local suffixes: '0.15.0.dev1+cpu' -> '0.15.0'."""
     return ver.split("+")[0].split(".dev")[0].split("rc")[0]
 
 
 def get_version_family() -> Optional[str]:
-    """Return 'v12', 'v13', ..., 'v17' or None."""
+    """Return 'v15', 'v15_1', 'v16', 'v17', 'v18' or None."""
     ver = get_vllm_version()
     if ver is None:
         return None
@@ -101,6 +101,10 @@ def is_v16() -> bool:
 
 def is_v17() -> bool:
     return get_version_family() == "v17"
+
+
+def is_v18() -> bool:
+    return get_version_family() == "v18"
 
 # ---------------------------------------------------------------------------
 # Version decorators

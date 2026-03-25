@@ -7,17 +7,23 @@
 Unit tests for zentorch.vllm plugin.
 
 Tests verify:
-- Version compatibility checks for supported versions (0.12.0 - 0.17.0)
+- Version compatibility checks for supported versions (0.15.0 - 0.18.0)
 - Version parsing logic
 - Patch registration and application
 - Individual patch functionality (oneDNN disable, CompilationConfig repr, etc.)
 - Platform configuration
 
-Supported vLLM versions: 0.12.0, 0.13.0, 0.14.0, 0.14.1, 0.15.0, 0.15.1, 0.16.0, 0.17.0
+Supported vLLM versions: 0.15.0, 0.15.1, 0.16.0, 0.17.0, 0.17.1, 0.18.0
 """
 
+import os
+import importlib.util
 import sys
 import unittest
+from pathlib import Path
+from unittest import mock
+
+TORCHAO_AVAILABLE = importlib.util.find_spec("torchao") is not None
 
 # vLLM 0.11+ uses Python 3.10+ type syntax (e.g., `X | None`)
 # which fails at import time on Python 3.9
@@ -43,38 +49,33 @@ class TestVersionParsing(unittest.TestCase):
         """_base_version should strip dev/rc/local suffixes."""
         from zentorch.vllm.core import _base_version
 
-        self.assertEqual(_base_version("0.12.0.dev1+gb8b302cde.d20251203.cpu"), "0.12.0")
+        self.assertEqual(
+            _base_version("0.12.0.dev1+gb8b302cde.d20251203.cpu"), "0.12.0"
+        )
         self.assertEqual(_base_version("0.13.0rc1+cpu"), "0.13.0")
         self.assertEqual(_base_version("0.13.0rc0"), "0.13.0")
         self.assertEqual(_base_version("0.14.0rc1+cpu"), "0.14.0")
+        self.assertEqual(_base_version("0.17.1rc1+cpu"), "0.17.1")
+        self.assertEqual(_base_version("0.18.0.dev1+cpu"), "0.18.0")
 
     def test_version_map_contains_supported_versions(self):
         """VERSION_MAP should contain all supported base versions."""
         from zentorch.vllm.core import _VERSION_MAP
 
-        expected_versions = ["0.12.0", "0.13.0", "0.14.0", "0.14.1", "0.15.0", "0.15.1", "0.16.0", "0.17.0"]
+        expected_versions = [
+            "0.15.0",
+            "0.15.1",
+            "0.16.0",
+            "0.17.0",
+            "0.17.1",
+            "0.18.0",
+        ]
         for ver in expected_versions:
             self.assertIn(ver, _VERSION_MAP, f"{ver} should be in VERSION_MAP")
 
     def test_version_family_detection_supported(self):
         """VERSION_MAP should return correct family for supported versions."""
         from zentorch.vllm.core import _base_version, _VERSION_MAP
-
-        # v12 family
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.12.0")), "v12")
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.12.0.dev1+cpu")), "v12")
-
-        # v13 family
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.13.0")), "v13")
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.13.0rc1+cpu")), "v13")
-
-        # v14 family
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.14.0")), "v14")
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.14.0rc1+cpu")), "v14")
-
-        # v14_1 family
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.14.1")), "v14_1")
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.14.1rc1+cpu")), "v14_1")
 
         # v15 family
         self.assertEqual(_VERSION_MAP.get(_base_version("0.15.0")), "v15")
@@ -91,12 +92,31 @@ class TestVersionParsing(unittest.TestCase):
         # v17 family
         self.assertEqual(_VERSION_MAP.get(_base_version("0.17.0")), "v17")
         self.assertEqual(_VERSION_MAP.get(_base_version("0.17.0+cpu")), "v17")
+        self.assertEqual(_VERSION_MAP.get(_base_version("0.17.1")), "v17")
+        self.assertEqual(_VERSION_MAP.get(_base_version("0.17.1+cpu")), "v17")
+
+        # v18 family
+        self.assertEqual(_VERSION_MAP.get(_base_version("0.18.0")), "v18")
+        self.assertEqual(_VERSION_MAP.get(_base_version("0.18.0+cpu")), "v18")
 
     def test_version_family_detection_unsupported(self):
         """VERSION_MAP should return None for unsupported versions."""
         from zentorch.vllm.core import _base_version, _VERSION_MAP
 
-        unsupported = ["0.9.1", "0.10.0", "0.10.5", "0.11.0", "0.11.1", "0.11.2", "0.18.0", "1.0.0"]
+        unsupported = [
+            "0.9.1",
+            "0.10.0",
+            "0.10.5",
+            "0.11.0",
+            "0.11.1",
+            "0.11.2",
+            "0.12.0",
+            "0.13.0",
+            "0.14.0",
+            "0.14.1",
+            "0.18.1",
+            "1.0.0",
+        ]
         for ver in unsupported:
             self.assertIsNone(
                 _VERSION_MAP.get(_base_version(ver)),
@@ -176,13 +196,25 @@ class TestPatchRegistration(unittest.TestCase):
         register()
         family = get_version_family()
 
-        # These patches apply to all versions (0.12.0 - 0.17.0)
-        universal_patches = ["CompilationConfigRepr", "OneDNNDisable"]
+        universal_patches = ["CompilationConfigRepr"]
         for patch_name in universal_patches:
             self.assertIn(
                 patch_name,
                 manager.applied,
                 f"Universal patch {patch_name!r} should be applied for {family}",
+            )
+
+        if family in {"v17", "v18"}:
+            self.assertNotIn(
+                "OneDNNDisable",
+                manager.applied,
+                f"OneDNNDisable should not be applied for {family}",
+            )
+        else:
+            self.assertIn(
+                "OneDNNDisable",
+                manager.applied,
+                f"OneDNNDisable should be applied for {family}",
             )
 
 
@@ -199,8 +231,13 @@ class TestOneDNNDisablePatch(unittest.TestCase):
     def test_onednn_gemm_disabled_after_register(self):
         """_supports_onednn should be False after register() is called."""
         from zentorch.vllm import register
+        from zentorch.vllm.core import get_version_family
 
         register()
+        family = get_version_family()
+
+        if family in {"v17", "v18"}:
+            self.skipTest(f"OneDNNDisablePatch does not apply for {family}")
 
         import vllm._custom_ops as ops
 
@@ -250,6 +287,37 @@ class TestCompilationConfigPatch(unittest.TestCase):
 
 
 # =============================================================================
+# Platform Version Guard Tests
+# =============================================================================
+
+
+class TestPlatformProfilerPatchVersionRange(unittest.TestCase):
+    """Test profiler patch version gating in platform.py."""
+
+    def test_profiler_patch_range_uses_normalized_versions(self):
+        """Profiler patch should use a normalized 0.13.0-0.18.0 version range."""
+        from zentorch.vllm import platform
+
+        cases = [
+            (None, False),
+            ("0.12.0", False),
+            ("0.13.0", True),
+            ("0.13.0rc1+cpu", True),
+            ("0.14.1", True),
+            ("0.15.0", True),
+            ("0.17.1+cpu", True),
+            ("0.18.0.dev1+cpu", True),
+            ("0.18.1", False),
+        ]
+
+        for version_str, expected in cases:
+            with self.subTest(version_str=version_str), mock.patch.object(
+                platform, "get_vllm_version", return_value=version_str
+            ):
+                self.assertEqual(platform._is_profiler_patch_version(), expected)
+
+
+# =============================================================================
 # Platform Configuration Tests
 # =============================================================================
 
@@ -284,6 +352,7 @@ class TestDynamicQLinearDispatchPatch(unittest.TestCase):
 
     @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
     @unittest.skipUnless(IS_PYTHON_3_10_OR_ABOVE, "vLLM 0.11+ requires Python 3.10+")
+    @unittest.skipUnless(TORCHAO_AVAILABLE, "torchao not installed")
     def test_patch_is_applied_after_register(self):
         """_DYNAMIC_QLINEAR_PATCH_APPLIED should be True after register()."""
         from zentorch.vllm import register
@@ -295,6 +364,45 @@ class TestDynamicQLinearDispatchPatch(unittest.TestCase):
             _DYNAMIC_QLINEAR_PATCH_APPLIED,
             "Int8Tensor F.linear dispatch should be patched after register()",
         )
+
+
+class TestDynamicQLinearDispatchNoTorchAO(unittest.TestCase):
+    """Int8 linear patch must not import torchao when the package is absent."""
+
+    def test_register_skips_without_torchao(self):
+        """Load zentorch.vllm from this repo's sources (native zentorch from site-packages)."""
+        import zentorch  # noqa: F401 — ensures C extension is available
+
+        plugin_root = Path(__file__).resolve().parents[3]
+
+        vllm_init = os.path.join(
+            plugin_root, "src", "cpu", "python", "zentorch", "vllm", "__init__.py"
+        )
+        self.assertTrue(os.path.isfile(vllm_init), f"expected {vllm_init}")
+
+        saved = sys.modules.get("zentorch.vllm")
+        spec = importlib.util.spec_from_file_location("zentorch.vllm", vllm_init)
+        zv = importlib.util.module_from_spec(spec)
+        sys.modules["zentorch.vllm"] = zv
+        spec.loader.exec_module(zv)
+        try:
+            with mock.patch.object(
+                zv.importlib.util,
+                "find_spec",
+                return_value=None,
+            ) as mock_find:
+                zv._DYNAMIC_QLINEAR_PATCH_APPLIED = False
+                zv._register_zentorch_linear_dispatch()
+            mock_find.assert_called_once_with("torchao")
+            self.assertFalse(
+                zv._DYNAMIC_QLINEAR_PATCH_APPLIED,
+                "Patch should not apply when find_spec('torchao') is None",
+            )
+        finally:
+            if saved is not None:
+                sys.modules["zentorch.vllm"] = saved
+            else:
+                del sys.modules["zentorch.vllm"]
 
 
 class TestZentorchOptimizePass(unittest.TestCase):
@@ -326,6 +434,7 @@ def run_tests():
     suite.addTests(loader.loadTestsFromTestCase(TestCompilationConfigPatch))
     suite.addTests(loader.loadTestsFromTestCase(TestPlatformConfiguration))
     suite.addTests(loader.loadTestsFromTestCase(TestDynamicQLinearDispatchPatch))
+    suite.addTests(loader.loadTestsFromTestCase(TestDynamicQLinearDispatchNoTorchAO))
     suite.addTests(loader.loadTestsFromTestCase(TestZentorchOptimizePass))
 
     runner = unittest.TextTestRunner(verbosity=2)
