@@ -202,9 +202,9 @@ python setup.py bdist_wheel
 #### 2.2.2.5. To install the wheel file of _zentorch_
 ```bash
 cd dist
-pip install zentorch-5.2.0-cp310-cp310-linux_x86_64.whl
+pip install zentorch-5.2.1-cp310-cp310-linux_x86_64.whl
 ```
->**Note:** The generated wheel file will be named zentorch-5.2.0-cp310-cp310-linux_x86_64.whl
+>**Note:** For r5.2 branch, the generated wheel file will be named zentorch-5.2.0-cp310-cp310-linux_x86_64.whl
 #### 2.2.2.6. Build Cleanup
 ```bash
 python setup.py clean --all
