@@ -152,7 +152,7 @@ pip install zentorch-5.2.0-cp310-cp310-manylinux_2_28_x86_64.whl
 
 ## 2.2. From Source
 
->**Note:** Weekly development releases with support for newer PyTorch versions (e.g., PyTorch v2.11.0) are only available through source builds from the master branch.
+>**Note:** Weekly development releases with support for newer PyTorch versions (e.g., PyTorch v2.11.0) are only available through source builds from the main branch.
 
 Run the following commands:
 ```bash
@@ -160,7 +160,7 @@ git clone https://github.com/amd/ZenDNN-pytorch-plugin.git
 cd ZenDNN-pytorch-plugin
 ```
 >**Notes:**
->* The repository defaults to the master branch. To build with PyTorch v2.11.0 support, checkout the main branch: ```git checkout main```. To build the stable 5.2 release (supports PyTorch v2.10.0 and v2.9.1), checkout the r5.2 branch: ```git checkout r5.2```
+>* The repository defaults to the main branch. To build with PyTorch v2.11.0 support, checkout the main branch: ```git checkout main```. To build the stable 5.2 release (supports PyTorch v2.10.0 and v2.9.1), checkout the r5.2 branch: ```git checkout r5.2```
 >* ```export ZENDNNL_MANYLINUX_BUILD=1``` is needed for build from source for RHEL/FEDORA/Almalinux/CentOS OS families
 
 ### 2.2.1. Preparing third party repositories
@@ -175,7 +175,7 @@ conda create -n pt-zentorch python=3.10 -y
 conda activate pt-zentorch
 ```
 #### 2.2.2.2. Install PyTorch
-For the latest development release (master branch), install PyTorch v2.11.0:
+For the latest development release (main branch), install PyTorch v2.11.0:
 ```bash
 pip install torch==2.11.0 --index-url https://download.pytorch.org/whl/cpu
 ```
