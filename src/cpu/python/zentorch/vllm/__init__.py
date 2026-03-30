@@ -562,7 +562,6 @@ def _do_patch_rmsnorm():
     try:
         from vllm.model_executor.layers.layernorm import (
             RMSNorm,
-            rms_norm,
             fused_add_rms_norm,
         )
     except ImportError:
@@ -582,7 +581,9 @@ def _do_patch_rmsnorm():
             return fused_add_rms_norm(
                 x, residual, self.weight.data, self.variance_epsilon
             )
-        return rms_norm(x, self.weight.data, self.variance_epsilon)
+        # This custom op causes accuracy issue with Qwen models
+        # return rms_norm(x, self.weight.data, self.variance_epsilon)
+        return self.forward_native(x, residual)
 
     RMSNorm.forward = patched_forward
     RMSNorm._zentorch_rmsnorm_patched = True
