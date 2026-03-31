@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2025 Advanced Micro Devices, Inc.
+# Copyright (c) 2025-2026 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -26,7 +26,6 @@ class Test_MM_Tanh(MMTestCase):
     )
     @torch.inference_mode()
     def test_mm_tanh(self, dtype):
-        self.data.create_unittest_data(dtype)
         native_output = torch.tanh(torch.mm(self.data.x, self.data.y))
         zentorch_output = torch.ops.zentorch.zentorch_mm_tanh(self.data.x, self.data.y)
 
@@ -40,7 +39,6 @@ class Test_Addmm_Tanh(AddmmTestCase):
     )
     @torch.inference_mode()
     def test_addmm_tanh(self, dtype):
-        self.data.create_unittest_data(dtype)
         bias = self.data.input.clone()
         native_output = torch.tanh(torch.addmm(bias, self.data.x, self.data.y))
         zentorch_output = torch.ops.zentorch.zentorch_addmm_tanh(
@@ -53,7 +51,6 @@ class Test_Addmm_Tanh(AddmmTestCase):
     )
     @torch.inference_mode()
     def test_addmm_tanh_with_alpha_beta(self, dtype):
-        self.data.create_unittest_data(dtype)
         bias = self.data.input.clone()
         alpha = 1.5
         beta = 0.5
