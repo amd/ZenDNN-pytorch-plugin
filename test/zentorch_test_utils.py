@@ -24,7 +24,7 @@ except ImportError:
     counters = None
     has_zentorch = False
 
-supported_dtypes = [("float32")]
+supported_dtypes = ["float32"]
 supported_dtypes_def = []
 qlinear_dtypes = []
 freeze_opt = [True, False]
@@ -97,6 +97,16 @@ WOQ_Y_RANGE = Range(1, 10)
 WOQ_K_RANGE = Range(3, 10)
 WOQ_QZEROS_NONZERO_DIM_RANGE = Range(15, 15)
 
+# Int4 opaque tensor path (tinygemm) constraints:
+#   out_features must be a multiple of 64 (BLOCK_N in unpack_int4pack_to_int8)
+#   group_size must be 32, 64, 128, or 256 (_weight_int4pack_mm_for_cpu)
+#   in_features = group_size * multiplier (must be divisible by group_size)
+WOQ_INT4_BATCH_RANGE = Range(1, 8)
+WOQ_INT4_OUT_FEATURES_OPT = [64, 128]
+WOQ_INT4_GROUP_SIZE_OPT = [128, 256]
+WOQ_INT4_IN_FEATURES_MULT_OPT = [2, 4]
+WOQ_INT4_BIAS_OPT = [True, False]
+
 MM_ADD_1D_M_RANGE = Range(148, 148)
 MM_ADD_1D_K_RANGE = Range(384, 384)
 MM_ADD_1D_N_RANGE = Range(54, 54)
@@ -117,19 +127,15 @@ if has_zentorch and zentorch._C.is_bf16_supported():
 if has_zentorch and zentorch._C.is_avx512_supported():
     qlinear_dtypes.append(("float32"))
 else:
-    print(
-        "Warning: Skipping zentorch qlinear Testcases since they are not \
-supported on this hardware"
-    )
+    print("Warning: Skipping zentorch qlinear Testcases since they are not \
+supported on this hardware")
 
 
 if has_zentorch and zentorch._C.is_bf16_supported():
     supported_dtypes.append(("bfloat16"))
 else:
-    print(
-        "Warning: Skipping Bfloat16 Testcases since they \
-are not supported on this hardware"
-    )
+    print("Warning: Skipping Bfloat16 Testcases since they \
+are not supported on this hardware")
 
 include_last_offset_opt = [True, False]
 INCLUDE_LAST_OFFSET_OPT_DEF = [False]
@@ -152,16 +158,12 @@ q_granularity_opt = [
     "per_tensor",
     "per_channel",
 ]
-Q_GRANULARITY_OPT_DEF = [
-    "per_tensor"
-]
+Q_GRANULARITY_OPT_DEF = ["per_tensor"]
 q_zero_points_dtype_opt = [
     "int8",
     "uint8",
 ]
-Q_ZERO_POINTS_DTYPE_OPT_DEF = [
-    "int8"
-]
+Q_ZERO_POINTS_DTYPE_OPT_DEF = ["int8"]
 q_linear_dtype_opt = [
     "float32",
     "bfloat16",
@@ -788,14 +790,10 @@ class Test_Data(metaclass=Singleton):
         woq_qzeros_nonzero,
         woq_bias,
         input3d,
-        input1d
+        input1d,
     ):
-        self.woq_m, self.woq_x, self.woq_y, self.woq_k = (
-            woq_m, woq_x, woq_y, woq_k
-        )
-        self.b, self.m, self.n = (
-            b, m, n
-        )
+        self.woq_m, self.woq_x, self.woq_y, self.woq_k = (woq_m, woq_x, woq_y, woq_k)
+        self.b, self.m, self.n = (b, m, n)
 
         self.woq_group_size = group_size_val
         self.packing_ratio = packing_ratio
@@ -887,14 +885,7 @@ class Test_Data(metaclass=Singleton):
         self.mm_add_2D = mm_add_2D
         self.mm_add_3D = mm_add_3D
 
-    def create_data_SDPA(
-            self,
-            dtype,
-            sdpa_query,
-            sdpa_key,
-            sdpa_value,
-            mask_shape
-    ):
+    def create_data_SDPA(self, dtype, sdpa_query, sdpa_key, sdpa_value, mask_shape):
         self.sdpa_query = sdpa_query
         self.sdpa_key = sdpa_key
         self.sdpa_value = sdpa_value

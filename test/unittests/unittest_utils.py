@@ -115,6 +115,12 @@ from zentorch_test_utils import (  # noqa: 402 # noqa: F401
     WOQ_K_RANGE,
     woq_dtypes,
     WOQ_QZEROS_NONZERO_DIM_RANGE,
+    # woq int4 opaque tensor variables
+    WOQ_INT4_BATCH_RANGE,
+    WOQ_INT4_OUT_FEATURES_OPT,
+    WOQ_INT4_GROUP_SIZE_OPT,
+    WOQ_INT4_IN_FEATURES_MULT_OPT,
+    WOQ_INT4_BIAS_OPT,
     # add_xD variables
     MM_ADD_1D_M_RANGE,
     MM_ADD_1D_K_RANGE,
@@ -2093,6 +2099,120 @@ class WOQTestCase(Zentorch_TestCase):
             return wrapper
 
         return hypothesis_params_woq_itr_impl
+
+    @seed(seed=SEED)
+    @staticmethod
+    @st.composite
+    def tensor_woq_int4_strategy(
+        draw,
+        batch_Range=WOQ_INT4_BATCH_RANGE,
+        out_features_opt_list=WOQ_INT4_OUT_FEATURES_OPT,
+        group_size_opt_list=WOQ_INT4_GROUP_SIZE_OPT,
+        in_features_mult_opt_list=WOQ_INT4_IN_FEATURES_MULT_OPT,
+        bias_opt_list=WOQ_INT4_BIAS_OPT,
+        tensor_seed=0,
+    ):
+        hypStr = ""
+        if not tensor_seed:
+            tensor_seed = getRandomSeed()
+        hypStr += f"tensor_seed={tensor_seed}, "
+
+        batch = draw(st.integers(batch_Range.get_min(), batch_Range.get_max()))
+        hypStr += f"batch_Range=Range({batch},{batch}), "
+        out_features = draw(st.sampled_from(out_features_opt_list))
+        hypStr += f"out_features_opt_list=[{out_features}], "
+        group_size = draw(st.sampled_from(group_size_opt_list))
+        hypStr += f"group_size_opt_list=[{group_size}], "
+        in_features_mult = draw(st.sampled_from(in_features_mult_opt_list))
+        hypStr += f"in_features_mult_opt_list=[{in_features_mult}], "
+        in_features = group_size * in_features_mult
+        with_bias = draw(st.sampled_from(bias_opt_list))
+        hypStr += f"bias_opt_list=[{with_bias}], "
+
+        return (
+            hypStr,
+            tensor_seed,
+            batch,
+            in_features,
+            out_features,
+            group_size,
+            with_bias,
+        )
+
+    @staticmethod
+    def hypothesis_params_woq_int4_itr(
+        batch_Range=WOQ_INT4_BATCH_RANGE,
+        out_features_opt_list=WOQ_INT4_OUT_FEATURES_OPT,
+        group_size_opt_list=WOQ_INT4_GROUP_SIZE_OPT,
+        in_features_mult_opt_list=WOQ_INT4_IN_FEATURES_MULT_OPT,
+        bias_opt_list=WOQ_INT4_BIAS_OPT,
+        tensor_seed=0,
+        time_out=None,
+    ):
+        def hypothesis_params_woq_int4_itr_impl(function):
+            @settings(
+                deadline=WOQTestCase.time_out if time_out is None else time_out,
+                max_examples=WOQTestCase.max_example_per_test,
+                verbosity=Verbosity.quiet,
+            )
+            @given(
+                val=WOQTestCase.tensor_woq_int4_strategy(
+                    batch_Range=batch_Range,
+                    out_features_opt_list=out_features_opt_list,
+                    group_size_opt_list=group_size_opt_list,
+                    in_features_mult_opt_list=in_features_mult_opt_list,
+                    bias_opt_list=bias_opt_list,
+                    tensor_seed=tensor_seed,
+                )
+            )
+            def wrapper(obj, val, *args, **kwargs):
+                try:
+                    (
+                        hypStr,
+                        tensor_seed,
+                        batch,
+                        in_features,
+                        out_features,
+                        group_size,
+                        with_bias,
+                    ) = val
+
+                    test_args = {
+                        "tensor_seed": tensor_seed,
+                        "batch": batch,
+                        "in_features": in_features,
+                        "out_features": out_features,
+                        "group_size": group_size,
+                        "with_bias": with_bias,
+                    }
+                    required_args = inspect.signature(function).parameters.keys()
+
+                    function(
+                        obj,
+                        *args,
+                        **{k: v for k, v in test_args.items() if k in required_args},
+                        **kwargs,
+                    )
+                except Exception as e:
+                    if not isinstance(e, unittest.SkipTest):
+                        decName = "WOQTestCase.hypothesis_params_woq_int4_itr"
+                        pklReplayFunction = "WOQTestCase.replay_from_pickle"
+                        obj.handleException(
+                            obj,
+                            str(e),
+                            hypStr,
+                            function.__name__,
+                            decName,
+                            pklReplayFunction,
+                            val,
+                            test_args,
+                        )
+                    raise
+                return
+
+            return wrapper
+
+        return hypothesis_params_woq_int4_itr_impl
 
 
 class QLinearTestCase(Zentorch_TestCase):

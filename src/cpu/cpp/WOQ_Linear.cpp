@@ -23,7 +23,6 @@ void zentorch_woq_linear_impl(const at::Tensor &input, const at::Tensor &weight,
   LOG(INFO) << "input dimensions: " << input.sizes();
   LOG(INFO) << "weight dimensions: " << weight.sizes();
   LOG(INFO) << "weight_scales dimensions: " << weight_scales.sizes();
-  LOG(INFO) << "weight_zero_points dimensions: " << weight_zero_points.sizes();
   LOG(INFO) << "result dimensions: " << result.sizes();
   LOG(INFO) << "post_op_ids size: " << post_op_ids.size();
   LOG(INFO) << "post_op_buffers size: " << post_op_buffers.size();
@@ -38,11 +37,15 @@ void zentorch_woq_linear_impl(const at::Tensor &input, const at::Tensor &weight,
   TORCH_CHECK(weight_scales.size(1) == weight.size(1), "weight_scales dim 1 (",
               weight_scales.size(1), ") must match weight dim 1 (",
               weight.size(1), ")");
-  TORCH_CHECK(weight_zero_points.sizes() == weight_scales.sizes(),
-              "weight_zero_points shape ", weight_zero_points.sizes(),
-              " must match weight_scales shape ", weight_scales.sizes());
   constexpr int kInt4PackedPerInt32 = 8; // 8 int4 values packed per int32
   const auto unpackedK = weight.size(0) * kInt4PackedPerInt32;
+
+  // TODO: Consider moving weight_dtype selection to graph pass level.
+  // Use u4 for unsigned int4 weights (asymmetric: zero_points provided),
+  // s4 for signed int4 weights (symmetric: zero_points is None)
+  const auto weight_dtype = weight_zero_points.defined()
+                                ? data_type_t::u4  // Asymmetric quantization
+                                : data_type_t::s4; // Symmetric quantization
 
   status_t status;
   const int int_env_value =
@@ -55,7 +58,7 @@ void zentorch_woq_linear_impl(const at::Tensor &input, const at::Tensor &weight,
     const auto K = input.size(1);
     const auto N = weight.size(1);
 
-    zendnnl::lowoha::matmul::matmul_quantization_params_t quantization_params;
+    zendnnl::lowoha::matmul::matmul_quantization_params_t quantization_params{};
 
     // Setup per-group quantization parameters
     // weight scale
@@ -64,20 +67,12 @@ void zentorch_woq_linear_impl(const at::Tensor &input, const at::Tensor &weight,
     quantization_params.wei_scale.dims = weight_scales.sizes().vec();
 
     // weight zero point
-    quantization_params.wei_zp.buff = weight_zero_points.data_ptr();
-    quantization_params.wei_zp.dt = get_zendnnl_dtype(weight_zero_points);
-    quantization_params.wei_zp.dims = weight_zero_points.sizes().vec();
+    if (weight_zero_points.defined()) {
+      quantization_params.wei_zp.buff = weight_zero_points.data_ptr();
+      quantization_params.wei_zp.dt = get_zendnnl_dtype(weight_zero_points);
+      quantization_params.wei_zp.dims = weight_zero_points.sizes().vec();
+    }
 
-    // Configure data types for WOQ
-    // Use u4 for unsigned int4 weights,
-    // s4 for signed int4 weights
-    // TODO: For symmetric quantization, pass weight_zero_points as None in the
-    // replacement pattern
-    //       so we can check weight_zero_points.defined() here directly instead
-    //       of relying on dtype check.
-    const auto weight_dtype = weight_zero_points.is_floating_point()
-                                  ? data_type_t::u4  // Asymmetric quantization
-                                  : data_type_t::s4; // Symmetric quantization
     zendnnl::lowoha::matmul::matmul_data_types dtypes;
     dtypes.src = get_zendnnl_dtype(input);
     dtypes.wei = weight_dtype;
@@ -132,17 +127,13 @@ void zentorch_woq_linear_impl(const at::Tensor &input, const at::Tensor &weight,
   woq_weight_scales_opt_ref = tensor_opt_ref(std::ref(woq_weight_scales));
 
   tensor_opt_ref woq_weight_zero_points_opt_ref = std::nullopt;
-  create_zendnnl_quantized_tensor(weight_zero_points, woq_weight_zero_points,
-                                  "woq_weight_zero_points");
-  woq_weight_zero_points_opt_ref =
-      tensor_opt_ref(std::ref(woq_weight_zero_points));
+  if (weight_zero_points.defined()) {
+    create_zendnnl_quantized_tensor(weight_zero_points, woq_weight_zero_points,
+                                    "woq_weight_zero_points");
+    woq_weight_zero_points_opt_ref =
+        tensor_opt_ref(std::ref(woq_weight_zero_points));
+  }
 
-  // Weight is int32 packed: each int32 contains 8 int4 values
-  // Use u4 for unsigned int4 weights,
-  // s4 for signed int4 weights
-  const auto weight_dtype = weight_zero_points.is_floating_point()
-                                ? data_type_t::u4
-                                : data_type_t::s4;
   set_zendnnl_tensor_attributes(
       weight.data_ptr(), weight_dtype, woq_weight, "woq_weight",
       false /* is_weight_prepacked */,
@@ -184,12 +175,12 @@ void zentorch_woq_linear_impl(const at::Tensor &input, const at::Tensor &weight,
 }
 
 template <UNARY_POST_OP fuse>
-at::Tensor zentorch_woq_linear_unary(const at::Tensor &input,
-                                     const at::Tensor &weight,
-                                     const at::Tensor &weight_scales,
-                                     const at::Tensor &weight_zero_points,
-                                     const std::optional<at::Tensor> &bias,
-                                     std::string zentorch_op_name) {
+at::Tensor
+zentorch_woq_linear_unary(const at::Tensor &input, const at::Tensor &weight,
+                          const at::Tensor &weight_scales,
+                          const std::optional<at::Tensor> &weight_zero_points,
+                          const std::optional<at::Tensor> &bias,
+                          std::string zentorch_op_name) {
 
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
@@ -213,12 +204,15 @@ at::Tensor zentorch_woq_linear_unary(const at::Tensor &input,
   c10::MaybeOwned<at::Tensor> bias_maybe_owned =
       at::borrow_from_optional_tensor(bias);
   const at::Tensor &bias_t = *bias_maybe_owned;
+  c10::MaybeOwned<at::Tensor> wzp_maybe_owned =
+      at::borrow_from_optional_tensor(weight_zero_points);
+  const at::Tensor &weight_zero_points_t = *wzp_maybe_owned;
   // Set unary post ops.
   std::vector<at::Tensor> post_op_buffers = {};
   std::vector<int64_t> post_op_ids = {fuse};
 
   zentorch_woq_linear_impl(input_2d_view, weight, bias_t, result, weight_scales,
-                           weight_zero_points, post_op_ids, post_op_buffers,
+                           weight_zero_points_t, post_op_ids, post_op_buffers,
                            zentorch_op_name);
 
   return result;
@@ -227,7 +221,8 @@ at::Tensor zentorch_woq_linear_unary(const at::Tensor &input,
 template <UNARY_POST_OP fuse1, BINARY_POST_OP fuse2>
 inline at::Tensor zentorch_woq_linear_unary_binary(
     const at::Tensor &input, const at::Tensor &weight,
-    const at::Tensor &weight_scales, const at::Tensor &weight_zero_points,
+    const at::Tensor &weight_scales,
+    const std::optional<at::Tensor> &weight_zero_points,
     const at::Tensor &binary_input, const std::optional<at::Tensor> &bias,
     std::string zentorch_op_name) {
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
@@ -252,6 +247,9 @@ inline at::Tensor zentorch_woq_linear_unary_binary(
   c10::MaybeOwned<at::Tensor> bias_maybe_owned =
       at::borrow_from_optional_tensor(bias);
   const at::Tensor &bias_t = *bias_maybe_owned;
+  c10::MaybeOwned<at::Tensor> wzp_maybe_owned =
+      at::borrow_from_optional_tensor(weight_zero_points);
+  const at::Tensor &weight_zero_points_t = *wzp_maybe_owned;
 
   std::vector<at::Tensor> post_op_buffers = {binary_input_2d_view};
   std::vector<int64_t> post_op_ids = {fuse1, fuse2};
@@ -260,7 +258,7 @@ inline at::Tensor zentorch_woq_linear_unary_binary(
             << "!\n";
 
   zentorch_woq_linear_impl(input_2d_view, weight, bias_t, result, weight_scales,
-                           weight_zero_points, post_op_ids, post_op_buffers,
+                           weight_zero_points_t, post_op_ids, post_op_buffers,
                            zentorch_op_name);
   return result;
 }
@@ -268,7 +266,8 @@ inline at::Tensor zentorch_woq_linear_unary_binary(
 template <BINARY_POST_OP fuse1, BINARY_POST_OP fuse2>
 inline at::Tensor zentorch_woq_linear_binary_binary(
     const at::Tensor &input, const at::Tensor &weight,
-    const at::Tensor &weight_scales, const at::Tensor &weight_zero_points,
+    const at::Tensor &weight_scales,
+    const std::optional<at::Tensor> &weight_zero_points,
     const at::Tensor &binary1_input, const at::Tensor &binary2_input,
     const std::optional<at::Tensor> &bias, std::string zentorch_op_name) {
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
@@ -296,6 +295,9 @@ inline at::Tensor zentorch_woq_linear_binary_binary(
   c10::MaybeOwned<at::Tensor> bias_maybe_owned =
       at::borrow_from_optional_tensor(bias);
   const at::Tensor &bias_t = *bias_maybe_owned;
+  c10::MaybeOwned<at::Tensor> wzp_maybe_owned =
+      at::borrow_from_optional_tensor(weight_zero_points);
+  const at::Tensor &weight_zero_points_t = *wzp_maybe_owned;
 
   std::vector<at::Tensor> post_op_buffers = {binary1_input_2d_view,
                                              binary2_input_2d_view};
@@ -305,13 +307,12 @@ inline at::Tensor zentorch_woq_linear_binary_binary(
             << "!\n";
 
   zentorch_woq_linear_impl(input_2d_view, weight, bias_t, result, weight_scales,
-                           weight_zero_points, post_op_ids, post_op_buffers,
+                           weight_zero_points_t, post_op_ids, post_op_buffers,
                            zentorch_op_name);
   return result;
 }
 
-at::Tensor
-zentorch_weight_from_int4pack_and_repack(const at::Tensor &unpacked_weight) {
+at::Tensor zentorch_woq_repack_weight(const at::Tensor &unpacked_weight) {
   TORCH_CHECK(unpacked_weight.dtype() == torch::kInt8,
               "unpacked_weight must have dtype int8, got ",
               unpacked_weight.dtype());
@@ -376,13 +377,9 @@ zentorch_weight_from_int4pack_and_repack(const at::Tensor &unpacked_weight) {
   return weight_packed_rowwise;
 }
 
-// TODO: Refactor this code to modularize the unpacking and repacking logic.
-// Separate the unpack (int4 -> int8 tensor) and row-wise pack (int8 tensor ->
-// int32 tensor) operations into distinct reusable functions for improved code
-// modularity and readability.
-at::Tensor zentorch_weight_from_int4pack_and_repack_for_opaque_tensor(
-    const at::Tensor &packed_weight) {
-
+// Unpacks PyTorch's int4pack layout (uint8 tensor) into a plain int8 tensor
+// where each element holds one uint4 value.
+at::Tensor unpack_int4pack_to_int8(const at::Tensor &packed_weight) {
   TORCH_CHECK(packed_weight.dtype() == torch::kUInt8,
               "packed_weight must have dtype uint8, got ",
               packed_weight.dtype());
@@ -393,38 +390,31 @@ at::Tensor zentorch_weight_from_int4pack_and_repack_for_opaque_tensor(
   int N = packed_weight.size(0);      // Number of rows
   int K_half = packed_weight.size(1); // K/2 (packed columns)
   int K = K_half * 2;                 // K (full columns after unpacking)
-  constexpr int pack_num = 8;
-  int K_packed = K / pack_num;
-  TORCH_CHECK(K >= pack_num, "K must be at least ", pack_num, ", got ", K);
-  TORCH_CHECK(K % pack_num == 0, "K must be divisible by ", pack_num, ", got ",
-              K);
   // Tensor for unpacked weights [N, K], dtype int8 (one uint4 value per
   // element)
-  at::Tensor weight_unpacked =
-      torch::zeros({N, K}, torch::TensorOptions()
-                               .dtype(torch::kInt8)
-                               .device(packed_weight.device()));
-  // Tensor for row-wise repacked weights [N, K/8], dtype int32 (8 uint4 per
-  // int32)
-  at::Tensor weight_packed_rowwise =
-      torch::empty({N, K_packed}, torch::TensorOptions()
-                                      .dtype(torch::kInt32)
-                                      .device(packed_weight.device()));
+  at::Tensor weight_unpacked = at::detail::empty_strided_cpu(
+      {N, K}, {K, 1}, torch::TensorOptions().dtype(torch::kInt8));
   // Get raw pointers to tensor data
   const auto packed_strided_data =
       reinterpret_cast<const uint8_t *>(packed_weight.data_ptr<uint8_t>());
   auto weight_data = weight_unpacked.data_ptr<int8_t>();
-  auto packed_rowwise_data = weight_packed_rowwise.data_ptr<int32_t>();
-  // BLOCK_N is the vectorization width (typically 64 for AVX-512, 32 for AVX2)
+  // BLOCK_N = 64 is fixed by PyTorch's int4pack layout (see
+  // aten/src/ATen/native/cpu/int4mm_kernel.cpp), which always groups rows
+  // into blocks of 64 regardless of the CPU's SIMD width. The unpacking
+  // math below (16 iterations x 4 interleaved rows, 32-byte column stride)
+  // is specific to this block size. PyTorch pads N to a multiple of BLOCK_N,
+  // so the source data always has full blocks. We validate this upfront.
   // TODO: Include BLOCK_N from the appropriate torch header instead of
   // hardcoding it.
   constexpr int BLOCK_N = 64;
-  const int NB = (N + BLOCK_N - 1) / BLOCK_N; // Number of blocks
+  TORCH_CHECK(N % BLOCK_N == 0, "packed_weight row count (", N,
+              ") must be a multiple of ", BLOCK_N,
+              ". The int4pack format from PyTorch pads N to BLOCK_N; "
+              "receiving an unpadded tensor indicates a packing mismatch.");
+  const int NB = N / BLOCK_N;
   // Parallel processing over blocks of rows
   at::parallel_for(0, NB, 0, [&](int64_t begin, int64_t end) {
     for (const auto i : c10::irange(begin, end)) {
-      // Calculate actual block size (may be smaller for last block)
-      int nb_size = std::min(BLOCK_N, N - static_cast<int>(i) * BLOCK_N);
       // Calculate source pointer for this block in strided packed data
       // Each block contains K columns * BLOCK_N rows / 2 (2 values per byte)
       const uint8_t *src = packed_strided_data + i * K * BLOCK_N / 2;
@@ -432,112 +422,81 @@ at::Tensor zentorch_weight_from_int4pack_and_repack_for_opaque_tensor(
       int8_t *dst = weight_data + i * BLOCK_N * K;
       // Process each column
       for (const auto k : c10::irange(K)) {
-        // Only process full blocks (partial blocks need special handling)
-        if (nb_size == BLOCK_N) {
-          // Process 16 iterations to handle 64 rows (16 * 4 values = 64 rows)
-          for (const auto d : c10::irange(16)) {
-            // Layout for each column:
-            //   - Bytes [0..15]:  packed02 for d=[0..15] (contains val0, val2)
-            //   - Bytes [16..31]: packed13 for d=[0..15] (contains val1, val3)
-            uint8_t packed02 = src[k * 32 + d];      // Contains val0, val2
-            uint8_t packed13 = src[k * 32 + 16 + d]; // Contains val1, val3
+        // Process 16 iterations to handle 64 rows (16 * 4 values = 64 rows)
+        for (const auto d : c10::irange(16)) {
+          // Layout for each column:
+          //   - Bytes [0..15]:  packed02 for d=[0..15] (contains val0, val2)
+          //   - Bytes [16..31]: packed13 for d=[0..15] (contains val1, val3)
+          uint8_t packed02 = src[k * 32 + d];      // Contains val0, val2
+          uint8_t packed13 = src[k * 32 + 16 + d]; // Contains val1, val3
 
-            // Extract 4-bit values, keep as unsigned (0-15)
-            int8_t val0 = static_cast<int8_t>(packed02 & 0x0F);
-            int8_t val2 = static_cast<int8_t>((packed02 >> 4) & 0x0F);
-            int8_t val1 = static_cast<int8_t>(packed13 & 0x0F);
-            int8_t val3 = static_cast<int8_t>((packed13 >> 4) & 0x0F);
-            // The packing read from strided rows: (d+0), (d+16), (d+32), (d+48)
-            // We restore values to these same positions in row-major layout
-            dst[(d + 0) * K + k] = val0;  // Row (d+0),  column k
-            dst[(d + 16) * K + k] = val1; // Row (d+16), column k
-            dst[(d + 32) * K + k] = val2; // Row (d+32), column k
-            dst[(d + 48) * K + k] = val3; // Row (d+48), column k
-          }
-        } else {
-          LOG(FATAL) << "WOQ_Linear: Partial block encountered (nb_size="
-                     << nb_size
-                     << "), which is currently unsupported by the unpack path."
-                     << "[" << __FILE__ << ": " << __LINE__ << "]";
+          // Extract 4-bit values, keep as unsigned (0-15)
+          int8_t val0 = static_cast<int8_t>(packed02 & 0x0F);
+          int8_t val2 = static_cast<int8_t>((packed02 >> 4) & 0x0F);
+          int8_t val1 = static_cast<int8_t>(packed13 & 0x0F);
+          int8_t val3 = static_cast<int8_t>((packed13 >> 4) & 0x0F);
+          // The packing read from strided rows: (d+0), (d+16), (d+32), (d+48)
+          // We restore values to these same positions in row-major layout
+          dst[(d + 0) * K + k] = val0;  // Row (d+0),  column k
+          dst[(d + 16) * K + k] = val1; // Row (d+16), column k
+          dst[(d + 32) * K + k] = val2; // Row (d+32), column k
+          dst[(d + 48) * K + k] = val3; // Row (d+48), column k
         }
       }
     }
   });
-  // Repack: 8 uint4 values into each int32, row by row (parallelized)
-  // Input:  weight_data[N][K]          — one uint4 value per int8 element
-  // Output: packed_rowwise_data[N][K/8] — 8 uint4 values packed per int32
-  // Matches zentorch_weight_from_int4pack_and_repack format
-  constexpr int order_map[pack_num] = {0, 1, 2, 3, 4, 5, 6, 7};
-  at::parallel_for(0, N, 0, [&](int64_t begin, int64_t end) {
-    for (const auto n : c10::irange(begin, end)) {
-      const int8_t *row_src = weight_data + n * K;
-      int32_t *row_dst = packed_rowwise_data + n * K_packed;
-      for (int c = 0; c < K_packed; c++) {
-        int32_t packed = 0;
-        int base_col = c * pack_num;
-        for (int i = 0; i < pack_num; i++) {
-          int8_t val = row_src[base_col + order_map[i]];
-          packed |= static_cast<int32_t>(val & 0x0F) << (i * 4);
-        }
-        row_dst[c] = packed;
-      }
-    }
-  });
-  return weight_packed_rowwise;
+  return weight_unpacked;
+}
+
+at::Tensor zentorch_woq_repack_from_int4pack(const at::Tensor &packed_weight) {
+  at::Tensor weight_unpacked = unpack_int4pack_to_int8(packed_weight);
+  return zentorch_woq_repack_weight(weight_unpacked);
 }
 
 TORCH_LIBRARY_FRAGMENT(zentorch, m) {
   m.def("zentorch_woq_linear(Tensor input, Tensor weight, "
-        "Tensor weight_scales, Tensor weight_zero_points, "
+        "Tensor weight_scales, Tensor? weight_zero_points, "
         "Tensor? bias=None, "
         "*, str zentorch_op_name='zentorch::zentorch_woq_linear') -> Tensor");
+  m.def("zentorch_woq_linear_relu(Tensor input, Tensor weight,"
+        "Tensor weight_scales, Tensor? weight_zero_points, Tensor? bias=None, "
+        "*, str zentorch_op_name="
+        "'zentorch::zentorch_woq_linear_relu') -> Tensor");
 
-  m.def("zentorch_woq_linear_relu(Tensor input, Tensor weight, "
-        "Tensor weight_scales, Tensor weight_zero_points, "
-        "Tensor? bias=None, "
-        "*, str zentorch_op_name='zentorch::zentorch_woq_linear_relu') -> "
-        "Tensor");
+  m.def("zentorch_woq_linear_sigmoid(Tensor input, Tensor weight,"
+        "Tensor weight_scales, Tensor? weight_zero_points, "
+        "Tensor? bias=None, *, str "
+        "zentorch_op_name='zentorch::zentorch_woq_linear_sigmoid') -> Tensor");
 
-  m.def("zentorch_woq_linear_sigmoid(Tensor input, Tensor weight, "
-        "Tensor weight_scales, Tensor weight_zero_points, "
-        "Tensor? bias=None, "
-        "*, str zentorch_op_name='zentorch::zentorch_woq_linear_sigmoid') -> "
-        "Tensor");
+  m.def("zentorch_woq_linear_gelu_tanh(Tensor input, Tensor weight,"
+        "Tensor weight_scales, Tensor? weight_zero_points, Tensor? bias=None, "
+        "*, str zentorch_op_name="
+        "'zentorch::zentorch_woq_linear_gelu_tanh') -> Tensor");
 
-  m.def(
-      "zentorch_woq_linear_gelu_tanh(Tensor input, Tensor weight,"
-      "Tensor weight_scales, Tensor weight_zero_points, Tensor? bias=None, *, "
-      "str zentorch_op_name="
-      "'zentorch::zentorch_woq_linear_gelu_tanh') -> Tensor");
-
-  m.def(
-      "zentorch_woq_linear_gelu_erf(Tensor input, Tensor weight,"
-      "Tensor weight_scales, Tensor weight_zero_points, Tensor? bias=None, *, "
-      "str zentorch_op_name="
-      "'zentorch::zentorch_woq_linear_gelu_erf') -> Tensor");
+  m.def("zentorch_woq_linear_gelu_erf(Tensor input, Tensor weight,"
+        "Tensor weight_scales, Tensor? weight_zero_points, Tensor? bias=None, "
+        "*, str zentorch_op_name="
+        "'zentorch::zentorch_woq_linear_gelu_erf') -> Tensor");
 
   m.def("zentorch_woq_linear_add(Tensor input, Tensor weight, "
-        "Tensor weight_scales, Tensor weight_zero_points, "
+        "Tensor weight_scales, Tensor? weight_zero_points, "
         "Tensor add_input, Tensor? bias=None, *, str zentorch_op_name="
         "'zentorch::zentorch_woq_linear_add') -> Tensor",
         {at::Tag::needs_contiguous_strides});
-
   m.def("zentorch_woq_linear_mul_add(Tensor input, Tensor weight,"
-        "Tensor weight_scales, Tensor weight_zero_points, "
+        "Tensor weight_scales, Tensor? weight_zero_points, "
         "Tensor mul_input, Tensor add_input, Tensor? bias=None, *, str "
         "zentorch_op_name= 'zentorch::zentorch_woq_linear_mul_add') -> Tensor",
         {at::Tag::needs_fixed_stride_order});
-
   m.def("zentorch_woq_linear_add_add(Tensor input, Tensor weight,"
-        "Tensor weight_scales, Tensor weight_zero_points, "
+        "Tensor weight_scales, Tensor? weight_zero_points, "
         "Tensor add_input, Tensor add_input_2, Tensor? bias=None, *, str "
         "zentorch_op_name='zentorch::zentorch_woq_linear_add_add') -> Tensor",
         {at::Tag::needs_fixed_stride_order});
 
-  m.def("zentorch_weight_from_int4pack_and_repack(Tensor unpacked_weight) -> "
-        "Tensor");
+  m.def("zentorch_woq_repack_weight(Tensor unpacked_weight) -> Tensor");
 
-  m.def("zentorch_weight_from_int4pack_and_repack_for_opaque_tensor(Tensor "
+  m.def("zentorch_woq_repack_from_int4pack(Tensor "
         "packed_weight) -> Tensor");
 }
 
@@ -564,16 +523,13 @@ TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
   m.impl("zentorch_woq_linear_mul_add",
          zentorch::zentorch_woq_linear_binary_binary<BINARY_POST_OP::MUL,
                                                      BINARY_POST_OP::ADD>);
-
   m.impl("zentorch_woq_linear_add_add",
          zentorch::zentorch_woq_linear_binary_binary<BINARY_POST_OP::ADD,
                                                      BINARY_POST_OP::ADD>);
 
-  m.impl("zentorch_weight_from_int4pack_and_repack",
-         zentorch::zentorch_weight_from_int4pack_and_repack);
-
-  m.impl("zentorch_weight_from_int4pack_and_repack_for_opaque_tensor",
-         zentorch::zentorch_weight_from_int4pack_and_repack_for_opaque_tensor);
+  m.impl("zentorch_woq_repack_weight", zentorch::zentorch_woq_repack_weight);
+  m.impl("zentorch_woq_repack_from_int4pack",
+         zentorch::zentorch_woq_repack_from_int4pack);
 }
 
 } // namespace zentorch

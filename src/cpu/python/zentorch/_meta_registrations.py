@@ -751,7 +751,7 @@ def meta_zentorch_woq_linear(
     input,
     weight,
     weight_scales,
-    weight_zero_points,
+    weight_zero_points=None,
     bias=None,
     zentorch_op_name="zentorch::zentorch_woq_linear",
 ):
@@ -765,7 +765,7 @@ def meta_zentorch_woq_linear_relu(
     input,
     weight,
     weight_scales,
-    weight_zero_points,
+    weight_zero_points=None,
     bias=None,
     zentorch_op_name="zentorch::zentorch_woq_linear_relu",
 ):
@@ -784,7 +784,7 @@ def meta_zentorch_woq_linear_sigmoid(
     input,
     weight,
     weight_scales,
-    weight_zero_points,
+    weight_zero_points=None,
     bias=None,
     zentorch_op_name="zentorch::zentorch_woq_linear_sigmoid",
 ):
@@ -877,16 +877,16 @@ def meta_zentorch_dynamic_qlinear(
     return input.new_empty(out_dim)
 
 
-@register_meta("zentorch_weight_from_int4pack_and_repack")
-def meta_zentorch_weight_from_int4pack_and_repack(unpacked_weight):
+@register_meta("zentorch_woq_repack_weight")
+def meta_zentorch_woq_repack_weight(unpacked_weight):
     # Returns a packed weight tensor of shape [N, K/8]
     K = unpacked_weight.size(1)
     K_packed = K // 8
     return unpacked_weight.new_empty((unpacked_weight.size(0), K_packed))
 
 
-@register_meta("zentorch_weight_from_int4pack_and_repack_for_opaque_tensor")
-def meta_zentorch_weight_from_int4pack_and_repack_for_opaque_tensor(
+@register_meta("zentorch_woq_repack_from_int4pack")
+def meta_zentorch_woq_repack_from_int4pack(
     packed_weight,
 ):
     N = packed_weight.size(0)
@@ -941,7 +941,9 @@ make_fallback(torch.ops.zentorch.zentorch_woq_linear_gelu_tanh)
 make_fallback(torch.ops.zentorch.zentorch_woq_linear_mul_add)
 make_fallback(torch.ops.zentorch.zentorch_dynamic_qlinear)
 make_fallback(torch.ops.zentorch.zentorch_woq_linear_add_add)
-make_fallback(torch.ops.zentorch.zentorch_weight_from_int4pack_and_repack)
-make_fallback(torch.ops.zentorch.zentorch_weight_from_int4pack_and_repack_for_opaque_tensor)
+make_fallback(torch.ops.zentorch.zentorch_woq_repack_weight)
+make_fallback(
+    torch.ops.zentorch.zentorch_woq_repack_from_int4pack
+)
 if hasattr(torch.ops.zentorch, "zentorch_sdpa"):
     make_fallback(torch.ops.zentorch.zentorch_sdpa)

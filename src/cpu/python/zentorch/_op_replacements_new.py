@@ -359,25 +359,23 @@ def intx_weight_only_linear_replacement_per_channel_no_bias(
     def repl(
         input_tensor: Any,
         weight_tensor: Any,
-        weight_zero_points: Any,
+        _weight_zero_points: Any,
         weight_scales: Any,
-        dims: Any,
+        _dims: Any,
     ) -> torch.Tensor:
-        # dims is not used for per-channel pattern
-        # weight tensor, weight_scales and weight_zero_points need to be reshaped from 3D to 2D and transposed.
-        # scales and zero points need to be in contiguous memory format.
-        # transpose weight: [N, K/8] -> [K/8, N]
-        packed_weight = zentorch.zentorch_weight_from_int4pack_and_repack(
+        # weight tensor, weight_scales need to be reshaped from 3D to 2D and transposed.
+        # scales need to be in contiguous memory format.
+        # Repack and transpose weight: [N, K/8] -> [K/8, N]
+        packed_weight = zentorch.zentorch_woq_repack_weight(
             weight_tensor
         ).transpose(0, 1)
         weight_scales = weight_scales.transpose(0, 1).contiguous()
-        weight_zero_points = weight_zero_points.transpose(0, 1).contiguous()
         counters["zentorch"]["zentorch_woq_linear"] += 1
         return zentorch.zentorch_woq_linear(
             input_tensor,
             packed_weight,
             weight_scales,
-            weight_zero_points,
+            None,  # symmetric quantization: no zero points
             None,  # no bias for mm pattern
             zentorch_op_name="zentorch_woq_linear",
         )
@@ -442,26 +440,24 @@ def intx_weight_only_linear_replacement_per_channel_with_bias(
         bias_tensor: Any,
         input_tensor: Any,
         weight_tensor: Any,
-        weight_zero_points: Any,
+        _weight_zero_points: Any,
         weight_scales: Any,
-        dims: Any,
+        _dims: Any,
     ) -> torch.Tensor:
-        # dims is not used for per-channel pattern
-        # weight tensor, weight_scales and weight_zero_points need to be reshaped from 3D to 2D and transposed.
-        # scales and zero points need to be in contiguous memory format.
-        # transpose weight: [N, K/8] -> [K/8, N]
-        packed_weight = zentorch.zentorch_weight_from_int4pack_and_repack(
+        # weight tensor, weight_scales need to be reshaped from 3D to 2D and transposed.
+        # scales need to be in contiguous memory format.
+        # Repack and transpose weight: [N, K/8] -> [K/8, N]
+        packed_weight = zentorch.zentorch_woq_repack_weight(
             weight_tensor
         ).transpose(0, 1)
         weight_scales = weight_scales.transpose(0, 1).contiguous()
-        weight_zero_points = weight_zero_points.transpose(0, 1).contiguous()
         counters["zentorch"]["zentorch_woq_linear"] += 1
         return zentorch.zentorch_woq_linear(
             input_tensor,
             packed_weight,
             weight_scales,
-            weight_zero_points,
-            bias_tensor,  # bias tensor is not used for per-channel pattern
+            None,  # symmetric quantization: no zero points
+            bias_tensor,
             zentorch_op_name="zentorch_woq_linear",
         )
 
@@ -537,31 +533,26 @@ def intx_weight_only_linear_replacement_per_group_no_bias(
     def repl(
         input_tensor: Any,
         weight_tensor: Any,
-        weight_zero_points: Any,
+        _weight_zero_points: Any,
         weight_scales: Any,
         view_shape: Any,
-        dims: Any,
+        _dims: Any,
     ) -> torch.Tensor:
-        # weight tensor, weight_scales and weight_zero_points need to be reshaped from 3D to 2D and transposed.
-        # scales and zero points need to be in contiguous memory format.
-        # transpose weight: [N, K/8] -> [K/8, N]
-        packed_weight = zentorch.zentorch_weight_from_int4pack_and_repack(
+        # weight tensor, weight_scales need to be reshaped from 3D to 2D and transposed.
+        # scales need to be in contiguous memory format.
+        # Repack and transpose weight: [N, K/8] -> [K/8, N]
+        packed_weight = zentorch.zentorch_woq_repack_weight(
             weight_tensor.view(view_shape)
         ).transpose(0, 1)
         weight_scales = (
             weight_scales.view(weight_scales.shape[0], -1).transpose(0, 1).contiguous()
-        )
-        weight_zero_points = (
-            weight_zero_points.view(weight_zero_points.shape[0], -1)
-            .transpose(0, 1)
-            .contiguous()
         )
         counters["zentorch"]["zentorch_woq_linear"] += 1
         return zentorch.zentorch_woq_linear(
             input_tensor,
             packed_weight,
             weight_scales,
-            weight_zero_points,
+            None,  # symmetric quantization: no zero points
             None,  # no bias for mm pattern
             zentorch_op_name="zentorch_woq_linear",
         )
@@ -640,32 +631,27 @@ def intx_weight_only_linear_replacement_per_group_with_bias(
         bias_tensor: Any,
         input_tensor: Any,
         weight_tensor: Any,
-        weight_zero_points: Any,
+        _weight_zero_points: Any,
         weight_scales: Any,
         view_shape: Any,
-        dims: Any,
+        _dims: Any,
     ) -> torch.Tensor:
-        # weight tensor, weight_scales and weight_zero_points need to be reshaped from 3D to 2D and transposed.
-        # scales and zero points need to be in contiguous memory format.
+        # weight tensor, weight_scales need to be reshaped from 3D to 2D and transposed.
+        # scales need to be in contiguous memory format.
         # Repack and transpose weight: [N, K/8] -> [K/8, N]
-        packed_weight = zentorch.zentorch_weight_from_int4pack_and_repack(
+        packed_weight = zentorch.zentorch_woq_repack_weight(
             weight_tensor.view(view_shape)
         ).transpose(0, 1)
         weight_scales = (
             weight_scales.view(weight_scales.shape[0], -1).transpose(0, 1).contiguous()
-        )
-        weight_zero_points = (
-            weight_zero_points.view(weight_zero_points.shape[0], -1)
-            .transpose(0, 1)
-            .contiguous()
         )
         counters["zentorch"]["zentorch_woq_linear"] += 1
         return zentorch.zentorch_woq_linear(
             input_tensor,
             packed_weight,
             weight_scales,
-            weight_zero_points,
-            bias_tensor,  # bias tensor for addmm pattern
+            None,  # symmetric quantization: no zero points
+            bias_tensor,
             zentorch_op_name="zentorch_woq_linear",
         )
 
@@ -711,7 +697,7 @@ def int4_opaque_tensor_linear_replacement(
         scale_and_zero: Any,
     ) -> torch.Tensor:
         repacked_weight = (
-            zentorch.zentorch_weight_from_int4pack_and_repack_for_opaque_tensor(
+            zentorch.zentorch_woq_repack_from_int4pack(
                 packed_weight,
             )
         )
@@ -719,6 +705,10 @@ def int4_opaque_tensor_linear_replacement(
         # No transpose needed: already in (K/group_size, N) layout expected by zentorch_woq_linear.
         scale = scale_and_zero.select(2, 0).contiguous()
         zero_point = scale_and_zero.select(2, 1).contiguous()
+        assert zero_point.shape == scale.shape, (
+            f"weight_zero_points shape {zero_point.shape} "
+            f"must match weight_scales shape {scale.shape}"
+        )
         # transpose weight: [N, K/8] -> [K/8, N]
         repacked_weight = repacked_weight.transpose(0, 1)
         counters["zentorch"]["zentorch_woq_linear"] += 1
@@ -775,7 +765,7 @@ def int4_opaque_tensor_linear_add_bias_replacement(
         bias_tensor: Any,
     ) -> torch.Tensor:
         repacked_weight = (
-            zentorch.zentorch_weight_from_int4pack_and_repack_for_opaque_tensor(
+            zentorch.zentorch_woq_repack_from_int4pack(
                 packed_weight,
             )
         )
