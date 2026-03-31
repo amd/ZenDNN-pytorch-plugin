@@ -648,9 +648,17 @@ def intx_weight_only_linear_replacement_per_group_with_bias(
         # weight tensor, weight_scales and weight_zero_points need to be reshaped from 3D to 2D and transposed.
         # scales and zero points need to be in contiguous memory format.
         # Repack and transpose weight: [N, K/8] -> [K/8, N]
-        packed_weight = zentorch.zentorch_weight_from_int4pack_and_repack(weight_tensor.view(view_shape)).transpose(0, 1)
-        weight_scales = weight_scales.view(weight_scales.shape[0], -1).transpose(0, 1).contiguous()
-        weight_zero_points = weight_zero_points.view(weight_zero_points.shape[0], -1).transpose(0, 1).contiguous()
+        packed_weight = zentorch.zentorch_weight_from_int4pack_and_repack(
+            weight_tensor.view(view_shape)
+        ).transpose(0, 1)
+        weight_scales = (
+            weight_scales.view(weight_scales.shape[0], -1).transpose(0, 1).contiguous()
+        )
+        weight_zero_points = (
+            weight_zero_points.view(weight_zero_points.shape[0], -1)
+            .transpose(0, 1)
+            .contiguous()
+        )
         counters["zentorch"]["zentorch_woq_linear"] += 1
         return zentorch.zentorch_woq_linear(
             input_tensor,
@@ -726,6 +734,69 @@ def int4_opaque_tensor_linear_replacement(
     match.replace_by_example(
         repl,
         [input_tensor, packed_weight, groupsize, scale_and_zero],
+    )
+
+
+def is_bias_1d_tensor_by_index(bias_index: int) -> Callable[[Match], bool]:
+    def fn(match: Match) -> bool:
+        return match.args[bias_index].meta["val"].ndim == 1
+
+    return fn
+
+
+@register_graph_pattern(
+    CallFunction(
+        aten.add.Tensor,
+        CallFunction(
+            aten._weight_int4pack_mm_for_cpu,
+            Arg(),  # input tensor (2D, contiguous)
+            Arg(),  # packed_weight (uint8, qdata from Int4OpaqueTensor)
+            Arg(),  # groupsize (int)
+            Arg(),  # scale_and_zero (K/group_size, N, 2)
+        ),
+        Arg(),  # bias tensor
+    ),
+    pass_dict=pass_pattern,
+    extra_check=is_bias_1d_tensor_by_index(4),
+)
+def int4_opaque_tensor_linear_add_bias_replacement(
+    match: Match,
+    input_tensor: Any,
+    packed_weight: Any,
+    groupsize: Any,
+    scale_and_zero: Any,
+    bias_tensor: Any,
+) -> None:
+    def repl(
+        input_tensor: Any,
+        packed_weight: Any,
+        groupsize: Any,
+        scale_and_zero: Any,
+        bias_tensor: Any,
+    ) -> torch.Tensor:
+        repacked_weight = (
+            zentorch.zentorch_weight_from_int4pack_and_repack_for_opaque_tensor(
+                packed_weight,
+            )
+        )
+        # scale_and_zero is 3D (K/group_size, N, 2) — select on dim 2 to get 2D (K/group_size, N).
+        scale = scale_and_zero.select(2, 0).contiguous()
+        zero_point = scale_and_zero.select(2, 1).contiguous()
+        # transpose weight: [N, K/8] -> [K/8, N]
+        repacked_weight = repacked_weight.transpose(0, 1)
+        counters["zentorch"]["zentorch_woq_linear"] += 1
+        return zentorch.zentorch_woq_linear(
+            input_tensor,
+            repacked_weight,
+            scale,
+            zero_point,
+            bias_tensor,
+            zentorch_op_name="zentorch_woq_linear",
+        )
+
+    match.replace_by_example(
+        repl,
+        [input_tensor, packed_weight, groupsize, scale_and_zero, bias_tensor],
     )
 
 
