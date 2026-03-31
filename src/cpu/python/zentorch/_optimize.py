@@ -31,6 +31,8 @@ from ._eltwise_unary_fusions import zentorch_eltwise_unary_fusions
 from ._eltwise_binary_fusions import zentorch_eltwise_binary_fusions
 from ._graph_preprocess_matcher import preprocess_graph_pass
 from ._fusion_matcher import fusions_graph_pass
+from ._woq_linear_binary_binary_fusion import woq_linear_binary_binary_post_op_fusions
+from ._woq_linear_unary_fusion import woq_linear_unary_post_op_fusions
 from ._qlinear_fusion import qlinear_fusion_pass
 from ._qop_replacement import replace_with_zentorch_qops
 from ._unary_fusions import zentorch_unary_post_op_fusions
@@ -107,6 +109,8 @@ def optimize(fx_graph):
     optimized_graph = replace_with_zentorch_qops(optimized_graph)
 
     # Qlinear fusion pass
+    optimized_graph = woq_linear_binary_binary_post_op_fusions(optimized_graph)
+    optimized_graph = woq_linear_unary_post_op_fusions(optimized_graph)
     optimized_graph = qlinear_fusion_pass(optimized_graph)
 
     if config.freezing:

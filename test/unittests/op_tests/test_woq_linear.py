@@ -12,7 +12,6 @@ sys.path.append(str(Path(__file__).parent.parent))
 from unittest_utils import (  # noqa: 402
     Zentorch_TestCase,
     has_zentorch,
-    zentorch,
     run_tests,
 )
 
@@ -81,6 +80,112 @@ class Test_WOQLinear(Zentorch_TestCase):
         self.assertTrue(
             torch.allclose(zentorch_result, pytorch_result, rtol=1e-3, atol=1e-3),
             "Zentorch WOQ result does not match PyTorch DQ result.",
+        )
+
+    def _woq_setup(self, M, K, N, bias=False):
+        """Create input, packed weight, scales, zero_points, and reference dq_weight."""
+        input_t = torch.randn(M, K, dtype=torch.bfloat16)
+        original_weight = torch.randn(N, K, dtype=torch.bfloat16)
+        quantized_weight, scale, zero_point = self.quantize_weight(original_weight)
+        packed_weight = torch.ops.zentorch.zentorch_weight_from_int4pack_and_repack(
+            quantized_weight
+        )
+        # WOQ expects weight (K/8, N), scale and zero_point (1, N)
+        packed_weight_t = packed_weight.transpose(0, 1)
+        scale_t = scale.transpose(0, 1).contiguous()
+        zp_t = zero_point.transpose(0, 1).contiguous()
+        dq_weight = (
+            quantized_weight.to(torch.bfloat16) - zero_point.to(torch.bfloat16)
+        ) * scale.to(torch.bfloat16)
+        bias_t = (
+            torch.randn(N, dtype=torch.bfloat16) if bias else None
+        )
+        return input_t, packed_weight_t, scale_t, zp_t, dq_weight, bias_t
+
+    def _assert_woq_fused_output_sanity(self, result, M, N, op_name):
+        """Assert fused WOQ op output has correct shape, dtype, and finite values."""
+        self.assertEqual(result.shape, (M, N), f"{op_name}: wrong output shape")
+        self.assertEqual(result.dtype, torch.bfloat16, f"{op_name}: wrong output dtype")
+        self.assertTrue(torch.isfinite(result).all(), f"{op_name}: output contains inf/nan")
+
+    # Fused post-ops (GELU, binary) can have slightly larger numerical error than
+    # plain WOQ linear; use rtol/atol 1e-2 for comparison with dq_output reference.
+    _fused_rtol, _fused_atol = 1e-2, 1e-2
+
+    @torch.inference_mode()
+    def test_woq_linear_gelu_tanh_accuracy(self):
+        """Test accuracy of WOQ linear + GELU(tanh) against dq linear + gelu(tanh)."""
+        M, K, N = 24, 64, 48
+        input_t, packed_weight_t, scale_t, zp_t, dq_weight, bias_t = self._woq_setup(
+            M, K, N, bias=False
+        )
+        zentorch_result = torch.ops.zentorch.zentorch_woq_linear_gelu_tanh(
+            input_t, packed_weight_t, scale_t, zp_t, None
+        )
+        dq_output = torch.nn.functional.linear(input_t, dq_weight.to(torch.bfloat16))
+        pytorch_result = torch.nn.functional.gelu(dq_output, approximate="tanh")
+        self._assert_woq_fused_output_sanity(zentorch_result, M, N, "zentorch_woq_linear_gelu_tanh")
+        self.assertTrue(
+            torch.allclose(zentorch_result, pytorch_result, rtol=self._fused_rtol, atol=self._fused_atol),
+            "zentorch_woq_linear_gelu_tanh does not match dq linear + gelu(tanh).",
+        )
+
+    @torch.inference_mode()
+    def test_woq_linear_gelu_erf_accuracy(self):
+        """Test accuracy of WOQ linear + GELU(erf) against dq linear + gelu(none)."""
+        M, K, N = 24, 64, 48
+        input_t, packed_weight_t, scale_t, zp_t, dq_weight, bias_t = self._woq_setup(
+            M, K, N, bias=False
+        )
+        zentorch_result = torch.ops.zentorch.zentorch_woq_linear_gelu_erf(
+            input_t, packed_weight_t, scale_t, zp_t, None
+        )
+        dq_output = torch.nn.functional.linear(input_t, dq_weight.to(torch.bfloat16))
+        pytorch_result = torch.nn.functional.gelu(dq_output, approximate="none")
+        self._assert_woq_fused_output_sanity(zentorch_result, M, N, "zentorch_woq_linear_gelu_erf")
+        self.assertTrue(
+            torch.allclose(zentorch_result, pytorch_result, rtol=self._fused_rtol, atol=self._fused_atol),
+            "zentorch_woq_linear_gelu_erf does not match dq linear + gelu(erf).",
+        )
+
+    @torch.inference_mode()
+    def test_woq_linear_mul_add_accuracy(self):
+        """Test accuracy of WOQ linear + mul + add against dq linear then (out * mul) + add."""
+        M, K, N = 24, 64, 48
+        input_t, packed_weight_t, scale_t, zp_t, dq_weight, _ = self._woq_setup(
+            M, K, N, bias=False
+        )
+        mul_input = torch.randn(M, N, dtype=torch.bfloat16)
+        add_input = torch.randn(M, N, dtype=torch.bfloat16)
+        zentorch_result = torch.ops.zentorch.zentorch_woq_linear_mul_add(
+            input_t, packed_weight_t, scale_t, zp_t, mul_input, add_input, None
+        )
+        dq_output = torch.nn.functional.linear(input_t, dq_weight.to(torch.bfloat16))
+        pytorch_result = dq_output * mul_input + add_input
+        self._assert_woq_fused_output_sanity(zentorch_result, M, N, "zentorch_woq_linear_mul_add")
+        self.assertTrue(
+            torch.allclose(zentorch_result, pytorch_result, rtol=self._fused_rtol, atol=self._fused_atol),
+            "zentorch_woq_linear_mul_add does not match dq linear then (out * mul) + add.",
+        )
+
+    @torch.inference_mode()
+    def test_woq_linear_add_add_accuracy(self):
+        """Test accuracy of WOQ linear + add + add against dq linear then out + add + add_2."""
+        M, K, N = 24, 64, 48
+        input_t, packed_weight_t, scale_t, zp_t, dq_weight, _ = self._woq_setup(
+            M, K, N, bias=False
+        )
+        add_input = torch.randn(M, N, dtype=torch.bfloat16)
+        add_input_2 = torch.randn(M, N, dtype=torch.bfloat16)
+        zentorch_result = torch.ops.zentorch.zentorch_woq_linear_add_add(
+            input_t, packed_weight_t, scale_t, zp_t, add_input, add_input_2, None
+        )
+        dq_output = torch.nn.functional.linear(input_t, dq_weight.to(torch.bfloat16))
+        pytorch_result = dq_output + add_input + add_input_2
+        self._assert_woq_fused_output_sanity(zentorch_result, M, N, "zentorch_woq_linear_add_add")
+        self.assertTrue(
+            torch.allclose(zentorch_result, pytorch_result, rtol=self._fused_rtol, atol=self._fused_atol),
+            "zentorch_woq_linear_add_add does not match dq linear then out + add + add_2.",
         )
 
 

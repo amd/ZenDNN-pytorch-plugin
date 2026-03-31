@@ -32,6 +32,7 @@ def register_meta(op_name, overload_name="default"):
 # More details can be found from below link
 # https://pytorch.org/docs/stable/torch.compiler_fake_tensor.html
 
+
 @register_meta("zentorch_addmm")
 def meta_zentorch_addmm(
     bias,
@@ -769,7 +770,11 @@ def meta_zentorch_woq_linear_relu(
     zentorch_op_name="zentorch::zentorch_woq_linear_relu",
 ):
     return meta_zentorch_woq_linear(
-        input, weight, weight_scales, weight_zero_points, bias,
+        input,
+        weight,
+        weight_scales,
+        weight_zero_points,
+        bias,
         zentorch_op_name,
     )
 
@@ -784,7 +789,49 @@ def meta_zentorch_woq_linear_sigmoid(
     zentorch_op_name="zentorch::zentorch_woq_linear_sigmoid",
 ):
     return meta_zentorch_woq_linear(
-        input, weight, weight_scales, weight_zero_points, bias,
+        input,
+        weight,
+        weight_scales,
+        weight_zero_points,
+        bias,
+        zentorch_op_name,
+    )
+
+
+@register_meta("zentorch_woq_linear_gelu_tanh")
+def meta_zentorch_woq_linear_gelu_tanh(
+    input,
+    weight,
+    weight_scales,
+    weight_zero_points,
+    bias=None,
+    zentorch_op_name="zentorch::zentorch_woq_linear_gelu_tanh",
+):
+    return meta_zentorch_woq_linear(
+        input,
+        weight,
+        weight_scales,
+        weight_zero_points,
+        bias,
+        zentorch_op_name,
+    )
+
+
+@register_meta("zentorch_woq_linear_gelu_erf")
+def meta_zentorch_woq_linear_gelu_erf(
+    input,
+    weight,
+    weight_scales,
+    weight_zero_points,
+    bias=None,
+    zentorch_op_name="zentorch::zentorch_woq_linear_gelu_erf",
+):
+    return meta_zentorch_woq_linear(
+        input,
+        weight,
+        weight_scales,
+        weight_zero_points,
+        bias,
         zentorch_op_name,
     )
 
@@ -800,8 +847,21 @@ def meta_zentorch_woq_linear_mul_add(
     bias=None,
     zentorch_op_name="zentorch::zentorch_woq_linear_mul_add",
 ):
-    # The output shape matches add_input, dtype follows
-    return add_input.new_empty((add_input.size()), dtype=input.dtype)
+    return add_input.new_empty(add_input.size(), dtype=add_input.dtype)
+
+
+@register_meta("zentorch_woq_linear_add_add")
+def meta_zentorch_woq_linear_add_add(
+    input,
+    weight,
+    weight_scales,
+    weight_zero_points,
+    add_input,
+    add_input_2,
+    bias=None,
+    zentorch_op_name="zentorch::zentorch_woq_linear_add_add",
+):
+    return add_input.new_empty(add_input.size(), dtype=add_input.dtype)
 
 
 @register_meta("zentorch_dynamic_qlinear")
@@ -876,8 +936,11 @@ make_fallback(torch.ops.zentorch.zentorch_weight_prepack_for_linear)
 make_fallback(torch.ops.zentorch.zentorch_woq_linear)
 make_fallback(torch.ops.zentorch.zentorch_woq_linear_relu)
 make_fallback(torch.ops.zentorch.zentorch_woq_linear_sigmoid)
+make_fallback(torch.ops.zentorch.zentorch_woq_linear_gelu_erf)
+make_fallback(torch.ops.zentorch.zentorch_woq_linear_gelu_tanh)
 make_fallback(torch.ops.zentorch.zentorch_woq_linear_mul_add)
 make_fallback(torch.ops.zentorch.zentorch_dynamic_qlinear)
+make_fallback(torch.ops.zentorch.zentorch_woq_linear_add_add)
 make_fallback(torch.ops.zentorch.zentorch_weight_from_int4pack_and_repack)
 make_fallback(torch.ops.zentorch.zentorch_weight_from_int4pack_and_repack_for_opaque_tensor)
 if hasattr(torch.ops.zentorch, "zentorch_sdpa"):

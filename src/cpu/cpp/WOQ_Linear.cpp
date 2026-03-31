@@ -89,6 +89,7 @@ void zentorch_woq_linear_impl(const at::Tensor &input, const at::Tensor &weight,
     // Add quantization params to matmul params
     params.quant_params = quantization_params;
     params.plugin_op = zentorch_op_name;
+    matmul_post_ops(params, result, post_op_ids, post_op_buffers);
     // Batch parameters
     zendnnl::lowoha::matmul::matmul_batch_params_t batch_params;
     batch_params.Batch_A = 1;
@@ -112,7 +113,7 @@ void zentorch_woq_linear_impl(const at::Tensor &input, const at::Tensor &weight,
 
     ZENTORCH_CHECK(
         status == status_t::success,
-        "matmul_direct execution failed for zentorch_woq_linear_impl");
+        "matmul_direct execution failed for zentorch_woq_linear_impl.");
 
     LOG(INFO) << "zendnnl_direct_kernel completed successfully";
     return;
@@ -239,10 +240,8 @@ inline at::Tensor zentorch_woq_linear_unary_binary(
                                   .view(get_2d_size_for_tensor(binary_input));
   // `result` tensor's dtype will be same as input dtype.
 
-  // Performing this calculation here to avoid calling
-  // get_matmul_and_linear_output_sizes and
-  // get_matmul_and_linear_output_strides, since we know that the tensors will
-  // always be 2D and calculations are trivial.
+  // Result must be matmul output shape [M, N]; binary_input is broadcast in the
+  // post-op.
   const auto output_sz =
       std::vector<int64_t>({input_2d_view.size(0), weight.size(1)});
   const auto output_strides = std::vector<int64_t>({weight.size(1), 1});
@@ -492,23 +491,52 @@ TORCH_LIBRARY_FRAGMENT(zentorch, m) {
         "Tensor weight_scales, Tensor weight_zero_points, "
         "Tensor? bias=None, "
         "*, str zentorch_op_name='zentorch::zentorch_woq_linear') -> Tensor");
+
+  m.def("zentorch_woq_linear_relu(Tensor input, Tensor weight, "
+        "Tensor weight_scales, Tensor weight_zero_points, "
+        "Tensor? bias=None, "
+        "*, str zentorch_op_name='zentorch::zentorch_woq_linear_relu') -> "
+        "Tensor");
+
+  m.def("zentorch_woq_linear_sigmoid(Tensor input, Tensor weight, "
+        "Tensor weight_scales, Tensor weight_zero_points, "
+        "Tensor? bias=None, "
+        "*, str zentorch_op_name='zentorch::zentorch_woq_linear_sigmoid') -> "
+        "Tensor");
+
   m.def(
-      "zentorch_woq_linear_relu(Tensor input, Tensor weight,"
+      "zentorch_woq_linear_gelu_tanh(Tensor input, Tensor weight,"
       "Tensor weight_scales, Tensor weight_zero_points, Tensor? bias=None, *, "
       "str zentorch_op_name="
-      "'zentorch::zentorch_woq_linear_relu') -> Tensor");
-  m.def("zentorch_woq_linear_sigmoid(Tensor input, Tensor weight,"
-        "Tensor weight_scales, Tensor weight_zero_points, Tensor? bias=None, "
-        "*, str "
-        "zentorch_op_name='zentorch::zentorch_woq_linear_sigmoid') -> Tensor");
+      "'zentorch::zentorch_woq_linear_gelu_tanh') -> Tensor");
+
+  m.def(
+      "zentorch_woq_linear_gelu_erf(Tensor input, Tensor weight,"
+      "Tensor weight_scales, Tensor weight_zero_points, Tensor? bias=None, *, "
+      "str zentorch_op_name="
+      "'zentorch::zentorch_woq_linear_gelu_erf') -> Tensor");
+
+  m.def("zentorch_woq_linear_add(Tensor input, Tensor weight, "
+        "Tensor weight_scales, Tensor weight_zero_points, "
+        "Tensor add_input, Tensor? bias=None, *, str zentorch_op_name="
+        "'zentorch::zentorch_woq_linear_add') -> Tensor",
+        {at::Tag::needs_contiguous_strides});
+
   m.def("zentorch_woq_linear_mul_add(Tensor input, Tensor weight,"
         "Tensor weight_scales, Tensor weight_zero_points, "
         "Tensor mul_input, Tensor add_input, Tensor? bias=None, *, str "
-        "zentorch_op_name="
-        "'zentorch::zentorch_woq_linear_mul_add') -> Tensor",
+        "zentorch_op_name= 'zentorch::zentorch_woq_linear_mul_add') -> Tensor",
         {at::Tag::needs_fixed_stride_order});
+
+  m.def("zentorch_woq_linear_add_add(Tensor input, Tensor weight,"
+        "Tensor weight_scales, Tensor weight_zero_points, "
+        "Tensor add_input, Tensor add_input_2, Tensor? bias=None, *, str "
+        "zentorch_op_name='zentorch::zentorch_woq_linear_add_add') -> Tensor",
+        {at::Tag::needs_fixed_stride_order});
+
   m.def("zentorch_weight_from_int4pack_and_repack(Tensor unpacked_weight) -> "
         "Tensor");
+
   m.def("zentorch_weight_from_int4pack_and_repack_for_opaque_tensor(Tensor "
         "packed_weight) -> Tensor");
 }
@@ -516,15 +544,34 @@ TORCH_LIBRARY_FRAGMENT(zentorch, m) {
 TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
   m.impl("zentorch_woq_linear",
          zentorch::zentorch_woq_linear_unary<UNARY_POST_OP::POST_OP_NONE>);
+
   m.impl("zentorch_woq_linear_relu",
          zentorch::zentorch_woq_linear_unary<UNARY_POST_OP::RELU>);
+
   m.impl("zentorch_woq_linear_sigmoid",
          zentorch::zentorch_woq_linear_unary<UNARY_POST_OP::SIGMOID>);
+
+  m.impl("zentorch_woq_linear_add",
+         zentorch::zentorch_woq_linear_unary_binary<UNARY_POST_OP::POST_OP_NONE,
+                                                    BINARY_POST_OP::ADD>);
+
+  m.impl("zentorch_woq_linear_gelu_tanh",
+         zentorch::zentorch_woq_linear_unary<UNARY_POST_OP::GELU_TANH>);
+
+  m.impl("zentorch_woq_linear_gelu_erf",
+         zentorch::zentorch_woq_linear_unary<UNARY_POST_OP::GELU_ERF>);
+
   m.impl("zentorch_woq_linear_mul_add",
          zentorch::zentorch_woq_linear_binary_binary<BINARY_POST_OP::MUL,
                                                      BINARY_POST_OP::ADD>);
+
+  m.impl("zentorch_woq_linear_add_add",
+         zentorch::zentorch_woq_linear_binary_binary<BINARY_POST_OP::ADD,
+                                                     BINARY_POST_OP::ADD>);
+
   m.impl("zentorch_weight_from_int4pack_and_repack",
          zentorch::zentorch_weight_from_int4pack_and_repack);
+
   m.impl("zentorch_weight_from_int4pack_and_repack_for_opaque_tensor",
          zentorch::zentorch_weight_from_int4pack_and_repack_for_opaque_tensor);
 }

@@ -29,6 +29,53 @@ static const std::unordered_map<int64_t, post_op_type_t> post_op_type_map = {
     {BINARY_POST_OP::MUL, post_op_type_t::binary_mul},
     {BINARY_POST_OP::ADD, post_op_type_t::binary_add}};
 
+/** Fills matmul_params.postop_ from post_op_ids and post_op_buffers.
+ *  Reusable from zendnnl_direct_kernel, WOQ linear, and other matmul call
+ * sites.
+ */
+inline void matmul_post_ops(zendnnl::lowoha::matmul::matmul_params &params,
+                            const at::Tensor &result,
+                            const std::vector<int64_t> &post_op_ids,
+                            const std::vector<at::Tensor> &post_op_buffers) {
+  std::vector<long int> result_sizes =
+      std::vector<long int>(result.sizes().begin(), result.sizes().end());
+
+  auto unary_post_op = [&params, &result_sizes](post_op_type_t op_type) {
+    zendnnl::lowoha::matmul::matmul_post_op post_op;
+    post_op.po_type = op_type;
+    post_op.buff = nullptr;
+    post_op.dtype = data_type_t::none;
+    post_op.dims = result_sizes;
+    params.postop_.emplace_back(post_op);
+  };
+
+  auto binary_post_op = [&params,
+                         &result_sizes](post_op_type_t op_type,
+                                        const at::Tensor &post_op_buffer) {
+    zendnnl::lowoha::matmul::matmul_post_op post_op;
+    post_op.po_type = op_type;
+    post_op.buff = post_op_buffer.data_ptr();
+    post_op.dtype = get_zendnnl_dtype(post_op_buffer);
+    auto dims = post_op_buffer.sizes();
+    post_op.dims = std::vector<long int>(dims.begin(), dims.end());
+    params.postop_.emplace_back(post_op);
+  };
+
+  int post_op_buffer_index = 0;
+  for (const long &post_op_id : post_op_ids) {
+    auto it = post_op_type_map.find(post_op_id);
+    if (it != post_op_type_map.end()) {
+      post_op_type_t op_type = it->second;
+      if (post_op_id == BINARY_POST_OP::MUL ||
+          post_op_id == BINARY_POST_OP::ADD) {
+        binary_post_op(op_type, post_op_buffers[post_op_buffer_index++]);
+      } else {
+        unary_post_op(op_type);
+      }
+    }
+  }
+}
+
 inline at::Tensor get_contiguous_view(const at::Tensor &tensor) {
   auto stride = tensor.strides();
   auto sizes = tensor.sizes();
@@ -681,47 +728,7 @@ inline void zendnnl_direct_kernel(
     params.quant_params = quant_params_ref;
   }
 
-  std::vector<long int> result_sizes =
-      std::vector<long int>(result.sizes().begin(), result.sizes().end());
-
-  // Lambda to add unary post-ops
-  auto unary_post_op = [&params, &result_sizes](post_op_type_t op_type) {
-    zendnnl::lowoha::matmul::matmul_post_op post_op;
-    post_op.po_type = op_type;
-    post_op.buff = nullptr;
-    post_op.dtype = data_type_t::none;
-    post_op.dims = result_sizes;
-    params.postop_.push_back(post_op);
-  };
-
-  // Lambda to add binary post-ops
-  auto binary_post_op = [&params,
-                         &result_sizes](post_op_type_t op_type,
-                                        const at::Tensor &post_op_buffer) {
-    zendnnl::lowoha::matmul::matmul_post_op post_op;
-    post_op.po_type = op_type;
-    post_op.buff = post_op_buffer.data_ptr();
-    post_op.dtype = get_zendnnl_dtype(post_op_buffer);
-    auto dims = post_op_buffer.sizes();
-    post_op.dims = std::vector<long int>(dims.begin(), dims.end());
-    params.postop_.push_back(post_op);
-  };
-
-  int post_op_buffer_index = 0;
-  for (const long &post_op_id : post_op_ids) {
-    auto it = post_op_type_map.find(post_op_id);
-    if (it != post_op_type_map.end()) {
-      post_op_type_t op_type = it->second;
-
-      // Check if it's a binary operation
-      if (post_op_id == BINARY_POST_OP::MUL ||
-          post_op_id == BINARY_POST_OP::ADD) {
-        binary_post_op(op_type, post_op_buffers[post_op_buffer_index++]);
-      } else {
-        unary_post_op(op_type);
-      }
-    }
-  }
+  matmul_post_ops(params, result, post_op_ids, post_op_buffers);
 
   zendnnl::lowoha::matmul::matmul_batch_params_t batch_params;
   batch_params.Batch_A = batch_A;
