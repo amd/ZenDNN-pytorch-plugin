@@ -1,7 +1,11 @@
 # ******************************************************************************
-# Copyright (c) 2023-2026 Advanced Micro Devices, Inc.
+# Copyright (c) 2026 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
+
+import atexit
+import json
+import os
 
 import torch
 import collections
@@ -69,6 +73,29 @@ def is_bias_1d_tensor(fx_graph, node):
     # checks if self/bias tensor is 1-d or not
     # returns true if 1d bias tensor
     return is_arg_1d_tensor(fx_graph, node, 0)
+
+
+def _dump_counters():
+    from datetime import datetime
+
+    counter_data = {k: dict(v) for k, v in counters.items() if v}
+    if not counter_data:
+        return
+    formatted = json.dumps(counter_data, indent=2)
+
+    counters_dir = os.path.join(os.getcwd(), "counters")
+    os.makedirs(counters_dir, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_path = os.path.join(
+        counters_dir, f"counters_{timestamp}_pid{os.getpid()}.json"
+    )
+    with open(output_path, "w") as f:
+        f.write(formatted)
+    logger.info("Zentorch counters saved to: %s", output_path)
+
+
+if os.environ.get("ZENTORCH_DUMP_COUNTERS", "0") == "1":
+    atexit.register(_dump_counters)
 
 
 # getattr can result in false negatives if the submodule
