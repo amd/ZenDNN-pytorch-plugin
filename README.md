@@ -25,8 +25,10 @@ Table of Contents
   - [CNN Models](#42-cnn-models)
   - [HuggingFace NLP models](#43-huggingface-nlp-models)
   - [HuggingFace Generative LLM models](#44-huggingface-generative-llm-models)
-  - [Weight Only Quantized Models](#45-weight-only-quantized-models)
+  - [Quantized Models](#45-quantized-models)
     - [Quantizing Models](#451-quantizing-models)
+      - [Weight Only Quantization (WOQ)](#4511-weight-only-quantization-woq)
+      - [Dynamic Quantization](#4512-dynamic-quantization)
     - [Running Quantized Models](#452-running-quantized-models)
   - [vLLM Zentorch Plugin](#46-vllm-zentorch-plugin)
 - [Logging and Debugging](#5-logging-and-debugging)
@@ -43,11 +45,11 @@ Table of Contents
 
 ## 1.1. Overview
 
-__The latest stable ZenDNN Plugin for PyTorch* (zentorch) [5.2](https://github.com/amd/ZenDNN-pytorch-plugin/tree/r5.2).__
+__The latest stable ZenDNN Plugin for PyTorch* (zentorch) [5.2.1](https://github.com/amd/ZenDNN-pytorch-plugin/tree/r5.2.1).__
 
-zentorch 5.2 plugin is the PyTorch plugin which comes with ZenDNN 5.2.
-This upgrade continues the focus on optimizing inference with Recommender Systems and Large Language Models on AMD EPYC™ CPUs. It includes AMD EPYC™ enhancements for bfloat16 performance, expanded support for cutting-edge models like Llama 3.1 and 3.2, Microsoft Phi, and more as well as support for INT4 quantized datatype.
-This includes the advanced Activation-Aware Weight Quantization (AWQ) algorithm for LLMs and quantized support for the DLRM-v2 model with int8 weights.
+zentorch 5.2.1 plugin is the PyTorch plugin which comes with ZenDNN 5.2.1.
+This upgrade continues the focus on optimizing inference with Recommender Systems and Large Language Models on AMD EPYC™ CPUs. It includes AMD EPYC™ enhancements for bfloat16 performance, expanded support for cutting-edge models like Llama 3.2 and 3.3, Microsoft Phi, and more as well as support for a wide-variety of quantization configurations.
+The quantization support included 4-bit weight-only quantization, along with support for INT8 dynamic activation and INT8 weight quantization, and quantized support for the DLRM-v2 model with a mix of 8-bit and 4-bit quantization.
 This also includes support for running generative models with vLLM.
 
 Under the hood, ZenDNN’s enhanced AMD-specific optimizations operate at every level. In addition to highly optimized operator microkernels, these include comprehensive graph optimizations including pattern identification, graph reordering, and fusions.
@@ -55,11 +57,7 @@ They also incorporate optimized embedding bag kernels and enhanced zenMatMul mat
 
 Combined with PyTorch's torch.compile, zentorch transforms deep learning pipelines into finely-tuned, AMD-specific engines, delivering unparalleled efficiency and speed for large-scale inference workloads
 
-The zentorch 5.2 plugin seamlessly works with PyTorch versions including 2.10.0 and 2.9.1, offering a high-performance experience for deep learning on AMD EPYC™ platforms.
-
->**Note:** We recommend using Torch 2.9.1 or higher as there is a known [issue](https://github.com/pytorch/pytorch/pull/166338) with Torch 2.9.0 that leads to longer compilation time with zentorch backend. The issue has been fixed in later versions.
-
-In addition to stable releases, the zentorch plugin provides weekly minor releases that extend support to newer PyTorch versions. The latest minor release plugin supports PyTorch 2.11.0 and 2.10.0. These weekly releases are only available as source builds (see [From Source](#22-from-source)).
+The zentorch 5.2.1 plugin seamlessly works with PyTorch versions including 2.11.0 and 2.10.0, offering a high-performance experience for deep learning on AMD EPYC™ platforms.
 
 
 ## Support
@@ -112,9 +110,7 @@ Refer to the [support matrix](https://www.amd.com/en/developer/zendnn.html#getti
 # 2. Installation
 
 _zentorch_ can be installed using binary wheel file or can be built from source itself.
-Only stable releases are available as binary wheel files. The latest stable release is _zentorch_ v5.2.0 which supports PyTorch v2.10.0 and v2.9.1.
-
-Weekly development releases add support for newer PyTorch versions (currently PyTorch v2.11.0 and v2.10.0) and are only available as source builds.
+The latest stable release is _zentorch_ v5.2.1 which supports PyTorch v2.11.0 and v2.10.0.
 
 ## 2.1. From Binaries
 
@@ -123,15 +119,15 @@ Weekly development releases add support for newer PyTorch versions (currently Py
 ```bash
 pip uninstall zentorch
 ```
-* Install PyTorch v2.10.0
+* Install PyTorch v2.11.0 or v2.10.0
 ```bash
-pip install torch==2.10.0 --index-url https://download.pytorch.org/whl/cpu
+pip install torch==2.11.0 --index-url https://download.pytorch.org/whl/cpu
 ```
 * Use one of two methods to install zentorch:
 
 Using pip utility
 ```bash
-pip install zentorch==5.2.0
+pip install zentorch==5.2.1
 ```
 or
 
@@ -142,17 +138,15 @@ Using the release package.
 > Run the following commands to unzip the package and install the binary.
 
 ```bash
-unzip ZENTORCH_v5.2.0_Python_v3.10.zip
-cd ZENTORCH_v5.2.0_Python_v3.10/
-pip install zentorch-5.2.0-cp310-cp310-manylinux_2_28_x86_64.whl
+unzip ZENTORCH_v5.2.1_Python_v3.10.zip
+cd ZENTORCH_v5.2.1_Python_v3.10/
+pip install zentorch-5.2.1-cp310-cp310-manylinux_2_28_x86_64.whl
 ```
 >**Notes:**
 >* Dependent packages 'numpy' and 'torch' will be installed by '_zentorch_' if not already present.
->* If you get the error: ImportError: /lib64/libstdc++.so.6: version `GLIBCXX_.a.b.cc' not found (required by <path_to_conda>/envs/<env_name>/lib/python<py_version>/site-packages/zentorch-5.2.0-pyx.y-linux-x86_64.egg/zentorch/_C.cpython-xy-x86_64-linux-gnu.so), export LD_PRELOAD as: export LD_PRELOAD=<path_to_conda>/envs/<env_name>/lib/libstdc++.so.6:$LD_PRELOAD
+>* If you get the error: ImportError: /lib64/libstdc++.so.6: version `GLIBCXX_.a.b.cc' not found (required by <path_to_conda>/envs/<env_name>/lib/python<py_version>/site-packages/zentorch-5.2.1-pyx.y-linux-x86_64.egg/zentorch/_C.cpython-xy-x86_64-linux-gnu.so), export LD_PRELOAD as: export LD_PRELOAD=<path_to_conda>/envs/<env_name>/lib/libstdc++.so.6:$LD_PRELOAD
 
 ## 2.2. From Source
-
->**Note:** Weekly development releases with support for newer PyTorch versions (e.g., PyTorch v2.11.0) are only available through source builds from the main branch.
 
 Run the following commands:
 ```bash
@@ -160,7 +154,7 @@ git clone https://github.com/amd/ZenDNN-pytorch-plugin.git
 cd ZenDNN-pytorch-plugin
 ```
 >**Notes:**
->* The repository defaults to the main branch. To build with PyTorch v2.11.0 support, checkout the main branch: ```git checkout main```. To build the stable 5.2 release (supports PyTorch v2.10.0 and v2.9.1), checkout the r5.2 branch: ```git checkout r5.2```
+>* The repository defaults to the main branch. To build the stable 5.2.1 release (supports PyTorch v2.11.0 and v2.10.0), checkout the r5.2.1 branch: ```git checkout r5.2.1```
 >* ```export ZENDNNL_MANYLINUX_BUILD=1``` is needed for build from source for RHEL/FEDORA/Almalinux/CentOS OS families
 
 ### 2.2.1. Preparing third party repositories
@@ -175,7 +169,7 @@ conda create -n pt-zentorch python=3.10 -y
 conda activate pt-zentorch
 ```
 #### 2.2.2.2. Install PyTorch
-For the latest development release (main branch), install PyTorch v2.11.0:
+Install PyTorch v2.11.0:
 ```bash
 pip install torch==2.11.0 --index-url https://download.pytorch.org/whl/cpu
 ```
@@ -183,10 +177,9 @@ Alternatively, PyTorch v2.10.0 is also supported:
 ```bash
 pip install torch==2.10.0 --index-url https://download.pytorch.org/whl/cpu
 ```
-For the stable 5.2 release (r5.2 branch), install PyTorch v2.10.0 or v2.9.1.
 >**Notes:**
 >* This README uses Python 3.10.
->* Zentorch follows PyTorch’s Python version compatibility. For PyTorch 2.11.0 and 2.10.0, Zentorch supports Python versions 3.10 through 3.13, and the same range applies to PyTorch 2.9.1. For other PyTorch releases, refer to the [PyTorch Release Compatibility Matrix](https://github.com/pytorch/pytorch/blob/main/RELEASE.md#release-compatibility-matrix).
+>* Zentorch follows PyTorch’s Python version compatibility. For PyTorch 2.11.0 and 2.10.0, Zentorch supports Python versions 3.10 through 3.13. For other PyTorch releases, refer to the [PyTorch Release Compatibility Matrix](https://github.com/pytorch/pytorch/blob/main/RELEASE.md#release-compatibility-matrix).
 >* Zentorch does not support experimental versions of Python (3.13T/3.14/3.14T)
 
 #### 2.2.2.3. Install Dependencies
@@ -204,7 +197,6 @@ python setup.py bdist_wheel
 cd dist
 pip install zentorch-5.2.1-cp310-cp310-linux_x86_64.whl
 ```
->**Note:** For r5.2 branch, the generated wheel file will be named zentorch-5.2.0-cp310-cp310-linux_x86_64.whl
 #### 2.2.2.6. Build Cleanup
 ```bash
 python setup.py clean --all
@@ -281,36 +273,37 @@ with torch.no_grad():
 
 >**Note:** The `zentorch.llm.optimize` API has been deprecated. You can run generative models using `torch.compile(model, backend="zentorch")`, but for optimal performance we recommend using vLLM. Please refer to [section 4.6 vLLM Zentorch Plugin](#46-vllm-zentorch-plugin) for more details.
 
-## 4.5 Weight Only Quantized Models
+## 4.5 Quantized Models
 
-zentorch supports Weight Only Quantization (WOQ) models with per-channel and per-group quantization support. This enables efficient INT4 quantized inference for large language models on AMD EPYC™ CPUs, providing significant memory savings while maintaining model accuracy.
+zentorch supports quantized inference for large language models on AMD EPYC™ CPUs. The following quantization methods are supported:
+- **Weight Only Quantization (WOQ):** INT4 quantized weights with both symmetric and asymmetric configurations, providing significant memory savings while maintaining model accuracy.
+- **Dynamic Quantization:** INT8 weights with INT8 dynamic activations, quantizing activations dynamically at runtime for minimal accuracy loss.
 
-Models can be quantized using the `IntxWeightOnlyConfig` from TorchAO.
+Models can be quantized using TorchAO and HuggingFace Transformers.
 
 ### 4.5.1 Quantizing Models
 
-To quantize a HuggingFace model using INT4 weight-only quantization with symmetric per-channel quantization, follow these steps:
+The general quantization workflow is the same for all supported methods. First, create a `quantization_config` (see method-specific configs below), then load, quantize, and save the model:
 
 ```python
 import torch
 from transformers import TorchAoConfig, AutoModelForCausalLM, AutoTokenizer
-from torchao.quantization.quant_api import IntxWeightOnlyConfig
-from torchao.quantization.quant_primitives import MappingType
 
 model_name = "meta-llama/Llama-3.2-1B-Instruct"
 output_dir = "./quantized_model"
 
-# Step 1: Create quantization config with INT4 symmetric per-channel quantization
+# Modules to skip during quantization (common to all methods)
+modules_to_skip = ["lm_head"]
+if model_name == "meta-llama/Llama-3.3-70B-Instruct":
+    modules_to_skip.extend(["model.layers.0", "model.layers.1", "model.layers.3"])
+elif model_name == "Qwen/Qwen2.5-VL-7B-Instruct":
+    modules_to_skip.extend(["visual"])
+
 quantization_config = TorchAoConfig(
-    IntxWeightOnlyConfig(
-        weight_dtype=torch.int4,
-        mapping_type=MappingType.SYMMETRIC,
-        scale_dtype=torch.bfloat16,
-        granularity=PerGroup(128)
-    )
+    ...,  # see method-specific configs below
+    modules_to_not_convert=modules_to_skip
 )
 
-# Step 2: Load and quantize the model
 quantized_model = AutoModelForCausalLM.from_pretrained(
     model_name,
     torch_dtype=torch.bfloat16,
@@ -319,19 +312,73 @@ quantized_model = AutoModelForCausalLM.from_pretrained(
     trust_remote_code=True
 )
 
-# Step 3: Save the quantized model
 quantized_model.save_pretrained(output_dir, safe_serialization=False)
 
-# Step 4: Save the tokenizer
 tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
 tokenizer.save_pretrained(output_dir)
 ```
 
 >**Notes:**
->* Ensure you have the required dependencies installed: `pip install transformers torchao`
+>* Ensure you have the required dependencies installed: `pip install transformers torchao==0.16.0`
+>* zentorch currently only supports `torchao==0.16.0` for quantization.
+>* Use `safe_serialization=False` when saving for compatibility with zentorch.
+>* The `modules_to_not_convert` parameter specifies modules that should be skipped during quantization. The `lm_head` module is generally avoided, as it introduces a high accuracy deficit. Some models require additional modules to be skipped as mentioned above.
+
+#### 4.5.1.1 Weight Only Quantization (WOQ)
+
+**Symmetric per-group quantization:**
+
+```python
+from torchao.quantization.quant_api import IntxWeightOnlyConfig
+from torchao.quantization.quant_primitives import MappingType
+from torchao.quantization.granularity import PerGroup, PerAxis
+
+TorchAoConfig(
+    IntxWeightOnlyConfig(
+        weight_dtype=torch.int4,
+        mapping_type=MappingType.SYMMETRIC,
+        scale_dtype=torch.bfloat16,
+        granularity=PerGroup(128)
+    ),
+    modules_to_not_convert=modules_to_skip
+)
+```
+
+>**Notes:**
 >* The `MappingType.SYMMETRIC` option enables symmetric quantization which is recommended for optimal performance with zentorch.
 >* The `scale_dtype=torch.bfloat16` ensures compatibility with AMD EPYC™ CPU optimizations.
->* Use `safe_serialization=False` when saving for compatibility with zentorch.
+>* The `granularity` can be per-group using `PerGroup(group_size)` or per-channel with `PerAxis(0)`.
+
+**Asymmetric per-group quantization:**
+
+```python
+from torchao.quantization.quant_api import Int4WeightOnlyOpaqueTensorConfig
+
+TorchAoConfig(
+    Int4WeightOnlyOpaqueTensorConfig(group_size=128),
+    modules_to_not_convert=modules_to_skip
+)
+```
+
+>**Note:** The `Int4WeightOnlyOpaqueTensorConfig` only supports per-group quantization with group_size options limited to 128, 64 and 32.
+
+#### 4.5.1.2 Dynamic Quantization
+
+For INT8 dynamic activation with INT8 weight quantization:
+
+```python
+from torchao.quantization.quant_api import Int8DynamicActivationInt8WeightConfig
+from torchao.quantization.quant_primitives import MappingType
+
+TorchAoConfig(
+    Int8DynamicActivationInt8WeightConfig(
+        version=2, act_mapping_type=MappingType.SYMMETRIC
+    ),
+    modules_to_not_convert=modules_to_skip
+)
+```
+
+>**Note:** The `MappingType.SYMMETRIC` option enables symmetric activation mapping which is recommended for optimal performance with zentorch.
 
 ### 4.5.2 Running Quantized Models
 
@@ -408,7 +455,7 @@ TORCH_COMPILE_DEBUG=1 python test.py
 For more information about TORCH_COMPILE_DEBUG refer to the official PyTorch documentation available.
 
 # 6. Performance tuning and Benchmarking
-zentorch v5.2.0 plugin is supported with ZenDNN v5.2.0 plugin. Please see the **Tuning Guidelines** section of ZenDNN User Guide for performance tuning. ZenDNN User Guide can be downloaded from [here](https://developer.amd.com/zendnn)
+zentorch v5.2.1 plugin is supported with ZenDNN v5.2.1 plugin. Please see the **Tuning Guidelines** section of ZenDNN User Guide for performance tuning. ZenDNN User Guide can be downloaded from [here](https://developer.amd.com/zendnn)
 
 # 7. Additional Utilities:
 
