@@ -138,6 +138,7 @@ export TORCHINDUCTOR_FREEZING=1          # Only supported from vLLM version 0.12
 export VLLM_CPU_KVCACHE_SPACE=90         # GB for KV cache
 export VLLM_CPU_OMP_THREADS_BIND=0-95    # CPU cores to use
 export VLLM_USE_AOT_COMPILE=0            # Disable AOT compile - interferes with freezing
+export TORCHINDUCTOR_AUTOGRAD_CACHE=0    # Disable AOT compile - interferes with freezing
 ```
 
 #### Performance Libraries
