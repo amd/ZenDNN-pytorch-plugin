@@ -106,7 +106,7 @@ class Model(torch.nn.Module):
 class Test_Qlinear_Mul_Add_Model(QLinearTestCase):
     @torch.inference_mode()
     @QLinearTestCase.hypothesis_params_qlinear_itr(
-        dtype_list=["float32", "bfloat16"], time_out=15000
+        dtype_list=["float32", "bfloat16"], time_out=30000
     )
     def test_qlinear_mul_add_model(self, dtype):
         # Define position combinations for mul/add operands
@@ -133,13 +133,20 @@ class Test_Qlinear_Mul_Add_Model(QLinearTestCase):
             quantized_model = quantize_model_pt2e(
                 model, (inputs, cat_output, add_tensor)
             )
+            native_qmodel = copy.deepcopy(quantized_model)
             zentorch_qmodel = copy.deepcopy(quantized_model)
 
             inputs = torch.randn(B, M, dtype=torch_dtype)
             cat_output = torch.randn(B, N, dtype=torch_dtype)
             add_tensor = torch.randn(B, N, dtype=torch_dtype)
 
-            native_output = quantized_model(inputs, cat_output, add_tensor)
+            # Compile native reference with inductor so both paths use int8 GEMM.
+            # Native eager uses SGEMM (unfused) which diverges from zentorch's
+            # fused int8 path. Compiling with inductor produces
+            # onednn.qlinear_pointwise + cpp_fused_add_mul, matching the int8 GEMM.
+            reset_dynamo()
+            native_compiled = torch.compile(native_qmodel, backend="inductor")
+            native_output = native_compiled(inputs, cat_output, add_tensor)
 
             counters.clear()
             self.assertEqual(counters["zentorch"]["qlinear_mul_add"], 0)
@@ -157,7 +164,7 @@ class Test_Qlinear_Mul_Add_Model(QLinearTestCase):
                 self.assertEqual(counters["zentorch"]["qlinear_mul_add"], 0)
 
             # TODO: to be aligned with ZenDNN library on tensor generation and tolerances
-            self.assertEqual(native_output, zentorch_output, atol=2e-2, rtol=1e-2)
+            self.assertEqual(native_output, zentorch_output, atol=1e-2, rtol=1e-2)
 
 
 if __name__ == "__main__":
