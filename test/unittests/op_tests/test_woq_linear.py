@@ -30,6 +30,7 @@ class Test_WOQLinear(Zentorch_TestCase):
         Returns:
             quantized_weight: Quantized weight (int8)
             scale: Scale tensor for dequantization (out_features, 1) - float32
+            zero_point: Zero point tensor (out_features, 1) - int8, all zeros for symmetric
         """
         # Calculate per-channel max absolute value for symmetric quantization
         weight_absmax = weight.abs().max(dim=1, keepdim=True)[0]
@@ -43,7 +44,8 @@ class Test_WOQLinear(Zentorch_TestCase):
         quantized_weight = torch.clamp(
             torch.round(weight / scale), self.qmin, self.qmax
         ).to(torch.int8)
-        return quantized_weight, scale
+        zero_point = torch.zeros_like(scale, dtype=torch.int8)
+        return quantized_weight, scale, zero_point
 
     @torch.inference_mode()
     def test_woq_linear_accuracy(self):
@@ -54,7 +56,7 @@ class Test_WOQLinear(Zentorch_TestCase):
         original_weight = torch.randn(48, 64, dtype=torch.bfloat16)
 
         # Quantize weight
-        quantized_weight, scale = self.quantize_weight(original_weight)
+        quantized_weight, scale, _ = self.quantize_weight(original_weight)
 
         # Pack the quantized weight
         packed_weight = torch.ops.zentorch.zentorch_woq_repack_weight(
@@ -78,24 +80,20 @@ class Test_WOQLinear(Zentorch_TestCase):
         )
 
     def _woq_setup(self, M, K, N, bias=False):
-        """Create input, packed weight, scales, zero_points, and reference dq_weight."""
+        """Create input, packed weight, scales, and reference dq_weight."""
         input_t = torch.randn(M, K, dtype=torch.bfloat16)
         original_weight = torch.randn(N, K, dtype=torch.bfloat16)
-        quantized_weight, scale, zero_point = self.quantize_weight(original_weight)
+        quantized_weight, scale, _ = self.quantize_weight(original_weight)
         packed_weight = torch.ops.zentorch.zentorch_woq_repack_weight(
             quantized_weight
         )
-        # WOQ expects weight (K/8, N), scale and zero_point (1, N)
         packed_weight_t = packed_weight.transpose(0, 1)
         scale_t = scale.transpose(0, 1).contiguous()
-        zp_t = zero_point.transpose(0, 1).contiguous()
-        dq_weight = (
-            quantized_weight.to(torch.bfloat16) - zero_point.to(torch.bfloat16)
-        ) * scale.to(torch.bfloat16)
+        dq_weight = quantized_weight.to(torch.bfloat16) * scale.to(torch.bfloat16)
         bias_t = (
             torch.randn(N, dtype=torch.bfloat16) if bias else None
         )
-        return input_t, packed_weight_t, scale_t, zp_t, dq_weight, bias_t
+        return input_t, packed_weight_t, scale_t, dq_weight, bias_t
 
     def _assert_woq_fused_output_sanity(self, result, M, N, op_name):
         """Assert fused WOQ op output has correct shape, dtype, and finite values."""
@@ -111,11 +109,11 @@ class Test_WOQLinear(Zentorch_TestCase):
     def test_woq_linear_gelu_tanh_accuracy(self):
         """Test accuracy of WOQ linear + GELU(tanh) against dq linear + gelu(tanh)."""
         M, K, N = 24, 64, 48
-        input_t, packed_weight_t, scale_t, zp_t, dq_weight, bias_t = self._woq_setup(
+        input_t, packed_weight_t, scale_t, dq_weight, bias_t = self._woq_setup(
             M, K, N, bias=False
         )
         zentorch_result = torch.ops.zentorch.zentorch_woq_linear_gelu_tanh(
-            input_t, packed_weight_t, scale_t, zp_t, None
+            input_t, packed_weight_t, scale_t, None, None
         )
         dq_output = torch.nn.functional.linear(input_t, dq_weight.to(torch.bfloat16))
         pytorch_result = torch.nn.functional.gelu(dq_output, approximate="tanh")
@@ -129,11 +127,11 @@ class Test_WOQLinear(Zentorch_TestCase):
     def test_woq_linear_gelu_erf_accuracy(self):
         """Test accuracy of WOQ linear + GELU(erf) against dq linear + gelu(none)."""
         M, K, N = 24, 64, 48
-        input_t, packed_weight_t, scale_t, zp_t, dq_weight, bias_t = self._woq_setup(
+        input_t, packed_weight_t, scale_t, dq_weight, bias_t = self._woq_setup(
             M, K, N, bias=False
         )
         zentorch_result = torch.ops.zentorch.zentorch_woq_linear_gelu_erf(
-            input_t, packed_weight_t, scale_t, zp_t, None
+            input_t, packed_weight_t, scale_t, None, None
         )
         dq_output = torch.nn.functional.linear(input_t, dq_weight.to(torch.bfloat16))
         pytorch_result = torch.nn.functional.gelu(dq_output, approximate="none")
@@ -147,13 +145,13 @@ class Test_WOQLinear(Zentorch_TestCase):
     def test_woq_linear_mul_add_accuracy(self):
         """Test accuracy of WOQ linear + mul + add against dq linear then (out * mul) + add."""
         M, K, N = 24, 64, 48
-        input_t, packed_weight_t, scale_t, zp_t, dq_weight, _ = self._woq_setup(
+        input_t, packed_weight_t, scale_t, dq_weight, _ = self._woq_setup(
             M, K, N, bias=False
         )
         mul_input = torch.randn(M, N, dtype=torch.bfloat16)
         add_input = torch.randn(M, N, dtype=torch.bfloat16)
         zentorch_result = torch.ops.zentorch.zentorch_woq_linear_mul_add(
-            input_t, packed_weight_t, scale_t, zp_t, mul_input, add_input, None
+            input_t, packed_weight_t, scale_t, None, mul_input, add_input, None
         )
         dq_output = torch.nn.functional.linear(input_t, dq_weight.to(torch.bfloat16))
         pytorch_result = dq_output * mul_input + add_input
@@ -167,13 +165,13 @@ class Test_WOQLinear(Zentorch_TestCase):
     def test_woq_linear_add_add_accuracy(self):
         """Test accuracy of WOQ linear + add + add against dq linear then out + add + add_2."""
         M, K, N = 24, 64, 48
-        input_t, packed_weight_t, scale_t, zp_t, dq_weight, _ = self._woq_setup(
+        input_t, packed_weight_t, scale_t, dq_weight, _ = self._woq_setup(
             M, K, N, bias=False
         )
         add_input = torch.randn(M, N, dtype=torch.bfloat16)
         add_input_2 = torch.randn(M, N, dtype=torch.bfloat16)
         zentorch_result = torch.ops.zentorch.zentorch_woq_linear_add_add(
-            input_t, packed_weight_t, scale_t, zp_t, add_input, add_input_2, None
+            input_t, packed_weight_t, scale_t, None, add_input, add_input_2, None
         )
         dq_output = torch.nn.functional.linear(input_t, dq_weight.to(torch.bfloat16))
         pytorch_result = dq_output + add_input + add_input_2
