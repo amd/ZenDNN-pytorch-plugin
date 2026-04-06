@@ -50,7 +50,20 @@ pip install scikit-learn
 
 Use the most optimal setup for performance using
 
+> **Note:** Install  `jemalloc` and `llvm-openmp` for best performance before running the following scripts. If these libraries are already installed directly run scripts.
+
+```bash
+# jemalloc
+sudo apt install libjemalloc-dev
+export LD_PRELOAD=/usr/local/lib/libjemalloc.so:$LD_PRELOAD # optional as zentorch_env_setup.sh exports it
+
+# llvm-openmp
+conda install -c conda-forge llvm-openmp=18.1.8=hf5423f3_1 -y
+export LD_PRELOAD="$(conda info --base)/pkgs/llvm-openmp-18.1.8-hf5423f3_1/lib/libiomp5.so:$LD_PRELOAD" # optional as zentorch_env_setup.sh exports it
+```
+
 ```shell
+source ../../../scripts/zentorch_env_setup.sh
 source ../../../scripts/dlrm_optimal_env_setup.sh
 ```
 
