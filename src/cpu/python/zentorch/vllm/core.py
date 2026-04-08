@@ -22,7 +22,7 @@ logger = get_logger(__name__)
 
 # Supported vLLM versions
 VLLM_MIN_VERSION = "0.15.0"
-VLLM_MAX_VERSION = "0.18.0"
+VLLM_MAX_VERSION = "0.19.0"
 
 VLLM_V12 = "0.12.0"
 VLLM_V13 = "0.13.0"
@@ -34,6 +34,8 @@ VLLM_V16 = "0.16.0"
 VLLM_V17 = "0.17.0"
 VLLM_V17_1 = "0.17.1"
 VLLM_V18 = "0.18.0"
+VLLM_V18_1 = "0.18.1"
+VLLM_V19 = "0.19.0"
 
 # Version -> family mapping
 _VERSION_MAP = {
@@ -43,6 +45,8 @@ _VERSION_MAP = {
     VLLM_V17: "v17",
     VLLM_V17_1: "v17",
     VLLM_V18: "v18",
+    VLLM_V18_1: "v18",
+    VLLM_V19: "v19",
 }
 
 
@@ -64,7 +68,10 @@ def _base_version(ver: str) -> str:
 
 
 def get_version_family() -> Optional[str]:
-    """Return 'v15', 'v15_1', 'v16', 'v17', 'v18' or None."""
+    """Return 'v15', 'v15_1', 'v16', 'v17', 'v18', 'v19' or None.
+
+    Note: v0.18.1 maps to 'v18' and v0.19.0 maps to 'v19'.
+    """
     ver = get_vllm_version()
     if ver is None:
         return None
@@ -105,6 +112,10 @@ def is_v17() -> bool:
 
 def is_v18() -> bool:
     return get_version_family() == "v18"
+
+
+def is_v19() -> bool:
+    return get_version_family() == "v19"
 
 # ---------------------------------------------------------------------------
 # Version decorators

@@ -45,6 +45,8 @@ from zentorch.vllm.core import (
     VLLM_V17,
     VLLM_V17_1,
     VLLM_V18,
+    VLLM_V18_1,
+    VLLM_V19,
 )
 
 logger = get_logger(__name__)
@@ -423,7 +425,7 @@ class CPUProfilerPatchV12:
         return True
 
 
-@vllm_version(VLLM_V13, VLLM_V14, VLLM_V14_1, VLLM_V15, VLLM_V15_1, VLLM_V16, VLLM_V17, VLLM_V17_1, VLLM_V18)
+@vllm_version(VLLM_V13, VLLM_V14, VLLM_V14_1, VLLM_V15, VLLM_V15_1, VLLM_V16, VLLM_V17, VLLM_V17_1, VLLM_V18, VLLM_V18_1, VLLM_V19)
 class CPUProfilerPatchV13:
     """Stub: Actual patching happens in platform.py check_and_update_config.
 

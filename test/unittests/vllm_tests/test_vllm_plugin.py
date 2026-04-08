@@ -7,13 +7,13 @@
 Unit tests for zentorch.vllm plugin.
 
 Tests verify:
-- Version compatibility checks for supported versions (0.15.0 - 0.18.0)
+- Version compatibility checks for supported versions (0.15.0 - 0.19.0)
 - Version parsing logic
 - Patch registration and application
 - Individual patch functionality (oneDNN disable, CompilationConfig repr, etc.)
 - Platform configuration
 
-Supported vLLM versions: 0.15.0, 0.15.1, 0.16.0, 0.17.0, 0.17.1, 0.18.0
+Supported vLLM versions: 0.15.0, 0.15.1, 0.16.0, 0.17.0, 0.17.1, 0.18.0, 0.18.1, 0.19.0
 """
 
 import os
@@ -69,6 +69,8 @@ class TestVersionParsing(unittest.TestCase):
             "0.17.0",
             "0.17.1",
             "0.18.0",
+            "0.18.1",
+            "0.19.0",
         ]
         for ver in expected_versions:
             self.assertIn(ver, _VERSION_MAP, f"{ver} should be in VERSION_MAP")
@@ -98,6 +100,12 @@ class TestVersionParsing(unittest.TestCase):
         # v18 family
         self.assertEqual(_VERSION_MAP.get(_base_version("0.18.0")), "v18")
         self.assertEqual(_VERSION_MAP.get(_base_version("0.18.0+cpu")), "v18")
+        self.assertEqual(_VERSION_MAP.get(_base_version("0.18.1")), "v18")
+        self.assertEqual(_VERSION_MAP.get(_base_version("0.18.1+cpu")), "v18")
+
+        # v19 family
+        self.assertEqual(_VERSION_MAP.get(_base_version("0.19.0")), "v19")
+        self.assertEqual(_VERSION_MAP.get(_base_version("0.19.0+cpu")), "v19")
 
     def test_version_family_detection_unsupported(self):
         """VERSION_MAP should return None for unsupported versions."""
@@ -114,7 +122,7 @@ class TestVersionParsing(unittest.TestCase):
             "0.13.0",
             "0.14.0",
             "0.14.1",
-            "0.18.1",
+            "0.19.1",
             "1.0.0",
         ]
         for ver in unsupported:
@@ -204,7 +212,7 @@ class TestPatchRegistration(unittest.TestCase):
                 f"Universal patch {patch_name!r} should be applied for {family}",
             )
 
-        if family in {"v17", "v18"}:
+        if family in {"v17", "v18", "v19"}:
             self.assertNotIn(
                 "OneDNNDisable",
                 manager.applied,
@@ -295,19 +303,22 @@ class TestPlatformProfilerPatchVersionRange(unittest.TestCase):
     """Test profiler patch version gating in platform.py."""
 
     def test_profiler_patch_range_uses_normalized_versions(self):
-        """Profiler patch should use a normalized 0.13.0-0.18.0 version range."""
+        """Profiler patch should use a normalized 0.15.0-0.19.0 version range."""
         from zentorch.vllm import platform
 
         cases = [
             (None, False),
             ("0.12.0", False),
-            ("0.13.0", True),
-            ("0.13.0rc1+cpu", True),
-            ("0.14.1", True),
+            ("0.13.0", False),
+            ("0.14.1", False),
             ("0.15.0", True),
+            ("0.15.0rc1+cpu", True),
             ("0.17.1+cpu", True),
             ("0.18.0.dev1+cpu", True),
-            ("0.18.1", False),
+            ("0.18.1", True),
+            ("0.19.0", True),
+            ("0.19.0+cpu", True),
+            ("0.19.1", False),
         ]
 
         for version_str, expected in cases:

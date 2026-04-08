@@ -29,7 +29,7 @@ The plugin uses vLLM's platform and general plugin entry points to:
 
 | Component | Version | Notes |
 |-----------|---------|-------|
-| vLLM | 0.15.0 - 0.18.0 | V1 engine fully supported |
+| vLLM | 0.15.0 - 0.19.0 | V1 engine fully supported |
 | Python | 3.10+ | |
 | PyTorch | 2.10.0 | Auto-installed by vLLM |
 | TorchAO | 0.16.0 | |
@@ -98,13 +98,13 @@ The plugin leverages AMD EPYC specific intrinsics and optimizations to accelerat
 
      > **Important:** Pre-built vLLM CPU binaries are available from [0.13.0](https://docs.vllm.ai/en/stable/getting_started/installation/cpu/#pre-built-wheels), so all currently supported versions can use the published CPU wheels.
 
-   - Supported versions: 0.15.0, 0.15.1, 0.16.0, 0.17.0, 0.17.1, 0.18.0. Check out the appropriate release tag before building.
+   - Supported versions: 0.15.0, 0.15.1, 0.16.0, 0.17.0, 0.17.1, 0.18.0, 0.18.1, 0.19.0. Check out the appropriate release tag before building.
 
 3. **Install zentorch:**
 
    | vLLM version | PyTorch version (auto-installed by vLLM) | zentorch install method |
    |--------------|-----------------|------------------------|
-   | 0.15.0 - 0.18.0 | 2.10.0 | PyPI or source |
+   | 0.15.0 - 0.19.0 | 2.10.0 | PyPI or source |
 
    - **From PyPI** (vLLM 0.15.0+):
      ```bash
@@ -238,7 +238,7 @@ Mount volumes (`-v`) for model files and any datasets you need inside the contai
 
 If you don't see "Platform plugin zentorch is activated":
 1. Verify zentorch is installed: `python -c "import zentorch"`
-2. Check vLLM version: `python -c "import vllm; print(vllm.__version__)"` (must be 0.15.0 - 0.18.0)
+2. Check vLLM version: `python -c "import vllm; print(vllm.__version__)"` (must be 0.15.0 - 0.19.0)
 
 ### Stale Compilation Cache
 

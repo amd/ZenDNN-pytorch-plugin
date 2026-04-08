@@ -6,7 +6,7 @@
 """zentorch CPU Platform for vLLM.
 
 Supports:
-- 0.12.0 - 0.18.0: CompilationMode, AttentionBackendEnum, native CPU attention
+- 0.15.0 - 0.19.0: CompilationMode, AttentionBackendEnum, native CPU attention
 - 0.18.0+: is_zen_cpu() for native dispatch_cpu_unquantized_gemm routing
 """
 
@@ -14,7 +14,12 @@ from typing import TYPE_CHECKING
 
 from packaging import version as pkg_version
 
-from zentorch.vllm.core import VLLM_V13, VLLM_V18, _base_version, get_vllm_version
+from zentorch.vllm.core import (
+    VLLM_MAX_VERSION,
+    VLLM_MIN_VERSION,
+    _base_version,
+    get_vllm_version,
+)
 
 if TYPE_CHECKING:
     from vllm.config import VllmConfig
@@ -29,7 +34,9 @@ def _is_profiler_patch_version() -> bool:
         return False
 
     parsed_version = pkg_version.parse(_base_version(vllm_ver))
-    return pkg_version.parse(VLLM_V13) <= parsed_version <= pkg_version.parse(VLLM_V18)
+    return pkg_version.parse(VLLM_MIN_VERSION) <= parsed_version <= pkg_version.parse(
+        VLLM_MAX_VERSION
+    )
 
 
 def _create_platform():
@@ -84,7 +91,7 @@ def _create_platform():
             """Apply version-specific profiler patches.
 
             0.12: Patched in __init__.py register() (must run before worker creation)
-            0.13-0.18: Suppresses redundant cuda-time table output for CPU
+            0.15.0-0.19.0: Suppresses redundant cuda-time table output for CPU
             """
             if _is_profiler_patch_version():
                 cls._patch_profiler_v13_v14()
@@ -92,7 +99,7 @@ def _create_platform():
 
         @classmethod
         def _patch_profiler_v13_v14(cls):
-            """Fix vLLM 0.13-0.18: suppress redundant cuda-time table for CPU-only."""
+            """Fix vLLM 0.15.0-0.19.0: suppress redundant cuda-time table for CPU-only."""
             try:
                 from vllm.profiler import wrapper as wrapper_module
             except ImportError:
@@ -133,7 +140,11 @@ def _create_platform():
 
             TorchProfilerWrapper._stop = patched_stop
             TorchProfilerWrapper._zentorch_patched = True
-            logger.info("[zentorch] Patched TorchProfilerWrapper._stop (0.13-0.18)")
+            logger.info(
+                "[zentorch] Patched TorchProfilerWrapper._stop (%s-%s)",
+                VLLM_MIN_VERSION,
+                VLLM_MAX_VERSION,
+            )
 
     _ZenCPUPlatformImpl = ZenCPUPlatformImpl
     return _ZenCPUPlatformImpl
