@@ -613,6 +613,27 @@ def meta_masked_multihead_self_attention(
     return (attn_output, attn_weights, key_cache_out, value_cache_out, beam_idx_out)
 
 
+@register_meta("zentorch_add_rms_norm_")
+def meta_zentorch_add_rms_norm_(
+    input,
+    weight,
+    residual,
+    epsilon,
+    zentorch_op_name="zentorch::zentorch_add_rms_norm",
+):
+    return None
+
+
+@register_meta("zentorch_rms_norm")
+def meta_zentorch_rms_norm(
+    input,
+    weight,
+    epsilon,
+    zentorch_op_name="zentorch::zentorch_rms_norm",
+):
+    return input.new_empty(input.size())
+
+
 @register_meta("zentorch_weight_prepack_for_linear")
 def meta_zentorch_weight_prepack_for_linear(weight):
     return weight.new_empty(weight.size())
@@ -926,6 +947,8 @@ make_fallback(torch.ops.zentorch.zentorch_mm_gelu_tanh)
 make_fallback(torch.ops.zentorch.zentorch_mm_gelu_erf)
 make_fallback(torch.ops.zentorch.zentorch_horizontal_embedding_bag_group)
 make_fallback(torch.ops.zentorch.zentorch_horizontal_embedding_group)
+make_fallback(torch.ops.zentorch.zentorch_add_rms_norm_)
+make_fallback(torch.ops.zentorch.zentorch_rms_norm)
 make_fallback(torch.ops.zentorch.zentorch_quant_embedding_bag)
 make_fallback(torch.ops.zentorch.zentorch_quant_embedding_bag.out)
 make_fallback(torch.ops.zentorch.zentorch_horizontal_quant_embedding_bag_group)
