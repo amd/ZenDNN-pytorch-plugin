@@ -13,7 +13,7 @@ Before you run the benchmarks, activate the conda environment and run the zentor
 
 source zentorch_env_setup.sh --help
 
-source zentorch_env_setup.sh --framework zentorch --model llm/recsys/cnn/nlp --threads 96/128/192 --precision bf16_amp/bf16/fp32/woq/int8
+source zentorch_env_setup.sh --framework zentorch --model llm/recsys/cnn/nlp --threads 96/128/192 --precision bf16_amp/bf16/fp32/woq
 
 It sets all the necessary variables for respective runs based on the options provided.
 
