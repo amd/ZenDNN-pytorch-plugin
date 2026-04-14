@@ -64,7 +64,7 @@ def sub_process(
     execute_event,
     is_accuracy_mode,
     num_warmups,
-    is_bfloat16,
+    input_dtype,
     enable_profiling,
     affinity,
     init_counter,
@@ -78,8 +78,8 @@ def sub_process(
 
     densex, index, offset, labels = sample_inputs
 
-    if is_bfloat16:
-        densex = densex.to(dtype=torch.bfloat16)
+    if densex.dtype != input_dtype:
+        densex = densex.to(dtype=input_dtype)
 
     print(f"warming up in sub_process {i}", flush=True)
     start = time.time()
@@ -106,15 +106,14 @@ def sub_process(
             densex, index, offset, labels = ds.val_data.load_batch(
                 range(sample_s, sample_e)
             )
-            if is_bfloat16:
-                densex = densex.to(dtype=torch.bfloat16)
+            if densex.dtype != input_dtype:
+                densex = densex.to(dtype=input_dtype)
             out = dlrm_wrap(model, densex, index, offset)
             results.append(torch.cat((out.unsqueeze(1), labels.unsqueeze(1)), dim=1))
         for j in range(len(results)):
             result_tensor[i * len(task_list) + j] = results[j]
         finished_event.set()
     else:
-
         execute_event.wait()
 
         for _ in range(len(task_list)):
@@ -146,7 +145,6 @@ def calculate_accuracy(result_tensor):
 
 
 if __name__ == "__main__":
-
     cpus_for_loadgen, proc_inst_start_idx = calc_cores(
         num_sockets,
         cpus_per_socket,
@@ -183,6 +181,11 @@ if __name__ == "__main__":
     result_tensor = torch.empty((num_of_queries, args.batch_size, 2)).share_memory_()
 
     num_of_instances = len(proc_inst_start_idx)
+    input_dtype = torch.float32
+    if args.model in ["bf16", "quant16", "export_quant16"]:
+        input_dtype = torch.bfloat16
+    elif args.model == "fp16":
+        input_dtype = torch.float16
 
     consumers = [
         mp.Process(
@@ -197,7 +200,7 @@ if __name__ == "__main__":
                 execute_event,
                 args.accuracy_mode,
                 args.num_warmups,
-                args.model in ["bf16", "quant16", "export_quant16"],
+                input_dtype,
                 args.enable_profiling,
                 list(
                     range(

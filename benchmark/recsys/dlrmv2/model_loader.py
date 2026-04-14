@@ -83,7 +83,7 @@ def get_compiled_model(args):
             raise RuntimeError(
                 f"Failed to load quantized model from {args.model_path}. Error: {e}"
             ) from e
-    elif args.model in ["fp32", "bf16"]:
+    elif args.model in ["fp32", "bf16", "fp16"]:
         try:
             model.load_state_dict(
                 torch.load(
@@ -93,6 +93,8 @@ def get_compiled_model(args):
             )
             if args.model == "bf16":
                 model = model.to(dtype=torch.bfloat16)
+            elif args.model == "fp16":
+                model = model.to(dtype=torch.float16)
         except Exception as e:
             raise RuntimeError(
                 f"Failed to load {args.model} model from {args.model_path}. Error: {e}"
@@ -126,6 +128,7 @@ def get_compiled_model(args):
     elif args.model in ["export_quant32", "export_quant16"]:
         try:
             import torchao  # noqa: F401
+
             model = torch.export.load(args.model_path)
         except Exception as e:
             raise RuntimeError(
@@ -134,7 +137,7 @@ def get_compiled_model(args):
     else:
         raise ValueError(
             f"Unsupported model type: {args.model}. Supported types are: quant32, fp32, "
-            f"bf16, qdq_model, quant16, export_quant32, export_quant16."
+            f"bf16, fp16, qdq_model, quant16, export_quant32, export_quant16."
         )
     print("Sharing memory", flush=True)
     if args.model in ["export_quant32", "export_quant16"]:
@@ -149,8 +152,10 @@ def get_compiled_model(args):
             # As model is exported program, compile pass will be added in the subprocess
             compiled_graph = model
         else:
-            compiled_graph = torch.compile(model, backend="zentorch")
+            compiled_graph = torch.compile(model, backend=args.backend)
     except Exception as e:
-        raise RuntimeError(f"Failed to compile model with zentorch. Error: {e}") from e
+        raise RuntimeError(
+            f"Failed to compile model with {args.backend}. Error: {e}"
+        ) from e
 
     return compiled_graph

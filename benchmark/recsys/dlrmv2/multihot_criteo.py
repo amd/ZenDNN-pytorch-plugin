@@ -431,7 +431,9 @@ class MultihotCriteoPipe:
         elif hasattr(np.lib.format, "read_array_header_1_0") and version >= (1, 0):
             shape, fortran_order, dtype = np.lib.format.read_array_header_1_0(zf.fp)
         elif hasattr(np.lib.format, "_read_array_header"):
-            shape, fortran_order, dtype = np.lib.format._read_array_header(zf.fp, version)
+            shape, fortran_order, dtype = np.lib.format._read_array_header(
+                zf.fp, version
+            )
         else:
             raise ValueError("Incompatible numpy version")
         assert (

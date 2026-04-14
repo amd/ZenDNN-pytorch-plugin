@@ -70,9 +70,26 @@ def get_args():
         type=str,
         default="export_quant32",
         help=(
-            "type of model to load [quant32, fp32, bf16, qdq, quant16, "
-            "export_quant32, export_quant16]"
+            "type of model to load [quant32, fp32, bf16, qdq_model, quant16, "
+            "export_quant32, export_quant16, fp16]"
         ),
+        choices=[
+            "quant32",
+            "fp32",
+            "bf16",
+            "qdq_model",
+            "quant16",
+            "export_quant32",
+            "export_quant16",
+            "fp16",
+        ],
+    )
+    parser.add_argument(
+        "--backend",
+        type=str,
+        default="zentorch",
+        choices=["inductor", "zentorch"],
+        help="backend to use [inductor, zentorch]. Default: zentorch",
     )
     parser.add_argument(
         "--enable_profiling", action="store_true", help="Enable profiling"
