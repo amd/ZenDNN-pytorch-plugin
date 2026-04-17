@@ -564,7 +564,6 @@ def _do_patch_rmsnorm():
     try:
         from vllm.model_executor.layers.layernorm import (
             RMSNorm,
-            fused_add_rms_norm,
         )
     except ImportError:
         return False
@@ -580,9 +579,10 @@ def _do_patch_rmsnorm():
         if self.variance_size_override is not None:
             return self.forward_native(x, residual)
         if residual is not None:
-            return fused_add_rms_norm(
-                x, residual, self.weight.data, self.variance_epsilon
+            torch.ops.zentorch.zentorch_add_rms_norm_(
+                x, self.weight.data, residual, self.variance_epsilon
             )
+            return x, residual
         # This custom op causes accuracy issue with Qwen models
         # return rms_norm(x, self.weight.data, self.variance_epsilon)
         return self.forward_native(x, residual)
