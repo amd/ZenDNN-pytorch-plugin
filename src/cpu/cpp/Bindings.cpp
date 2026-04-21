@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright (c) 2023-2025 Advanced Micro Devices, Inc.
+ * Copyright (c) 2023-2026 Advanced Micro Devices, Inc.
  * All rights reserved.
  ******************************************************************************/
 
@@ -55,6 +55,11 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         "Check if BF16 is supported on the current device.\n\n"
         "Returns:\n"
         "    Bool: True if BF16 is supported, False otherwise.");
+
+  m.def("is_fp16_supported", zentorch::zendnn_fp16_device_check,
+        "Check if FP16 is supported on the current device.\n\n"
+        "Returns:\n"
+        "    Bool: True if FP16 is supported, False otherwise.");
 
   m.def("zentorch_get_packed_embedding_weight",
         &zentorch::zentorch_get_packed_embedding_weight, py::arg("weight"),

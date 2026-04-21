@@ -55,3 +55,7 @@ from ._lowerings import *  # noqa
 from ._freeze_utils import freezing_enabled  # noqa
 from . import utils  # noqa F401
 from . import llm  # noqa F401
+from ._fp16_capabilities import update_fp16_registry  # noqa
+
+# update the fp16 capabilities registry
+update_fp16_registry()

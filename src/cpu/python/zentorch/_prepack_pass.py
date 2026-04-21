@@ -7,7 +7,7 @@ import functools
 from typing import Any
 
 import torch
-from ._utils import counters
+from ._utils import counters, is_valid_fp16
 from torch._inductor import config
 from torch._inductor.pattern_matcher import (
     Arg,
@@ -36,6 +36,7 @@ zentorch = torch.ops.zentorch
         post_op=KeywordArg("post_op"),
         zentorch_op_name=KeywordArg("zentorch_op_name"),
     ),
+    extra_check=functools.partial(is_valid_fp16, "zentorch_weight_prepack"),
     pass_dict=pass_pattern,
 )
 def zentorch_weight_prepack_for_linear_replacement_without_bias(
@@ -66,6 +67,7 @@ def zentorch_weight_prepack_for_linear_replacement_without_bias(
         post_op=KeywordArg("post_op"),
         zentorch_op_name=KeywordArg("zentorch_op_name"),
     ),
+    extra_check=functools.partial(is_valid_fp16, "zentorch_weight_prepack"),
     pass_dict=pass_pattern,
 )
 def zentorch_weight_prepack_for_linear_replacement_with_bias(

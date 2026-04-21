@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
+ * Copyright (c) 2024-2026 Advanced Micro Devices, Inc.
  * All rights reserved.
  ******************************************************************************/
 
@@ -26,14 +26,24 @@ namespace zentorch {
 
 // zentorch:: Check if m/c supports AVX512/AVX256
 inline bool is_avx512_supported() {
-  return cpuinfo_initialize() && cpuinfo_has_x86_avx512f() &&
-         cpuinfo_has_x86_avx512vl() && cpuinfo_has_x86_avx512dq() &&
-         cpuinfo_has_x86_avx512vnni() && cpuinfo_has_x86_avx512bf16() &&
-         cpuinfo_has_x86_avx512bw();
+  static bool is_avx512_supported =
+      cpuinfo_initialize() && cpuinfo_has_x86_avx512f() &&
+      cpuinfo_has_x86_avx512vl() && cpuinfo_has_x86_avx512dq() &&
+      cpuinfo_has_x86_avx512vnni() && cpuinfo_has_x86_avx512bf16() &&
+      cpuinfo_has_x86_avx512bw();
+  return is_avx512_supported;
 }
 
 inline bool zendnn_bf16_device_check() {
-  return cpuinfo_initialize() && cpuinfo_has_x86_avx512bf16();
+  static bool is_bf16_supported =
+      cpuinfo_initialize() && cpuinfo_has_x86_avx512bf16();
+  return is_bf16_supported;
+}
+
+inline bool zendnn_fp16_device_check() {
+  static bool is_fp16_supported =
+      cpuinfo_initialize() && cpuinfo_has_x86_avx512fp16();
+  return is_fp16_supported;
 }
 
 enum EMBEDDING_BAG_ALGO {

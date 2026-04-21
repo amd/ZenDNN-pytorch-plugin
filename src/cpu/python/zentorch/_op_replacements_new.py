@@ -7,7 +7,7 @@ import functools
 from typing import Any, Callable, Optional
 
 import torch
-from ._utils import counters
+from ._utils import counters, is_valid_fp16
 from torch._inductor import config
 from torch._inductor.pattern_matcher import (
     Arg,
@@ -36,6 +36,7 @@ prims = torch.ops.prims
         Arg(),
     ),
     pass_dict=pass_pattern,
+    extra_check=functools.partial(is_valid_fp16, "zentorch_linear"),
 )
 def linear_replacement(match: Match, mat_1: Any, mat_2: Any, bias: Any) -> None:
     def repl(mat_1: Any, mat_2: Any, bias: Any) -> torch.Tensor:
@@ -59,6 +60,7 @@ def linear_replacement(match: Match, mat_1: Any, mat_2: Any, bias: Any) -> None:
         Arg(),
     ),
     pass_dict=pass_pattern,
+    extra_check=functools.partial(is_valid_fp16, "zentorch_linear"),
 )
 def linear_replacement_no_bias(match: Match, mat_1: Any, mat_2: Any) -> None:
     def repl(mat_1: Any, mat_2: Any) -> torch.Tensor:
@@ -105,6 +107,8 @@ def is_placeholder(
 
     def fn(match: Match) -> bool:
         # get_attr is a corner case in export path
+        if not is_valid_fp16("zentorch_linear", match):
+            return False
         weight_node = _unwrap_bf16_convert(match.args[weight_idx])
         if weight_node.op not in ("placeholder", "get_attr"):
             return False
@@ -292,6 +296,8 @@ def addmm_linear_replacement_nd(
 
 def weight_dtype_check(idx: int):
     def fn(match: Match) -> bool:
+        if not is_valid_fp16("zentorch_woq_linear", match):
+            return False
         return match.args[idx].meta["val"].dtype == torch.int8
 
     return fn
@@ -299,6 +305,8 @@ def weight_dtype_check(idx: int):
 
 def bias_dim_check(idx: int, idx_2: int):
     def fn(match: Match) -> bool:
+        if not is_valid_fp16("zentorch_woq_linear", match):
+            return False
         return match.args[idx].meta["val"].dim() == 1 and weight_dtype_check(idx_2)(
             match
         )
@@ -682,6 +690,7 @@ def intx_weight_only_linear_replacement_per_group_with_bias(
         Arg(),  # scale_and_zero (K/group_size, N, 2)
     ),
     pass_dict=pass_pattern,
+    extra_check=functools.partial(is_valid_fp16, "zentorch_woq_linear"),
 )
 def int4_opaque_tensor_linear_replacement(
     match: Match,

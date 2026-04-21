@@ -17,7 +17,7 @@ from torch._inductor.pattern_matcher import (
 )
 from torch._inductor import config
 import functools
-from ._utils import counters
+from ._utils import counters, is_valid_fp16
 
 # import the custom logging module
 from ._logging import get_logger
@@ -43,6 +43,8 @@ def is_embedding_op_replacable(match):
 
     # checks for the argument "weight"
     # Extract the weight tensor node (first argument to embedding)
+    if not is_valid_fp16("zentorch_embedding", match):
+        return False
     weight = match.args[0]
 
     weight_checks = (
@@ -107,6 +109,7 @@ def embedding_replacement(
 @register_graph_pattern(
     CallFunction(at_ops.mm, Arg(), Arg()),
     pass_dict=pass_pattern,
+    extra_check=functools.partial(is_valid_fp16, "zentorch_mm"),
 )
 def mm_replacement(match, mat_1, mat_2):
     def repl(mat_1, mat_2):
@@ -120,6 +123,7 @@ def mm_replacement(match, mat_1, mat_2):
 @register_graph_pattern(
     CallFunction(at_ops.bmm, Arg(), Arg()),
     pass_dict=pass_pattern,
+    extra_check=functools.partial(is_valid_fp16, "zentorch_bmm"),
 )
 def bmm_replacement(match, mat_1, mat_2):
     def repl(mat_1, mat_2):
@@ -146,6 +150,7 @@ def is_bias_1d_tensor(match):
         alpha=KeywordArg("alpha"),
     ),
     pass_dict=pass_pattern,
+    extra_check=functools.partial(is_valid_fp16, "zentorch_addmm"),
 )
 def addmm_replacement(match, inp, mat_1, mat_2, *, beta, alpha):
     def repl(inp, mat_1, mat_2, beta, alpha):
@@ -160,6 +165,8 @@ def is_baddbmm_replacable(match):
     # TODO: Below shape checks needs to be removed
     # ones the broadcast support for zentorch_baddbmm
     # op is added.
+    if not is_valid_fp16("zentorch_baddbmm", match):
+        return False
     add_shape = match.args[0].meta["val"].size()
     mat1_shape = match.args[1].meta["val"].size()
     mat2_shape = match.args[2].meta["val"].size()
@@ -194,6 +201,9 @@ def baddbmm_replacement(match, add_1, mat_1, mat_2, *, beta, alpha):
 # convolution replacement
 def is_convolution_op_replaceable(match):
     from ._compile_backend import conv_config
+
+    if not is_valid_fp16("zentorch_convolution", match):
+        return False
 
     # Replace only if torch.grad is disabled as ZenDNN implements
     # Convolution for inference only.
@@ -256,6 +266,7 @@ def replace_with_zentorch_ops(fx_graph):
                     scale=KeywordArg("scale"),
                 ),
                 pass_dict=pass_pattern,
+                extra_check=functools.partial(is_valid_fp16, "zentorch_sdpa"),
             )
             def sdpa_replacement(
                 match: Match,
@@ -299,6 +310,7 @@ def replace_with_zentorch_ops(fx_graph):
                     scale=KeywordArg("scale"),
                 ),
                 pass_dict=pass_pattern,
+                extra_check=functools.partial(is_valid_fp16, "zentorch_sdpa"),
             )
             def sdpa_replacement_2(
                 match: Match,
@@ -338,6 +350,7 @@ def replace_with_zentorch_ops(fx_graph):
             @register_graph_pattern(
                 CallFunction(ipex_ops.rotary_position_embedding, *rope_args),
                 pass_dict=pass_pattern,
+                extra_check=functools.partial(is_valid_fp16, "zentorch_rope"),
             )
             def rope_replacement(match, *args):
                 def repl(*args):
@@ -355,6 +368,7 @@ def replace_with_zentorch_ops(fx_graph):
                     *mmha_args,
                 ),
                 pass_dict=pass_pattern,
+                extra_check=functools.partial(is_valid_fp16, "zentorch_mmha"),
             )
             def mmha_replacement(match, *args):
                 def repl(*args):
@@ -426,7 +440,8 @@ def replace_with_composite_zentorch_ops(fx_graph: torch.fx.Graph) -> torch.fx.Gr
     for node in fx_graph.nodes:
         if node.target != at_ops._embedding_bag.default:
             continue
-
+        if not is_valid_fp16("zentorch_embedding_bag", node):
+            continue
         users = list(node.users.keys())
         if len(users) != 1:
             logger.warning(

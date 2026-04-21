@@ -14,6 +14,8 @@ from typing import List
 
 # import the custom logging module
 from ._logging import get_logger
+from ._fp16_capabilities import is_fp16_capable
+from ._C import is_fp16_supported
 
 # make a logger for this file
 logger = get_logger(__name__)
@@ -58,6 +60,37 @@ def are_args_same_dtype(fx_graph, node):
     for i in range(0, len(node.args)):
         dtype_set.add(get_tensor(fx_graph, node, i).dtype)
     return len(dtype_set) == 1
+
+
+# Checks if the current match has fp16 argument/keyword argument.
+# In case it does, it checks if the op and hardware supports fp16.
+# By design this function is resposible for rejecting the pass
+# for operators which do not support fp16.
+# It is not a robust check for the combination of args and kwargs
+# which are valid per operators.
+def is_valid_fp16(op_name, match):
+    for arg in getattr(match, "args", ()):
+        # Only consider FX Nodes that have tensor-like meta["val"] with a dtype.
+        if not isinstance(arg, torch.fx.Node):
+            continue
+        meta = getattr(arg, "meta", None)
+        if not isinstance(meta, dict):
+            continue
+        val = meta.get("val", None)
+        dtype = getattr(val, "dtype", None)
+        if dtype is torch.float16:
+            return is_fp16_supported() and is_fp16_capable(op_name)
+    for _, value in getattr(match, "kwargs", {None: None}).items():
+        if not isinstance(value, torch.fx.Node):
+            continue
+        meta = getattr(value, "meta", None)
+        if not isinstance(meta, dict):
+            continue
+        val = meta.get("val", None)
+        dtype = getattr(val, "dtype", None)
+        if dtype is torch.float16:
+            return is_fp16_supported() and is_fp16_capable(op_name)
+    return True
 
 
 def numdims_tensor(fx_graph, node, arg_index=None):
