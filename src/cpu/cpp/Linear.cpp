@@ -40,13 +40,12 @@ inline void zentorch_linear_impl(
                        is_weight_prepacked);
 }
 
-at::Tensor zentorch_linear_unary(const at::Tensor &input,
-                                 const at::Tensor &weight,
-                                 const std::optional<at::Tensor> &bias,
-                                 bool is_weight_prepacked,
-                                 std::string_view post_op,
-                                 std::string zentorch_op_name) {
-  RECORD_FUNCTION(zentorch_op_name, std::vector<c10::IValue>({input, weight}));
+at::Tensor zentorch_linear_unary_impl(const at::Tensor &input,
+                                      const at::Tensor &weight,
+                                      const std::optional<at::Tensor> &bias,
+                                      bool is_weight_prepacked,
+                                      std::string_view post_op,
+                                      std::string zentorch_op_name) {
   c10::MaybeOwned<at::Tensor> bias_maybe_owned =
       at::borrow_from_optional_tensor(bias);
   const at::Tensor &bias_t = *bias_maybe_owned;
@@ -63,12 +62,22 @@ at::Tensor zentorch_linear_unary(const at::Tensor &input,
   return result;
 }
 
-at::Tensor zentorch_linear_unary_binary(
+at::Tensor zentorch_linear_unary(const at::Tensor &input,
+                                 const at::Tensor &weight,
+                                 const std::optional<at::Tensor> &bias,
+                                 bool is_weight_prepacked,
+                                 std::string_view post_op,
+                                 std::string zentorch_op_name) {
+  RECORD_FUNCTION(zentorch_op_name, std::vector<c10::IValue>({input, weight}));
+  return zentorch_linear_unary_impl(input, weight, bias, is_weight_prepacked,
+                                    post_op, zentorch_op_name);
+}
+
+at::Tensor zentorch_linear_unary_binary_impl(
     const at::Tensor &input, const at::Tensor &weight,
     const at::Tensor &binary_input, const std::optional<at::Tensor> &bias,
     bool is_weight_prepacked, std::string_view post_op_1,
     std::string_view post_op_2, std::string zentorch_op_name) {
-  RECORD_FUNCTION(zentorch_op_name, std::vector<c10::IValue>({input, weight}));
   c10::MaybeOwned<at::Tensor> bias_maybe_owned =
       at::borrow_from_optional_tensor(bias);
   const at::Tensor &bias_t = *bias_maybe_owned;
@@ -86,13 +95,23 @@ at::Tensor zentorch_linear_unary_binary(
   return result;
 }
 
-at::Tensor zentorch_linear_binary_binary(
+at::Tensor zentorch_linear_unary_binary(
+    const at::Tensor &input, const at::Tensor &weight,
+    const at::Tensor &binary_input, const std::optional<at::Tensor> &bias,
+    bool is_weight_prepacked, std::string_view post_op_1,
+    std::string_view post_op_2, std::string zentorch_op_name) {
+  RECORD_FUNCTION(zentorch_op_name, std::vector<c10::IValue>({input, weight}));
+  return zentorch_linear_unary_binary_impl(input, weight, binary_input, bias,
+                                           is_weight_prepacked, post_op_1,
+                                           post_op_2, zentorch_op_name);
+}
+
+at::Tensor zentorch_linear_binary_binary_impl(
     const at::Tensor &input, const at::Tensor &weight,
     const at::Tensor &binary_input_1, const at::Tensor &binary_input_2,
     const std::optional<at::Tensor> &bias, bool is_weight_prepacked,
     std::string_view post_op_1, std::string_view post_op_2,
     std::string zentorch_op_name) {
-  RECORD_FUNCTION(zentorch_op_name, std::vector<c10::IValue>({input, weight}));
   c10::MaybeOwned<at::Tensor> bias_maybe_owned =
       at::borrow_from_optional_tensor(bias);
   const at::Tensor &bias_t = *bias_maybe_owned;
@@ -113,17 +132,31 @@ at::Tensor zentorch_linear_binary_binary(
   return result;
 }
 
+at::Tensor zentorch_linear_binary_binary(
+    const at::Tensor &input, const at::Tensor &weight,
+    const at::Tensor &binary_input_1, const at::Tensor &binary_input_2,
+    const std::optional<at::Tensor> &bias, bool is_weight_prepacked,
+    std::string_view post_op_1, std::string_view post_op_2,
+    std::string zentorch_op_name) {
+  RECORD_FUNCTION(zentorch_op_name, std::vector<c10::IValue>({input, weight}));
+  return zentorch_linear_binary_binary_impl(
+      input, weight, binary_input_1, binary_input_2, bias, is_weight_prepacked,
+      post_op_1, post_op_2, zentorch_op_name);
+}
+
 TORCH_LIBRARY_FRAGMENT(zentorch, m) {
   m.def("zentorch_linear_unary(Tensor input, Tensor weight, Tensor? bias=None, "
         "*, bool is_weight_prepacked=False, str post_op='none', str "
         "zentorch_op_name='zentorch::zentorch_linear_unary') "
         "-> Tensor");
+
   m.def("zentorch_linear_unary_binary(Tensor input, Tensor weight, Tensor "
         "binary_input, Tensor? bias=None, *, bool is_weight_prepacked=False, "
         "str post_op_1='none', str post_op_2='none', str "
         "zentorch_op_name='zentorch::zentorch_linear_unary_binary') "
         "-> Tensor",
         {at::Tag::needs_fixed_stride_order});
+
   m.def("zentorch_linear_binary_binary(Tensor input, Tensor weight, Tensor "
         "binary_input_1, Tensor binary_input_2, Tensor? bias=None, *, bool "
         "is_weight_prepacked=False, str post_op_1='none', str "
@@ -135,7 +168,9 @@ TORCH_LIBRARY_FRAGMENT(zentorch, m) {
 
 TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
   m.impl("zentorch_linear_unary", zentorch_linear_unary);
+
   m.impl("zentorch_linear_unary_binary", zentorch_linear_unary_binary);
+
   m.impl("zentorch_linear_binary_binary", zentorch_linear_binary_binary);
 }
 } // namespace zentorch

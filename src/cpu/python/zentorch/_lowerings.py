@@ -28,6 +28,8 @@ _ZENTORCH_HEADER = os.path.abspath(
 
 add_needs_realized_inputs(
     [
+        torch.ops.zentorch.zentorch_linear_unary_binary.default,
+        torch.ops.zentorch.zentorch_linear_binary_binary.default,
         torch.ops.zentorch.zentorch_qlinear.default,
         torch.ops.zentorch.zentorch_qlinear_relu.default,
         torch.ops.zentorch.zentorch_qlinear_sigmoid.default,
@@ -123,6 +125,7 @@ class zentorch_LinearUnary(ExternKernelAlloc):
         kwargs = {
             "is_weight_prepacked": is_weight_prepacked,
             "post_op": post_op,
+            "zentorch_op_name": name,
         }
 
         device = x.get_device()
@@ -160,7 +163,194 @@ def zentorch_linear_unary_lowering(
             bias,
             is_weight_prepacked,
             post_op,
-            "zentorch_linear_unary",
+            zentorch_op_name,
+        )
+    )
+
+
+class zentorch_LinearUnaryBinary(ExternKernelAlloc):
+    def __init__(
+        self,
+        layout,
+        inputs,
+        constant_args=(),
+        kwargs=None,
+    ) -> None:
+        self.device_type = get_device_type(inputs[0])
+        super().__init__(
+            layout,
+            inputs,
+            constant_args,
+            kwargs,
+            op_overload=torch.ops.zentorch.zentorch_linear_unary_binary.default,
+            cpp_kernel_name="aoti_torch_cpu_zentorch_linear_unary_binary",
+        )
+
+    def codegen(self, wrapper):
+        wrapper.include_extra_header(_ZENTORCH_HEADER)
+        super().codegen(wrapper)
+
+        if isinstance(self.layout, Layout):
+            self.codegen_size_asserts(wrapper)
+
+    @classmethod
+    def create(cls, x, w, binary_input, B, is_weight_prepacked,
+               post_op_1, post_op_2, name):
+        x = cls.require_contiguous(cls.realize_input(x))
+        w = cls.require_contiguous(cls.realize_input(w))
+        binary_input = cls.require_contiguous(cls.realize_input(binary_input))
+
+        *m, _ic = x.get_size()
+        oc, _ic = w.get_size()
+        output_size = list(m) + [oc]
+        inputs = [x, w, binary_input]
+
+        if B is not None:
+            B = cls.require_contiguous(cls.realize_input(B))
+            inputs.append(B)
+
+        kwargs = {
+            "is_weight_prepacked": is_weight_prepacked,
+            "post_op_1": post_op_1,
+            "post_op_2": post_op_2,
+            "zentorch_op_name": name,
+        }
+
+        device = x.get_device()
+        assert device is not None
+
+        packed = zentorch_LinearUnaryBinary(
+            layout=FixedLayout(
+                device=device,
+                dtype=x.get_dtype(),
+                size=output_size,
+            ),
+            inputs=inputs,
+            constant_args=(),
+            kwargs=kwargs,
+        )
+        return _create_output_node(packed)
+
+    def apply_constraint(self):
+        pass
+
+
+@register_lowering(torch.ops.zentorch.zentorch_linear_unary_binary)
+def zentorch_linear_unary_binary_lowering(
+    input: TensorBox,
+    weight: TensorBox,
+    binary_input: TensorBox,
+    bias: TensorBox = None,
+    is_weight_prepacked=False,
+    post_op_1="none",
+    post_op_2="none",
+    zentorch_op_name="zentorch_linear_unary_binary",
+):
+    return TensorBox.create(
+        zentorch_LinearUnaryBinary.create(
+            input,
+            weight,
+            binary_input,
+            bias,
+            is_weight_prepacked,
+            post_op_1,
+            post_op_2,
+            zentorch_op_name,
+        )
+    )
+
+
+class zentorch_LinearBinaryBinary(ExternKernelAlloc):
+    def __init__(
+        self,
+        layout,
+        inputs,
+        constant_args=(),
+        kwargs=None,
+    ) -> None:
+        self.device_type = get_device_type(inputs[0])
+        super().__init__(
+            layout,
+            inputs,
+            constant_args,
+            kwargs,
+            op_overload=torch.ops.zentorch.zentorch_linear_binary_binary.default,
+            cpp_kernel_name="aoti_torch_cpu_zentorch_linear_binary_binary",
+        )
+
+    def codegen(self, wrapper):
+        wrapper.include_extra_header(_ZENTORCH_HEADER)
+        super().codegen(wrapper)
+
+        if isinstance(self.layout, Layout):
+            self.codegen_size_asserts(wrapper)
+
+    @classmethod
+    def create(cls, x, w, binary_input_1, binary_input_2, B,
+               is_weight_prepacked, post_op_1, post_op_2, name):
+        x = cls.require_contiguous(cls.realize_input(x))
+        w = cls.require_contiguous(cls.realize_input(w))
+        binary_input_1 = cls.require_contiguous(cls.realize_input(binary_input_1))
+        binary_input_2 = cls.require_contiguous(cls.realize_input(binary_input_2))
+
+        *m, _ic = x.get_size()
+        oc, _ic = w.get_size()
+        output_size = list(m) + [oc]
+        inputs = [x, w, binary_input_1, binary_input_2]
+
+        if B is not None:
+            B = cls.require_contiguous(cls.realize_input(B))
+            inputs.append(B)
+
+        kwargs = {
+            "is_weight_prepacked": is_weight_prepacked,
+            "post_op_1": post_op_1,
+            "post_op_2": post_op_2,
+            "zentorch_op_name": name,
+        }
+
+        device = x.get_device()
+        assert device is not None
+
+        packed = zentorch_LinearBinaryBinary(
+            layout=FixedLayout(
+                device=device,
+                dtype=x.get_dtype(),
+                size=output_size,
+            ),
+            inputs=inputs,
+            constant_args=(),
+            kwargs=kwargs,
+        )
+        return _create_output_node(packed)
+
+    def apply_constraint(self):
+        pass
+
+
+@register_lowering(torch.ops.zentorch.zentorch_linear_binary_binary)
+def zentorch_linear_binary_binary_lowering(
+    input: TensorBox,
+    weight: TensorBox,
+    binary_input_1: TensorBox,
+    binary_input_2: TensorBox,
+    bias: TensorBox = None,
+    is_weight_prepacked=False,
+    post_op_1="none",
+    post_op_2="none",
+    zentorch_op_name="zentorch_linear_binary_binary",
+):
+    return TensorBox.create(
+        zentorch_LinearBinaryBinary.create(
+            input,
+            weight,
+            binary_input_1,
+            binary_input_2,
+            bias,
+            is_weight_prepacked,
+            post_op_1,
+            post_op_2,
+            zentorch_op_name,
         )
     )
 

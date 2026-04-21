@@ -222,7 +222,6 @@ def zentorch(model, inputs):
             torch.ops.aten.gelu,
             torch.ops.aten.silu_,
             torch.ops.aten.silu,
-            torch.ops.aten.native_layer_norm,
             torch.ops.aten.empty.memory_format,
         ]
         remove_decompositions(decompositions, REMOVE_DECOMP_LIST)

@@ -810,6 +810,7 @@ def qkv_fusion(fx_graph):
                 op="call_function",
                 target=zt_ops.zentorch_linear_unary.default,
                 args=tuple(qkv_node_args),
+                kwargs={"zentorch_op_name": "zentorch::zentorch_linear_unary"},
             )
 
         counters["zentorch"]["qkv_fusion_linear"] += 1

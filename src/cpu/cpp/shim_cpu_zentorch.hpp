@@ -74,6 +74,18 @@ AOTI_TORCH_EXPORT AOTITorchError aoti_torch_cpu_zentorch_qlinear_relu_out(
     AtenTensorHandle *output_zero_points, const int32_t *output_dtype,
     const char *zentorch_op_name);
 
+AOTI_TORCH_EXPORT AOTITorchError aoti_torch_cpu_zentorch_linear_unary_binary(
+    AtenTensorHandle X, AtenTensorHandle W, AtenTensorHandle binary_input,
+    AtenTensorHandle *B, bool is_weight_prepacked, const char *post_op_1,
+    const char *post_op_2, const char *zentorch_op_name,
+    AtenTensorHandle *ret0);
+
+AOTI_TORCH_EXPORT AOTITorchError aoti_torch_cpu_zentorch_linear_binary_binary(
+    AtenTensorHandle X, AtenTensorHandle W, AtenTensorHandle binary_input_1,
+    AtenTensorHandle binary_input_2, AtenTensorHandle *B,
+    bool is_weight_prepacked, const char *post_op_1, const char *post_op_2,
+    const char *zentorch_op_name, AtenTensorHandle *ret0);
+
 #ifdef __cplusplus
 } // extern "C"
 #endif

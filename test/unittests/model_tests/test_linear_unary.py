@@ -121,6 +121,18 @@ class Test_Linear_Unary_Model(AddmmTestCase):
         )
         self.assertEqual(counters["zentorch"][case["counter"]], expected_count)
         self.assertEqual(native_output, compiled_output, atol=1e-3, rtol=1e-5)
+        # also compute for cpp_wrapper is freeze_flag is True
+        # TODO: modify the test_with_freeze_opt to support cpp_wrapper (big change), and add other tests
+        if freeze_flag:
+            torch._inductor.config.cpp_wrapper = True
+            native_output_cpp_wrapper = compiled_graph_copy(input_tensor)
+            compiled_output_cpp_wrapper = test_with_freeze_opt(
+                compiled_graph,
+                (input_tensor,),
+                freeze_flag,
+            )
+            self.assertEqual(native_output_cpp_wrapper, compiled_output_cpp_wrapper)
+            torch._inductor.config.cpp_wrapper = False
 
     def _run_deep_linear_activation(self, key, dtype, freeze_flag):
         model = Custom_Deep_Linear_Activation_Model(
