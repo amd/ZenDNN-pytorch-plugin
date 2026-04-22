@@ -898,6 +898,20 @@ def meta_zentorch_dynamic_qlinear(
     return input.new_empty(out_dim)
 
 
+@register_meta("zentorch_group_matmul", "out")
+def meta_zentorch_group_matmul_out(
+    gemm_outputs,
+    inputs,
+    weights,
+    bias,
+    moe_output=None,
+    topk_weights=None,
+    row_ptrs=None,
+    zentorch_op_name="zentorch::zentorch_group_matmul.out",
+):
+    return
+
+
 @register_meta("zentorch_woq_repack_weight")
 def meta_zentorch_woq_repack_weight(unpacked_weight):
     # Returns a packed weight tensor of shape [N, K/8]
@@ -962,6 +976,7 @@ make_fallback(torch.ops.zentorch.zentorch_woq_linear_gelu_tanh)
 make_fallback(torch.ops.zentorch.zentorch_woq_linear_mul_add)
 make_fallback(torch.ops.zentorch.zentorch_dynamic_qlinear)
 make_fallback(torch.ops.zentorch.zentorch_woq_linear_add_add)
+make_fallback(torch.ops.zentorch.zentorch_group_matmul.out)
 make_fallback(torch.ops.zentorch.zentorch_woq_repack_weight)
 make_fallback(
     torch.ops.zentorch.zentorch_woq_repack_from_int4pack
