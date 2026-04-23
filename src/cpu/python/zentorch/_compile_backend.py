@@ -4,15 +4,13 @@
 # ******************************************************************************
 
 import torch  # noqa
-import inspect
 import base64
 from torch._inductor import config
 from torch._dynamo import register_backend
-from ._utils import is_version_compatible_import
-from torch._inductor.compile_fx import compile_fx, compile_fx_inner
+from torch._inductor.compile_fx import compile_fx
 from torch._inductor.custom_graph_pass import CustomGraphPass, get_hash_for_files
 from ._optimize import optimize
-from typing import Callable, List, Optional, Any
+from typing import Callable, List, Any
 from ._logging import get_logger
 from torch._functorch.aot_autograd import aot_module_simplified
 from torch.torch_version import TorchVersion
@@ -53,14 +51,6 @@ class OptimizePass(CustomGraphPass):
 
 
 optimize_pass = OptimizePass()
-
-
-if is_version_compatible_import(["_dynamo", "utils"], ["is_parameter_freezing"]):
-    from torch._dynamo.utils import is_parameter_freezing
-else:
-
-    def is_parameter_freezing():  # for PT 2.4.x or below
-        return torch._inductor.config.freezing and not torch.is_grad_enabled()
 
 
 torch_version = TorchVersion(torch.__version__)
@@ -104,52 +94,6 @@ class ConvConfig:
 conv_config = ConvConfig()
 
 
-# this is only invoked for non-freezing path
-def zentorch_compile_fx_inner(
-    gm: torch.fx.GraphModule,
-    example_inputs: List[torch.Tensor],
-    cudagraphs=None,
-    static_input_idxs: Optional[List[int]] = None,
-    num_fixed: int = 0,
-    is_backward: bool = False,
-    graph_id: Optional[int] = None,
-    cpp_wrapper: bool = False,
-    aot_mode: bool = False,
-    is_inference: bool = False,
-    boxed_forward_device_index=None,
-    user_visible_outputs=frozenset(),
-    layout_opt: Optional[bool] = None,
-    fx_wrapper: bool = False,
-):
-    logger.info("Model is passed to compile_fx_inner.")
-    # From PT2.4, compile_fx_inner introduced the optional static_input_idxs
-    # argument and deprecated the optional num_fixed argument.
-    # inspect can not be used directly on compile_fx_inner as the decorator
-    # with_fresh_cache_if_config does not preserve the original metadata
-    # But for previous versions, inspect furnishes the right signature
-    sig = inspect.signature(torch._inductor.compile_fx.compile_fx_inner)
-    if "num_fixed" in sig.parameters:
-        return compile_fx_inner(
-            gm,
-            example_inputs,
-            cudagraphs=cudagraphs,
-            num_fixed=num_fixed,
-            is_backward=is_backward,
-            graph_id=graph_id,
-            fx_wrapper=fx_wrapper,
-        )
-    else:
-        return compile_fx_inner(
-            gm,
-            example_inputs,
-            cudagraphs=cudagraphs,
-            static_input_idxs=static_input_idxs,
-            is_backward=is_backward,
-            graph_id=graph_id,
-            fx_wrapper=fx_wrapper,
-        )
-
-
 def zentorch_compile(
     gm: torch.fx.GraphModule,
     example_inputs: List[torch.Tensor],
@@ -171,24 +115,11 @@ def zentorch_compile(
         if not conv_config.enable_zentorch_conv_flag and not dynamic:
             gm = mkldnn_fuse_fx(gm, example_inputs)
 
-    # we cannot use options to pass 'freezing' to inductor config here
-    # as the dynamo utilizes the freezing flag when it is set by the env
-    # variable available in pytorch. As a result of that, whenever the control
-    # comes to zentorch compile backend, the dynamo freezing optimizations
-    # would not have been performed, hence the first subgraph in case of any
-    # graph breaks in the model will always be un-frozen and if there are no
-    # graph breaks then the entire model will be unfrozen!
-    if is_parameter_freezing():
-        # freeze function should already be overwritten by this point
-        return compile_fx(
-            gm,
-            example_inputs,
-        )
-    return compile_fx(
-        gm,
-        example_inputs,
-        inner_compile=zentorch_compile_fx_inner,
-    )
+    # All zentorch graph transformations are installed as Inductor's
+    # joint_custom_post_pass (set above), so we just hand the FX graph to
+    # the upstream Inductor compile_fx pipeline. The freezing path is handled
+    # entirely inside compile_fx based on torch._inductor.config.freezing.
+    return compile_fx(gm, example_inputs)
 
 
 # Compile_fx is heavily intertwined with Inductor namespace.

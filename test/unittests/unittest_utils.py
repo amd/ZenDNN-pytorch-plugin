@@ -851,6 +851,7 @@ class AddmmTestCase(Zentorch_TestCase):
         mm_add_3D_n_Range=MM_ADD_3D_N_RANGE,
         mm_add_3D_p_Range=MM_ADD_3D_P_RANGE,
         mm_add_3D_q_Range=MM_ADD_3D_Q_RANGE,
+        time_out=None,
         tensor_seed=0,
     ):
         skip_reason = None
@@ -863,7 +864,7 @@ class AddmmTestCase(Zentorch_TestCase):
                 return unittest.skipIf(True, skip_reason)(function)
 
             @settings(
-                deadline=AddmmTestCase.time_out,
+                deadline=AddmmTestCase.time_out if time_out is None else time_out,
                 max_examples=AddmmTestCase.max_example_per_test,
                 verbosity=Verbosity.quiet,
             )
