@@ -88,18 +88,13 @@ def _create_platform():
 
         @classmethod
         def _patch_profiler(cls):
-            """Apply version-specific profiler patches.
-
-            0.12: Patched in __init__.py register() (must run before worker creation)
-            0.15.0-0.19.0: Suppresses redundant cuda-time table output for CPU
-            """
+            """Suppress redundant cuda-time table output for CPU (v0.15.0-0.19.0)."""
             if _is_profiler_patch_version():
-                cls._patch_profiler_v13_v14()
-            # 0.12 is handled via _apply_profiler_patch_v12() in __init__.py register()
+                cls._patch_profiler_stop()
 
         @classmethod
-        def _patch_profiler_v13_v14(cls):
-            """Fix vLLM 0.15.0-0.19.0: suppress redundant cuda-time table for CPU-only."""
+        def _patch_profiler_stop(cls):
+            """Suppress redundant cuda-time table for CPU-only (v0.15.0-0.19.0)."""
             try:
                 from vllm.profiler import wrapper as wrapper_module
             except ImportError:

@@ -9,11 +9,10 @@ Entry points:
 - vllm.platform_plugins -> returns ZenCPUPlatform class path
 - vllm.general_plugins  -> applies early patches
 
-Patches (each with version decorator):
+Patches:
 - CompilationConfig repr (all versions)
-- oneDNN disable (v12-v16)
-- Import-hook GEMM dispatch patching (v17 only)
-  v18 GEMM is handled natively via is_zen_cpu() in dispatch_cpu_unquantized_gemm.
+- Import-hook GEMM dispatch patching (v15-v17)
+  v18+ GEMM is handled natively via is_zen_cpu() in dispatch_cpu_unquantized_gemm.
 
 Reference: https://blog.vllm.ai/2025/11/20/vllm-plugin-system.html
 """
@@ -31,14 +30,8 @@ from zentorch.vllm.core import (
     vllm_version_range,
     manager,
     get_version_family,
-    is_v12,
-    is_v17,
     VLLM_MIN_VERSION,
     VLLM_MAX_VERSION,
-    VLLM_V12,
-    VLLM_V13,
-    VLLM_V14,
-    VLLM_V14_1,
     VLLM_V15,
     VLLM_V15_1,
     VLLM_V16,
@@ -353,203 +346,18 @@ class CompilationConfigReprPatch:
             return False
 
 
-@vllm_version_range(min_ver=VLLM_MIN_VERSION, max_ver=VLLM_V16)
-class OneDNNDisablePatch:
-    """Disable oneDNN GEMM to use zentorch.zentorch_linear_unary().
-
-    Not needed for v17+: handled by _V17DispatchImportHook instead, because
-    the circular import during register() causes _custom_ops to overwrite
-    our False when the module finishes loading.
-    """
-
-    @classmethod
-    def apply(cls) -> bool:
-        try:
-            import vllm._custom_ops as ops
-
-            ops._supports_onednn = False
-            logger.info("[zentorch] Disabled oneDNN GEMM")
-            return True
-        except ImportError:
-            return False
-
-
-@vllm_version_range(min_ver=VLLM_MIN_VERSION, max_ver=VLLM_V16)
-class DispatchCPUUnquantizedGemmPatch:
-    """Fix Freezing issue by overwriting dispatch_cpu_unquantized_gemm.
-
-    Not needed for v17+: handled by _V17DispatchImportHook.
-    """
-
-    @classmethod
-    def apply(cls) -> bool:
-        def patched_dispatch_cpu_unquantized_gemm(
-            layer: torch.nn.Module,
-            remove_weight: bool,
-        ) -> None:
-            # Skip for missing layers (meta tensors) - matches vLLM 0.15.0 behavior
-            if layer.weight.is_meta:
-                layer.cpu_linear = torch.nn.functional.linear
-                return
-            weights_copy = layer.weight.detach()
-            layer.cpu_linear = (
-                lambda x, weight, bias: torch.ops.zentorch.zentorch_linear_unary(
-                    x, weights_copy, bias, is_weight_prepacked=False
-                )
-            )
-            if remove_weight:
-                layer.weight = torch.nn.Parameter(torch.empty(0), requires_grad=False)
-            return
-
-        try:
-            from vllm.model_executor.layers import utils
-
-            utils.dispatch_cpu_unquantized_gemm = patched_dispatch_cpu_unquantized_gemm
-            logger.info(
-                "[zentorch] Successfully overwritten dispatch_cpu_unquantized_gemm"
-            )
-            return True
-        except ImportError:
-            logger.debug("[zentorch] Failed to overwrite dispatch_cpu_unquantized_gemm")
-            return False
-
-
-@vllm_version(VLLM_V12)
-class CPUProfilerPatchV12:
-    """Stub: Actual patching happens in platform.py check_and_update_config."""
-
-    @classmethod
-    def apply(cls) -> bool:
-        # Patching is done in platform.py's check_and_update_config()
-        # which is called in every process (main and subprocess)
-        return True
-
-
-@vllm_version(VLLM_V13, VLLM_V14, VLLM_V14_1, VLLM_V15, VLLM_V15_1, VLLM_V16, VLLM_V17, VLLM_V17_1, VLLM_V18, VLLM_V18_1, VLLM_V19)
-class CPUProfilerPatchV13:
+@vllm_version(VLLM_V15, VLLM_V15_1, VLLM_V16, VLLM_V17, VLLM_V17_1, VLLM_V18, VLLM_V18_1, VLLM_V19)
+class CPUProfilerPatch:
     """Stub: Actual patching happens in platform.py check_and_update_config.
 
-    For 0.15.0+, CPUWorker properly uses TorchProfilerWrapper natively,
-    so no additional patching is required.
-    The profiler wrapper._stop patch still suppresses meaningless cuda-time table output for CPU-only.
-
+    CPUWorker properly uses TorchProfilerWrapper natively, so no additional
+    patching is required here. The profiler wrapper._stop patch in platform.py
+    suppresses meaningless cuda-time table output for CPU-only.
     """
 
     @classmethod
     def apply(cls) -> bool:
-        # Patching is done in platform.py's check_and_update_config()
         return True
-
-
-# ---------------------------------------------------------------------------
-# vLLM 0.12 Profiler Fix (Post-import hook)
-# ---------------------------------------------------------------------------
-
-_V12_PROFILER_HOOK_INSTALLED = False
-
-
-def _do_patch_cpuworker():
-    """Actually patch CPUWorker class. Called when module is available."""
-    import torch
-
-    try:
-        import vllm.v1.worker.cpu_worker as cpu_worker_module
-    except ImportError:
-        return False
-
-    CPUWorker = cpu_worker_module.CPUWorker
-    if hasattr(CPUWorker, "_zentorch_profiler_patched"):
-        return True  # Already patched
-
-    orig_init = CPUWorker.__init__
-
-    class _CPUProfilerWrapper:
-        """Wrapper to give raw profiler the TorchProfilerWrapper interface."""
-
-        def __init__(self, raw_profiler):
-            self._profiler = raw_profiler
-            self._running = False
-
-        def start(self):
-            self._profiler.start()
-            self._running = True
-
-        def stop(self):
-            self._profiler.stop()
-            self._running = False
-
-        def step(self):
-            pass  # Not needed for CPU profiling
-
-        def shutdown(self):
-            if self._running:
-                self.stop()
-
-        def annotate_context_manager(self, name: str):
-            return torch.profiler.record_function(name)
-
-        def key_averages(self):
-            return self._profiler.key_averages()
-
-    def patched_init(self, *args, **kwargs):
-        orig_init(self, *args, **kwargs)
-        # Wrap raw profiler with TorchProfilerWrapper-compatible interface
-        if self.profiler is not None:
-            self.profiler = _CPUProfilerWrapper(self.profiler)
-
-    CPUWorker.__init__ = patched_init
-    CPUWorker._zentorch_profiler_patched = True
-    logger.info("[zentorch] Patched CPUWorker profiler for 0.12")
-    return True
-
-
-class _V12ProfilerImportHook:
-    """Intercept imports to patch CPUWorker when cpu_worker is imported."""
-
-    def find_module(self, fullname, path=None):
-        if fullname == "vllm.v1.worker.cpu_worker":
-            return self
-        return None
-
-    def load_module(self, fullname):
-        # Remove ourselves to avoid recursion
-        if self in sys.meta_path:
-            sys.meta_path.remove(self)
-
-        # Let Python do the actual import
-        import importlib
-
-        module = importlib.import_module(fullname)
-
-        # Now patch the class
-        _do_patch_cpuworker()
-
-        return module
-
-
-def _apply_profiler_patch_v12():
-    """Fix vLLM 0.12 bug: CPUWorker uses raw torch.profiler.profile but
-    inherits methods expecting TorchProfilerWrapper interface.
-
-    Installs a meta_path hook to patch CPUWorker when it's imported.
-    """
-    global _V12_PROFILER_HOOK_INSTALLED
-
-    if not is_v12():
-        return
-
-    if _V12_PROFILER_HOOK_INSTALLED:
-        return
-
-    # Check if module is already imported
-    if "vllm.v1.worker.cpu_worker" in sys.modules:
-        _do_patch_cpuworker()
-    else:
-        # Install import hook to patch when module is imported
-        sys.meta_path.insert(0, _V12ProfilerImportHook())
-        logger.debug("[zentorch] Installed v12 profiler import hook")
-
-    _V12_PROFILER_HOOK_INSTALLED = True
 
 
 # ---------------------------------------------------------------------------
@@ -662,46 +470,57 @@ class RMSNormPatch:
 
 
 # ---------------------------------------------------------------------------
-# vLLM 0.17 GEMM Dispatch Hook
+# vLLM 0.15-0.17 GEMM Dispatch Hook
 # ---------------------------------------------------------------------------
 #
-# On vLLM 0.17 register() runs during a circular import, so
-# OneDNNDisablePatch's _supports_onednn=False gets overwritten when
-# _custom_ops finishes loading.  Instead, we install a sys.meta_path
-# hook that patches dispatch_cpu_unquantized_gemm -> F.linear the
-# moment vllm.model_executor.layers.utils is first imported (before
-# any call to it).  optimize_pass then rewrites aten.linear ->
-# zentorch_linear_unary in the inductor IR.
+# On vLLM 0.15-0.17 we patch dispatch_cpu_unquantized_gemm to route
+# through torch.nn.functional.linear. optimize_pass then rewrites
+# aten.linear -> zentorch_linear_unary in the inductor IR.
+#
+# The patched dispatch preserves remove_weight semantics by capturing
+# the original weights before optionally emptying layer.weight.
 #
 # Not needed for v18+: dispatch_cpu_unquantized_gemm natively checks
 # is_zen_cpu() and routes to zentorch_linear_unary.
 
-_V17_DISPATCH_HOOKS_INSTALLED = False
+_PRE_V18_DISPATCH_FAMILIES = {"v15", "v15_1", "v16", "v17"}
+_PRE_V18_DISPATCH_HOOKS_INSTALLED = False
 
 
-def _do_patch_v17_gemm_dispatch():
-    """Patch dispatch_cpu_unquantized_gemm to bypass onednn, use F.linear."""
+def _do_patch_pre_v18_gemm_dispatch():
+    """Patch dispatch_cpu_unquantized_gemm to use F.linear on v15-v17."""
     import vllm.model_executor.layers.utils as utils
 
     if hasattr(utils.dispatch_cpu_unquantized_gemm, "_zentorch_patched"):
         return
 
     def _patched(layer, remove_weight):
-        layer.cpu_linear = torch.nn.functional.linear
+        if layer.weight.is_meta:
+            layer.cpu_linear = torch.nn.functional.linear
+            return
+
+        weights_copy = layer.weight.detach()
+        layer.cpu_linear = (
+            lambda x, weight, bias: torch.nn.functional.linear(x, weights_copy, bias)
+        )
+        if remove_weight:
+            layer.weight = torch.nn.Parameter(torch.empty(0), requires_grad=False)
         return
 
     _patched._zentorch_patched = True
     utils.dispatch_cpu_unquantized_gemm = _patched
-    logger.info("[zentorch] Patched dispatch_cpu_unquantized_gemm (v17, F.linear bypass)")
+    logger.info(
+        "[zentorch] Patched dispatch_cpu_unquantized_gemm (v15-v17, F.linear bypass)"
+    )
 
 
-_V17_HOOK_PATCHES = {
-    "vllm.model_executor.layers.utils": _do_patch_v17_gemm_dispatch,
+_PRE_V18_HOOK_PATCHES = {
+    "vllm.model_executor.layers.utils": _do_patch_pre_v18_gemm_dispatch,
 }
 
 
-class _V17DispatchImportHook:
-    """Intercepts module imports to patch vLLM 0.17 dispatch functions.
+class _PreV18DispatchImportHook:
+    """Intercept imports to patch vLLM 0.15-0.17 dispatch functions.
 
     Implements PEP 302 (find_module/load_module) for Python <= 3.11 and
     PEP 451 (find_spec wrapping the real loader) for Python >= 3.12.
@@ -729,7 +548,7 @@ class _V17DispatchImportHook:
         import importlib
         module = importlib.import_module(fullname)
 
-        _V17_HOOK_PATCHES[fullname]()
+        _PRE_V18_HOOK_PATCHES[fullname]()
 
         self._maybe_readd()
         return module
@@ -763,27 +582,27 @@ class _V17DispatchImportHook:
         orig = self._orig_loaders.pop(module.__name__, None)
         if orig:
             orig.exec_module(module)
-        _V17_HOOK_PATCHES[module.__name__]()
+        _PRE_V18_HOOK_PATCHES[module.__name__]()
 
 
-def _install_v17_dispatch_hooks():
-    """Install import hooks for vLLM 0.17 GEMM dispatch patching."""
-    global _V17_DISPATCH_HOOKS_INSTALLED
-    if _V17_DISPATCH_HOOKS_INSTALLED:
+def _install_pre_v18_dispatch_hooks():
+    """Install import hooks for vLLM 0.15-0.17 GEMM dispatch patching."""
+    global _PRE_V18_DISPATCH_HOOKS_INSTALLED
+    if _PRE_V18_DISPATCH_HOOKS_INSTALLED:
         return
 
     pending = []
-    for modname, patcher in _V17_HOOK_PATCHES.items():
+    for modname, patcher in _PRE_V18_HOOK_PATCHES.items():
         if modname in sys.modules:
             patcher()
         else:
             pending.append(modname)
 
     if pending:
-        sys.meta_path.insert(0, _V17DispatchImportHook(pending))
+        sys.meta_path.insert(0, _PreV18DispatchImportHook(pending))
         logger.debug("[zentorch] Installed dispatch import hooks for: %s", pending)
 
-    _V17_DISPATCH_HOOKS_INSTALLED = True
+    _PRE_V18_DISPATCH_HOOKS_INSTALLED = True
 
 
 # ---------------------------------------------------------------------------
@@ -800,10 +619,7 @@ def _register_patches():
         return
 
     manager.register("CompilationConfigRepr", CompilationConfigReprPatch)
-    manager.register("OneDNNDisable", OneDNNDisablePatch)
-    manager.register("DispatchCPUUnquantizedGemm", DispatchCPUUnquantizedGemmPatch)
-    manager.register("CPUProfilerV12", CPUProfilerPatchV12)
-    manager.register("CPUProfilerV13", CPUProfilerPatchV13)
+    manager.register("CPUProfiler", CPUProfilerPatch)
     manager.register("TorchAO", TorchAOPatch)
     manager.register("RMSNorm", RMSNormPatch)
 
@@ -859,12 +675,8 @@ def register() -> Optional[str]:
         _register_patches()
         manager.apply_all()
 
-        # Deferred patches: install import hooks for modules not yet loaded.
-        # These hooks fire when the target module is first imported.
-        _apply_profiler_patch_v12()
-
-        if is_v17():
-            _install_v17_dispatch_hooks()
+        if family in _PRE_V18_DISPATCH_FAMILIES:
+            _install_pre_v18_dispatch_hooks()
 
         logger.info("[zentorch] Applied patches: %s", manager.applied)
 

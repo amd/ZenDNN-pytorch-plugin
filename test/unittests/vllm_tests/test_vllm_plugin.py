@@ -19,9 +19,12 @@ Supported vLLM versions: 0.15.0, 0.15.1, 0.16.0, 0.17.0, 0.17.1, 0.18.0, 0.18.1,
 import os
 import importlib.util
 import sys
+import types
 import unittest
 from pathlib import Path
 from unittest import mock
+
+import torch
 
 TORCHAO_AVAILABLE = importlib.util.find_spec("torchao") is not None
 
@@ -35,6 +38,18 @@ try:
     VLLM_AVAILABLE = True
 except ImportError:
     VLLM_AVAILABLE = False
+
+
+def _load_source_vllm_module():
+    import zentorch  # noqa: F401 - ensures native extension is available
+
+    plugin_root = Path(__file__).resolve().parents[3]
+    vllm_init = os.path.join(
+        plugin_root, "src", "cpu", "python", "zentorch", "vllm", "__init__.py"
+    )
+    spec = importlib.util.spec_from_file_location("zentorch.vllm", vllm_init)
+    zv = importlib.util.module_from_spec(spec)
+    return spec, zv
 
 
 # =============================================================================
@@ -183,9 +198,7 @@ class TestPatchRegistration(unittest.TestCase):
 
         expected_patches = [
             "CompilationConfigRepr",
-            "OneDNNDisable",
-            "CPUProfilerV12",
-            "CPUProfilerV13",
+            "CPUProfiler",
         ]
         for patch_name in expected_patches:
             self.assertIn(
@@ -193,6 +206,9 @@ class TestPatchRegistration(unittest.TestCase):
                 manager.patches,
                 f"Patch {patch_name!r} should be registered",
             )
+
+        self.assertNotIn("OneDNNDisable", manager.patches)
+        self.assertNotIn("DispatchCPUUnquantizedGemm", manager.patches)
 
     @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
     @unittest.skipUnless(IS_PYTHON_3_10_OR_ABOVE, "vLLM 0.11+ requires Python 3.10+")
@@ -212,18 +228,8 @@ class TestPatchRegistration(unittest.TestCase):
                 f"Universal patch {patch_name!r} should be applied for {family}",
             )
 
-        if family in {"v17", "v18", "v19"}:
-            self.assertNotIn(
-                "OneDNNDisable",
-                manager.applied,
-                f"OneDNNDisable should not be applied for {family}",
-            )
-        else:
-            self.assertIn(
-                "OneDNNDisable",
-                manager.applied,
-                f"OneDNNDisable should be applied for {family}",
-            )
+        self.assertNotIn("OneDNNDisable", manager.applied)
+        self.assertNotIn("DispatchCPUUnquantizedGemm", manager.applied)
 
 
 # =============================================================================
@@ -231,28 +237,90 @@ class TestPatchRegistration(unittest.TestCase):
 # =============================================================================
 
 
-class TestOneDNNDisablePatch(unittest.TestCase):
-    """Test oneDNN GEMM disable patch."""
+class TestPreV18DispatchHook(unittest.TestCase):
+    """Test shared dispatch hook behavior for v0.15.0-v0.17.x."""
 
-    @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
-    @unittest.skipUnless(IS_PYTHON_3_10_OR_ABOVE, "vLLM 0.11+ requires Python 3.10+")
-    def test_onednn_gemm_disabled_after_register(self):
-        """_supports_onednn should be False after register() is called."""
-        from zentorch.vllm import register
-        from zentorch.vllm.core import get_version_family
+    def test_register_installs_dispatch_hooks_only_for_pre_v18_families(self):
+        """register() should install dispatch hooks only for v15-v17 families."""
+        pre_v18_families = {"v15", "v15_1", "v16", "v17"}
 
-        register()
-        family = get_version_family()
+        for family in ("v15", "v15_1", "v16", "v17", "v18", "v19"):
+            with self.subTest(family=family):
+                spec, zv = _load_source_vllm_module()
+                fake_vllm = types.ModuleType("vllm")
+                fake_vllm.__version__ = "0.15.0"
 
-        if family in {"v17", "v18"}:
-            self.skipTest(f"OneDNNDisablePatch does not apply for {family}")
+                with mock.patch.dict(
+                    sys.modules, {"zentorch.vllm": zv, "vllm": fake_vllm}
+                ):
+                    spec.loader.exec_module(zv)
+                    zv._INITIALIZED = False
 
-        import vllm._custom_ops as ops
+                    with (
+                        mock.patch.object(zv, "get_version_family", return_value=family),
+                        mock.patch.object(zv, "_apply_faketensor_subclass_patch"),
+                        mock.patch.object(zv, "_apply_fxgraphcache_pickle_patch"),
+                        mock.patch.object(zv, "_register_zentorch_linear_dispatch"),
+                        mock.patch.object(zv, "_register_patches"),
+                        mock.patch.object(zv.manager, "apply_all"),
+                        mock.patch.object(
+                            zv, "_install_pre_v18_dispatch_hooks"
+                        ) as install_hooks,
+                    ):
+                        result = zv.register()
 
-        self.assertFalse(
-            ops._supports_onednn,
-            "_supports_onednn should be False to use zentorch linear",
-        )
+                    self.assertEqual(result, "zentorch.vllm.platform.ZenCPUPlatform")
+                    if family in pre_v18_families:
+                        install_hooks.assert_called_once_with()
+                    else:
+                        install_hooks.assert_not_called()
+
+    def test_pre_v18_dispatch_patch_preserves_weight_removal(self):
+        """The shared dispatch hook should preserve remove_weight semantics."""
+        spec, zv = _load_source_vllm_module()
+
+        vllm_pkg = types.ModuleType("vllm")
+        vllm_pkg.__path__ = []
+        model_executor_pkg = types.ModuleType("vllm.model_executor")
+        model_executor_pkg.__path__ = []
+        layers_pkg = types.ModuleType("vllm.model_executor.layers")
+        layers_pkg.__path__ = []
+        utils_module = types.ModuleType("vllm.model_executor.layers.utils")
+
+        def original_dispatch(layer, remove_weight):
+            raise AssertionError("dispatch patch did not replace original function")
+
+        utils_module.dispatch_cpu_unquantized_gemm = original_dispatch
+        vllm_pkg.model_executor = model_executor_pkg
+        model_executor_pkg.layers = layers_pkg
+        layers_pkg.utils = utils_module
+
+        with mock.patch.dict(
+            sys.modules,
+            {
+                "zentorch.vllm": zv,
+                "vllm": vllm_pkg,
+                "vllm.model_executor": model_executor_pkg,
+                "vllm.model_executor.layers": layers_pkg,
+                "vllm.model_executor.layers.utils": utils_module,
+            },
+        ):
+            spec.loader.exec_module(zv)
+            zv._do_patch_pre_v18_gemm_dispatch()
+
+            patched_dispatch = utils_module.dispatch_cpu_unquantized_gemm
+            self.assertTrue(hasattr(patched_dispatch, "_zentorch_patched"))
+
+            layer = torch.nn.Linear(4, 3).eval()
+            original_weight = layer.weight.detach().clone()
+            x = torch.randn(2, 4)
+
+            patched_dispatch(layer, remove_weight=True)
+
+            self.assertEqual(layer.weight.numel(), 0)
+            actual = layer.cpu_linear(x, layer.weight, layer.bias)
+            expected = torch.nn.functional.linear(x, original_weight, layer.bias)
+            self.assertTrue(torch.allclose(actual, expected))
 
 
 class TestCompilationConfigPatch(unittest.TestCase):
@@ -382,21 +450,10 @@ class TestDynamicQLinearDispatchNoTorchAO(unittest.TestCase):
 
     def test_register_skips_without_torchao(self):
         """Load zentorch.vllm from this repo's sources (native zentorch from site-packages)."""
-        import zentorch  # noqa: F401 — ensures C extension is available
+        spec, zv = _load_source_vllm_module()
 
-        plugin_root = Path(__file__).resolve().parents[3]
-
-        vllm_init = os.path.join(
-            plugin_root, "src", "cpu", "python", "zentorch", "vllm", "__init__.py"
-        )
-        self.assertTrue(os.path.isfile(vllm_init), f"expected {vllm_init}")
-
-        saved = sys.modules.get("zentorch.vllm")
-        spec = importlib.util.spec_from_file_location("zentorch.vllm", vllm_init)
-        zv = importlib.util.module_from_spec(spec)
-        sys.modules["zentorch.vllm"] = zv
-        spec.loader.exec_module(zv)
-        try:
+        with mock.patch.dict(sys.modules, {"zentorch.vllm": zv}):
+            spec.loader.exec_module(zv)
             with mock.patch.object(
                 zv.importlib.util,
                 "find_spec",
@@ -404,16 +461,12 @@ class TestDynamicQLinearDispatchNoTorchAO(unittest.TestCase):
             ) as mock_find:
                 zv._DYNAMIC_QLINEAR_PATCH_APPLIED = False
                 zv._register_zentorch_linear_dispatch()
+
             mock_find.assert_called_once_with("torchao")
             self.assertFalse(
                 zv._DYNAMIC_QLINEAR_PATCH_APPLIED,
                 "Patch should not apply when find_spec('torchao') is None",
             )
-        finally:
-            if saved is not None:
-                sys.modules["zentorch.vllm"] = saved
-            else:
-                del sys.modules["zentorch.vllm"]
 
 
 class TestZentorchOptimizePass(unittest.TestCase):
@@ -441,7 +494,7 @@ def run_tests():
     suite.addTests(loader.loadTestsFromTestCase(TestVersionParsing))
     suite.addTests(loader.loadTestsFromTestCase(TestVllmPluginVersionCheck))
     suite.addTests(loader.loadTestsFromTestCase(TestPatchRegistration))
-    suite.addTests(loader.loadTestsFromTestCase(TestOneDNNDisablePatch))
+    suite.addTests(loader.loadTestsFromTestCase(TestPreV18DispatchHook))
     suite.addTests(loader.loadTestsFromTestCase(TestCompilationConfigPatch))
     suite.addTests(loader.loadTestsFromTestCase(TestPlatformConfiguration))
     suite.addTests(loader.loadTestsFromTestCase(TestDynamicQLinearDispatchPatch))

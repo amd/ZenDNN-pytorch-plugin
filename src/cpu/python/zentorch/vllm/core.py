@@ -24,10 +24,6 @@ logger = get_logger(__name__)
 VLLM_MIN_VERSION = "0.15.0"
 VLLM_MAX_VERSION = "0.19.0"
 
-VLLM_V12 = "0.12.0"
-VLLM_V13 = "0.13.0"
-VLLM_V14 = "0.14.0"
-VLLM_V14_1 = "0.14.1"
 VLLM_V15 = "0.15.0"
 VLLM_V15_1 = "0.15.1"
 VLLM_V16 = "0.16.0"
@@ -63,59 +59,16 @@ def get_vllm_version() -> Optional[str]:
 
 
 def _base_version(ver: str) -> str:
-    """Strip dev/rc/local suffixes: '0.15.0.dev1+cpu' -> '0.15.0'."""
+    """Strip dev/rc/local suffixes from a version string."""
     return ver.split("+")[0].split(".dev")[0].split("rc")[0]
 
 
 def get_version_family() -> Optional[str]:
-    """Return 'v15', 'v15_1', 'v16', 'v17', 'v18', 'v19' or None.
-
-    Note: v0.18.1 maps to 'v18' and v0.19.0 maps to 'v19'.
-    """
+    """Return the supported version family string or None."""
     ver = get_vllm_version()
     if ver is None:
         return None
     return _VERSION_MAP.get(_base_version(ver))
-
-
-def is_v12() -> bool:
-    return get_version_family() == "v12"
-
-
-def is_v13() -> bool:
-    return get_version_family() == "v13"
-
-
-def is_v14() -> bool:
-    return get_version_family() == "v14"
-
-
-def is_v14_1() -> bool:
-    return get_version_family() == "v14_1"
-
-
-def is_v15() -> bool:
-    return get_version_family() == "v15"
-
-
-def is_v15_1() -> bool:
-    return get_version_family() == "v15_1"
-
-
-def is_v16() -> bool:
-    return get_version_family() == "v16"
-
-
-def is_v17() -> bool:
-    return get_version_family() == "v17"
-
-
-def is_v18() -> bool:
-    return get_version_family() == "v18"
-
-
-def is_v19() -> bool:
-    return get_version_family() == "v19"
 
 # ---------------------------------------------------------------------------
 # Version decorators
@@ -126,7 +79,7 @@ def vllm_version(*versions: str) -> Callable[[Type], Type]:
     """Decorator: apply patch only for specific vLLM versions.
 
     Usage:
-        @vllm_version("0.12.0", "0.13.0")
+        @vllm_version("0.17.0", "0.18.0")
         class MyPatch:
             pass
     """
@@ -160,7 +113,7 @@ def vllm_version_range(
     """Decorator: apply patch for a version range.
 
     Usage:
-        @vllm_version_range(min_ver="0.12.0", max_ver="0.14.1")
+        @vllm_version_range(min_ver="0.17.0", max_ver="0.19.0")
         class MyPatch:
             pass
     """
