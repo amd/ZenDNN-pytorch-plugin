@@ -7,13 +7,14 @@
 Unit tests for zentorch.vllm plugin.
 
 Tests verify:
-- Version compatibility checks for supported versions (0.15.0 - 0.19.0)
+- Version compatibility checks for supported versions (0.15.0 - 0.20.0)
 - Version parsing logic
 - Patch registration and application
 - Individual patch functionality (oneDNN disable, CompilationConfig repr, etc.)
 - Platform configuration
 
-Supported vLLM versions: 0.15.0, 0.15.1, 0.16.0, 0.17.0, 0.17.1, 0.18.0, 0.18.1, 0.19.0
+Supported vLLM versions: 0.15.0, 0.15.1, 0.16.0, 0.17.0, 0.17.1, 0.18.0, 0.18.1,
+0.19.0, 0.19.1, 0.20.0
 """
 
 import os
@@ -86,6 +87,8 @@ class TestVersionParsing(unittest.TestCase):
             "0.18.0",
             "0.18.1",
             "0.19.0",
+            "0.19.1",
+            "0.20.0",
         ]
         for ver in expected_versions:
             self.assertIn(ver, _VERSION_MAP, f"{ver} should be in VERSION_MAP")
@@ -121,6 +124,13 @@ class TestVersionParsing(unittest.TestCase):
         # v19 family
         self.assertEqual(_VERSION_MAP.get(_base_version("0.19.0")), "v19")
         self.assertEqual(_VERSION_MAP.get(_base_version("0.19.0+cpu")), "v19")
+        self.assertEqual(_VERSION_MAP.get(_base_version("0.19.1")), "v19")
+        self.assertEqual(_VERSION_MAP.get(_base_version("0.19.1+cpu")), "v19")
+
+        # v20 family
+        self.assertEqual(_VERSION_MAP.get(_base_version("0.20.0")), "v20")
+        self.assertEqual(_VERSION_MAP.get(_base_version("0.20.0+cpu")), "v20")
+        self.assertEqual(_VERSION_MAP.get(_base_version("0.20.0rc1+cpu")), "v20")
 
     def test_version_family_detection_unsupported(self):
         """VERSION_MAP should return None for unsupported versions."""
@@ -137,7 +147,9 @@ class TestVersionParsing(unittest.TestCase):
             "0.13.0",
             "0.14.0",
             "0.14.1",
-            "0.19.1",
+            "0.19.2",
+            "0.20.1",
+            "0.21.0",
             "1.0.0",
         ]
         for ver in unsupported:
@@ -244,7 +256,7 @@ class TestPreV18DispatchHook(unittest.TestCase):
         """register() should install dispatch hooks only for v15-v17 families."""
         pre_v18_families = {"v15", "v15_1", "v16", "v17"}
 
-        for family in ("v15", "v15_1", "v16", "v17", "v18", "v19"):
+        for family in ("v15", "v15_1", "v16", "v17", "v18", "v19", "v20"):
             with self.subTest(family=family):
                 spec, zv = _load_source_vllm_module()
                 fake_vllm = types.ModuleType("vllm")
@@ -386,7 +398,12 @@ class TestPlatformProfilerPatchVersionRange(unittest.TestCase):
             ("0.18.1", True),
             ("0.19.0", True),
             ("0.19.0+cpu", True),
-            ("0.19.1", False),
+            ("0.19.1", True),
+            ("0.20.0", True),
+            ("0.20.0+cpu", True),
+            ("0.20.0rc1+cpu", True),
+            ("0.20.1", False),
+            ("0.21.0", False),
         ]
 
         for version_str, expected in cases:
