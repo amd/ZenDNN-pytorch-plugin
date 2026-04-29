@@ -6,7 +6,7 @@
 
 `zentorch_group_matmul.out` is a parallel group matrix multiplication operator that executes multiple independent GEMMs in a single call using the ZenDNN LowOHA `group_matmul_direct` backend. It follows the **out variant** pattern — the caller pre-allocates all output tensors and the operator writes results directly into them.
 
-It is designed for Mixture of Experts (MoE) inference, where each expert is an `nn.Linear` layer processing a subset of tokens. An optional **MoE weighted-reduce post-op** can be fused into the same call, blending expert outputs into a single per-token result without a separate kernel launch.
+It is designed for Mixture of Experts (MoE) inference, where each expert is an `nn.Linear` layer processing a subset of tokens. An optional **MoE weighted-reduce post-op** (also known as the "combine" step in MoE literature) can be fused into the same call. This post-op takes the per-expert GEMM outputs and computes a weighted sum for each token — each token's final hidden state is the sum of its top-k expert outputs multiplied by the corresponding router-assigned weights (i.e., `output[t] = Σ_k topk_weight[t,k] × expert_output[k][t]`).
 
 > **Note:**
 > - Only **parallel mode** is supported. Sequential mode (chained matmuls) is not implemented.
@@ -34,7 +34,8 @@ torch.ops.zentorch.zentorch_group_matmul.out(
     bias,            # List[Optional[Tensor]], one [N] or None per expert
     moe_output,      # Optional[Tensor], pre-allocated [num_tokens, N] (written in-place), or None
     topk_weights,    # Optional[Tensor], [num_tokens, topk] routing weights (f32)
-    row_ptrs,        # Optional[Tensor], [num_tokens * topk] int64 pointers into gemm_outputs
+    row_ptrs,        # Optional[Tensor], [num_tokens * topk]
+    activation='none', # String
     *, zentorch_op_name='zentorch::zentorch_group_matmul.out'
 ) -> None
 ```
@@ -56,7 +57,7 @@ torch.ops.zentorch.zentorch_group_matmul.out(
 | `weights` | `List[Tensor]` (bf16/f32) | One weight matrix per expert, shape `[N, K]` (nn.Linear layout). Need not be contiguous. |
 | `bias` | `List[Optional[Tensor]]` (bf16/f32) | One optional bias vector per expert, shape `[N]`. Pass `None` for experts without bias. |
 | `topk_weights` | `Optional[Tensor]` (f32) | Routing weights, shape `[num_tokens, topk]`. Required for MoE post-op. For plain gather-sum, pass all `1.0`. |
-| `row_ptrs` | `Optional[Tensor]` (int64) | Pre-built pointer table, shape `[num_tokens * topk]`. Each element is a raw data pointer (as int64) into a `gemm_outputs` tensor. Built by the caller during token-to-expert scatter. Required for MoE post-op. |
+| `row_ptrs` | `Optional[Tensor]` | Pre-built pointer table as a 1D tensor of length `[num_tokens * topk]`. Each element is a raw data pointer into a `gemm_outputs` tensor. Built by the caller during token-to-expert scatter. Required for MoE post-op. |
 | `zentorch_op_name` | `str` | Operator name for profiling/tracing (default: `'zentorch::zentorch_group_matmul.out'`). |
 
 ## 5. Constraints and Validation
@@ -74,7 +75,7 @@ torch.ops.zentorch.zentorch_group_matmul.out(
 | gemm_outputs | Must be pre-allocated with correct shapes `[M_i, N]` |
 | moe_output | Must be pre-allocated `[num_tokens, N]` when MoE is active, or `None` |
 | topk_weights shape | Must be 2D `[num_tokens, topk]` when provided |
-| row_ptrs | Must be 1D int64, length `num_tokens * topk`, with valid pointers into `gemm_outputs` |
+| row_ptrs | Must be a 1D tensor of length `num_tokens * topk`, with valid pointers into `gemm_outputs` |
 
 
 ## 6. Implementation Details
@@ -91,7 +92,7 @@ zentorch_group_matmul_out()                  # Public API entry point
   │     └─ Configure matmul_params (dtypes, plugin_op)
   ├─ If MoE post-op requested (topk_weights + row_ptrs + moe_output):
   │     ├─ Derive num_tokens, topk from topk_weights shape
-  │     ├─ Convert row_ptrs int64 tensor to const void** array
+  │     ├─ Convert row_ptrs tensor to const void** array
   │     └─ Populate group_matmul_moe_postop_params
   └─ Call group_matmul_direct()
        ├─ Parallel expert GEMMs → writes into gemm_outputs
@@ -136,7 +137,7 @@ Since `is_weights_const = true` is always passed to `group_matmul_direct`, the L
 | Parameters skipped | `transA`, `transB`, `alpha`, `beta`, `is_weights_const`, `M`, `N`, `K` | All must be provided explicitly |
 | Weight layout | Always `[N, K]` (nn.Linear), `transB=true` | Configurable per op |
 | Execution mode | Parallel only | Sequential or parallel |
-| `row_ptrs` | Caller builds and passes as int64 tensor | Caller builds as `const void**` |
+| `row_ptrs` | Caller provides as `const void**` |
 | MoE output | Separate `moe_output` parameter | Part of `group_matmul_moe_postop_params` struct |
 | Meta registration | Provided for `torch.compile` (out variant) | N/A |
 
