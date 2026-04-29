@@ -4,7 +4,9 @@
 # ******************************************************************************
 
 import torch
+from importlib import import_module, util
 from zentorch._logging import get_logger
+
 
 logger = get_logger(__name__)
 
@@ -13,15 +15,32 @@ def _register_int4_opaque_tensor_config():
     """
     Register Int4WeightOnlyOpaqueTensorConfig with vLLM's torchao config loader.
 
-    This adds torchao.prototype.int4_opaque_tensor to the ALLOWED_AO_MODULES set,
-    enabling vLLM to deserialize models quantized with Int4WeightOnlyOpaqueTensorConfig.
+    This adds the appropriate torchao int4 module path to the ALLOWED_AO_MODULES
+    set, enabling vLLM to deserialize models quantized with
+    Int4WeightOnlyOpaqueTensorConfig.  The module path differs across versions:
+
+    - torchao >= 0.17.0 : torchao.prototype.quantization.int4
+    - torchao <  0.17.0 : torchao.prototype.int4_opaque_tensor
     """
 
     from torchao.core.config import ALLOWED_AO_MODULES
-
-    # Add the int4_opaque_tensor prototype module to allowed modules
-    module_to_add = "torchao.prototype.int4_opaque_tensor"
-    ALLOWED_AO_MODULES.add(module_to_add)
+    module_spec = util.find_spec('torchao.prototype.quantization.int4')
+    if module_spec is None:
+        module_spec = util.find_spec('torchao.prototype.int4_opaque_tensor')
+    if module_spec.name == "torchao.prototype.quantization.int4":
+        try:
+            from torchao.prototype.safetensors.safetensors_utils import ALLOWED_TENSORS_SUBCLASSES, ALLOWED_CLASSES
+            int4_module = import_module(module_spec.name)
+            Int4OpaqueTensor = int4_module.Int4OpaqueTensor
+            if "Int4OpaqueTensor" not in ALLOWED_TENSORS_SUBCLASSES:
+                ALLOWED_TENSORS_SUBCLASSES.append("Int4OpaqueTensor")
+            ALLOWED_CLASSES["Int4OpaqueTensor"] = Int4OpaqueTensor
+        except ImportError:
+            logger.warning(
+                "[zentorch] Failed to register Int4OpaqueTensor safetensors helpers "
+                "for torchao >= 0.17; continuing with AO module registration"
+            )
+    ALLOWED_AO_MODULES.add(module_spec.name)
 
 
 def _register_int4_slice_op():
@@ -32,9 +51,10 @@ def _register_int4_slice_op():
     with Int4OpaqueTensor by registering a custom handler with torchao's dispatch system.
     """
     try:
-        from torchao.prototype.int4_opaque_tensor import (
-            Int4OpaqueTensor,
-        )
+        module_spec = util.find_spec('torchao.prototype.quantization.int4')
+        if module_spec is None:
+            module_spec = util.find_spec('torchao.prototype.int4_opaque_tensor')
+        Int4OpaqueTensor = import_module(module_spec.name).Int4OpaqueTensor
 
         aten = torch.ops.aten
         implements = Int4OpaqueTensor.implements
@@ -147,7 +167,7 @@ def _register_int4_slice_op():
         )
 
     except ImportError:
-        logger.info(
+        logger.warning(
             "[zentorch] Int4OpaqueTensor slice patch deferred (torchao not available)"
         )
     except Exception:
