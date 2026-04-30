@@ -485,8 +485,8 @@ def replace_with_composite_zentorch_ops(fx_graph: torch.fx.Graph) -> torch.fx.Gr
         )
 
         # checks for the argument "offsets"
-        # Extract the offsets tensor node (second argument to embedding)
-        offsets = node.args[1]
+        # Extract the offsets tensor node (third argument to embedding)
+        offsets = node.args[2]
 
         offsets_checks = (
             offsets.meta["val"].device.type == "cpu"
@@ -504,6 +504,8 @@ def replace_with_composite_zentorch_ops(fx_graph: torch.fx.Graph) -> torch.fx.Gr
         user_node.replace_all_uses_with(node)
         node.target = zt_ops.zentorch_embedding_bag.default
         fx_graph.erase_node(user_node)
+
     stable_topological_sort(fx_graph)
     fx_graph.lint()
+
     return fx_graph
