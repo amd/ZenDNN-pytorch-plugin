@@ -750,6 +750,27 @@ def qkv_fusion(fx_graph):
                 logger.info("QKV nodes have inconsistent bias usage, skipping fusion")
                 continue
 
+            # Skip fusion if any linear has prepacked weights since
+            # cat on prepacked weight tensors does not produce a valid weight
+            any_prepacked = any(
+                user.kwargs.get("is_weight_prepacked", False) for user in input_users
+            )
+            if any_prepacked:
+                logger.info(
+                    "Skipping fusion: one or more linear nodes have prepacked weights"
+                )
+                continue
+
+            # Skip fusion if linears have different post-ops since the fused
+            # linear can only apply a single post-op to the entire output
+            post_ops = {user.kwargs.get("post_op", "none") for user in input_users}
+            if len(post_ops) > 1:
+                logger.info(
+                    "Skipping fusion: linear nodes have inconsistent post-ops %s",
+                    post_ops,
+                )
+                continue
+
             groups.append(input_users)
             nodes_visited.update(input_users)
 
@@ -804,13 +825,16 @@ def qkv_fusion(fx_graph):
                 )
 
         # Create fused QKV linear operation: X @ Wqkv + bqkv
+        # For the kwargs, we can use q_node.kwargs directly since
+        # we have checks to ensure that the post-ops are consistent
+        # and weights are not prepacked.
         qkv_node_args = [input_tensor, fused_weight, fused_bias]
         with fx_graph.inserting_after(fused_bias if fused_bias else fused_weight):
             qkv_fused_node = fx_graph.create_node(
                 op="call_function",
                 target=zt_ops.zentorch_linear_unary.default,
                 args=tuple(qkv_node_args),
-                kwargs={"zentorch_op_name": "zentorch::zentorch_linear_unary"},
+                kwargs=q_node.kwargs,
             )
 
         counters["zentorch"]["qkv_fusion_linear"] += 1

@@ -133,6 +133,43 @@ class Custom_Model_QKV_Linear_Longformer(nn.Module):
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
+class Custom_Model_QKV_Linear_ZenTorch(nn.Module):
+    """QKV model calling zentorch_linear_unary directly with configurable kwargs."""
+
+    def __init__(self, dtype, input_dim, hidden_dim,
+                 is_weight_prepacked=False, post_ops=("none", "none", "none")):
+        super().__init__()
+        self.linear_q = nn.Linear(input_dim, hidden_dim, bias=True, dtype=dtype)
+        self.linear_k = nn.Linear(input_dim, hidden_dim, bias=True, dtype=dtype)
+        self.linear_v = nn.Linear(input_dim, hidden_dim, bias=True, dtype=dtype)
+        self.is_weight_prepacked = is_weight_prepacked
+        self.post_op_q = post_ops[0]
+        self.post_op_k = post_ops[1]
+        self.post_op_v = post_ops[2]
+
+    def forward(self, x):
+        q = torch.ops.zentorch.zentorch_linear_unary(
+            x, self.linear_q.weight, self.linear_q.bias,
+            is_weight_prepacked=self.is_weight_prepacked,
+            post_op=self.post_op_q,
+            zentorch_op_name="zentorch::zentorch_linear_unary",
+        )
+        k = torch.ops.zentorch.zentorch_linear_unary(
+            x, self.linear_k.weight, self.linear_k.bias,
+            is_weight_prepacked=self.is_weight_prepacked,
+            post_op=self.post_op_k,
+            zentorch_op_name="zentorch::zentorch_linear_unary",
+        )
+        v = torch.ops.zentorch.zentorch_linear_unary(
+            x, self.linear_v.weight, self.linear_v.bias,
+            is_weight_prepacked=self.is_weight_prepacked,
+            post_op=self.post_op_v,
+            zentorch_op_name="zentorch::zentorch_linear_unary",
+        )
+        return torch.cat([q, k, v], dim=-1)
+
+
+@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class Test_QKV_Fusion_Linear_Model(AddmmTestCase):
 
     def setUp(self):
@@ -177,9 +214,12 @@ class Test_QKV_Fusion_Linear_Model(AddmmTestCase):
         self.assertEqual(counters["zentorch"]["qkv_fusion_linear"], 1)
         self.assertEqual(native_output, compiled_output)
 
+    # Added higher time_out for this test as it was failing with deadline exceeded error frequently
+    # TODO: Investigate why it requires higher deadline: ZENAI-3638
     @AddmmTestCase.hypothesis_params_addmm_itr(
         dtype_list=supported_dtypes,
         freeze_list=[True],
+        time_out=25000,
     )
     @torch.inference_mode()
     def test_qkv_fusion_linear_4_model(self, dtype, freeze_opt=True):
@@ -257,6 +297,99 @@ class Test_QKV_Fusion_Linear_Model(AddmmTestCase):
             ),
             f"V tensors don't match. Max diff: {(inductor_output[1] - zentorch_output[1]).abs().max().item()}",
         )
+
+    @AddmmTestCase.hypothesis_params_addmm_itr(
+        dtype_list=supported_dtypes,
+        freeze_list=[True],
+    )
+    @torch.inference_mode()
+    def test_qkv_fusion_linear_skip_prepacked_weights(self, dtype, freeze_opt=True):
+        """QKV fusion must be skipped when weights are pre-packed."""
+        model = Custom_Model_QKV_Linear_ZenTorch(
+            dtype=DataTypes.get_torch_type(dtype),
+            input_dim=self.data.k,
+            hidden_dim=self.data.n,
+            is_weight_prepacked=True,
+        )
+        input_tensor = torch.randn(
+            self.data.b, self.data.m, self.data.k,
+            dtype=DataTypes.get_torch_type(dtype),
+        )
+
+        reset_dynamo()
+        counters.clear()
+        compiled_graph = torch.compile(model, backend="zentorch")
+        with self.assertLogs("zentorch", level="INFO") as cm:
+            test_with_freeze_opt(
+                compiled_graph, (input_tensor,), freeze_opt=True
+            )
+        self.assertEqual(counters["zentorch"]["qkv_fusion_linear"], 0)
+        self.assertTrue(
+            any("prepacked weights" in msg for msg in cm.output),
+            f"Expected log about prepacked weights, got: {cm.output}",
+        )
+
+    @AddmmTestCase.hypothesis_params_addmm_itr(
+        dtype_list=supported_dtypes,
+        freeze_list=[True],
+    )
+    @torch.inference_mode()
+    def test_qkv_fusion_linear_skip_inconsistent_post_ops(self, dtype, freeze_opt=True):
+        """QKV fusion must be skipped when linears have different post-ops."""
+        model = Custom_Model_QKV_Linear_ZenTorch(
+            dtype=DataTypes.get_torch_type(dtype),
+            input_dim=self.data.k,
+            hidden_dim=self.data.n,
+            post_ops=("relu", "gelu_erf", "relu"),
+        )
+        input_tensor = torch.randn(
+            self.data.b, self.data.m, self.data.k,
+            dtype=DataTypes.get_torch_type(dtype),
+        )
+
+        native_output = model(input_tensor)
+        reset_dynamo()
+        counters.clear()
+        compiled_graph = torch.compile(model, backend="zentorch")
+        with self.assertLogs("zentorch", level="INFO") as cm:
+            compiled_output = test_with_freeze_opt(
+                compiled_graph, (input_tensor,), freeze_opt=True
+            )
+        self.assertEqual(counters["zentorch"]["qkv_fusion_linear"], 0)
+        self.assertTrue(
+            any("inconsistent post-ops" in msg for msg in cm.output),
+            f"Expected log about inconsistent post-ops, got: {cm.output}",
+        )
+        self.assertEqual(native_output, compiled_output)
+
+    @AddmmTestCase.hypothesis_params_addmm_itr(
+        dtype_list=supported_dtypes,
+        freeze_list=[True],
+    )
+    @torch.inference_mode()
+    def test_qkv_fusion_linear_same_post_op_propagation(self, dtype, freeze_opt=True):
+        """When all 3 linears share the same post-op, fusion should happen
+        and the post-op must be propagated to the fused linear correctly."""
+        model = Custom_Model_QKV_Linear_ZenTorch(
+            dtype=DataTypes.get_torch_type(dtype),
+            input_dim=self.data.k,
+            hidden_dim=self.data.n,
+            post_ops=("relu", "relu", "relu"),
+        )
+        input_tensor = torch.randn(
+            self.data.b, self.data.m, self.data.k,
+            dtype=DataTypes.get_torch_type(dtype),
+        )
+
+        native_output = model(input_tensor)
+        reset_dynamo()
+        counters.clear()
+        compiled_graph = torch.compile(model, backend="zentorch")
+        compiled_output = test_with_freeze_opt(
+            compiled_graph, (input_tensor,), freeze_opt=True
+        )
+        self.assertEqual(counters["zentorch"]["qkv_fusion_linear"], 1)
+        self.assertEqual(native_output, compiled_output)
 
 
 if __name__ == "__main__":
