@@ -7,14 +7,14 @@
 Unit tests for zentorch.vllm plugin.
 
 Tests verify:
-- Version compatibility checks for supported versions (0.15.0 - 0.20.0)
+- Version compatibility checks for supported versions (0.15.0 - 0.20.1)
 - Version parsing logic
 - Patch registration and application
 - Individual patch functionality (oneDNN disable, CompilationConfig repr, etc.)
 - Platform configuration
 
 Supported vLLM versions: 0.15.0, 0.15.1, 0.16.0, 0.17.0, 0.17.1, 0.18.0, 0.18.1,
-0.19.0, 0.19.1, 0.20.0
+0.19.0, 0.19.1, 0.20.0, 0.20.1
 """
 
 import os
@@ -89,6 +89,7 @@ class TestVersionParsing(unittest.TestCase):
             "0.19.0",
             "0.19.1",
             "0.20.0",
+            "0.20.1",
         ]
         for ver in expected_versions:
             self.assertIn(ver, _VERSION_MAP, f"{ver} should be in VERSION_MAP")
@@ -131,6 +132,9 @@ class TestVersionParsing(unittest.TestCase):
         self.assertEqual(_VERSION_MAP.get(_base_version("0.20.0")), "v20")
         self.assertEqual(_VERSION_MAP.get(_base_version("0.20.0+cpu")), "v20")
         self.assertEqual(_VERSION_MAP.get(_base_version("0.20.0rc1+cpu")), "v20")
+        self.assertEqual(_VERSION_MAP.get(_base_version("0.20.1")), "v20")
+        self.assertEqual(_VERSION_MAP.get(_base_version("0.20.1+cpu")), "v20")
+        self.assertEqual(_VERSION_MAP.get(_base_version("0.20.1rc0+cpu")), "v20")
 
     def test_version_family_detection_unsupported(self):
         """VERSION_MAP should return None for unsupported versions."""
@@ -148,7 +152,7 @@ class TestVersionParsing(unittest.TestCase):
             "0.14.0",
             "0.14.1",
             "0.19.2",
-            "0.20.1",
+            "0.20.2",
             "0.21.0",
             "1.0.0",
         ]
@@ -383,7 +387,7 @@ class TestPlatformProfilerPatchVersionRange(unittest.TestCase):
     """Test profiler patch version gating in platform.py."""
 
     def test_profiler_patch_range_uses_normalized_versions(self):
-        """Profiler patch should use a normalized 0.15.0-0.19.0 version range."""
+        """Profiler patch should use a normalized 0.15.0-0.20.1 version range."""
         from zentorch.vllm import platform
 
         cases = [
@@ -402,7 +406,10 @@ class TestPlatformProfilerPatchVersionRange(unittest.TestCase):
             ("0.20.0", True),
             ("0.20.0+cpu", True),
             ("0.20.0rc1+cpu", True),
-            ("0.20.1", False),
+            ("0.20.1", True),
+            ("0.20.1+cpu", True),
+            ("0.20.1rc0+cpu", True),
+            ("0.20.2", False),
             ("0.21.0", False),
         ]
 
@@ -498,6 +505,78 @@ class TestZentorchOptimizePass(unittest.TestCase):
         self.assertTrue(callable(optimize_pass))
 
 
+class TestCppIndirectAssertPatch(unittest.TestCase):
+    """CppIndirectAssertPatch must be registered and gated to vLLM 0.20.0/0.20.1."""
+
+    @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
+    @unittest.skipUnless(IS_PYTHON_3_10_OR_ABOVE, "vLLM 0.11+ requires Python 3.10+")
+    def test_patch_is_registered(self):
+        """CppIndirectAssertPatch should be registered with the manager."""
+        from zentorch.vllm import register
+        from zentorch.vllm.core import manager
+
+        register()
+        self.assertIn("CppIndirectAssert", manager.patches)
+
+    def test_patch_targets_v20_and_v20_1(self):
+        """The @vllm_version decorator should target v0.20.0 and v0.20.1."""
+        from zentorch.vllm import CppIndirectAssertPatch
+        from zentorch.vllm.core import VLLM_V20, VLLM_V20_1
+
+        self.assertTrue(hasattr(CppIndirectAssertPatch, "_target_versions"))
+        self.assertEqual(
+            CppIndirectAssertPatch._target_versions, {VLLM_V20, VLLM_V20_1}
+        )
+
+
+class TestCPURunnerShutdownPatch(unittest.TestCase):
+    """CPURunnerShutdownPatch must be registered, gated to v0.20.0/v0.20.1,
+    and actually replace torch.accelerator.{synchronize,empty_cache} on apply.
+    """
+
+    @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
+    @unittest.skipUnless(IS_PYTHON_3_10_OR_ABOVE, "vLLM 0.11+ requires Python 3.10+")
+    def test_patch_is_registered(self):
+        from zentorch.vllm import register
+        from zentorch.vllm.core import manager
+
+        register()
+        self.assertIn("CPURunnerShutdown", manager.patches)
+
+    def test_patch_targets_v20_and_v20_1(self):
+        from zentorch.vllm import CPURunnerShutdownPatch
+        from zentorch.vllm.core import VLLM_V20, VLLM_V20_1
+
+        self.assertTrue(hasattr(CPURunnerShutdownPatch, "_target_versions"))
+        self.assertEqual(
+            CPURunnerShutdownPatch._target_versions, {VLLM_V20, VLLM_V20_1}
+        )
+
+    def test_apply_makes_accelerator_apis_noop(self):
+        """After apply(), synchronize and empty_cache must not raise on CPU."""
+        import torch
+
+        if not hasattr(torch, "accelerator"):
+            self.skipTest("torch.accelerator API not present on this torch build")
+
+        original_sync = torch.accelerator.synchronize
+        original_empty = torch.accelerator.empty_cache
+
+        from zentorch.vllm import _apply_torch_accelerator_noop_patch
+        import zentorch.vllm as zv
+
+        zv._TORCH_ACCELERATOR_NOOP_APPLIED = False
+        applied = _apply_torch_accelerator_noop_patch()
+        self.assertTrue(applied)
+
+        self.assertIsNone(torch.accelerator.synchronize())
+        self.assertIsNone(torch.accelerator.empty_cache())
+
+        torch.accelerator.synchronize = original_sync
+        torch.accelerator.empty_cache = original_empty
+        zv._TORCH_ACCELERATOR_NOOP_APPLIED = False
+
+
 # =============================================================================
 # Test Runner
 # =============================================================================
@@ -517,6 +596,8 @@ def run_tests():
     suite.addTests(loader.loadTestsFromTestCase(TestDynamicQLinearDispatchPatch))
     suite.addTests(loader.loadTestsFromTestCase(TestDynamicQLinearDispatchNoTorchAO))
     suite.addTests(loader.loadTestsFromTestCase(TestZentorchOptimizePass))
+    suite.addTests(loader.loadTestsFromTestCase(TestCppIndirectAssertPatch))
+    suite.addTests(loader.loadTestsFromTestCase(TestCPURunnerShutdownPatch))
 
     runner = unittest.TextTestRunner(verbosity=2)
     result = runner.run(suite)

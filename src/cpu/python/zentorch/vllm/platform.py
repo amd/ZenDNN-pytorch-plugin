@@ -6,7 +6,7 @@
 """zentorch CPU Platform for vLLM.
 
 Supports:
-- 0.15.0 - 0.20.0: CompilationMode, AttentionBackendEnum, native CPU attention
+- 0.15.0 - 0.20.1: CompilationMode, AttentionBackendEnum, native CPU attention
 - 0.18.0+: is_zen_cpu() for native dispatch_cpu_unquantized_gemm routing
 """
 
@@ -51,7 +51,10 @@ def _create_platform():
     logger = init_logger(__name__)
 
     class ZenCPUPlatformImpl(CpuPlatform):
-        """Out-of-tree CPU platform with zentorch optimizations."""
+        """Out-of-tree CPU platform with zentorch optimizations.
+
+        Supported vLLM versions: 0.15.0 - 0.20.1.
+        """
 
         device_name: str = "cpu"
         device_type: str = "cpu"
@@ -88,13 +91,13 @@ def _create_platform():
 
         @classmethod
         def _patch_profiler(cls):
-            """Suppress redundant cuda-time table output for CPU (v0.15.0-0.20.0)."""
+            """Suppress redundant cuda-time table output for CPU (v0.15.0-0.20.1)."""
             if _is_profiler_patch_version():
                 cls._patch_profiler_stop()
 
         @classmethod
         def _patch_profiler_stop(cls):
-            """Suppress redundant cuda-time table for CPU-only (v0.15.0-0.20.0)."""
+            """Suppress redundant cuda-time table for CPU-only (v0.15.0-0.20.1)."""
             try:
                 from vllm.profiler import wrapper as wrapper_module
             except ImportError:

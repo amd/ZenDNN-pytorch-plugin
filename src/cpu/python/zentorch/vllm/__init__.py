@@ -42,6 +42,7 @@ from zentorch.vllm.core import (
     VLLM_V19,
     VLLM_V19_1,
     VLLM_V20,
+    VLLM_V20_1,
 )
 
 logger = get_logger(__name__)
@@ -348,7 +349,19 @@ class CompilationConfigReprPatch:
             return False
 
 
-@vllm_version(VLLM_V15, VLLM_V15_1, VLLM_V16, VLLM_V17, VLLM_V17_1, VLLM_V18, VLLM_V18_1, VLLM_V19, VLLM_V19_1, VLLM_V20)
+@vllm_version(
+    VLLM_V15,
+    VLLM_V15_1,
+    VLLM_V16,
+    VLLM_V17,
+    VLLM_V17_1,
+    VLLM_V18,
+    VLLM_V18_1,
+    VLLM_V19,
+    VLLM_V19_1,
+    VLLM_V20,
+    VLLM_V20_1,
+)
 class CPUProfilerPatch:
     """Stub: Actual patching happens in platform.py check_and_update_config.
 
@@ -608,6 +621,246 @@ def _install_pre_v18_dispatch_hooks():
 
 
 # ---------------------------------------------------------------------------
+# vLLM 0.20.0 / 0.20.1 backport: PyTorch cpp codegen indirect_assert scalar-mask fix
+# ---------------------------------------------------------------------------
+#
+# Backport of vllm-project/vllm#40973 (PyTorch PR pytorch/pytorch#178148).
+#
+# CppVecKernel.indirect_assert wraps a scalar mask with `VecMask<...>(scalar)`,
+# which is not a valid constructor and triggers a g++ compile error during
+# torch.compile of any model that does indirect indexing inside a
+# tail-vectorized loop (e.g. Qwen3-VL-2B). Failure looks like:
+#     no matching function for call to 'VecMask<int64_t,2>::VecMask(int&)'
+#
+# The PyTorch upstream fix lands in 2.12; vLLM mainline carries the backport
+# but vLLM 0.20.0 and 0.20.1 shipped without it. For torch 2.11.x (the only
+# torch family 0.20.x supports) we monkey-patch CppVecKernel.indirect_assert
+# to use `VecMask<...>::from(scalar)` instead.
+#
+# Currently scoped to vLLM 0.20.0 and 0.20.1 only via the @vllm_version
+# decorator below. Extend the decorator if other supported vLLM releases
+# also need this backport.
+# Remove the patch entirely once the minimum supported torch is 2.12.
+
+_CPP_INDIRECT_ASSERT_HOOK_INSTALLED = False
+
+
+def _apply_cpp_indirect_assert_patch() -> None:
+    """Replace CppVecKernel.indirect_assert with the fixed copy that uses
+    `VecMask<...>::from(scalar)` for scalar masks.
+
+    Idempotent via the `_zentorch_indirect_assert_patched` class flag.
+    """
+    from torch._inductor.codegen.cpp import (
+        CppCSEVariable,
+        CppVecKernel,
+        cexpr_index,
+    )
+
+    if getattr(CppVecKernel, "_zentorch_indirect_assert_patched", False):
+        return
+
+    def patched_indirect_assert(self, var, lower, upper, mask=None):
+        assert isinstance(var, CppCSEVariable)
+        assert var.dtype is not None
+        if not var.is_vec:
+            if isinstance(mask, CppCSEVariable) and mask.is_vec:
+                mask = f"({mask}).all_masked()"
+            return super(CppVecKernel, self).indirect_assert(var, lower, upper, mask)
+        lower_scalar = lower
+        upper_scalar = upper
+        if lower:
+            lower = f"{self._get_vec_type(var.dtype)}({lower})"
+        if upper:
+            upper = f"{self._get_vec_type(var.dtype)}({upper})"
+        if lower and upper:
+            cond = f"({lower} <= {var}) & ({var} < {upper})"
+            cond_print = f"{lower_scalar} <= {var} < {upper_scalar}"
+        elif lower:
+            cond = f"{lower} <= {var}"
+            cond_print = f"{lower_scalar} <= {var}"
+        else:
+            assert upper
+            cond = f"{var} < {upper}"
+            cond_print = f"{var} < {upper_scalar}"
+        cond = f"{self._get_mask_type(var.dtype)}({cond})"
+        if mask:
+            if not mask.is_vec:
+                # Backport of pytorch/pytorch#178148: use ::from for scalar
+                # masks so g++ picks the correct overload.
+                mask = f"{self._get_mask_type(var.dtype)}::from({mask})"
+            cond = f"({cond}) | ~({mask})"
+        if self.tail_size:
+            cond = (
+                f"{self._get_mask_type(var.dtype)}::set("
+                f"{self._get_mask_type(var.dtype)}::from(1)"
+                f", ({cond}), {cexpr_index(self.tail_size)})"
+            )
+        cond = f"({cond}).all_masked()"
+        return f'{self.assert_function}({cond}, "index out of bounds: {cond_print}")'
+
+    CppVecKernel.indirect_assert = patched_indirect_assert
+    CppVecKernel._zentorch_indirect_assert_patched = True
+    logger.info(
+        "[zentorch] Patched CppVecKernel.indirect_assert "
+        "(vLLM 0.20.0/0.20.1 backport)"
+    )
+
+
+def _patch_cpp_indirect_assert_if_needed() -> bool:
+    """Install the cpp codegen indirect_assert backport for torch 2.11.x.
+
+    Defers application until `torch._inductor.codegen.cpp` is naturally
+    imported by Inductor. Importing it eagerly during plugin registration
+    pulls in `torch._inductor.scheduler`, whose top-level
+    `import torch._inductor.async_compile` can fail with circular-import
+    errors depending on the runner's import order.
+
+    Returns True if the patch was applied or the import hook was installed,
+    False if torch is outside the [2.11, 2.12) window.
+    """
+    global _CPP_INDIRECT_ASSERT_HOOK_INSTALLED
+
+    if _CPP_INDIRECT_ASSERT_HOOK_INSTALLED:
+        return True
+
+    from torch.torch_version import TorchVersion
+
+    tv = TorchVersion(torch.__version__)
+    if tv < (2, 11) or tv >= (2, 12):
+        logger.debug(
+            "[zentorch] cpp indirect_assert patch skipped for torch %s",
+            torch.__version__,
+        )
+        return False
+
+    target_name = "torch._inductor.codegen.cpp"
+    if target_name in sys.modules:
+        _apply_cpp_indirect_assert_patch()
+        _CPP_INDIRECT_ASSERT_HOOK_INSTALLED = True
+        return True
+
+    import importlib.abc
+    import importlib.util
+
+    class _CppCodegenPatchFinder(importlib.abc.MetaPathFinder):
+        def find_spec(self, fullname, path, target=None):
+            if fullname != target_name:
+                return None
+            if self in sys.meta_path:
+                sys.meta_path.remove(self)
+            spec = importlib.util.find_spec(fullname)
+            if spec is None or spec.loader is None:
+                return None
+            original_exec = spec.loader.exec_module
+
+            def _exec_then_patch(module):
+                original_exec(module)
+                _apply_cpp_indirect_assert_patch()
+
+            spec.loader.exec_module = _exec_then_patch
+            return spec
+
+    sys.meta_path.insert(0, _CppCodegenPatchFinder())
+    logger.debug("[zentorch] Installed cpp codegen indirect_assert import hook")
+
+    _CPP_INDIRECT_ASSERT_HOOK_INSTALLED = True
+    return True
+
+
+@vllm_version(VLLM_V20, VLLM_V20_1)
+class CppIndirectAssertPatch:
+    """Backport vLLM PR #40973 / PyTorch PR #178148 for vLLM 0.20.0 and 0.20.1.
+
+    Both 0.20.0 and 0.20.1 ship without the CppVecKernel.indirect_assert
+    backport that later vLLM releases include, breaking torch.compile for
+    models like Qwen3-VL-2B that do indirect indexing in tail-vectorized
+    loops.
+
+    Currently scoped to v0.20.0 and v0.20.1 only. Extend the @vllm_version
+    decorator above when adding support for newer vLLM releases that also
+    lack the fix.
+    """
+
+    @classmethod
+    def apply(cls) -> bool:
+        return _patch_cpp_indirect_assert_if_needed()
+
+
+# ---------------------------------------------------------------------------
+# vLLM 0.20.0 / 0.20.1 backport: CPU runner shutdown crash fix
+# ---------------------------------------------------------------------------
+#
+# Backport of vllm-project/vllm#41034 (commit d95d03c, in vLLM 0.20.2+).
+#
+# CPUModelRunner inherits from GPUModelRunner whose shutdown() calls
+# torch.accelerator.synchronize() and torch.accelerator.empty_cache().
+# On CPU these raise:
+#
+#   RuntimeError: Cannot access accelerator device when none is available.
+#
+# producing a noisy worker-shutdown traceback at the end of every CPU run
+# (e.g. tail of `vllm bench throughput` on Qwen3-VL-2B).
+#
+# Upstream patches CPUModelRunner.__init__ to noop those two APIs at runner
+# construction time. Since this plugin is CPU-only and registers at process
+# startup, we apply the noop patch eagerly during plugin init, gated to vLLM
+# 0.20.0 and 0.20.1 (both shipped without the fix).
+#
+# Remove this patch once VLLM_MIN_VERSION >= 0.20.2.
+
+_TORCH_ACCELERATOR_NOOP_APPLIED = False
+
+
+def _apply_torch_accelerator_noop_patch() -> bool:
+    """Replace torch.accelerator.{synchronize,empty_cache} with no-ops.
+
+    Idempotent via the module-level `_TORCH_ACCELERATOR_NOOP_APPLIED` flag.
+    """
+    global _TORCH_ACCELERATOR_NOOP_APPLIED
+
+    if _TORCH_ACCELERATOR_NOOP_APPLIED:
+        return True
+
+    if not hasattr(torch, "accelerator"):
+        logger.debug(
+            "[zentorch] torch.accelerator missing; skipping CPU shutdown noop patch"
+        )
+        return False
+
+    def _noop(*args, **kwargs):
+        pass
+
+    torch.accelerator.synchronize = _noop
+    torch.accelerator.empty_cache = _noop
+
+    _TORCH_ACCELERATOR_NOOP_APPLIED = True
+    logger.info(
+        "[zentorch] Patched torch.accelerator.{synchronize,empty_cache} -> noop "
+        "(vLLM 0.20.0/0.20.1 CPU runner shutdown fix)"
+    )
+    return True
+
+
+@vllm_version(VLLM_V20, VLLM_V20_1)
+class CPURunnerShutdownPatch:
+    """Backport vLLM PR #41034 for vLLM 0.20.0 and 0.20.1.
+
+    Both 0.20.0 and 0.20.1 ship CPUModelRunner without the noop patch for
+    torch.accelerator.{synchronize,empty_cache}, so worker shutdown raises
+    'RuntimeError: Cannot access accelerator device when none is available.'
+    after every CPU run.
+
+    Currently scoped to v0.20.0 and v0.20.1 only. Drop once the minimum
+    supported vLLM is >= 0.20.2.
+    """
+
+    @classmethod
+    def apply(cls) -> bool:
+        return _apply_torch_accelerator_noop_patch()
+
+
+# ---------------------------------------------------------------------------
 # Registration
 # ---------------------------------------------------------------------------
 
@@ -624,6 +877,8 @@ def _register_patches():
     manager.register("CPUProfiler", CPUProfilerPatch)
     manager.register("TorchAO", TorchAOPatch)
     manager.register("RMSNorm", RMSNormPatch)
+    manager.register("CppIndirectAssert", CppIndirectAssertPatch)
+    manager.register("CPURunnerShutdown", CPURunnerShutdownPatch)
 
     _REGISTERED = True
 
