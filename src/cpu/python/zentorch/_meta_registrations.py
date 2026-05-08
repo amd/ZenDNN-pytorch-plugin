@@ -857,6 +857,26 @@ def meta_zentorch_woq_linear_gelu_erf(
     )
 
 
+@register_meta("zentorch_woq_linear_add")
+def meta_zentorch_woq_linear_add(
+    input,
+    weight,
+    weight_scales,
+    weight_zero_points,
+    add_input,
+    bias=None,
+    zentorch_op_name="zentorch::zentorch_woq_linear_add",
+):
+    return meta_zentorch_woq_linear(
+        input,
+        weight,
+        weight_scales,
+        weight_zero_points,
+        bias,
+        zentorch_op_name,
+    )
+
+
 @register_meta("zentorch_woq_linear_mul_add")
 def meta_zentorch_woq_linear_mul_add(
     input,
@@ -969,14 +989,7 @@ make_fallback(torch.ops.zentorch.zentorch_horizontal_quant_embedding_bag_group.o
 make_fallback(torch.ops.zentorch.zentorch_rope)
 make_fallback(torch.ops.zentorch.zentorch_masked_multihead_self_attention)
 make_fallback(torch.ops.zentorch.zentorch_weight_prepack_for_linear)
-make_fallback(torch.ops.zentorch.zentorch_woq_linear)
-make_fallback(torch.ops.zentorch.zentorch_woq_linear_relu)
-make_fallback(torch.ops.zentorch.zentorch_woq_linear_sigmoid)
-make_fallback(torch.ops.zentorch.zentorch_woq_linear_gelu_erf)
-make_fallback(torch.ops.zentorch.zentorch_woq_linear_gelu_tanh)
-make_fallback(torch.ops.zentorch.zentorch_woq_linear_mul_add)
 make_fallback(torch.ops.zentorch.zentorch_dynamic_qlinear)
-make_fallback(torch.ops.zentorch.zentorch_woq_linear_add_add)
 make_fallback(torch.ops.zentorch.zentorch_group_matmul.out)
 make_fallback(torch.ops.zentorch.zentorch_woq_repack_weight)
 make_fallback(

@@ -86,6 +86,48 @@ AOTI_TORCH_EXPORT AOTITorchError aoti_torch_cpu_zentorch_linear_binary_binary(
     bool is_weight_prepacked, const char *post_op_1, const char *post_op_2,
     const char *zentorch_op_name, AtenTensorHandle *ret0);
 
+AOTI_TORCH_EXPORT AOTITorchError aoti_torch_cpu_zentorch_woq_linear(
+    AtenTensorHandle X, AtenTensorHandle W, AtenTensorHandle weight_scales,
+    AtenTensorHandle *weight_zero_points, AtenTensorHandle *B,
+    const char *zentorch_op_name, AtenTensorHandle *ret0);
+
+AOTI_TORCH_EXPORT AOTITorchError aoti_torch_cpu_zentorch_woq_linear_relu(
+    AtenTensorHandle X, AtenTensorHandle W, AtenTensorHandle weight_scales,
+    AtenTensorHandle *weight_zero_points, AtenTensorHandle *B,
+    const char *zentorch_op_name, AtenTensorHandle *ret0);
+
+AOTI_TORCH_EXPORT AOTITorchError aoti_torch_cpu_zentorch_woq_linear_sigmoid(
+    AtenTensorHandle X, AtenTensorHandle W, AtenTensorHandle weight_scales,
+    AtenTensorHandle *weight_zero_points, AtenTensorHandle *B,
+    const char *zentorch_op_name, AtenTensorHandle *ret0);
+
+AOTI_TORCH_EXPORT AOTITorchError aoti_torch_cpu_zentorch_woq_linear_gelu_tanh(
+    AtenTensorHandle X, AtenTensorHandle W, AtenTensorHandle weight_scales,
+    AtenTensorHandle *weight_zero_points, AtenTensorHandle *B,
+    const char *zentorch_op_name, AtenTensorHandle *ret0);
+
+AOTI_TORCH_EXPORT AOTITorchError aoti_torch_cpu_zentorch_woq_linear_gelu_erf(
+    AtenTensorHandle X, AtenTensorHandle W, AtenTensorHandle weight_scales,
+    AtenTensorHandle *weight_zero_points, AtenTensorHandle *B,
+    const char *zentorch_op_name, AtenTensorHandle *ret0);
+
+AOTI_TORCH_EXPORT AOTITorchError aoti_torch_cpu_zentorch_woq_linear_add(
+    AtenTensorHandle X, AtenTensorHandle W, AtenTensorHandle weight_scales,
+    AtenTensorHandle *weight_zero_points, AtenTensorHandle add_input,
+    AtenTensorHandle *B, const char *zentorch_op_name, AtenTensorHandle *ret0);
+
+AOTI_TORCH_EXPORT AOTITorchError aoti_torch_cpu_zentorch_woq_linear_mul_add(
+    AtenTensorHandle X, AtenTensorHandle W, AtenTensorHandle weight_scales,
+    AtenTensorHandle *weight_zero_points, AtenTensorHandle mul_input,
+    AtenTensorHandle add_input, AtenTensorHandle *B,
+    const char *zentorch_op_name, AtenTensorHandle *ret0);
+
+AOTI_TORCH_EXPORT AOTITorchError aoti_torch_cpu_zentorch_woq_linear_add_add(
+    AtenTensorHandle X, AtenTensorHandle W, AtenTensorHandle weight_scales,
+    AtenTensorHandle *weight_zero_points, AtenTensorHandle add_input,
+    AtenTensorHandle add_input_2, AtenTensorHandle *B,
+    const char *zentorch_op_name, AtenTensorHandle *ret0);
+
 #ifdef __cplusplus
 } // extern "C"
 #endif

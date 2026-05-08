@@ -888,3 +888,455 @@ def zentorch_qlinear_mul_add_lowering(
             "zentorch_qlinear_mul_add",
         )
     )
+
+
+# -----------------------------------------------------------------------------
+# WOQ Linear ExternKernel classes and lowerings
+#
+# WOQ schemas (see src/cpu/cpp/WOQ_Linear.cpp):
+#   zentorch_woq_linear*        : (input, weight, weight_scales,
+#                                  weight_zero_points?, bias?, *, op_name)
+#   zentorch_woq_linear_add     : (input, weight, weight_scales,
+#                                  weight_zero_points?, add_input,
+#                                  bias?, *, op_name)
+#   zentorch_woq_linear_mul_add : (input, weight, weight_scales,
+#                                  weight_zero_points?, mul_input, add_input,
+#                                  bias?, *, op_name)
+#   zentorch_woq_linear_add_add : (input, weight, weight_scales,
+#                                  weight_zero_points?, add_input, add_input_2,
+#                                  bias?, *, op_name)
+#
+# Required tensors (always present): input, weight -> _num_required_tensors = 2.
+# weight_scales is required by schema but is appended to inputs and tracked via
+# _optional_tensor_presence so that _qlinear_codegen_args can interleave the
+# truly optional weight_zero_points/bias into the right schema slots.
+# -----------------------------------------------------------------------------
+
+
+def _make_woq_linear_unary_class(class_name, op_overload, cpp_kernel_name):
+    """Factory for the 5 woq_linear unary variants. They differ only in the
+    op_overload and cpp_kernel_name; the create() body is identical."""
+
+    class _WoqLinearUnary(ExternKernelAlloc):
+        _num_required_tensors = 2
+        _optional_tensor_presence = [True, True, True]
+        codegen_args = _qlinear_codegen_args
+
+        def __init__(
+            self, layout, inputs, constant_args=(), kwargs=None,
+        ) -> None:
+            self.device_type = get_device_type(inputs[0])
+            super().__init__(
+                layout, inputs, constant_args, kwargs,
+                op_overload=op_overload,
+                cpp_kernel_name=cpp_kernel_name,
+            )
+
+        def codegen(self, wrapper):
+            wrapper.include_extra_header(_ZENTORCH_HEADER)
+            super().codegen(wrapper)
+
+        @classmethod
+        def create(cls, input, weight, weight_scales, weight_zero_points,
+                   bias, name):
+            # Enforce contiguous activations at the IR level so the kernel's
+            # get_contiguous_view becomes a no-op. weight is in WOQ packed
+            # int32 layout and must NOT be touched.
+            input = cls.require_contiguous(cls.realize_input(input))
+            weight.realize()
+            weight_scales.realize()
+
+            *m, _ic = input.get_size()
+            # WOQ packed weight is laid out (K_packed, N); out_features = N
+            _kpacked, oc = weight.get_size()
+            output_size = list(m) + [oc]
+
+            inputs = [input, weight, weight_scales]
+            if weight_zero_points is not None:
+                weight_zero_points.realize()
+                inputs.append(weight_zero_points)
+            if bias is not None:
+                bias.realize()
+                inputs.append(bias)
+
+            device = input.get_device()
+            assert device is not None
+
+            packed = cls(
+                layout=FixedLayout(
+                    device=device, dtype=input.get_dtype(), size=output_size,
+                ),
+                inputs=inputs,
+                constant_args=(),
+                kwargs=None,
+            )
+            packed._optional_tensor_presence = [
+                True,
+                weight_zero_points is not None,
+                bias is not None,
+            ]
+            return packed
+
+        def apply_constraint(self):
+            pass
+
+    _WoqLinearUnary.__name__ = class_name
+    _WoqLinearUnary.__qualname__ = class_name
+    return _WoqLinearUnary
+
+
+zentorch_WoqLinear = _make_woq_linear_unary_class(
+    "zentorch_WoqLinear",
+    torch.ops.zentorch.zentorch_woq_linear.default,
+    "aoti_torch_cpu_zentorch_woq_linear",
+)
+
+zentorch_WoqLinearRelu = _make_woq_linear_unary_class(
+    "zentorch_WoqLinearRelu",
+    torch.ops.zentorch.zentorch_woq_linear_relu.default,
+    "aoti_torch_cpu_zentorch_woq_linear_relu",
+)
+
+zentorch_WoqLinearSigmoid = _make_woq_linear_unary_class(
+    "zentorch_WoqLinearSigmoid",
+    torch.ops.zentorch.zentorch_woq_linear_sigmoid.default,
+    "aoti_torch_cpu_zentorch_woq_linear_sigmoid",
+)
+
+zentorch_WoqLinearGeluTanh = _make_woq_linear_unary_class(
+    "zentorch_WoqLinearGeluTanh",
+    torch.ops.zentorch.zentorch_woq_linear_gelu_tanh.default,
+    "aoti_torch_cpu_zentorch_woq_linear_gelu_tanh",
+)
+
+zentorch_WoqLinearGeluErf = _make_woq_linear_unary_class(
+    "zentorch_WoqLinearGeluErf",
+    torch.ops.zentorch.zentorch_woq_linear_gelu_erf.default,
+    "aoti_torch_cpu_zentorch_woq_linear_gelu_erf",
+)
+
+
+class zentorch_WoqLinearAdd(ExternKernelAlloc):
+    _num_required_tensors = 2
+    _optional_tensor_presence = [True, True, True, True]
+    codegen_args = _qlinear_codegen_args
+
+    def __init__(
+        self, layout, inputs, constant_args=(), kwargs=None,
+    ) -> None:
+        self.device_type = get_device_type(inputs[0])
+        super().__init__(
+            layout, inputs, constant_args, kwargs,
+            op_overload=torch.ops.zentorch.zentorch_woq_linear_add.default,
+            cpp_kernel_name="aoti_torch_cpu_zentorch_woq_linear_add",
+        )
+
+    def codegen(self, wrapper):
+        wrapper.include_extra_header(_ZENTORCH_HEADER)
+        super().codegen(wrapper)
+
+    @classmethod
+    def create(cls, input, weight, weight_scales, weight_zero_points,
+               add_input, bias, name):
+        # Enforce contiguous activations + post-op buffers at the IR level
+        # so the kernel's get_contiguous_view becomes a no-op.
+        input = cls.require_contiguous(cls.realize_input(input))
+        weight.realize()
+        weight_scales.realize()
+        add_input = cls.require_contiguous(cls.realize_input(add_input))
+
+        *m, _ic = input.get_size()
+        # WOQ packed weight is laid out (K_packed, N); out_features = N
+        _kpacked, oc = weight.get_size()
+        output_size = list(m) + [oc]
+
+        inputs = [input, weight, weight_scales]
+        if weight_zero_points is not None:
+            weight_zero_points.realize()
+            inputs.append(weight_zero_points)
+        inputs.append(add_input)
+        if bias is not None:
+            bias.realize()
+            inputs.append(bias)
+
+        device = input.get_device()
+        assert device is not None
+
+        packed = zentorch_WoqLinearAdd(
+            layout=FixedLayout(
+                device=device, dtype=input.get_dtype(), size=output_size,
+            ),
+            inputs=inputs,
+            constant_args=(),
+            kwargs=None,
+        )
+        packed._optional_tensor_presence = [
+            True,
+            weight_zero_points is not None,
+            True,
+            bias is not None,
+        ]
+        return packed
+
+    def apply_constraint(self):
+        pass
+
+
+def _make_woq_linear_binary_binary_class(class_name, op_overload,
+                                         cpp_kernel_name):
+    """Factory for the woq_linear_mul_add and woq_linear_add_add variants."""
+
+    class _WoqLinearBinaryBinary(ExternKernelAlloc):
+        _num_required_tensors = 2
+        _optional_tensor_presence = [True, True, True, True, True]
+        codegen_args = _qlinear_codegen_args
+
+        def __init__(
+            self, layout, inputs, constant_args=(), kwargs=None,
+        ) -> None:
+            self.device_type = get_device_type(inputs[0])
+            super().__init__(
+                layout, inputs, constant_args, kwargs,
+                op_overload=op_overload,
+                cpp_kernel_name=cpp_kernel_name,
+            )
+
+        def codegen(self, wrapper):
+            wrapper.include_extra_header(_ZENTORCH_HEADER)
+            super().codegen(wrapper)
+
+        @classmethod
+        def create(cls, input, weight, weight_scales, weight_zero_points,
+                   binary1_input, binary2_input, bias, name):
+            # Enforce contiguous activations + post-op buffers at the IR level
+            # so the kernel's get_contiguous_view becomes a no-op.
+            input = cls.require_contiguous(cls.realize_input(input))
+            weight.realize()
+            weight_scales.realize()
+            binary1_input = cls.require_contiguous(
+                cls.realize_input(binary1_input)
+            )
+            binary2_input = cls.require_contiguous(
+                cls.realize_input(binary2_input)
+            )
+
+            *m, _ic = input.get_size()
+            # WOQ packed weight is laid out (K_packed, N); out_features = N
+            _kpacked, oc = weight.get_size()
+            output_size = list(m) + [oc]
+
+            inputs = [input, weight, weight_scales]
+            if weight_zero_points is not None:
+                weight_zero_points.realize()
+                inputs.append(weight_zero_points)
+            inputs.append(binary1_input)
+            inputs.append(binary2_input)
+            if bias is not None:
+                bias.realize()
+                inputs.append(bias)
+
+            device = input.get_device()
+            assert device is not None
+
+            packed = cls(
+                layout=FixedLayout(
+                    device=device, dtype=input.get_dtype(), size=output_size,
+                ),
+                inputs=inputs,
+                constant_args=(),
+                kwargs=None,
+            )
+            packed._optional_tensor_presence = [
+                True,
+                weight_zero_points is not None,
+                True,
+                True,
+                bias is not None,
+            ]
+            return packed
+
+        def apply_constraint(self):
+            pass
+
+    _WoqLinearBinaryBinary.__name__ = class_name
+    _WoqLinearBinaryBinary.__qualname__ = class_name
+    return _WoqLinearBinaryBinary
+
+
+zentorch_WoqLinearMulAdd = _make_woq_linear_binary_binary_class(
+    "zentorch_WoqLinearMulAdd",
+    torch.ops.zentorch.zentorch_woq_linear_mul_add.default,
+    "aoti_torch_cpu_zentorch_woq_linear_mul_add",
+)
+
+zentorch_WoqLinearAddAdd = _make_woq_linear_binary_binary_class(
+    "zentorch_WoqLinearAddAdd",
+    torch.ops.zentorch.zentorch_woq_linear_add_add.default,
+    "aoti_torch_cpu_zentorch_woq_linear_add_add",
+)
+
+
+@register_lowering(
+    torch.ops.zentorch.zentorch_woq_linear.default, type_promotion_kind=None
+)
+def zentorch_woq_linear_lowering(
+    input: TensorBox,
+    weight: TensorBox,
+    weight_scales: TensorBox,
+    weight_zero_points: TensorBox = None,
+    bias: TensorBox = None,
+    zentorch_op_name="zentorch_woq_linear",
+):
+    return TensorBox.create(
+        zentorch_WoqLinear.create(
+            input, weight, weight_scales, weight_zero_points, bias,
+            "zentorch_woq_linear",
+        )
+    )
+
+
+@register_lowering(
+    torch.ops.zentorch.zentorch_woq_linear_relu.default,
+    type_promotion_kind=None,
+)
+def zentorch_woq_linear_relu_lowering(
+    input: TensorBox,
+    weight: TensorBox,
+    weight_scales: TensorBox,
+    weight_zero_points: TensorBox = None,
+    bias: TensorBox = None,
+    zentorch_op_name="zentorch_woq_linear_relu",
+):
+    return TensorBox.create(
+        zentorch_WoqLinearRelu.create(
+            input, weight, weight_scales, weight_zero_points, bias,
+            "zentorch_woq_linear_relu",
+        )
+    )
+
+
+@register_lowering(
+    torch.ops.zentorch.zentorch_woq_linear_sigmoid.default,
+    type_promotion_kind=None,
+)
+def zentorch_woq_linear_sigmoid_lowering(
+    input: TensorBox,
+    weight: TensorBox,
+    weight_scales: TensorBox,
+    weight_zero_points: TensorBox = None,
+    bias: TensorBox = None,
+    zentorch_op_name="zentorch_woq_linear_sigmoid",
+):
+    return TensorBox.create(
+        zentorch_WoqLinearSigmoid.create(
+            input, weight, weight_scales, weight_zero_points, bias,
+            "zentorch_woq_linear_sigmoid",
+        )
+    )
+
+
+@register_lowering(
+    torch.ops.zentorch.zentorch_woq_linear_gelu_tanh.default,
+    type_promotion_kind=None,
+)
+def zentorch_woq_linear_gelu_tanh_lowering(
+    input: TensorBox,
+    weight: TensorBox,
+    weight_scales: TensorBox,
+    weight_zero_points: TensorBox = None,
+    bias: TensorBox = None,
+    zentorch_op_name="zentorch_woq_linear_gelu_tanh",
+):
+    return TensorBox.create(
+        zentorch_WoqLinearGeluTanh.create(
+            input, weight, weight_scales, weight_zero_points, bias,
+            "zentorch_woq_linear_gelu_tanh",
+        )
+    )
+
+
+@register_lowering(
+    torch.ops.zentorch.zentorch_woq_linear_gelu_erf.default,
+    type_promotion_kind=None,
+)
+def zentorch_woq_linear_gelu_erf_lowering(
+    input: TensorBox,
+    weight: TensorBox,
+    weight_scales: TensorBox,
+    weight_zero_points: TensorBox = None,
+    bias: TensorBox = None,
+    zentorch_op_name="zentorch_woq_linear_gelu_erf",
+):
+    return TensorBox.create(
+        zentorch_WoqLinearGeluErf.create(
+            input, weight, weight_scales, weight_zero_points, bias,
+            "zentorch_woq_linear_gelu_erf",
+        )
+    )
+
+
+@register_lowering(
+    torch.ops.zentorch.zentorch_woq_linear_add.default,
+    type_promotion_kind=None,
+)
+def zentorch_woq_linear_add_lowering(
+    input: TensorBox,
+    weight: TensorBox,
+    weight_scales: TensorBox,
+    weight_zero_points: TensorBox,
+    add_input: TensorBox,
+    bias: TensorBox = None,
+    zentorch_op_name="zentorch_woq_linear_add",
+):
+    return TensorBox.create(
+        zentorch_WoqLinearAdd.create(
+            input, weight, weight_scales, weight_zero_points, add_input, bias,
+            "zentorch_woq_linear_add",
+        )
+    )
+
+
+@register_lowering(
+    torch.ops.zentorch.zentorch_woq_linear_mul_add.default,
+    type_promotion_kind=None,
+)
+def zentorch_woq_linear_mul_add_lowering(
+    input: TensorBox,
+    weight: TensorBox,
+    weight_scales: TensorBox,
+    weight_zero_points: TensorBox,
+    mul_input: TensorBox,
+    add_input: TensorBox,
+    bias: TensorBox = None,
+    zentorch_op_name="zentorch_woq_linear_mul_add",
+):
+    return TensorBox.create(
+        zentorch_WoqLinearMulAdd.create(
+            input, weight, weight_scales, weight_zero_points,
+            mul_input, add_input, bias,
+            "zentorch_woq_linear_mul_add",
+        )
+    )
+
+
+@register_lowering(
+    torch.ops.zentorch.zentorch_woq_linear_add_add.default,
+    type_promotion_kind=None,
+)
+def zentorch_woq_linear_add_add_lowering(
+    input: TensorBox,
+    weight: TensorBox,
+    weight_scales: TensorBox,
+    weight_zero_points: TensorBox,
+    add_input: TensorBox,
+    add_input_2: TensorBox,
+    bias: TensorBox = None,
+    zentorch_op_name="zentorch_woq_linear_add_add",
+):
+    return TensorBox.create(
+        zentorch_WoqLinearAddAdd.create(
+            input, weight, weight_scales, weight_zero_points,
+            add_input, add_input_2, bias,
+            "zentorch_woq_linear_add_add",
+        )
+    )

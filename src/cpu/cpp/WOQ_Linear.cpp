@@ -3,6 +3,7 @@
  * All rights reserved.
  ******************************************************************************/
 
+#include "WOQ_Linear.hpp"
 #include "EnvReader.hpp"
 #include "MatmulUtils.hpp"
 #include "Memory.hpp"

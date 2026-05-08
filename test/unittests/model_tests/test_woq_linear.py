@@ -182,5 +182,28 @@ class Test_WOQ_Linear(Zentorch_TestCase):
         self._assert_woq_pattern_replaced(model, x, "WOQ per-group addmm")
 
 
+@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
+class Test_WOQ_Linear_CppWrapper(Test_WOQ_Linear):
+    """Re-runs the Test_WOQ_Linear cases with freezing + cpp_wrapper enabled,
+    exercising the AOTI shim + lowering codegen path for WOQ ops.
+    """
+
+    # TODO: convert to hypothesis-style parameterized tests so we exercise the
+    # cpp_wrapper path across more (dtype, shape, group_size, post-op) combos
+    # like the rest of the WOQ unit tests.
+
+    def setUp(self):
+        super().setUp()
+        self._prev_freezing = torch._inductor.config.freezing
+        self._prev_cpp_wrapper = torch._inductor.config.cpp_wrapper
+        torch._inductor.config.freezing = True
+        torch._inductor.config.cpp_wrapper = True
+
+    def tearDown(self):
+        torch._inductor.config.cpp_wrapper = self._prev_cpp_wrapper
+        torch._inductor.config.freezing = self._prev_freezing
+        super().tearDown()
+
+
 if __name__ == "__main__":
     run_tests()
