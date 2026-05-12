@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2025 Advanced Micro Devices, Inc.
+# Copyright (c) 2025-2026 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -10,7 +10,7 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
 from unittest_utils import (  # noqa: E402
-    Zentorch_TestCase,
+    MMTestCase,
     has_zentorch,
     run_tests,
     skip_test_pt_2_0,
@@ -18,7 +18,7 @@ from unittest_utils import (  # noqa: E402
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
-class Test_Matmul_Direct(Zentorch_TestCase):
+class Test_Matmul_Direct(MMTestCase):
     # Removing the custom setUp and tearDown functions as these functions would not have any effect until the problem
     # below is solved
 
@@ -32,8 +32,10 @@ class Test_Matmul_Direct(Zentorch_TestCase):
     # /ZenDNN_PyTorch_Plugin/test/unittests/op_tests/test_env_reader.py
 
     @unittest.skipIf(skip_test_pt_2_0, "Skipping test due to PT2.0 instability")
+    @MMTestCase.hypothesis_params_mm_itr(
+        dtype_list=["float32"]
+    )
     def test_bmm(self):
-        self.data.create_unittest_data()
         self.assertEqual(
             torch.bmm(self.data.x3d, self.data.y3d),
             torch.ops.zentorch.zentorch_bmm(self.data.x3d, self.data.y3d),
