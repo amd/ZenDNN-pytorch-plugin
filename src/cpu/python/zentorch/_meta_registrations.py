@@ -924,10 +924,12 @@ def meta_zentorch_group_matmul_out(
     inputs,
     weights,
     bias,
+    activation,
+    w2_weights,
+    w2_bias,
     moe_output=None,
     topk_weights=None,
     row_ptrs=None,
-    activation="none",
     zentorch_op_name="zentorch::zentorch_group_matmul.out",
 ):
     return

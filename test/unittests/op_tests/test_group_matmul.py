@@ -16,17 +16,58 @@ from unittest_utils import (  # noqa: E402
     run_tests,
 )
 
+# Todo: Below way of defining the configs will be cleaned up.
+# (num_experts, M, K, N_or_D, dtype)
+PLAIN_GEMM_CONFIGS = [
+    (8, 4, 64, 32, torch.bfloat16),
+    (4, 8, 64, 32, torch.float32),
+]
+
+# (num_experts, K, N, topk, num_tokens, dtype)
+MOE_REDUCE_CONFIGS = [
+    (4, 64, 32, 2, 8, torch.float32),
+    (4, 16, 8, 2, 8, torch.bfloat16),
+]
+
+# (num_experts, M, K, D, activation, dtype)
+GATED_ACTIVATION_CONFIGS = [
+    (4, 8, 64, 32, "gelu", torch.float32),
+    (4, 8, 64, 32, "swigluoai", torch.float32),
+    (4, 8, 32, 32, "silu", torch.bfloat16),
+]
+
+# (num_experts, M, K, D, K_out, activation, dtype)
+FUSED_W2_CONFIGS = [
+    (4, 8, 64, 32, 64, "silu", torch.float32),
+]
+
+# (num_experts, K, D, K_out, topk, num_tokens, activation, dtype)
+FULL_MOE_FFN_CONFIGS = [
+    (4, 32, 16, 32, 2, 8, "silu", torch.bfloat16),
+    (4, 32, 16, 32, 2, 8, "swigluoai", torch.bfloat16),
+]
+
+# Tolerance per dtype
+TOLERANCES = {
+    torch.float32: {"atol": 1e-3, "rtol": 1e-3},
+    torch.bfloat16: {"atol": 1e-2, "rtol": 1e-2},
+    "fused_bf16": {"atol": 5e-1, "rtol": 5e-1},
+}
+
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class Test_GroupMatmul(Zentorch_TestCase):
-    """Test zentorch_group_matmul.out parallel mode with optional MoE weighted-reduce."""
+    """Parameterized tests for zentorch_group_matmul.out."""
+
+    # ------------------------------------------------------------------
+    # Reference helpers
+    # ------------------------------------------------------------------
 
     def _reference_weighted_reduce(self, expert_outputs, topk_weights,
                                    topk_indices, num_tokens, topk):
         """Reference: output[t,d] = sum_k w[t,k] * expert_dst[eid][row_j][d]."""
         hidden_dim = expert_outputs[0].shape[1]
         num_experts = len(expert_outputs)
-        # Track how many tokens each expert has processed so far
         expert_count = [0] * num_experts
         output = torch.zeros(num_tokens, hidden_dim, dtype=expert_outputs[0].dtype)
         for t in range(num_tokens):
@@ -34,53 +75,55 @@ class Test_GroupMatmul(Zentorch_TestCase):
                 expert_id = topk_indices[t, k].item()
                 row_j = expert_count[expert_id]
                 expert_count[expert_id] += 1
-                # Accumulate weighted expert result for this token
                 output[t] += topk_weights[t, k].item() * expert_outputs[expert_id][row_j]
         return output
 
     def _scatter_and_build_row_ptrs(self, hidden_states, topk_indices,
                                     num_experts, K, N):
-        """Scatter tokens to experts, pre-allocate gemm_outputs, and build row_ptrs.
-
-        Returns (inputs, gemm_outputs, row_ptrs).
-        """
+        """Scatter tokens to experts, pre-allocate outputs, build row_ptrs."""
         num_tokens = hidden_states.shape[0]
         topk = topk_indices.shape[1]
-
-        # Count how many tokens are routed to each expert
         expert_token_counts = [(topk_indices == e).sum().item() for e in range(num_experts)]
-
-        # Per-expert input batches [M_i, K] and pre-allocated output buffers [M_i, N]
         inputs = [torch.zeros(int(expert_token_counts[e]), K, dtype=hidden_states.dtype)
                   for e in range(num_experts)]
         gemm_outputs = [torch.empty(int(expert_token_counts[e]), N, dtype=hidden_states.dtype)
                         for e in range(num_experts)]
-
-        # Build row_ptrs (int64 pointer addresses) alongside the scatter
         row_ptrs = torch.zeros(num_tokens * topk, dtype=torch.int64)
         expert_cursor = [0] * num_experts
         for t in range(num_tokens):
             for k in range(topk):
                 expert_id = topk_indices[t, k].item()
                 row_j = expert_cursor[expert_id]
-                # Scatter: copy token into the expert's input batch
                 inputs[expert_id][row_j] = hidden_states[t]
-                # Store raw pointer to the corresponding row in gemm_outputs
                 row_ptrs[t * topk + k] = (
                     gemm_outputs[expert_id].data_ptr()
                     + row_j * gemm_outputs[expert_id].stride(0)
                     * gemm_outputs[expert_id].element_size())
                 expert_cursor[expert_id] += 1
-
         return inputs, gemm_outputs, row_ptrs
 
-    def _apply_gated_activation(self, tensor, activation):
-        """Apply gated activation: split output in half, apply act(first) * second.
+    def _reference_expert_outputs(self, inputs, weights, bias, activation="none",
+                                  w2_weights=None, w2_bias=None, compute_in_fp32=False):
+        """Per-expert reference: linear → optional activation → optional w2."""
+        expert_outputs = []
+        for i in range(len(inputs)):
+            expert_input = inputs[i].float() if compute_in_fp32 else inputs[i]
+            expert_weight = weights[i].float() if compute_in_fp32 else weights[i]
+            expert_bias = bias[i].float() if (bias[i] is not None and compute_in_fp32) else bias[i]
+            result = torch.nn.functional.linear(expert_input, expert_weight, expert_bias)
+            if activation != "none":
+                result = self._apply_gated_activation(result, activation)
+            if w2_weights is not None:
+                down_weight = w2_weights[i].float() if compute_in_fp32 else w2_weights[i]
+                down_bias = w2_bias[i].float() if (w2_bias[i] is not None and compute_in_fp32) else w2_bias[i]
+                result = torch.nn.functional.linear(result, down_weight, down_bias)
+            expert_outputs.append(result)
+        return expert_outputs
 
-        Input shape [M, 2*D] → output shape [M, D].
-        """
-        # Ensure the last dimension is even so it can be split into two halves
-        self.assertEqual(tensor.shape[1] % 2, 0, f"Gated activation requires an even last dimension, got {tensor.shape[1]}")
+    def _apply_gated_activation(self, tensor, activation):
+        """Gated activation: split → act(gate) * value. Input [M, 2*D] → [M, D]."""
+        self.assertEqual(tensor.shape[1] % 2, 0,
+                         f"Gated activation requires even last dim, got {tensor.shape[1]}")
         half_dim = tensor.shape[1] // 2
         gate = tensor[:, :half_dim]
         value = tensor[:, half_dim:]
@@ -94,246 +137,192 @@ class Test_GroupMatmul(Zentorch_TestCase):
             gate = gate.clamp(min=None, max=limit)
             up = up.clamp(min=-limit, max=limit)
             return (up + 1) * (gate * torch.sigmoid(gate * alpha))
-        raise ValueError(
-            f"Unsupported gated activation: {activation!r}. "
-            "Supported activations are: 'silu', 'gelu', 'swigluoai'."
-        )
+        raise ValueError(f"Unsupported activation: {activation!r}")
 
+# Todo: Update the testcases in a parameterized structure.
+# JIRA ID: https://jira.xilinx.com/browse/ZENAI-3656
     @torch.inference_mode()
-    def test_parallel_fp32(self):
-        """Parallel group matmul, fp32."""
+    def test_plain_gemm(self):
+        """Plain parallel GEMM across dtypes and dimensions."""
         if not zentorch._C.is_avx512_supported():
             self.skipTest("AVX512 not supported")
 
-        # 8 experts, each processing 4 tokens with K=64 input features and N=32 output features
-        num_experts, M, K, N = 8, 4, 64, 32
-        inputs = [torch.randn(M, K) for i in range(num_experts)]
-        weights = [torch.randn(N, K) for i in range(num_experts)]
-        bias = [None] * num_experts
+        for num_experts, M, K, N, dtype in PLAIN_GEMM_CONFIGS:
+            bias = [None] * num_experts
+            inputs = [torch.randn(M, K, dtype=dtype) for i in range(num_experts)]
+            weights = [torch.randn(N, K, dtype=dtype) for i in range(num_experts)]
 
-        # Compute reference using torch.nn.functional.linear per expert
-        ref_expert_outputs = []
-        for i in range(num_experts):
-            ref_expert_outputs.append(torch.nn.functional.linear(inputs[i], weights[i], None))
+            ref = self._reference_expert_outputs(inputs, weights, bias)
 
-        # Pre-allocate output buffers and run the operator
-        gemm_outputs = [torch.empty(M, N) for i in range(num_experts)]
-        torch.ops.zentorch.zentorch_group_matmul.out(
-            gemm_outputs, inputs, weights, bias, None, None, None)
+            gemm_outputs = [torch.empty(M, N, dtype=dtype) for i in range(num_experts)]
+            torch.ops.zentorch.zentorch_group_matmul.out(
+                gemm_outputs, inputs, weights, bias, "none", [], [])
 
-        # Verify each expert's output matches the reference
-        self.assertEqual(len(gemm_outputs), num_experts)
-        for i in range(num_experts):
-            torch.testing.assert_close(gemm_outputs[i], ref_expert_outputs[i], atol=1e-3, rtol=1e-3)
+            tol = TOLERANCES[dtype]
+            for i in range(num_experts):
+                self.assertEqual(gemm_outputs[i], ref[i], **tol)
 
     @torch.inference_mode()
-    def test_moe_weighted_reduce_bf16(self):
-        """Parallel group matmul + MoE weighted-reduce post-op, bfloat16."""
+    def test_moe_weighted_reduce(self):
+        """GEMM + MoE weighted-reduce across dtypes and dimensions."""
         if not zentorch._C.is_avx512_supported():
             self.skipTest("AVX512 not supported")
 
-        # Small K and N to keep bf16 accumulation error within tolerance
-        num_experts, K, N = 4, 16, 8
-        topk = 2
-        num_tokens = 8
+        for num_experts, K, N, topk, num_tokens, dtype in MOE_REDUCE_CONFIGS:
+            bias = [None] * num_experts
+            topk_indices = torch.randint(0, num_experts, (num_tokens, topk))
+            topk_weights = torch.rand(num_tokens, topk)
+            hidden_states = torch.randn(num_tokens, K, dtype=dtype)
 
-        # Simulate router: random expert assignments and routing weights
-        # topk_weights must be fp32 as validated by zentorch_group_matmul
-        topk_indices = torch.randint(0, num_experts, (num_tokens, topk))
-        topk_weights = torch.rand(num_tokens, topk)
-        hidden_states = torch.randn(num_tokens, K, dtype=torch.bfloat16)
+            moe_inputs, moe_gemm_outputs, row_ptrs = self._scatter_and_build_row_ptrs(
+                hidden_states, topk_indices, num_experts, K, N)
+            weights = [torch.randn(N, K, dtype=dtype) for i in range(num_experts)]
+            moe_output = torch.empty(num_tokens, N, dtype=dtype)
 
-        # Scatter tokens to experts, pre-allocate gemm_outputs, build row_ptrs
-        inputs, gemm_outputs, row_ptrs = self._scatter_and_build_row_ptrs(
-            hidden_states, topk_indices, num_experts, K, N)
+            is_bf16 = (dtype == torch.bfloat16)
+            ref_experts = self._reference_expert_outputs(
+                moe_inputs, weights, bias, compute_in_fp32=is_bf16)
+            ref_moe = self._reference_weighted_reduce(
+                ref_experts, topk_weights, topk_indices, num_tokens, topk)
 
-        weights = [torch.randn(N, K, dtype=torch.bfloat16) for i in range(num_experts)]
-        bias = [None] * num_experts
-        # Pre-allocate the MoE reduced output [num_tokens, N]
-        moe_output = torch.empty(num_tokens, N, dtype=torch.bfloat16)
+            torch.ops.zentorch.zentorch_group_matmul.out(
+                moe_gemm_outputs, moe_inputs, weights, bias, "none", [], [],
+                moe_output, topk_weights, row_ptrs)
 
-        # Compute reference in fp32 to match the kernel's internal accumulation,
-        # avoiding per-step bf16 rounding that would widen the error gap
-        ref_expert_outputs = [
-            torch.nn.functional.linear(inputs[i], weights[i], None).float()
-            for i in range(num_experts)]
-        ref_moe_output = self._reference_weighted_reduce(
-            ref_expert_outputs, topk_weights, topk_indices, num_tokens, topk)
-
-        # Run the operator with MoE post-op
-        torch.ops.zentorch.zentorch_group_matmul.out(
-            gemm_outputs, inputs, weights, bias,
-            moe_output=moe_output, topk_weights=topk_weights, row_ptrs=row_ptrs)
-
-        # Compare in fp32 space so both sides share the same representation
-        self.assertEqual(moe_output.shape, (num_tokens, N))
-        torch.testing.assert_close(
-            moe_output.float(), ref_moe_output, atol=1e-2, rtol=1e-2)
+            tol = TOLERANCES[dtype]
+            actual = moe_output.float() if is_bf16 else moe_output
+            self.assertEqual(actual, ref_moe, **tol)
 
     @torch.inference_mode()
-    def test_parallel_bf16(self):
-        """Parallel group matmul, bfloat16."""
+    def test_gated_activations(self):
+        """GEMM + gated activation across activation types and dtypes."""
         if not zentorch._C.is_avx512_supported():
             self.skipTest("AVX512 not supported")
 
-        # 8 experts, each processing 4 tokens with K=64 input features and N=32 output features
-        num_experts, M, K, N = 8, 4, 64, 32
-        inputs = [torch.randn(M, K, dtype=torch.bfloat16) for i in range(num_experts)]
-        weights = [torch.randn(N, K, dtype=torch.bfloat16) for i in range(num_experts)]
-        bias = [None] * num_experts
+        for num_experts, M, K, D, activation, dtype in GATED_ACTIVATION_CONFIGS:
+            N = 2 * D
+            bias = [None] * num_experts
+            inputs = [torch.randn(M, K, dtype=dtype) for i in range(num_experts)]
+            weights = [torch.randn(N, K, dtype=dtype) for i in range(num_experts)]
 
-        # Compute reference using torch.nn.functional.linear per expert
-        ref_expert_outputs = []
-        for i in range(num_experts):
-            ref_expert_outputs.append(torch.nn.functional.linear(inputs[i], weights[i], None))
+            ref = self._reference_expert_outputs(inputs, weights, bias, activation=activation)
 
-        # Pre-allocate output buffers and run the operator
-        gemm_outputs = [torch.empty(M, N, dtype=torch.bfloat16) for i in range(num_experts)]
-        torch.ops.zentorch.zentorch_group_matmul.out(
-            gemm_outputs, inputs, weights, bias, None, None, None)
+            gemm_outputs = [torch.empty(M, N, dtype=dtype) for i in range(num_experts)]
+            torch.ops.zentorch.zentorch_group_matmul.out(
+                gemm_outputs, inputs, weights, bias, activation, [], [])
 
-        # Verify each expert's output matches the reference
-        self.assertEqual(len(gemm_outputs), num_experts)
-        for i in range(num_experts):
-            torch.testing.assert_close(gemm_outputs[i], ref_expert_outputs[i], atol=1e-2, rtol=1e-2)
-
-    @torch.inference_mode()
-    def test_moe_weighted_reduce_fp32(self):
-        """Parallel group matmul + MoE weighted-reduce post-op, fp32."""
-        num_experts, K, N = 4, 64, 32
-        topk = 2
-        num_tokens = 8
-
-        # Simulate router: random expert assignments and routing weights
-        topk_indices = torch.randint(0, num_experts, (num_tokens, topk))
-        topk_weights = torch.rand(num_tokens, topk)
-        hidden_states = torch.randn(num_tokens, K)
-
-        # Scatter tokens to experts, pre-allocate gemm_outputs, build row_ptrs
-        inputs, gemm_outputs, row_ptrs = self._scatter_and_build_row_ptrs(
-            hidden_states, topk_indices, num_experts, K, N)
-
-        weights = [torch.randn(N, K) for i in range(num_experts)]
-        bias = [None] * num_experts
-        # Pre-allocate the MoE reduced output [num_tokens, N]
-        moe_output = torch.empty(num_tokens, N)
-
-        # Compute reference: per-expert linear + weighted-reduce
-        ref_expert_outputs = []
-        for i in range(num_experts):
-            ref_expert_outputs.append(torch.nn.functional.linear(inputs[i], weights[i], None))
-        ref_moe_output = self._reference_weighted_reduce(
-            ref_expert_outputs, topk_weights, topk_indices, num_tokens, topk)
-
-        # Run the operator with MoE post-op
-        torch.ops.zentorch.zentorch_group_matmul.out(
-            gemm_outputs, inputs, weights, bias,
-            moe_output=moe_output, topk_weights=topk_weights, row_ptrs=row_ptrs)
-
-        # Verify the fused MoE output matches the reference
-        self.assertEqual(moe_output.shape, (num_tokens, N))
-        torch.testing.assert_close(moe_output, ref_moe_output, atol=1e-4, rtol=1e-4)
-
-    @torch.inference_mode()
-    def test_gated_gelu_fp32(self):
-        """Parallel group matmul with gelu gated activation, fp32."""
-        # N = 2*D: weight produces [M, 2*D], gated activation reduces to [M, D]
-        num_experts, M, K, D = 4, 8, 64, 32
-        N = 2 * D
-        inputs = [torch.randn(M, K) for i in range(num_experts)]
-        weights = [torch.randn(N, K) for i in range(num_experts)]
-        bias = [None] * num_experts
-
-        # Reference: per-expert linear followed by gelu gated activation
-        ref_outputs = []
-        for i in range(num_experts):
-            linear_out = torch.nn.functional.linear(inputs[i], weights[i], None)
-            ref_outputs.append(self._apply_gated_activation(linear_out, "gelu"))
-
-        # gemm_outputs must be [M, N] to hold the full GEMM result before activation
-        gemm_outputs = [torch.empty(M, N) for i in range(num_experts)]
-        torch.ops.zentorch.zentorch_group_matmul.out(
-            gemm_outputs, inputs, weights, bias, None, None, None,
-            activation="gelu")
-
-        self.assertEqual(len(gemm_outputs), num_experts)
-        for i in range(num_experts):
-            # After gated activation, result is in the first D columns
-            torch.testing.assert_close(gemm_outputs[i][:, :D], ref_outputs[i], atol=1e-4, rtol=1e-4)
-
-    @torch.inference_mode()
-    def test_gated_silu_bf16(self):
-        """Parallel group matmul with silu gated activation, bfloat16."""
-        if not zentorch._C.is_avx512_supported():
-            self.skipTest("AVX512 not supported")
-
-        # K=32 (smaller than fp32 tests) to keep bf16 accumulation error within tolerance
-        num_experts, M, K, D = 4, 8, 32, 32
-        N = 2 * D
-        inputs = [torch.randn(M, K, dtype=torch.bfloat16) for i in range(num_experts)]
-        weights = [torch.randn(N, K, dtype=torch.bfloat16) for i in range(num_experts)]
-        bias = [None] * num_experts
-
-        # Reference: per-expert linear followed by silu gated activation
-        ref_outputs = []
-        for i in range(num_experts):
-            linear_out = torch.nn.functional.linear(inputs[i], weights[i], None)
-            ref_outputs.append(self._apply_gated_activation(linear_out, "silu"))
-
-        # gemm_outputs must be [M, N] to hold the full GEMM result before activation
-        gemm_outputs = [torch.empty(M, N, dtype=torch.bfloat16) for i in range(num_experts)]
-        torch.ops.zentorch.zentorch_group_matmul.out(
-            gemm_outputs, inputs, weights, bias, None, None, None,
-            activation="silu")
-
-        self.assertEqual(len(gemm_outputs), num_experts)
-        for i in range(num_experts):
-            # After gated activation, result is in the first D columns
-            torch.testing.assert_close(gemm_outputs[i][:, :D], ref_outputs[i], atol=1e-2, rtol=1e-2)
-
-    @torch.inference_mode()
-    def test_gated_swigluoai_fp32(self):
-        """Parallel group matmul with swigluoai gated activation, fp32."""
-        # N = 2*D: weight produces [M, 2*D], swigluoai activation reduces to [M, D]
-        num_experts, M, K, D = 4, 8, 64, 32
-        N = 2 * D
-        inputs = [torch.randn(M, K) for i in range(num_experts)]
-        weights = [torch.randn(N, K) for i in range(num_experts)]
-        bias = [None] * num_experts
-
-        # Reference: per-expert linear followed by swigluoai gated activation
-        # (interleaved split + clamping + scaled sigmoid, unlike silu/gelu)
-        ref_outputs = []
-        for i in range(num_experts):
-            linear_out = torch.nn.functional.linear(inputs[i], weights[i], None)
-            ref_outputs.append(self._apply_gated_activation(linear_out, "swigluoai"))
-
-        # gemm_outputs must be [M, N] to hold the full GEMM result before activation
-        gemm_outputs = [torch.empty(M, N) for i in range(num_experts)]
-        torch.ops.zentorch.zentorch_group_matmul.out(
-            gemm_outputs, inputs, weights, bias, None, None, None,
-            activation="swigluoai")
-
-        self.assertEqual(len(gemm_outputs), num_experts)
-        for i in range(num_experts):
-            # After gated activation, result is in the first D columns
-            torch.testing.assert_close(gemm_outputs[i][:, :D], ref_outputs[i], atol=1e-3, rtol=1e-3)
+            tol = TOLERANCES[dtype]
+            for i in range(num_experts):
+                self.assertEqual(gemm_outputs[i][:, :D], ref[i], **tol)
 
     @torch.inference_mode()
     def test_unsupported_activation(self):
-        """Verify that an unsupported activation string raises RuntimeError."""
+        """Unsupported activation string raises RuntimeError."""
         num_experts, M, K, N = 4, 8, 64, 32
         inputs = [torch.randn(M, K) for i in range(num_experts)]
         weights = [torch.randn(N, K) for i in range(num_experts)]
         bias = [None] * num_experts
         gemm_outputs = [torch.empty(M, N) for i in range(num_experts)]
 
-        # "relu" is not in the supported set (none, silu, gelu, swigluoai),
-        # so the kernel should raise via ZENTORCH_CHECK in map_activation_to_gated_act
-        with self.assertRaisesRegex(RuntimeError, "unsupported activation"):
+        for bad_activation in ["relu", "tanh"]:
+            with self.assertRaisesRegex(RuntimeError, "unsupported activation"):
+                torch.ops.zentorch.zentorch_group_matmul.out(
+                    gemm_outputs, inputs, weights, bias, bad_activation, [], [])
+
+    @torch.inference_mode()
+    def test_fused_w2(self):
+        """Fused w13 → activation → w2 (with bias) across configs."""
+        for num_experts, M, K, D, K_out, activation, dtype in FUSED_W2_CONFIGS:
+            N = 2 * D
+            w13_bias = [None] * num_experts
+            inputs = [torch.randn(M, K, dtype=dtype) for i in range(num_experts)]
+            w13_weights = [torch.randn(N, K, dtype=dtype) for i in range(num_experts)]
+            w2_weights = [torch.randn(K_out, D, dtype=dtype) for i in range(num_experts)]
+            w2_bias = [torch.randn(K_out, dtype=dtype) for i in range(num_experts)]
+
+            gemm_outputs = [torch.empty(M, N, dtype=dtype) for i in range(num_experts)]
+
+            # ZenDNN manages w2 output internally
             torch.ops.zentorch.zentorch_group_matmul.out(
-                gemm_outputs, inputs, weights, bias, None, None, None,
-                activation="relu")
+                gemm_outputs, inputs, w13_weights, w13_bias, activation,
+                w2_weights, w2_bias)
+
+    @torch.inference_mode()
+    def test_empty_gemm_outputs_fused_w2(self):
+        """Fused w2 with gemm_outputs=[] — backend allocates dst internally."""
+        for num_experts, M, K, D, K_out, activation, dtype in FUSED_W2_CONFIGS:
+            N = 2 * D
+            w13_bias = [None] * num_experts
+            inputs = [torch.randn(M, K, dtype=dtype) for i in range(num_experts)]
+            w13_weights = [torch.randn(N, K, dtype=dtype) for i in range(num_experts)]
+            w2_weights = [torch.randn(K_out, D, dtype=dtype) for i in range(num_experts)]
+            w2_bias = [torch.randn(K_out, dtype=dtype) for i in range(num_experts)]
+
+            # ZenDNN manages w2 output internally
+            torch.ops.zentorch.zentorch_group_matmul.out(
+                [], inputs, w13_weights, w13_bias, activation,
+                w2_weights, w2_bias)
+
+    @torch.inference_mode()
+    def test_fused_moe_pipeline(self):
+        """Full pipeline: w13 → activation → w2 (with bias) → MoE reduce, bf16.
+
+        ZenDNN reuses the input buffers for w2 output, so row_ptrs must
+        point into the input tensors (which will hold the down projection
+        results after the kernel completes).
+        """
+        if not zentorch._C.is_avx512_supported():
+            self.skipTest("AVX512 not supported")
+
+        for (num_experts, K, D, K_out, topk, num_tokens,
+             activation, dtype) in FULL_MOE_FFN_CONFIGS:
+            N = 2 * D
+            w13_bias = [None] * num_experts
+            w13_weights = [torch.randn(N, K, dtype=dtype) for i in range(num_experts)]
+            w2_weights = [torch.randn(K_out, D, dtype=dtype) for i in range(num_experts)]
+            w2_bias = [torch.randn(K_out, dtype=dtype) for i in range(num_experts)]
+
+            topk_indices = torch.randint(0, num_experts, (num_tokens, topk))
+            topk_weights_t = torch.rand(num_tokens, topk)
+            hidden_states = torch.randn(num_tokens, K, dtype=dtype)
+
+            # Scatter tokens to per-expert batches. ZenDNN reuses input
+            # buffers for w2 output, so row_ptrs must point into inputs.
+            inputs, unused_outputs, unused_ptrs = self._scatter_and_build_row_ptrs(
+                hidden_states, topk_indices, num_experts, K, K_out)
+
+            # Todo: Will try to reuse the existing function to build row_ptrs.
+            # Build row_ptrs pointing into input buffers (MoE reduce target)
+            row_ptrs_into_inputs = torch.zeros(num_tokens * topk, dtype=torch.int64)
+            per_expert_row = [0] * num_experts
+            for token_idx in range(num_tokens):
+                for topk_idx in range(topk):
+                    expert_id = topk_indices[token_idx, topk_idx].item()
+                    row_in_expert = per_expert_row[expert_id]
+                    row_ptrs_into_inputs[token_idx * topk + topk_idx] = (
+                        inputs[expert_id].data_ptr()
+                        + row_in_expert * inputs[expert_id].stride(0)
+                        * inputs[expert_id].element_size())
+                    per_expert_row[expert_id] += 1
+
+            moe_reduce_output = torch.empty(num_tokens, K_out, dtype=dtype)
+
+            ref_down = self._reference_expert_outputs(
+                inputs, w13_weights, w13_bias, activation=activation,
+                w2_weights=w2_weights, w2_bias=w2_bias,
+                compute_in_fp32=(dtype == torch.bfloat16))
+            ref_moe = self._reference_weighted_reduce(
+                ref_down, topk_weights_t, topk_indices, num_tokens, topk)
+
+            gate_up_outputs = [torch.empty(inputs[i].size(0), N, dtype=dtype)
+                               for i in range(num_experts)]
+
+            torch.ops.zentorch.zentorch_group_matmul.out(
+                gate_up_outputs, inputs, w13_weights, w13_bias, activation,
+                w2_weights, w2_bias,
+                moe_reduce_output, topk_weights_t, row_ptrs_into_inputs)
+
+            self.assertEqual(moe_reduce_output.float(), ref_moe, **TOLERANCES["fused_bf16"])
 
 
 if __name__ == "__main__":
