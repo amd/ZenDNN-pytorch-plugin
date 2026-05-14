@@ -22,7 +22,7 @@ logger = get_logger(__name__)
 
 # Supported vLLM versions
 VLLM_MIN_VERSION = "0.15.0"
-VLLM_MAX_VERSION = "0.20.1"
+VLLM_MAX_VERSION = "0.20.2"
 
 VLLM_V15 = "0.15.0"
 VLLM_V15_1 = "0.15.1"
@@ -35,6 +35,7 @@ VLLM_V19 = "0.19.0"
 VLLM_V19_1 = "0.19.1"
 VLLM_V20 = "0.20.0"
 VLLM_V20_1 = "0.20.1"
+VLLM_V20_2 = "0.20.2"
 
 # Version -> family mapping
 _VERSION_MAP = {
@@ -49,6 +50,7 @@ _VERSION_MAP = {
     VLLM_V19_1: "v19",
     VLLM_V20: "v20",
     VLLM_V20_1: "v20",
+    VLLM_V20_2: "v20",
 }
 
 

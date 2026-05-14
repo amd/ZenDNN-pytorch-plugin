@@ -45,6 +45,7 @@ from zentorch.vllm.core import (
     VLLM_V19_1,
     VLLM_V20,
     VLLM_V20_1,
+    VLLM_V20_2,
 )
 
 logger = get_logger(__name__)
@@ -363,6 +364,7 @@ class CompilationConfigReprPatch:
     VLLM_V19_1,
     VLLM_V20,
     VLLM_V20_1,
+    VLLM_V20_2,
 )
 class CPUProfilerPatch:
     """Stub: Actual patching happens in platform.py check_and_update_config.
@@ -784,7 +786,8 @@ def _install_pre_v18_dispatch_hooks():
 
 
 # ---------------------------------------------------------------------------
-# vLLM 0.20.0 / 0.20.1 backport: PyTorch cpp codegen indirect_assert scalar-mask fix
+# vLLM 0.20.0 / 0.20.1 / 0.20.2 backport: PyTorch cpp codegen indirect_assert
+# scalar-mask fix
 # ---------------------------------------------------------------------------
 #
 # Backport of vllm-project/vllm#40973 (PyTorch PR pytorch/pytorch#178148).
@@ -796,11 +799,13 @@ def _install_pre_v18_dispatch_hooks():
 #     no matching function for call to 'VecMask<int64_t,2>::VecMask(int&)'
 #
 # The PyTorch upstream fix lands in 2.12; vLLM mainline carries the backport
-# but vLLM 0.20.0 and 0.20.1 shipped without it. For torch 2.11.x (the only
-# torch family 0.20.x supports) we monkey-patch CppVecKernel.indirect_assert
-# to use `VecMask<...>::from(scalar)` instead.
+# but the v0.20.x stable release branch (0.20.0, 0.20.1, 0.20.2) shipped
+# without it -- the upstream cherry-pick landed in v0.20.2rc0 but was not
+# included in the final v0.20.2 tag, which was cut from an older base.
+# For torch 2.11.x (the only torch family 0.20.x supports) we monkey-patch
+# CppVecKernel.indirect_assert to use `VecMask<...>::from(scalar)` instead.
 #
-# Currently scoped to vLLM 0.20.0 and 0.20.1 only via the @vllm_version
+# Currently scoped to vLLM 0.20.0, 0.20.1 and 0.20.2 via the @vllm_version
 # decorator below. Extend the decorator if other supported vLLM releases
 # also need this backport.
 # Remove the patch entirely once the minimum supported torch is 2.12.
@@ -866,7 +871,7 @@ def _apply_cpp_indirect_assert_patch() -> None:
     CppVecKernel._zentorch_indirect_assert_patched = True
     logger.info(
         "[zentorch] Patched CppVecKernel.indirect_assert "
-        "(vLLM 0.20.0/0.20.1 backport)"
+        "(vLLM 0.20.0/0.20.1/0.20.2 backport)"
     )
 
 
@@ -931,18 +936,20 @@ def _patch_cpp_indirect_assert_if_needed() -> bool:
     return True
 
 
-@vllm_version(VLLM_V20, VLLM_V20_1)
+@vllm_version(VLLM_V20, VLLM_V20_1, VLLM_V20_2)
 class CppIndirectAssertPatch:
-    """Backport vLLM PR #40973 / PyTorch PR #178148 for vLLM 0.20.0 and 0.20.1.
+    """Backport vLLM PR #40973 / PyTorch PR #178148 for vLLM 0.20.0/0.20.1/0.20.2.
 
-    Both 0.20.0 and 0.20.1 ship without the CppVecKernel.indirect_assert
-    backport that later vLLM releases include, breaking torch.compile for
+    The entire v0.20.x stable release branch ships without the
+    CppVecKernel.indirect_assert backport that vLLM main carries: the
+    upstream cherry-pick made it into v0.20.2rc0 but not into the final
+    v0.20.2 tag (cut from an older base). This breaks torch.compile for
     models like Qwen3-VL-2B that do indirect indexing in tail-vectorized
     loops.
 
-    Currently scoped to v0.20.0 and v0.20.1 only. Extend the @vllm_version
-    decorator above when adding support for newer vLLM releases that also
-    lack the fix.
+    Currently scoped to v0.20.0, v0.20.1 and v0.20.2. Extend the
+    @vllm_version decorator above when adding support for newer vLLM
+    releases that also lack the fix.
     """
 
     @classmethod
@@ -951,10 +958,13 @@ class CppIndirectAssertPatch:
 
 
 # ---------------------------------------------------------------------------
-# vLLM 0.20.0 / 0.20.1 backport: CPU runner shutdown crash fix
+# vLLM 0.20.0 / 0.20.1 / 0.20.2 backport: CPU runner shutdown crash fix
 # ---------------------------------------------------------------------------
 #
-# Backport of vllm-project/vllm#41034 (commit d95d03c, in vLLM 0.20.2+).
+# Backport of vllm-project/vllm#41034 (commit d95d03c, in vLLM main).
+# The upstream cherry-pick made it into v0.20.2rc0 but not into the final
+# v0.20.2 tag (cut from an older base), so the entire v0.20.x stable
+# release branch (0.20.0, 0.20.1, 0.20.2) ships without the fix.
 #
 # CPUModelRunner inherits from GPUModelRunner whose shutdown() calls
 # torch.accelerator.synchronize() and torch.accelerator.empty_cache().
@@ -968,9 +978,9 @@ class CppIndirectAssertPatch:
 # Upstream patches CPUModelRunner.__init__ to noop those two APIs at runner
 # construction time. Since this plugin is CPU-only and registers at process
 # startup, we apply the noop patch eagerly during plugin init, gated to vLLM
-# 0.20.0 and 0.20.1 (both shipped without the fix).
+# 0.20.0, 0.20.1 and 0.20.2 (all shipped without the fix).
 #
-# Remove this patch once VLLM_MIN_VERSION >= 0.20.2.
+# Remove this patch once VLLM_MIN_VERSION ships the upstream fix natively.
 
 _TORCH_ACCELERATOR_NOOP_APPLIED = False
 
@@ -1000,22 +1010,22 @@ def _apply_torch_accelerator_noop_patch() -> bool:
     _TORCH_ACCELERATOR_NOOP_APPLIED = True
     logger.info(
         "[zentorch] Patched torch.accelerator.{synchronize,empty_cache} -> noop "
-        "(vLLM 0.20.0/0.20.1 CPU runner shutdown fix)"
+        "(vLLM 0.20.0/0.20.1/0.20.2 CPU runner shutdown fix)"
     )
     return True
 
 
-@vllm_version(VLLM_V20, VLLM_V20_1)
+@vllm_version(VLLM_V20, VLLM_V20_1, VLLM_V20_2)
 class CPURunnerShutdownPatch:
-    """Backport vLLM PR #41034 for vLLM 0.20.0 and 0.20.1.
+    """Backport vLLM PR #41034 for vLLM 0.20.0, 0.20.1 and 0.20.2.
 
-    Both 0.20.0 and 0.20.1 ship CPUModelRunner without the noop patch for
-    torch.accelerator.{synchronize,empty_cache}, so worker shutdown raises
-    'RuntimeError: Cannot access accelerator device when none is available.'
-    after every CPU run.
+    The entire v0.20.x stable release branch ships CPUModelRunner without
+    the noop patch for torch.accelerator.{synchronize,empty_cache}, so
+    worker shutdown raises 'RuntimeError: Cannot access accelerator device
+    when none is available.' after every CPU run.
 
-    Currently scoped to v0.20.0 and v0.20.1 only. Drop once the minimum
-    supported vLLM is >= 0.20.2.
+    Currently scoped to v0.20.0, v0.20.1 and v0.20.2. Drop once the
+    minimum supported vLLM ships the upstream fix natively.
     """
 
     @classmethod
@@ -1068,12 +1078,24 @@ def register() -> Optional[str]:
 
     vllm_ver = getattr(sys.modules["vllm"], "__version__", None)
     family = get_version_family()
+    runtime_min_vllm = VLLM_V20
+
+    # vLLM 0.20.x is the first release line built on PyTorch 2.11.
+    if family in {"v15", "v15_1", "v16", "v17", "v18", "v19"}:
+        logger.warning(
+            "[zentorch] Unsupported vLLM %s. Minimum runtime-supported vLLM is %s "
+            "because zentorch requires the PyTorch 2.11-based vLLM releases.",
+            vllm_ver,
+            runtime_min_vllm,
+        )
+        return None
 
     if family is None:
         logger.warning(
-            "[zentorch] Unsupported vLLM %s. Supports: %s through %s",
+            "[zentorch] Unsupported vLLM %s. Runtime support starts at %s and "
+            "extends through %s",
             vllm_ver,
-            VLLM_MIN_VERSION,
+            runtime_min_vllm,
             VLLM_MAX_VERSION,
         )
         return None

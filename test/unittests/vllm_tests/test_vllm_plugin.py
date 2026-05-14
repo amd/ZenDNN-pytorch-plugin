@@ -7,14 +7,15 @@
 Unit tests for zentorch.vllm plugin.
 
 Tests verify:
-- Version compatibility checks for supported versions (0.15.0 - 0.20.1)
+- Runtime compatibility checks for supported versions (0.20.0 - 0.20.2)
 - Version parsing logic
 - Patch registration and application
 - Individual patch functionality (oneDNN disable, CompilationConfig repr, etc.)
 - Platform configuration
 
-Supported vLLM versions: 0.15.0, 0.15.1, 0.16.0, 0.17.0, 0.17.1, 0.18.0, 0.18.1,
-0.19.0, 0.19.1, 0.20.0, 0.20.1
+Runtime-supported vLLM versions: 0.20.0, 0.20.1, 0.20.2
+Retained legacy version map: 0.15.0, 0.15.1, 0.16.0, 0.17.0, 0.17.1, 0.18.0,
+0.18.1, 0.19.0, 0.19.1
 """
 
 import os
@@ -90,6 +91,7 @@ class TestVersionParsing(unittest.TestCase):
             "0.19.1",
             "0.20.0",
             "0.20.1",
+            "0.20.2",
         ]
         for ver in expected_versions:
             self.assertIn(ver, _VERSION_MAP, f"{ver} should be in VERSION_MAP")
@@ -135,6 +137,9 @@ class TestVersionParsing(unittest.TestCase):
         self.assertEqual(_VERSION_MAP.get(_base_version("0.20.1")), "v20")
         self.assertEqual(_VERSION_MAP.get(_base_version("0.20.1+cpu")), "v20")
         self.assertEqual(_VERSION_MAP.get(_base_version("0.20.1rc0+cpu")), "v20")
+        self.assertEqual(_VERSION_MAP.get(_base_version("0.20.2")), "v20")
+        self.assertEqual(_VERSION_MAP.get(_base_version("0.20.2+cpu")), "v20")
+        self.assertEqual(_VERSION_MAP.get(_base_version("0.20.2rc0+cpu")), "v20")
 
     def test_version_family_detection_unsupported(self):
         """VERSION_MAP should return None for unsupported versions."""
@@ -152,7 +157,7 @@ class TestVersionParsing(unittest.TestCase):
             "0.14.0",
             "0.14.1",
             "0.19.2",
-            "0.20.2",
+            "0.20.3",
             "0.21.0",
             "1.0.0",
         ]
@@ -198,6 +203,32 @@ class TestVllmPluginVersionCheck(unittest.TestCase):
             family,
             f"vLLM {vllm.__version__} (base: {base_ver}) should be supported",
         )
+
+    def test_register_accepts_v20_runtime_minimum(self):
+        """register() should accept vLLM 0.20.0 as the minimum runtime version."""
+        spec, zv = _load_source_vllm_module()
+        fake_vllm = types.ModuleType("vllm")
+        fake_vllm.__version__ = "0.20.0"
+
+        with mock.patch.dict(sys.modules, {"zentorch.vllm": zv, "vllm": fake_vllm}):
+            spec.loader.exec_module(zv)
+            zv._INITIALIZED = False
+
+            with (
+                mock.patch.object(zv, "get_version_family", return_value="v20"),
+                mock.patch.object(zv, "_apply_faketensor_subclass_patch"),
+                mock.patch.object(zv, "_apply_fxgraphcache_pickle_patch"),
+                mock.patch.object(zv, "_register_zentorch_linear_dispatch"),
+                mock.patch.object(zv, "_register_patches") as register_patches,
+                mock.patch.object(zv.manager, "apply_all") as apply_all,
+                mock.patch.object(zv, "_install_pre_v18_dispatch_hooks") as install_hooks,
+            ):
+                result = zv.register()
+
+            self.assertEqual(result, "zentorch.vllm.platform.ZenCPUPlatform")
+            register_patches.assert_called_once_with()
+            apply_all.assert_called_once_with()
+            install_hooks.assert_not_called()
 
 
 class TestPatchRegistration(unittest.TestCase):
@@ -254,17 +285,24 @@ class TestPatchRegistration(unittest.TestCase):
 
 
 class TestPreV18DispatchHook(unittest.TestCase):
-    """Test shared dispatch hook behavior for v0.15.0-v0.17.x."""
+    """Test retained pre-v18 dispatch hook behavior."""
 
-    def test_register_installs_dispatch_hooks_only_for_pre_v18_families(self):
-        """register() should install dispatch hooks only for v15-v17 families."""
-        pre_v18_families = {"v15", "v15_1", "v16", "v17"}
+    def test_register_rejects_pre_v20_even_if_legacy_family_exists(self):
+        """register() should reject legacy vLLM releases before hook install."""
+        pre_v20_cases = [
+            ("0.15.0", "v15"),
+            ("0.15.1", "v15_1"),
+            ("0.16.0", "v16"),
+            ("0.17.0", "v17"),
+            ("0.18.0", "v18"),
+            ("0.19.0", "v19"),
+        ]
 
-        for family in ("v15", "v15_1", "v16", "v17", "v18", "v19", "v20"):
-            with self.subTest(family=family):
+        for version_str, family in pre_v20_cases:
+            with self.subTest(version_str=version_str, family=family):
                 spec, zv = _load_source_vllm_module()
                 fake_vllm = types.ModuleType("vllm")
-                fake_vllm.__version__ = "0.15.0"
+                fake_vllm.__version__ = version_str
 
                 with mock.patch.dict(
                     sys.modules, {"zentorch.vllm": zv, "vllm": fake_vllm}
@@ -277,19 +315,18 @@ class TestPreV18DispatchHook(unittest.TestCase):
                         mock.patch.object(zv, "_apply_faketensor_subclass_patch"),
                         mock.patch.object(zv, "_apply_fxgraphcache_pickle_patch"),
                         mock.patch.object(zv, "_register_zentorch_linear_dispatch"),
-                        mock.patch.object(zv, "_register_patches"),
-                        mock.patch.object(zv.manager, "apply_all"),
+                        mock.patch.object(zv, "_register_patches") as register_patches,
+                        mock.patch.object(zv.manager, "apply_all") as apply_all,
                         mock.patch.object(
                             zv, "_install_pre_v18_dispatch_hooks"
                         ) as install_hooks,
                     ):
                         result = zv.register()
 
-                    self.assertEqual(result, "zentorch.vllm.platform.ZenCPUPlatform")
-                    if family in pre_v18_families:
-                        install_hooks.assert_called_once_with()
-                    else:
-                        install_hooks.assert_not_called()
+                    self.assertIsNone(result)
+                    register_patches.assert_not_called()
+                    apply_all.assert_not_called()
+                    install_hooks.assert_not_called()
 
     def test_pre_v18_dispatch_patch_preserves_weight_removal(self):
         """The shared dispatch hook should preserve remove_weight semantics."""
@@ -387,7 +424,7 @@ class TestPlatformProfilerPatchVersionRange(unittest.TestCase):
     """Test profiler patch version gating in platform.py."""
 
     def test_profiler_patch_range_uses_normalized_versions(self):
-        """Profiler patch should use a normalized 0.15.0-0.20.1 version range."""
+        """Profiler patch should use a normalized 0.15.0-0.20.2 version range."""
         from zentorch.vllm import platform
 
         cases = [
@@ -409,7 +446,10 @@ class TestPlatformProfilerPatchVersionRange(unittest.TestCase):
             ("0.20.1", True),
             ("0.20.1+cpu", True),
             ("0.20.1rc0+cpu", True),
-            ("0.20.2", False),
+            ("0.20.2", True),
+            ("0.20.2+cpu", True),
+            ("0.20.2rc0+cpu", True),
+            ("0.20.3", False),
             ("0.21.0", False),
         ]
 
@@ -506,7 +546,7 @@ class TestZentorchOptimizePass(unittest.TestCase):
 
 
 class TestCppIndirectAssertPatch(unittest.TestCase):
-    """CppIndirectAssertPatch must be registered and gated to vLLM 0.20.0/0.20.1."""
+    """CppIndirectAssertPatch must be registered and gated to vLLM 0.20.0/0.20.1/0.20.2."""
 
     @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
     @unittest.skipUnless(IS_PYTHON_3_10_OR_ABOVE, "vLLM 0.11+ requires Python 3.10+")
@@ -518,19 +558,20 @@ class TestCppIndirectAssertPatch(unittest.TestCase):
         register()
         self.assertIn("CppIndirectAssert", manager.patches)
 
-    def test_patch_targets_v20_and_v20_1(self):
-        """The @vllm_version decorator should target v0.20.0 and v0.20.1."""
+    def test_patch_targets_v20_v20_1_v20_2(self):
+        """The @vllm_version decorator should target v0.20.0, v0.20.1, v0.20.2."""
         from zentorch.vllm import CppIndirectAssertPatch
-        from zentorch.vllm.core import VLLM_V20, VLLM_V20_1
+        from zentorch.vllm.core import VLLM_V20, VLLM_V20_1, VLLM_V20_2
 
         self.assertTrue(hasattr(CppIndirectAssertPatch, "_target_versions"))
         self.assertEqual(
-            CppIndirectAssertPatch._target_versions, {VLLM_V20, VLLM_V20_1}
+            CppIndirectAssertPatch._target_versions,
+            {VLLM_V20, VLLM_V20_1, VLLM_V20_2},
         )
 
 
 class TestCPURunnerShutdownPatch(unittest.TestCase):
-    """CPURunnerShutdownPatch must be registered, gated to v0.20.0/v0.20.1,
+    """CPURunnerShutdownPatch must be registered, gated to v0.20.0/v0.20.1/v0.20.2,
     and actually replace torch.accelerator.{synchronize,empty_cache} on apply.
     """
 
@@ -543,13 +584,14 @@ class TestCPURunnerShutdownPatch(unittest.TestCase):
         register()
         self.assertIn("CPURunnerShutdown", manager.patches)
 
-    def test_patch_targets_v20_and_v20_1(self):
+    def test_patch_targets_v20_v20_1_v20_2(self):
         from zentorch.vllm import CPURunnerShutdownPatch
-        from zentorch.vllm.core import VLLM_V20, VLLM_V20_1
+        from zentorch.vllm.core import VLLM_V20, VLLM_V20_1, VLLM_V20_2
 
         self.assertTrue(hasattr(CPURunnerShutdownPatch, "_target_versions"))
         self.assertEqual(
-            CPURunnerShutdownPatch._target_versions, {VLLM_V20, VLLM_V20_1}
+            CPURunnerShutdownPatch._target_versions,
+            {VLLM_V20, VLLM_V20_1, VLLM_V20_2},
         )
 
     def test_apply_makes_accelerator_apis_noop(self):
