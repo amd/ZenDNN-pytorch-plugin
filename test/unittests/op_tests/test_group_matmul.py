@@ -140,7 +140,7 @@ class Test_GroupMatmul(Zentorch_TestCase):
         raise ValueError(f"Unsupported activation: {activation!r}")
 
 # Todo: Update the testcases in a parameterized structure.
-# JIRA ID: https://jira.xilinx.com/browse/ZENAI-3656
+# JIRA ID: ZENAI-3656
     @torch.inference_mode()
     def test_plain_gemm(self):
         """Plain parallel GEMM across dtypes and dimensions."""
@@ -267,6 +267,11 @@ class Test_GroupMatmul(Zentorch_TestCase):
     def test_fused_moe_pipeline(self):
         """Full pipeline: w13 → activation → w2 (with bias) → MoE reduce, bf16.
 
+        Two output paths are verified per config:
+          - Low-level: zentorch_group_matmul.out with inline MoE weighted-reduce
+          - High-level: zentorch_fused_moe (token grouping + W13 + act + W2 +
+            weighted reduce in a single op call)
+
         ZenDNN reuses the input buffers for w2 output, so row_ptrs must
         point into the input tensors (which will hold the down projection
         results after the kernel completes).
@@ -305,8 +310,6 @@ class Test_GroupMatmul(Zentorch_TestCase):
                         * inputs[expert_id].element_size())
                     per_expert_row[expert_id] += 1
 
-            moe_reduce_output = torch.empty(num_tokens, K_out, dtype=dtype)
-
             ref_down = self._reference_expert_outputs(
                 inputs, w13_weights, w13_bias, activation=activation,
                 w2_weights=w2_weights, w2_bias=w2_bias,
@@ -314,6 +317,8 @@ class Test_GroupMatmul(Zentorch_TestCase):
             ref_moe = self._reference_weighted_reduce(
                 ref_down, topk_weights_t, topk_indices, num_tokens, topk)
 
+            # --- Output 1: low-level zentorch_group_matmul.out ---
+            moe_reduce_output = torch.empty(num_tokens, K_out, dtype=dtype)
             gate_up_outputs = [torch.empty(inputs[i].size(0), N, dtype=dtype)
                                for i in range(num_experts)]
 
@@ -323,6 +328,30 @@ class Test_GroupMatmul(Zentorch_TestCase):
                 moe_reduce_output, topk_weights_t, row_ptrs_into_inputs)
 
             self.assertEqual(moe_reduce_output.float(), ref_moe, **TOLERANCES["fused_bf16"])
+
+            # --- Output 2: high-level zentorch_fused_moe op ---
+            # Wraps Phase 1 (token grouping) + W13 GEMM + gated activation +
+            # W2 GEMM + weighted reduce in a single call. Inputs are the
+            # un-scattered hidden_states + 3-D stacked weights; output must
+            # match the same per-expert reference reduction (ref_moe).
+            w13_3d = torch.stack(w13_weights, dim=0)          # [E, 2*D, K]
+            w2_3d = torch.stack(w2_weights, dim=0)            # [E, K_out, D]
+            w2_bias_3d = torch.stack(w2_bias, dim=0)          # [E, K_out]
+
+            fused_moe_output = torch.zeros(num_tokens, K_out, dtype=dtype)
+            torch.ops.zentorch.zentorch_fused_moe(
+                fused_moe_output,
+                hidden_states,
+                w13_3d, w2_3d,
+                None,                                          # no w13_bias
+                w2_bias_3d,
+                topk_weights_t, topk_indices.to(torch.int32),
+                False,                                         # skip_weighted
+                activation,
+            )
+
+            self.assertEqual(fused_moe_output.shape, (num_tokens, K_out))
+            self.assertEqual(fused_moe_output.float(), ref_moe, **TOLERANCES["fused_bf16"])
 
 
 if __name__ == "__main__":

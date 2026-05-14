@@ -935,6 +935,23 @@ def meta_zentorch_group_matmul_out(
     return
 
 
+@register_meta("zentorch_fused_moe")
+def meta_zentorch_fused_moe(
+    output,
+    input,
+    w13,
+    w2,
+    w13_bias,
+    w2_bias,
+    topk_weights,
+    topk_id,
+    skip_weighted,
+    act,
+    zentorch_op_name="zentorch::zentorch_fused_moe",
+):
+    return
+
+
 @register_meta("zentorch_woq_repack_weight")
 def meta_zentorch_woq_repack_weight(unpacked_weight):
     # Returns a packed weight tensor of shape [N, K/8]
@@ -993,6 +1010,7 @@ make_fallback(torch.ops.zentorch.zentorch_masked_multihead_self_attention)
 make_fallback(torch.ops.zentorch.zentorch_weight_prepack_for_linear)
 make_fallback(torch.ops.zentorch.zentorch_dynamic_qlinear)
 make_fallback(torch.ops.zentorch.zentorch_group_matmul.out)
+make_fallback(torch.ops.zentorch.zentorch_fused_moe)
 make_fallback(torch.ops.zentorch.zentorch_woq_repack_weight)
 make_fallback(
     torch.ops.zentorch.zentorch_woq_repack_from_int4pack

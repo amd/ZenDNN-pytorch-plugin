@@ -20,11 +20,13 @@ Reference: https://blog.vllm.ai/2025/11/20/vllm-plugin-system.html
 from __future__ import annotations
 
 import importlib.util
+import os
 import sys
 from typing import Optional
 import torch
 
 from zentorch._logging import get_logger
+from zentorch._utils import counters
 from zentorch.vllm.core import (
     vllm_version,
     vllm_version_range,
@@ -485,6 +487,167 @@ class RMSNormPatch:
 
 
 # ---------------------------------------------------------------------------
+# CPUFusedMOE Patch (opt-in via ZENTORCH_FUSED_MOE=1; deferred via import hook)
+# ---------------------------------------------------------------------------
+#
+# Replaces vLLM's CPUFusedMOE — which dispatches to either `cpu_fused_moe`
+# (hand-written MicroGemm AMX/VEC kernel with prepacked weights) or
+# `cpu_fused_moe_torch` (per-expert F.linear loop) — with a single call to
+# `torch.ops.zentorch.zentorch_fused_moe`. The op runs the full MoE FFN block
+# (token grouping -> W13 GEMM -> gated activation -> W2 GEMM -> weighted
+# reduce) inside one ZenDNN `group_matmul_direct` call.
+#
+# Disabled by default. Set `ZENTORCH_FUSED_MOE=1` to enable.
+#
+# Per-layer weight validation runs once at __init__ time; per-call validation
+# (input/topk shapes, dtype, activation) runs at every forward. The C++ op
+# itself trusts its inputs.
+
+_FUSED_MOE_HOOK_INSTALLED = False
+
+_SUPPORTED_MOE_ACTIVATIONS = ("silu", "gelu", "swigluoai")
+
+
+def _moe_forward_zentorch(
+    self,
+    layer,
+    input,
+    topk_weights,
+    topk_ids,
+    activation,
+    global_num_experts: int = -1,
+    apply_router_weight_on_input: bool = False,
+):
+    """CPUFusedMOE forward replacement that dispatches to zentorch_fused_moe.
+
+    Mirrors vLLM `forward_grouped_gemm` / `forward_torch` signature so the
+    enclosing `CPUFusedMOE.__call__` can hand off to us transparently.
+    """
+    # Activation may arrive as a MoEActivation enum or a raw string.
+    act = activation if isinstance(activation, str) else activation.value
+    if act not in _SUPPORTED_MOE_ACTIVATIONS:
+        raise ValueError(
+            f"[zentorch] Unsupported activation {act!r}. "
+            f"Must be one of {_SUPPORTED_MOE_ACTIVATIONS}"
+        )
+
+    # Op accumulates into output -> caller must zero-initialize.
+    output = torch.zeros_like(input)
+
+    if apply_router_weight_on_input:
+        # Match vLLM's behavior: pre-apply the K=1 router weight to the input
+        # then signal the op to skip its own weighted reduce.
+        input = input.mul(topk_weights.to(input.dtype))
+
+    torch.ops.zentorch.zentorch_fused_moe(
+        output,
+        input,
+        layer.w13_weight,
+        layer.w2_weight,
+        getattr(layer, "w13_bias", None),
+        getattr(layer, "w2_bias", None),
+        topk_weights,
+        topk_ids,
+        apply_router_weight_on_input,  # skip_weighted
+        act,
+    )
+    return output
+
+
+def _do_patch_fused_moe() -> bool:
+    """Patch CPUFusedMOE.__init__ to dispatch through zentorch_fused_moe."""
+    try:
+        from vllm.model_executor.layers.fused_moe.cpu_fused_moe import (
+            CPUFusedMOE,
+        )
+    except ImportError:
+        return False
+
+    if hasattr(CPUFusedMOE, "_zentorch_fused_moe_patched"):
+        return True
+
+    CPUFusedMOE._zentorch_forward = _moe_forward_zentorch
+
+    def _patched_init(self, layer):
+        # Skip vLLM's prepacking + grouped-gemm path; we use the standard
+        # [E, ...] layout that zentorch_fused_moe expects.
+        self.isa = "none"
+        self.forward_method = self._zentorch_forward
+        # Bump the per-replacement counter (matches the convention used by
+        # graph-rewrite replacements in `_custom_op_replacement.py`).
+        counters["zentorch"]["zentorch_fused_moe"] += 1
+
+    CPUFusedMOE.__init__ = _patched_init
+    CPUFusedMOE._zentorch_fused_moe_patched = True
+    logger.info("[zentorch] Patched CPUFusedMOE forward -> zentorch_fused_moe")
+    return True
+
+
+class _FusedMoEImportHook:
+    """Post-import hook: patch CPUFusedMOE after `cpu_fused_moe` module loads."""
+
+    _TARGET_MODULE = "vllm.model_executor.layers.fused_moe.cpu_fused_moe"
+
+    def find_spec(self, fullname, path, target=None):
+        if fullname != self._TARGET_MODULE:
+            return None
+        if self in sys.meta_path:
+            sys.meta_path.remove(self)
+
+        import importlib.util
+
+        spec = importlib.util.find_spec(fullname)
+        if spec is None or spec.loader is None:
+            return None
+
+        original_exec = spec.loader.exec_module
+
+        def _exec_then_patch(module):
+            original_exec(module)
+            _do_patch_fused_moe()
+
+        spec.loader.exec_module = _exec_then_patch
+        return spec
+
+
+def _apply_fused_moe_patch() -> bool:
+    """Install CPUFusedMOE patch, deferred if the module isn't loaded yet."""
+    global _FUSED_MOE_HOOK_INSTALLED
+
+    if _FUSED_MOE_HOOK_INSTALLED:
+        return True
+
+    if _FusedMoEImportHook._TARGET_MODULE in sys.modules:
+        result = _do_patch_fused_moe()
+    else:
+        sys.meta_path.insert(0, _FusedMoEImportHook())
+        logger.debug("[zentorch] Installed CPUFusedMOE import hook")
+        result = True
+
+    _FUSED_MOE_HOOK_INSTALLED = True
+    return result
+
+
+@vllm_version_range(min_ver=VLLM_V15, max_ver=VLLM_MAX_VERSION)
+class FusedMoEPatch:
+    """Replace CPUFusedMOE forward with zentorch_fused_moe.
+
+    Opt-in: disabled by default. Set environment variable
+    `ZENTORCH_FUSED_MOE=1` to enable the patch.
+    """
+
+    @classmethod
+    def apply(cls) -> bool:
+        if os.environ.get("ZENTORCH_FUSED_MOE", "0") != "1":
+            logger.debug(
+                "[zentorch] FusedMoE patch disabled "
+                "(set ZENTORCH_FUSED_MOE=1 to enable)"
+            )
+            return False
+        return _apply_fused_moe_patch()
+
+
+# ---------------------------------------------------------------------------
 # vLLM 0.15-0.17 GEMM Dispatch Hook
 # ---------------------------------------------------------------------------
 #
@@ -879,6 +1042,7 @@ def _register_patches():
     manager.register("RMSNorm", RMSNormPatch)
     manager.register("CppIndirectAssert", CppIndirectAssertPatch)
     manager.register("CPURunnerShutdown", CPURunnerShutdownPatch)
+    manager.register("FusedMoE", FusedMoEPatch)
 
     _REGISTERED = True
 
