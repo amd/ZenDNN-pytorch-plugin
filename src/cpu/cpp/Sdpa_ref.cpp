@@ -7,6 +7,7 @@
  * PyTorch commit ID: d990dad
  ******************************************************************************/
 
+#include "EnvReader.hpp"
 #include "Memory.hpp"
 #include "Utils.hpp"
 #include "kernels/zen_cpukernels.hpp"
@@ -14,6 +15,63 @@
 #include <ATen/OpMathType.h>
 
 namespace zentorch {
+
+// Wrapper around zendnnl::lowoha::sdpa::sdpa_direct. Builds the sdpa_params
+// struct from the input tensors and invokes the direct kernel.
+inline void
+zendnnl_sdpa_direct_kernel(const at::Tensor &query, const at::Tensor &key,
+                           const at::Tensor &value, at::Tensor &output,
+                           const double dropout_p, const bool is_causal,
+                           const std::optional<at::Tensor> &attn_mask,
+                           const std::optional<double> &scale) {
+  zendnnl::lowoha::sdpa::sdpa_params fp{};
+  fp.batch = query.size(0);
+  fp.num_heads = query.size(1);
+  fp.seq_len = query.size(2);
+  fp.kv_seq_len = key.size(2);
+  fp.head_dim = query.size(3);
+
+  fp.q_stride_b = query.stride(0);
+  fp.q_stride_h = query.stride(1);
+  fp.q_stride_s = query.stride(2);
+  fp.q_stride_d = query.stride(3);
+  fp.k_stride_b = key.stride(0);
+  fp.k_stride_h = key.stride(1);
+  fp.k_stride_s = key.stride(2);
+  fp.k_stride_d = key.stride(3);
+  fp.v_stride_b = value.stride(0);
+  fp.v_stride_h = value.stride(1);
+  fp.v_stride_s = value.stride(2);
+  fp.v_stride_d = value.stride(3);
+  // output layout is BSHD after transpose(1,2)
+  fp.o_stride_b = output.stride(0);
+  fp.o_stride_s = output.stride(1);
+  fp.o_stride_h = output.stride(2);
+  fp.o_stride_d = output.stride(3);
+
+  fp.qkv_dt = get_zendnnl_dtype(query);
+  fp.out_dt = get_zendnnl_dtype(query);
+  fp.scale = scale.value_or(1.0 / std::sqrt(static_cast<double>(fp.head_dim)));
+  fp.is_causal = is_causal;
+  fp.dropout_p = dropout_p;
+
+  const void *mask_ptr = nullptr;
+  if (attn_mask.has_value() && attn_mask->defined()) {
+    const at::Tensor &mask = attn_mask.value();
+    mask_ptr = mask.data_ptr();
+    fp.mask_ndims = mask.dim();
+    fp.mask_dt = get_zendnnl_dtype(mask);
+    for (int i = 0; i < mask.dim(); ++i) {
+      fp.mask_sizes[i] = mask.size(i);
+      fp.mask_strides[i] = mask.stride(i);
+    }
+  }
+
+  ZENTORCH_CHECK(zendnnl::lowoha::sdpa::sdpa_direct(
+                     query.data_ptr(), key.data_ptr(), value.data_ptr(),
+                     mask_ptr, output.data_ptr(), fp) == status_t::success,
+                 "zentorch_sdpa: sdpa_direct failed");
+}
 
 std::tuple<at::Tensor, at::Tensor> zentorch_scaled_dot_product_attention_impl(
     const at::Tensor &query, const at::Tensor &key, const at::Tensor &value,
@@ -60,7 +118,21 @@ std::tuple<at::Tensor, at::Tensor> zentorch_scaled_dot_product_attention_impl(
     at::Tensor logsumexp = at::empty({batchSize, qSize, num_head},
                                      query.options().dtype(accumulate_dtype));
     // Assuming key and value have the same dtype as query
-    if (query.scalar_type() == at::kBFloat16) {
+
+    const int int_env_value =
+        EnvReader::getEnvVariableAsInt("ZENTORCH_USE_ZENDNN_SDPA");
+    const bool requires_lse =
+        at::GradMode::is_enabled() &&
+        (query.requires_grad() || key.requires_grad() || value.requires_grad());
+
+    const bool use_zendnnl_direct_sdpa = (int_env_value == 1) && !requires_lse;
+    if (use_zendnnl_direct_sdpa) {
+      // ZenDNN flash SDPA is inference-only and does not compute logsumexp.
+      // We bypass this path when autograd is engaged (see
+      // use_zendnnl_direct_sdpa above).
+      zendnnl_sdpa_direct_kernel(query, key, value, output, dropout_p,
+                                 is_causal, attn_mask, scale);
+    } else if (query.scalar_type() == at::kBFloat16) {
       ZENTORCH_CHECK(!attn_mask.has_value() ||
                          attn_mask.value().scalar_type() == at::kFloat ||
                          attn_mask.value().scalar_type() == at::kBFloat16,

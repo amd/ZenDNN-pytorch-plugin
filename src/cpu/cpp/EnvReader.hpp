@@ -45,6 +45,8 @@ private:
                      1); // LOA is default for Matmul
     storeEnvVariable("USE_ZENDNN_EMBBAG_DIRECT",
                      1); // LOA is default for EmbeddingBag
+    storeEnvVariable("ZENTORCH_USE_ZENDNN_SDPA",
+                     1); // use zendnnl kernel for SDPA by default
   }
 
   // Function to convert and store environment variable value as integer
