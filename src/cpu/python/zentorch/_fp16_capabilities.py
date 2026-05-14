@@ -19,6 +19,7 @@ FP16_CAPABLE_OPS = {
     "zentorch_linear": False,
     "zentorch_woq_linear": False,
     "zentorch_weight_prepack": False,
+    "zentorch_qlinear": False,
 }
 
 

@@ -14,6 +14,7 @@ from torch._inductor.pattern_matcher import (
     Match,
     stable_topological_sort,
 )
+from ._utils import is_valid_fp16
 
 
 matcher_pass = PatternMatcherPass(pass_name="quantization_replacement_pass")
@@ -90,6 +91,7 @@ def _qint8_dq_addmm_bias_per_tensor_replacement_impl(
         ),
     ),
     pass_dict=matcher_pass,
+    extra_check=functools.partial(is_valid_fp16, "zentorch_qlinear"),
 )
 def qint8_dq_addmm_bias_computed_params_replacement_decorated(
     match: Match,
@@ -187,6 +189,7 @@ def _qint8_dq_addmm_bias_per_channel_replacement_impl(
         ),
     ),
     pass_dict=matcher_pass,
+    extra_check=functools.partial(is_valid_fp16, "zentorch_qlinear"),
 )
 def qint8_dq_addmm_bias_per_channel_replacement_decorated(
     match: Match,
@@ -346,6 +349,7 @@ def _qint8_dq_addmm_1dbias_per_tensor_channel_replacement_impl(
         ),
     ),
     pass_dict=matcher_pass,
+    extra_check=functools.partial(is_valid_fp16, "zentorch_qlinear"),
 )
 def qint8_dq_addmm_1dbias_per_tensor_channel_replacement_decorated(
     match: Match,
@@ -458,6 +462,7 @@ def _qint8_dq_addmm_1dbias_view_per_tensor_channel_replacement_impl(
         Arg(),
     ),
     pass_dict=matcher_pass,
+    extra_check=functools.partial(is_valid_fp16, "zentorch_qlinear"),
 )
 def qint8_dq_addmm_1dbias_view_per_tensor_channel_replacement_decorated(
     match: Match,
@@ -561,6 +566,7 @@ def _qint8_dq_addmm_per_tensor_channel_replacement_impl(
         ),
     ),
     pass_dict=matcher_pass,
+    extra_check=functools.partial(is_valid_fp16, "zentorch_qlinear"),
 )
 def qint8_dq_addmm_per_tensor_channel_replacement_decorated(
     match: Match,
@@ -669,6 +675,7 @@ def _qint8_dq_addmm_view_per_tensor_channel_replacement_impl(
         Arg(),
     ),
     pass_dict=matcher_pass,
+    extra_check=functools.partial(is_valid_fp16, "zentorch_qlinear"),
 )
 def qint8_dq_addmm_view_per_tensor_channel_replacement_decorated(
     match: Match,
