@@ -45,11 +45,11 @@ Table of Contents
 
 ## 1.1. Overview
 
-__The latest stable ZenDNN Plugin for PyTorch* (zentorch) [5.2.1](https://github.com/amd/ZenDNN-pytorch-plugin/tree/r5.2.1).__
+__The latest stable ZenDNN Plugin for PyTorch* (zentorch) [2.12.0.0](https://github.com/amd/ZenDNN-pytorch-plugin/tree/r2.12.0.0).__
 
 The ZenDNN plugin for PyTorch is called zentorch.
 
-zentorch 5.2.1 plugin is the PyTorch plugin which comes with ZenDNN 5.2.1.
+zentorch 2.12.0.0 plugin is the PyTorch plugin which comes with ZenDNN 5.2.2.
 This upgrade continues the focus on optimizing inference with Recommender Systems and Large Language Models on AMD EPYC™ CPUs. It includes AMD EPYC™ enhancements for bfloat16 performance, expanded support for cutting-edge models like Llama 3.2 and 3.3, Microsoft Phi, and more as well as support for a wide-variety of quantization configurations.
 The quantization support included 4-bit weight-only quantization, along with support for INT8 dynamic activation and INT8 weight quantization, and quantized support for the DLRM-v2 model with a mix of 8-bit and 4-bit quantization.
 This also includes support for running generative models with vLLM.
@@ -59,7 +59,7 @@ They also incorporate optimized embedding bag kernels and enhanced zenMatMul mat
 
 Combined with PyTorch's torch.compile, zentorch transforms deep learning pipelines into finely-tuned, AMD-specific engines, delivering unparalleled efficiency and speed for large-scale inference workloads
 
-The zentorch 5.2.1 plugin seamlessly works with PyTorch versions including 2.11.0 and 2.10.0, offering a high-performance experience for deep learning on AMD EPYC™ platforms.
+_zentorch_ supports PyTorch v2.12.0 and v2.11.0. Install the zentorch version matching your PyTorch — zentorch 2.12.0.0 for PyTorch v2.12.0, or zentorch 2.11.0.0 for PyTorch v2.11.0, offering a high-performance experience for deep learning on AMD EPYC™ platforms.
 
 
 ## Support
@@ -112,7 +112,7 @@ Refer to the [support matrix](https://www.amd.com/en/developer/zendnn.html#getti
 # 2. Installation
 
 _zentorch_ can be installed using binary wheel file or can be built from source itself.
-The latest stable release is _zentorch_ v5.2.1 which supports PyTorch v2.11.0 and v2.10.0.
+_zentorch_ supports PyTorch v2.12.0 and v2.11.0. Install the zentorch version matching your PyTorch — zentorch v2.12.0.0 for PyTorch v2.12.0, or zentorch v2.11.0.0 for PyTorch v2.11.0.
 
 ## 2.1. From Binaries
 
@@ -121,32 +121,24 @@ The latest stable release is _zentorch_ v5.2.1 which supports PyTorch v2.11.0 an
 ```bash
 pip uninstall zentorch
 ```
-* Install PyTorch v2.11.0 or v2.10.0
+* Install PyTorch v2.12.0
 ```bash
-pip install torch==2.11.0 --index-url https://download.pytorch.org/whl/cpu
+pip install torch==2.12.0 --index-url https://download.pytorch.org/whl/cpu
 ```
 * Use one of two methods to install zentorch:
 
 Using pip utility
 ```bash
-pip install zentorch==5.2.1
-```
-or
-
-Using the release package.
-
-> Download the package from AMD developer portal from [here](https://www.amd.com/en/developer/zendnn.html).
-
-> Run the following commands to unzip the package and install the binary.
-
-```bash
-unzip ZENTORCH_v5.2.1_Python_v3.10.zip
-cd ZENTORCH_v5.2.1_Python_v3.10/
-pip install zentorch-5.2.1-cp310-cp310-manylinux_2_28_x86_64.whl
+pip install zentorch==2.12.0.0
 ```
 >**Notes:**
 >* Dependent packages 'numpy' and 'torch' will be installed by '_zentorch_' if not already present.
->* If you get the error: ImportError: /lib64/libstdc++.so.6: version `GLIBCXX_.a.b.cc' not found (required by <path_to_conda>/envs/<env_name>/lib/python<py_version>/site-packages/zentorch-5.2.1-pyx.y-linux-x86_64.egg/zentorch/_C.cpython-xy-x86_64-linux-gnu.so), export LD_PRELOAD as: export LD_PRELOAD=<path_to_conda>/envs/<env_name>/lib/libstdc++.so.6:$LD_PRELOAD
+>* If you get the error: ImportError: /lib64/libstdc++.so.6: version `GLIBCXX_.a.b.cc' not found, export LD_PRELOAD as: export LD_PRELOAD=<path_to_conda>/envs/<env_name>/lib/libstdc++.so.6:$LD_PRELOAD
+>* After installation, run the following script for recommended environment settings:
+>```bash
+>source scripts/zentorch_env_setup.sh
+>```
+>Refer to [zentorch_env_setup.sh](scripts/zentorch_env_setup.sh) for details.
 
 ## 2.2. From Source
 
@@ -156,7 +148,7 @@ git clone https://github.com/amd/ZenDNN-pytorch-plugin.git
 cd ZenDNN-pytorch-plugin
 ```
 >**Notes:**
->* The repository defaults to the main branch. To build the stable 5.2.1 release (supports PyTorch v2.11.0 and v2.10.0), checkout the r5.2.1 branch: ```git checkout r5.2.1```
+>* The repository defaults to the main branch. To build the stable 2.12.0.0 release, checkout the tag v2.12.0.0: ```git checkout v2.12.0.0```
 >* ```export ZENDNNL_MANYLINUX_BUILD=1``` is needed for build from source for RHEL/FEDORA/Almalinux/CentOS OS families
 
 ### 2.2.1. Preparing third party repositories
@@ -171,17 +163,17 @@ conda create -n pt-zentorch python=3.10 -y
 conda activate pt-zentorch
 ```
 #### 2.2.2.2. Install PyTorch
-Install PyTorch v2.11.0:
+Install PyTorch v2.12.0:
+```bash
+pip install torch==2.12.0 --index-url https://download.pytorch.org/whl/cpu
+```
+Alternatively, PyTorch v2.11.0 is also supported:
 ```bash
 pip install torch==2.11.0 --index-url https://download.pytorch.org/whl/cpu
 ```
-Alternatively, PyTorch v2.10.0 is also supported:
-```bash
-pip install torch==2.10.0 --index-url https://download.pytorch.org/whl/cpu
-```
 >**Notes:**
 >* This README uses Python 3.10.
->* Zentorch follows PyTorch’s Python version compatibility. For PyTorch 2.11.0 and 2.10.0, Zentorch supports Python versions 3.10 through 3.13. For other PyTorch releases, refer to the [PyTorch Release Compatibility Matrix](https://github.com/pytorch/pytorch/blob/main/RELEASE.md#release-compatibility-matrix).
+>* Zentorch follows PyTorch’s Python version compatibility. For PyTorch 2.12.0 and 2.11.0, Zentorch supports Python versions 3.10 through 3.13. For other PyTorch releases, refer to the [PyTorch Release Compatibility Matrix](https://github.com/pytorch/pytorch/blob/main/RELEASE.md#release-compatibility-matrix).
 >* Zentorch does not support experimental versions of Python (3.13T/3.14/3.14T)
 
 #### 2.2.2.3. Install Dependencies
@@ -197,8 +189,14 @@ python setup.py bdist_wheel
 #### 2.2.2.5. To install the wheel file of _zentorch_
 ```bash
 cd dist
-pip install zentorch-5.2.1-cp310-cp310-linux_x86_64.whl
+pip install zentorch-2.12.0.0-cp310-cp310-linux_x86_64.whl
 ```
+>**Note:** After installation, run the following script for recommended environment settings:
+>```bash
+>source scripts/zentorch_env_setup.sh
+>```
+>Refer to [zentorch_env_setup.sh](scripts/zentorch_env_setup.sh) for details.
+
 #### 2.2.2.6. Build Cleanup
 ```bash
 python setup.py clean --all
@@ -457,7 +455,7 @@ TORCH_COMPILE_DEBUG=1 python test.py
 For more information about TORCH_COMPILE_DEBUG refer to the official PyTorch documentation available.
 
 # 6. Performance tuning and Benchmarking
-zentorch v5.2.1 plugin is supported with ZenDNN v5.2.1 plugin. Please see the **Tuning Guidelines** section of ZenDNN User Guide for performance tuning. ZenDNN User Guide can be downloaded from [here](https://developer.amd.com/zendnn)
+zentorch v2.12.0.0 plugin is supported with ZenDNN v5.2.2 plugin. Please see the **Tuning Guidelines** section of ZenDNN User Guide for performance tuning. ZenDNN User Guide can be downloaded from [here](https://developer.amd.com/zendnn)
 
 # 7. Additional Utilities:
 
