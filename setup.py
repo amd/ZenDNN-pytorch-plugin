@@ -6,24 +6,25 @@
 from setuptools import setup
 from torch.utils.cpp_extension import BuildExtension, CppExtension
 from packaging.version import parse
-from torch.torch_version import __version__
+from torch.torch_version import __version__ as torch_version
 from os.path import join as Path
+import datetime
 import os
 import shutil
 import subprocess
 import torch
 import warnings
 
-if parse(__version__) < parse("2.10.0"):
+if parse(torch_version) < parse("2.11.0"):
     raise ImportError(
-        "zentorch Plugin requires torch version \
-     2.10.0 or higher. Please upgrade your torch version \
-        and retry the build."
+        "zentorch Plugin requires torch version "
+        "2.11.0 or higher. Please upgrade your torch version "
+        "and retry the build."
     )
 
-if parse(__version__) < parse("2.11"):
+if parse(torch_version) < parse("2.12"):
     warnings.warn(
-        "Consider upgrading to torch version 2.10 for improved performance.",
+        "Consider upgrading to torch version 2.12 for improved performance.",
         stacklevel=1,
     )
 
@@ -117,14 +118,80 @@ def get_commit_hash(base_dir):
     return git_sha
 
 
+def get_source_tag(base_dir):
+    """Return the exact source tag on HEAD, or empty string if untagged.
+
+    Resolution order:
+    1. ZENTORCH_SOURCE_TAG env var (explicit, always wins).
+    2. Exact git tag on HEAD.
+    Returns empty string when HEAD is not tagged.
+    """
+    tag = os.getenv("ZENTORCH_SOURCE_TAG", "")
+    if tag:
+        return tag
+    cwd = os.getcwd()
+    os.chdir(base_dir)
+    rc, out, err = subproc_communicate("git describe --tags --exact-match HEAD")
+    os.chdir(cwd)
+    if rc == 0:
+        return out.strip()
+    return ""
+
+
+def get_tag_commit(base_dir, tag):
+    """Return the commit hash that a tag points to."""
+    if not tag:
+        return ""
+    cwd = os.getcwd()
+    os.chdir(base_dir)
+    rc, out, err = subproc_communicate(f"git rev-list -n 1 {tag}")
+    os.chdir(cwd)
+    if rc == 0:
+        return out.strip()
+    return "unknown"
+
+
 #   ZenTorch_BUILD_VERSION
 #     specify the version of zentorch, rather than the hard-coded version
 #     in this file; used when we're building binaries for distribution
 
 # Define env values
 PACKAGE_NAME = "zentorch"
-PACKAGE_VERSION = "5.2.1"
-PT_VERSION = __version__
+_PLUGIN_PATCH = "0"
+_pt_ver = parse(torch_version)
+PACKAGE_VERSION = f"{_pt_ver.major}.{_pt_ver.minor}.{_pt_ver.micro}.{_PLUGIN_PATCH}"
+PT_VERSION = torch_version
+
+_release_type_env = os.getenv("ZENTORCH_RELEASE_TYPE", "ga").lower()
+_allowed_release_types = {"weekly", "ga"}
+if _release_type_env not in _allowed_release_types:
+    raise ValueError(
+        f"Invalid ZENTORCH_RELEASE_TYPE={_release_type_env!r}. "
+        f"Allowed values are: {sorted(_allowed_release_types)}."
+    )
+RELEASE_TYPE = _release_type_env
+
+if RELEASE_TYPE == "weekly":
+    DIST_NAME = "zentorch-weekly"
+    _date_str = (
+        os.getenv("ZENTORCH_WEEKLY_DATE", "")
+        or datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d")
+    )
+    # Validate that ZENTORCH_WEEKLY_DATE is in the expected YYYYMMDD format
+    try:
+        # Ensure it is exactly 8 digits and represents a valid calendar date
+        if not (_date_str.isdigit() and len(_date_str) == 8):
+            raise ValueError
+        datetime.datetime.strptime(_date_str, "%Y%m%d")
+    except ValueError:
+        raise RuntimeError(
+            f"Invalid ZENTORCH_WEEKLY_DATE value: {_date_str!r}. "
+            "It must be an 8-digit date in YYYYMMDD format (e.g., 20250318)."
+        ) from None
+    PACKAGE_VERSION = f"{PACKAGE_VERSION}.dev{_date_str}"
+elif RELEASE_TYPE == "ga":
+    DIST_NAME = PACKAGE_NAME
+
 ZENTORCH_VLLM_PLUGIN_BUILD = os.getenv("ZENTORCH_VLLM_PLUGIN_BUILD", "1") != "0"
 
 # Initializing all the parameters for the setup function
@@ -138,6 +205,8 @@ include_dirs = [
 
 zentorch_build_version = os.getenv("ZenTorch_BUILD_VERSION", PACKAGE_VERSION)
 git_sha = get_commit_hash(project_root_dir)
+source_tag = get_source_tag(project_root_dir)
+tag_commit = get_tag_commit(project_root_dir, source_tag)
 wheel_file_dependencies = [
     "numpy",
     "torch",
@@ -154,6 +223,7 @@ zentorch_compile_args = [
     "-DZENTORCH_VERSION_HASH=" + git_sha,
     "-DZENTORCH_VERSION=" + PACKAGE_VERSION,
     "-DPT_VERSION=" + PT_VERSION,
+    "-DZENTORCH_SOURCE_TAG=" + (source_tag or "untagged"),
 ]
 
 # Enable C++11 ABI compilation for zentorch
@@ -168,9 +238,23 @@ if not os.getenv("DEBUG", 0):
     zentorch_compile_args += ["-O2"]
 
 
+_desc_file = "DESCRIPTION_WEEKLY.md" if RELEASE_TYPE == "weekly" else "DESCRIPTION.md"
 long_description = ""
-with open(Path(project_root_dir, "DESCRIPTION.md"), encoding="utf-8") as f:
+with open(Path(project_root_dir, _desc_file), encoding="utf-8") as f:
     long_description = f.read()
+
+_build_info_section = "\n## Build Information\n\n"
+_build_info_section += "| Field | Value |\n|---|---|\n"
+if source_tag:
+    _build_info_section += f"| Source Tag | `{source_tag}` |\n"
+    _build_info_section += f"| Tag Commit | `{tag_commit}` |\n"
+_build_info_section += f"| Build Commit | `{git_sha}` |\n"
+_build_info_section += f"| PyTorch Version | `{PT_VERSION}` |\n"
+_build_info_section += f"| Release Type | `{RELEASE_TYPE}` |\n"
+if source_tag:
+    _tag_url = f"https://github.com/amd/ZenDNN-pytorch-plugin/releases/tag/{source_tag}"
+    _build_info_section += f"\nBuilt from [{source_tag}]({_tag_url})\n"
+long_description += _build_info_section
 
 config_file = "_build_info.py"
 
@@ -178,8 +262,13 @@ _build_info_path = os.path.join(
     project_root_dir, "src", "cpu", "python", PACKAGE_NAME, config_file
 )
 
-_build_config = "# PyTorch Build Version:\n"
+_build_config = "# Auto-generated build information - DO NOT EDIT\n"
+_build_config += '__version__ = "{}"\n'.format(PACKAGE_VERSION)
 _build_config += '__torchversion__ = "{}"\n'.format(PT_VERSION)
+_build_config += '__source_tag__ = "{}"\n'.format(source_tag)
+_build_config += '__tag_commit__ = "{}"\n'.format(tag_commit)
+_build_config += '__build_commit__ = "{}"\n'.format(git_sha)
+_build_config += '__release_type__ = "{}"\n'.format(RELEASE_TYPE)
 
 packages = [
     PACKAGE_NAME,
@@ -205,7 +294,7 @@ shutil.copy2(_aoti_header_src, _aoti_include_dir)
 
 def main():
     setup(
-        name=PACKAGE_NAME,
+        name=DIST_NAME,
         version=zentorch_build_version,
         description="zentorch : A PyTorch* extension for AMD EPYC CPUs.",
         long_description=long_description,
@@ -214,6 +303,11 @@ def main():
         author="AMD",
         # URL needs to be updates once the plugin is open sourced
         url="https://developer.amd.com/zendnn",
+        project_urls={
+            **({"Source Tag": f"https://github.com/amd/ZenDNN-pytorch-plugin/releases/tag/{source_tag}"}
+               if source_tag else {}),
+            "Source": "https://github.com/amd/ZenDNN-pytorch-plugin",
+        },
         # license needs to be added when the source code gets the license
         license="MIT",
         keywords="pytorch tensor machine learning plugin ZenDNN AMD",

@@ -1,14 +1,23 @@
 # ******************************************************************************
-# Copyright (c) 2023-2024 Advanced Micro Devices, Inc.
+# Copyright (c) 2023-2026 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
 import zentorch._C
-import sys
 
 __config__ = zentorch._C.show_config()
-if sys.version_info >= (3, 8):
-    from importlib import metadata
-    __version__ = metadata.version('zentorch')
-else:
-    __version__ = ''
+
+try:
+    from ._build_info import __version__
+except ImportError:
+    __version__ = "unknown"
+
+try:
+    from ._build_info import __source_tag__
+except ImportError:
+    __source_tag__ = ""
+
+try:
+    from ._build_info import __release_type__
+except ImportError:
+    __release_type__ = "unknown"

@@ -3,8 +3,36 @@
 # All rights reserved.
 # ******************************************************************************
 
-import os
-import ctypes
+from importlib import metadata as _metadata
+
+
+def _check_dual_install():
+    """Raise ImportError if both zentorch and zentorch-weekly are installed.
+
+    zentorch is published under two PyPI package names: 'zentorch' for stable
+    GA releases and 'zentorch-weekly' for weekly development builds. Having
+    both installed simultaneously causes version conflicts and undefined
+    behaviour, so we detect and reject this early at import time.
+    """
+    installed_dists = []
+    for _name in ("zentorch", "zentorch-weekly"):
+        try:
+            _metadata.version(_name)
+            installed_dists.append(_name)
+        except _metadata.PackageNotFoundError:
+            pass
+    if len(installed_dists) > 1:
+        raise ImportError(
+            f"Both {' and '.join(installed_dists)} are installed. "
+            "Please uninstall one of them, for example:\n"
+            "  pip uninstall zentorch\n"
+            "  pip uninstall zentorch-weekly"
+        )
+
+
+_check_dual_install()
+import os  # noqa: E402
+import ctypes  # noqa: E402
 
 # Load libzentorch.so with RTLD_GLOBAL so that AOTI-compiled modules can
 # find the shim functions (aoti_torch_cpu_zentorch_*)
@@ -48,7 +76,7 @@ if _runtime_minor != _buildtime_minor:
 
 from ._optimize import optimize  # noqa
 from ._optimize_for_export import export_optimize_pass  # noqa
-from ._info import __config__, __version__  # noqa
+from ._info import __config__, __version__, __source_tag__, __release_type__  # noqa
 from ._compile_backend import *  # noqa
 from ._meta_registrations import *  # noqa
 from ._lowerings import *  # noqa
