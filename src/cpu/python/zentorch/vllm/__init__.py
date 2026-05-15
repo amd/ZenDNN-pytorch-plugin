@@ -575,6 +575,23 @@ def _do_patch_fused_moe() -> bool:
         # [E, ...] layout that zentorch_fused_moe expects.
         self.isa = "none"
         self.forward_method = self._zentorch_forward
+
+        # zentorch_fused_moe -> zentorch_group_matmul_out_impl consumes the
+        # [E, ...] weights via per-expert `.select(0, e)`. ZenDNN's
+        # group_matmul expects each per-expert slice to be row-major
+        # contiguous, which only holds when the parent [E, ...] tensor
+        # itself is contiguous. Some loaders / upstream passes hand us
+        # weights with non-default strides, so normalize once at __init__
+        # time -- it's a no-op when already contiguous, and keeps the hot
+        # path free of per-call .contiguous() copies.
+        from vllm.model_executor.layers.quantization.utils.layer_utils import (
+            replace_parameter,
+        )
+        if not layer.w13_weight.is_contiguous():
+            replace_parameter(layer, "w13_weight", layer.w13_weight.contiguous())
+        if not layer.w2_weight.is_contiguous():
+            replace_parameter(layer, "w2_weight", layer.w2_weight.contiguous())
+
         # Bump the per-replacement counter (matches the convention used by
         # graph-rewrite replacements in `_custom_op_replacement.py`).
         counters["zentorch"]["zentorch_fused_moe"] += 1

@@ -47,6 +47,10 @@ private:
                      1); // LOA is default for EmbeddingBag
     storeEnvVariable("ZENTORCH_USE_ZENDNN_SDPA",
                      1); // use zendnnl kernel for SDPA by default
+    storeEnvVariable("ZENTORCH_USE_SCRATCHPAD",
+                     1); // FusedMoE per-expert grouped-input scratchpad is
+                         // ON by default; set to 0 to fall back to the
+                         // at::empty-per-expert allocation path.
   }
 
   // Function to convert and store environment variable value as integer

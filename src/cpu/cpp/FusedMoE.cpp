@@ -3,9 +3,13 @@
  * All rights reserved.
  ******************************************************************************/
 
+#include "EnvReader.hpp"
+#include "GroupMatmul.hpp"
 #include "Utils.hpp"
 #include <ATen/Parallel.h>
 #include <algorithm>
+#include <cstddef>
+#include <cstdlib>
 #include <cstring>
 #include <torch/library.h>
 #include <utility>
@@ -13,23 +17,88 @@
 
 namespace zentorch {
 
+namespace {
+
 // ---------------------------------------------------------------------------
-// Forward declaration of the GroupMatmul.cpp single-call MoE entry point.
-// The full ZenDNN postop chain (W13 GEMM -> gated activation -> W2 GEMM ->
-// weighted reduce into [T, H]) executes inside one call.
+// FusedMoE scratchpad — opt-in growing allocator
+//
+// Singleton holding a single 64-byte-aligned buffer that grows monotonically
+// (never shrinks) as larger per-call working sets are observed. Each
+// `zentorch_fused_moe` call's per-expert [M_e, H] grouped-input buffers are
+// placed contiguously inside this block and exposed as zero-copy
+// `at::from_blob` tensors with a no-op deleter. After the call returns the
+// at::from_blob handles are destroyed but the underlying memory persists for
+// the next call to reuse — avoiding the per-tensor allocator round-trip the
+// default `at::empty` path goes through.
+//
+// Modeled on vLLM's `cpu_utils::ScratchPadManager` (csrc/cpu/utils.cpp).
+//
+// Enabled by default. Set `ZENTORCH_USE_SCRATCHPAD=0` to disable and fall
+// back to the `at::empty`-per-expert allocation path.
+//
+// Thread-safety: not safe for concurrent `zentorch_fused_moe` calls from
+// different threads. Matches the assumption of vLLM's CPU MoE path
+// (single inference stream per process); intra-call work parallelizes via
+// `at::parallel_for` / OMP, not via overlapping op invocations.
+//
+// Lifetime safety: the at::from_blob tensors are local to a single
+// `zentorch_fused_moe` call and destroyed before the next call begins, so
+// a `reserve()` that grows (and frees) the underlying buffer can never
+// dangle a still-live tensor. Tensors must NOT escape the op into Python /
+// graph storage.
 // ---------------------------------------------------------------------------
 
-void zentorch_group_matmul_out_impl(
-    std::vector<at::Tensor> gemm_outputs, const std::vector<at::Tensor> &inputs,
-    const std::vector<at::Tensor> &weights,
-    const std::vector<c10::optional<at::Tensor>> &bias,
-    std::string_view activation,
-    const std::vector<c10::optional<at::Tensor>> &w2_weights,
-    const std::vector<c10::optional<at::Tensor>> &w2_bias,
-    c10::optional<at::Tensor> moe_output,
-    const c10::optional<at::Tensor> &topk_weights,
-    const c10::optional<at::Tensor> &row_ptrs,
-    const std::string &zentorch_op_name);
+class FusedMoEScratchpad {
+public:
+  static constexpr size_t kAlignment = 64;
+  static constexpr size_t kAllocUnit = 4 * 1024;            // 4 KB grow unit
+  static constexpr size_t kInitialBytes = kAllocUnit * 128; // 512 KB seed
+
+  static FusedMoEScratchpad &get() {
+    static FusedMoEScratchpad sp;
+    return sp;
+  }
+
+  std::byte *data() noexcept { return static_cast<std::byte *>(ptr_); }
+
+  void reserve(size_t bytes) {
+    bytes = round_up(bytes);
+    if (bytes <= size_) {
+      return;
+    }
+    void *new_ptr = std::aligned_alloc(kAlignment, bytes);
+    TORCH_CHECK(new_ptr != nullptr, "FusedMoEScratchpad: aligned_alloc(", bytes,
+                ") failed");
+    if (ptr_ != nullptr) {
+      std::free(ptr_);
+    }
+    ptr_ = new_ptr;
+    size_ = bytes;
+  }
+
+private:
+  FusedMoEScratchpad() : size_(0), ptr_(nullptr) { reserve(kInitialBytes); }
+  ~FusedMoEScratchpad() {
+    if (ptr_ != nullptr) {
+      std::free(ptr_);
+    }
+  }
+  FusedMoEScratchpad(const FusedMoEScratchpad &) = delete;
+  FusedMoEScratchpad &operator=(const FusedMoEScratchpad &) = delete;
+
+  static size_t round_up(size_t s) {
+    return ((s + kAllocUnit - 1) / kAllocUnit) * kAllocUnit;
+  }
+
+  size_t size_;
+  void *ptr_;
+};
+
+inline size_t round_up_to(size_t bytes, size_t alignment) {
+  return ((bytes + alignment - 1) / alignment) * alignment;
+}
+
+} // namespace
 
 // ---------------------------------------------------------------------------
 // Phase 1 — Token-Expert Grouping
@@ -137,20 +206,62 @@ build_token_expert_mapping(const at::Tensor &input, const at::Tensor &topk_id) {
   const int64_t E_a = static_cast<int64_t>(mapping.active_expert_ids.size());
 
   // ----- Allocate per-active-expert [M_e, H] tensors ----------------------
+  // Default path (`ZENTORCH_USE_SCRATCHPAD=1`, the default): pack every
+  // per-expert [M_e, H] region contiguously into a single 64-byte-aligned
+  // block reused (and grown when needed) across calls, then expose each
+  // region as a zero-copy `at::from_blob` tensor. Each region's byte length
+  // is rounded up to a 64-byte multiple so the next region's base also
+  // starts on a 64-byte boundary; the within-region row stride stays at the
+  // natural H * elem_size — identical to what `at::empty` would give us, so
+  // ZenDNN and the Pass-2 memcpy both see the same layout under either path.
+  //
+  // Fallback path (`ZENTORCH_USE_SCRATCHPAD=0`): one `at::empty` per active
+  // expert. PyTorch's caching allocator amortizes well for stable per-call
+  // working-set sizes but still pays a per-tensor metadata round-trip on
+  // every call.
+  const int int_env_value =
+      EnvReader::getEnvVariableAsInt("ZENTORCH_USE_SCRATCHPAD");
+  const bool use_scratchpad = static_cast<bool>(int_env_value);
+
   mapping.grouped_inputs.resize(E_a);
-  for (int64_t a = 0; a < E_a; ++a) {
-    mapping.grouped_inputs[a] =
-        at::empty({tokens_per_active[a], H}, input.options());
+  if (use_scratchpad) {
+    const size_t row_bytes_sz = static_cast<size_t>(row_bytes);
+    std::vector<size_t> region_offsets(E_a);
+    size_t total_bytes = 0;
+    for (int64_t a = 0; a < E_a; ++a) {
+      region_offsets[a] = total_bytes;
+      total_bytes +=
+          round_up_to(static_cast<size_t>(tokens_per_active[a]) * row_bytes_sz,
+                      FusedMoEScratchpad::kAlignment);
+    }
+    auto &sp = FusedMoEScratchpad::get();
+    sp.reserve(total_bytes);
+    std::byte *base = sp.data();
+    for (int64_t a = 0; a < E_a; ++a) {
+      mapping.grouped_inputs[a] = at::from_blob(
+          base + region_offsets[a], {tokens_per_active[a], H},
+          /*deleter=*/[](void *) {}, input.options());
+    }
+  } else {
+    for (int64_t a = 0; a < E_a; ++a) {
+      mapping.grouped_inputs[a] =
+          at::empty({tokens_per_active[a], H}, input.options());
+    }
   }
 
   // ----- Pass 2: parallel memcpy using pre-assigned positions -------------
   // No atomics — `topk_to_expert_row[i]` already tells us where row i lands.
-  const auto *src_base = reinterpret_cast<const char *>(input.const_data_ptr());
+  // `std::byte` (not `char`) makes the byte-pointer arithmetic intent explicit
+  // and avoids the implementation-defined signedness of plain `char`. Like
+  // `char`/`unsigned char`, it is exempt from strict aliasing so it can
+  // legally point into any tensor's storage.
+  const auto *src_base =
+      reinterpret_cast<const std::byte *>(input.const_data_ptr());
 
-  std::vector<char *> dst_base(E_a);
+  std::vector<std::byte *> dst_base(E_a);
   for (int64_t a = 0; a < E_a; ++a) {
     dst_base[a] =
-        reinterpret_cast<char *>(mapping.grouped_inputs[a].data_ptr());
+        reinterpret_cast<std::byte *>(mapping.grouped_inputs[a].data_ptr());
   }
 
   at::parallel_for(0, total_pairs, /*grain_size=*/64,
@@ -229,32 +340,54 @@ void zentorch_fused_moe(at::Tensor &output, const at::Tensor &input,
       "at single-token decode (T=1). Use the standard vLLM cpu_fused_moe path "
       "for this configuration, or unset ZENTORCH_FUSED_MOE.");
 
-  // ---------------------- Phase 2: build active-only weight slices ----------
-  // ZenDNN's group_matmul wants per-expert `Tensor` slices, not a 3-D
-  // [E, ...] view. We feed only the E_a active experts; their order matches
-  // `mapping.grouped_inputs` (active_idx-aligned).
-  std::vector<at::Tensor> w13_slices(E_a);
-  std::vector<at::Tensor> w2_slices_raw(E_a);
+  // ---------------------- Phase 2: build weight & bias slices ---------------
+  // Weight contract with zentorch_group_matmul_out_impl: w13 / w2 lists are
+  // sized E (all experts), with the E_a active experts placed FIRST in
+  // active_idx order so they line up with `mapping.grouped_inputs[a]`, then
+  // the inactive experts appended in their original [0, E) order. Example:
+  // active_expert_ids = [3, 0, 1] over E=6 experts -> weight order
+  // [3, 0, 1, 2, 4, 5]. GroupMatmul ties current GEMM work to inputs.size(),
+  // so only the first E_a entries participate in this dispatch's matmul
+  // computation; the trailing inactive weights are still passed through the
+  // prepack-extras path to ZenDNN for prepack cache warming.
+  //
+  // Bias lists stay sized E_a (active only) - biases are only consumed for
+  // experts that receive tokens, so there's no reason to materialize slices
+  // for the inactive set.
+  const int64_t E = w13.size(0);
+  std::vector<at::Tensor> w13_slices(E);
+  std::vector<c10::optional<at::Tensor>> w2_weight_slices(E);
   std::vector<c10::optional<at::Tensor>> w13_bias_slices(E_a);
   std::vector<c10::optional<at::Tensor>> w2_bias_slices(E_a);
-  // The GroupMatmul API takes w2_weights as an optional vector; build it
-  // from w2_slices_raw in the same loop.
-  std::vector<c10::optional<at::Tensor>> w2_weight_slices(E_a);
 
   const bool has_w13_bias = w13_bias.has_value() && w13_bias->defined();
   const bool has_w2_bias = w2_bias.has_value() && w2_bias->defined();
 
+  // Pass 2a: active experts in active_idx order (positions [0, E_a)).
+  std::vector<bool> is_active(E, false);
   for (int64_t a = 0; a < E_a; ++a) {
     const int64_t e = mapping.active_expert_ids[a];
+    is_active[e] = true;
     w13_slices[a] = w13.select(0, e);
-    w2_slices_raw[a] = w2.select(0, e);
-    w2_weight_slices[a] = w2_slices_raw[a];
+    w2_weight_slices[a] = w2.select(0, e);
     w13_bias_slices[a] = has_w13_bias
                              ? c10::optional<at::Tensor>(w13_bias->select(0, e))
                              : c10::nullopt;
     w2_bias_slices[a] = has_w2_bias
                             ? c10::optional<at::Tensor>(w2_bias->select(0, e))
                             : c10::nullopt;
+  }
+
+  // Pass 2b: inactive experts in original order (positions [E_a, E)).
+  // Weight-only — no bias slices needed since these experts are not consumed.
+  int64_t fill_idx = E_a;
+  for (int64_t e = 0; e < E; ++e) {
+    if (is_active[e]) {
+      continue;
+    }
+    w13_slices[fill_idx] = w13.select(0, e);
+    w2_weight_slices[fill_idx] = w2.select(0, e);
+    ++fill_idx;
   }
 
   // ---------------------- Phase 5 setup: row_ptrs for weighted reduce -------
@@ -270,7 +403,7 @@ void zentorch_fused_moe(at::Tensor &output, const at::Tensor &input,
   for (int64_t i = 0; i < total_pairs; ++i) {
     const auto [a, pos] = mapping.topk_to_expert_row[i];
     row_ptrs_data[i] = reinterpret_cast<int64_t>(
-        static_cast<char *>(mapping.grouped_inputs[a].data_ptr()) +
+        static_cast<std::byte *>(mapping.grouped_inputs[a].data_ptr()) +
         pos * row_bytes);
   }
 
