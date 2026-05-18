@@ -88,12 +88,12 @@ if __name__ == "__main__":
         # Torch 2.10 might give a warning suggesting to install torchao of latest version, but 0.16.0 is the latest
         # version currently.
         "2.10.0": "torchao==0.16.0",
-        "2.11.0": "torchao==0.16.0",
+        "2.11.0": "torchao==0.17.0",
         # torchao 0.16.0 is the version validated against torch 2.12 RC; its
         # Python-only APIs (which zentorch uses) work with torch 2.12 even
         # though the C++ ext was built against an older torch. Revisit once a
         # newer torchao ships with explicit torch 2.12 support.
-        "2.12.0": "torchao==0.16.0",
+        "2.12.0": "torchao==0.17.0",
     }
 
     if find_spec("torchao") is not None:
