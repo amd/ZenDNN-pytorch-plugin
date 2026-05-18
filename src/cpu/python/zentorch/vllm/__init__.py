@@ -489,7 +489,7 @@ class RMSNormPatch:
 
 
 # ---------------------------------------------------------------------------
-# CPUFusedMOE Patch (opt-in via ZENTORCH_FUSED_MOE=1; deferred via import hook)
+# CPUFusedMOE Patch (opt-out via ZENTORCH_FUSED_MOE=0; deferred via import hook)
 # ---------------------------------------------------------------------------
 #
 # Replaces vLLM's CPUFusedMOE — which dispatches to either `cpu_fused_moe`
@@ -499,7 +499,7 @@ class RMSNormPatch:
 # (token grouping -> W13 GEMM -> gated activation -> W2 GEMM -> weighted
 # reduce) inside one ZenDNN `group_matmul_direct` call.
 #
-# Disabled by default. Set `ZENTORCH_FUSED_MOE=1` to enable.
+# Enabled by default. Set `ZENTORCH_FUSED_MOE=0` to disable.
 #
 # Per-layer weight validation runs once at __init__ time; per-call validation
 # (input/topk shapes, dtype, activation) runs at every forward. The C++ op
@@ -651,16 +651,16 @@ def _apply_fused_moe_patch() -> bool:
 class FusedMoEPatch:
     """Replace CPUFusedMOE forward with zentorch_fused_moe.
 
-    Opt-in: disabled by default. Set environment variable
-    `ZENTORCH_FUSED_MOE=1` to enable the patch.
+    Enabled by default. Set environment variable
+    `ZENTORCH_FUSED_MOE=0` to disable the patch.
     """
 
     @classmethod
     def apply(cls) -> bool:
-        if os.environ.get("ZENTORCH_FUSED_MOE", "0") != "1":
+        if os.environ.get("ZENTORCH_FUSED_MOE", "1") == "0":
             logger.debug(
                 "[zentorch] FusedMoE patch disabled "
-                "(set ZENTORCH_FUSED_MOE=1 to enable)"
+                "(set ZENTORCH_FUSED_MOE=0 to disable)"
             )
             return False
         return _apply_fused_moe_patch()
