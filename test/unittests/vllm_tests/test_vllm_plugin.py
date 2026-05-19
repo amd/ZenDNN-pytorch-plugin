@@ -25,8 +25,9 @@ import types
 import unittest
 from pathlib import Path
 from unittest import mock
-
+import zentorch  # noqa: F401 - ensures zentorch native extension is loaded
 import torch
+from zentorch._utils import counters
 
 TORCHAO_AVAILABLE = importlib.util.find_spec("torchao") is not None
 
@@ -43,7 +44,6 @@ except ImportError:
 
 
 def _load_source_vllm_module():
-    import zentorch  # noqa: F401 - ensures native extension is available
 
     plugin_root = Path(__file__).resolve().parents[3]
     vllm_init = os.path.join(
@@ -218,10 +218,12 @@ class TestVllmPluginVersionCheck(unittest.TestCase):
                 mock.patch.object(zv, "get_version_family", return_value="v20"),
                 mock.patch.object(zv, "_apply_faketensor_subclass_patch"),
                 mock.patch.object(zv, "_apply_fxgraphcache_pickle_patch"),
-                mock.patch.object(zv, "_register_zentorch_linear_dispatch"),
+                mock.patch.object(zv, "_apply_torchao_int8_tensor_patch_impl"),
                 mock.patch.object(zv, "_register_patches") as register_patches,
                 mock.patch.object(zv.manager, "apply_all") as apply_all,
-                mock.patch.object(zv, "_install_pre_v18_dispatch_hooks") as install_hooks,
+                mock.patch.object(
+                    zv, "_install_pre_v18_dispatch_hooks"
+                ) as install_hooks,
             ):
                 result = zv.register()
 
@@ -311,10 +313,12 @@ class TestPreV18DispatchHook(unittest.TestCase):
                     zv._INITIALIZED = False
 
                     with (
-                        mock.patch.object(zv, "get_version_family", return_value=family),
+                        mock.patch.object(
+                            zv, "get_version_family", return_value=family
+                        ),
                         mock.patch.object(zv, "_apply_faketensor_subclass_patch"),
                         mock.patch.object(zv, "_apply_fxgraphcache_pickle_patch"),
-                        mock.patch.object(zv, "_register_zentorch_linear_dispatch"),
+                        mock.patch.object(zv, "_apply_torchao_int8_tensor_patch_impl"),
                         mock.patch.object(zv, "_register_patches") as register_patches,
                         mock.patch.object(zv.manager, "apply_all") as apply_all,
                         mock.patch.object(
@@ -454,8 +458,11 @@ class TestPlatformProfilerPatchVersionRange(unittest.TestCase):
         ]
 
         for version_str, expected in cases:
-            with self.subTest(version_str=version_str), mock.patch.object(
-                platform, "get_vllm_version", return_value=version_str
+            with (
+                self.subTest(version_str=version_str),
+                mock.patch.object(
+                    platform, "get_vllm_version", return_value=version_str
+                ),
             ):
                 self.assertEqual(platform._is_profiler_patch_version(), expected)
 
@@ -497,15 +504,20 @@ class TestDynamicQLinearDispatchPatch(unittest.TestCase):
     @unittest.skipUnless(IS_PYTHON_3_10_OR_ABOVE, "vLLM 0.11+ requires Python 3.10+")
     @unittest.skipUnless(TORCHAO_AVAILABLE, "torchao not installed")
     def test_patch_is_applied_after_register(self):
-        """_DYNAMIC_QLINEAR_PATCH_APPLIED should be True after register()."""
+        """TorchAOPatch.apply() must invoke _apply_torchao_int8_tensor_patch_impl
+        and the TorchAO patch must land in manager.applied after register().
+        """
         from zentorch.vllm import register
+        from zentorch.vllm.core import manager
 
         register()
-        from zentorch.vllm import _DYNAMIC_QLINEAR_PATCH_APPLIED
 
-        self.assertTrue(
-            _DYNAMIC_QLINEAR_PATCH_APPLIED,
-            "Int8Tensor F.linear dispatch should be patched after register()",
+        self.assertIn(
+            "TorchAO",
+            manager.applied,
+            "TorchAO patch (Int4 + Int8Tensor F.linear dispatch via "
+            "_apply_torchao_int8_tensor_patch_impl) should be applied "
+            "after register() when torchao is installed",
         )
 
 
@@ -515,22 +527,136 @@ class TestDynamicQLinearDispatchNoTorchAO(unittest.TestCase):
     def test_register_skips_without_torchao(self):
         """Load zentorch.vllm from this repo's sources (native zentorch from site-packages)."""
         spec, zv = _load_source_vllm_module()
+        from zentorch.vllm import core as zv_core
 
         with mock.patch.dict(sys.modules, {"zentorch.vllm": zv}):
             spec.loader.exec_module(zv)
-            with mock.patch.object(
-                zv.importlib.util,
-                "find_spec",
-                return_value=None,
-            ) as mock_find:
-                zv._DYNAMIC_QLINEAR_PATCH_APPLIED = False
-                zv._register_zentorch_linear_dispatch()
+            with (
+                mock.patch.object(zv_core, "get_vllm_version", return_value="0.20.0"),
+                mock.patch.object(
+                    zv.importlib.util,
+                    "find_spec",
+                    return_value=None,
+                ) as mock_find,
+            ):
+                applied = zv.TorchAOPatch.apply()
 
-            mock_find.assert_called_once_with("torchao")
-            self.assertFalse(
-                zv._DYNAMIC_QLINEAR_PATCH_APPLIED,
-                "Patch should not apply when find_spec('torchao') is None",
-            )
+                mock_find.assert_called_once_with("torchao")
+                self.assertFalse(
+                    applied,
+                    "TorchAOPatch.apply() must return False when "
+                    "find_spec('torchao') is None",
+                )
+
+
+@unittest.skipUnless(TORCHAO_AVAILABLE, "torchao not installed")
+@unittest.skipUnless(IS_PYTHON_3_10_OR_ABOVE, "torchao requires Python 3.10+")
+class TestInt8TensorHandlers(unittest.TestCase):
+    """End-to-end checks for the shape-transform Int8Tensor handlers
+    registered by ``_register_int8_tensor_handlers``
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        # Ensure zentorch native ops are loaded and Int8Tensor handlers
+        # registered, regardless of test ordering.
+
+        from zentorch.vllm.torchao_int8_patch import (
+            _apply_torchao_int8_tensor_patch_impl,
+        )
+        from torchao.quantization.granularity import PerRow
+        from torchao.quantization.quantize_.workflows.int8.int8_tensor import (
+            Int8Tensor,
+        )
+
+        _apply_torchao_int8_tensor_patch_impl()
+        cls.Int8Tensor = Int8Tensor
+        cls.PerRow = PerRow
+
+    def _static_qt(self, shape, seed=0, dtype=torch.bfloat16):
+        """Build (hp_tensor, weight-only Int8Tensor) sharing the same data."""
+        torch.manual_seed(seed)
+        hp = torch.randn(*shape, dtype=dtype)
+        qt = self.Int8Tensor.from_hp(hp, granularity=self.PerRow())
+        return hp, qt
+
+    @staticmethod
+    def _manual_dequant(qt):
+        """Dequantize manually as ``(qdata - zero_point) * scale``."""
+        qdata = qt.qdata.to(qt.dtype)
+        scale = qt.scale.to(qt.dtype)
+        if qt.zero_point is not None:
+            qdata = qdata - qt.zero_point.to(qt.dtype)
+        return qdata * scale
+
+    def test_view_rank_preserving_2d(self):
+        """aten.view: same-shape view yields the same dequantized values."""
+        _, qt = self._static_qt((4, 8), seed=0)
+        viewed = qt.view(4, 8)
+        self.assertEqual(viewed.shape, qt.shape)
+        self.assertTrue(
+            torch.equal(self._manual_dequant(viewed), self._manual_dequant(qt)),
+            "view(4,8) must preserve dequantized values bit-for-bit",
+        )
+
+    def test_view_3d_to_2d_flatten(self):
+        """aten.view: 3D -> 2D flatten -- dequant commutes with view."""
+        _, qt = self._static_qt((2, 4, 8), seed=1)
+        viewed = qt.view(8, 8)
+        dq_view = self._manual_dequant(viewed)
+        view_dq = self._manual_dequant(qt).view(8, 8)
+        self.assertEqual(dq_view.shape, view_dq.shape)
+        self.assertTrue(
+            torch.equal(dq_view, view_dq),
+            "dequant(view(qt, [8,8])) must equal view(dequant(qt), [8,8])",
+        )
+
+    def test_view_2d_to_3d_unflatten(self):
+        """aten.view: 2D -> 3D unflatten -- dequant commutes with view."""
+        _, qt = self._static_qt((8, 8), seed=2)
+        viewed = qt.view(2, 4, 8)
+        dq_view = self._manual_dequant(viewed)
+        view_dq = self._manual_dequant(qt).view(2, 4, 8)
+        self.assertEqual(dq_view.shape, view_dq.shape)
+        self.assertTrue(
+            torch.equal(dq_view, view_dq),
+            "dequant(view(qt, [2,4,8])) must equal view(dequant(qt), [2,4,8])",
+        )
+
+    def test_permute_2d_transpose(self):
+        """aten.permute: (1,0) transpose -- dequant commutes with permute."""
+        _, qt = self._static_qt((4, 8), seed=3)
+        permuted = qt.permute(1, 0)
+        dq_permute = self._manual_dequant(permuted)
+        permute_dq = self._manual_dequant(qt).permute(1, 0)
+        self.assertEqual(dq_permute.shape, permute_dq.shape)
+        self.assertEqual(dq_permute.shape, (8, 4))
+        self.assertTrue(
+            torch.equal(dq_permute, permute_dq),
+            "dequant(permute(qt, (1,0))) must equal permute(dequant(qt), (1,0))",
+        )
+
+    def test_linear_dispatches_to_dynamic_qlinear_when_activation_quantized(self):
+        """linear handler should dispatch to zentorch_dynamic_qlinear when
+        act_quant_kwargs is present on the Int8Tensor weight.
+        """
+        counters.clear()
+        x = torch.randn(3, 8, dtype=torch.bfloat16)
+        _, qt = self._static_qt((6, 8), seed=4)
+        bias = torch.randn(6, dtype=torch.bfloat16)
+        expected = torch.randn(3, 6, dtype=torch.bfloat16)
+        with (
+            mock.patch.object(qt, "act_quant_kwargs", {"dynamic": True}, create=True),
+            mock.patch.object(
+                torch.ops.zentorch,
+                "zentorch_dynamic_qlinear",
+                return_value=expected,
+            ) as dynamic_qlinear,
+        ):
+            result = torch.nn.functional.linear(x, qt, bias)
+        self.assertIs(result, expected)
+        dynamic_qlinear.assert_called_once()
+        self.assertEqual(counters["zentorch"]["zentorch_dynamic_qlinear"], 1)
 
 
 class TestZentorchOptimizePass(unittest.TestCase):
@@ -637,6 +763,7 @@ def run_tests():
     suite.addTests(loader.loadTestsFromTestCase(TestPlatformConfiguration))
     suite.addTests(loader.loadTestsFromTestCase(TestDynamicQLinearDispatchPatch))
     suite.addTests(loader.loadTestsFromTestCase(TestDynamicQLinearDispatchNoTorchAO))
+    suite.addTests(loader.loadTestsFromTestCase(TestInt8TensorHandlers))
     suite.addTests(loader.loadTestsFromTestCase(TestZentorchOptimizePass))
     suite.addTests(loader.loadTestsFromTestCase(TestCppIndirectAssertPatch))
     suite.addTests(loader.loadTestsFromTestCase(TestCPURunnerShutdownPatch))

@@ -48,77 +48,16 @@ from zentorch.vllm.core import (
     VLLM_V20_2,
 )
 
+# Re-exported at module scope so tests can mock the Int8Tensor dispatch impl
+# (see TorchAOPatch.apply); the import has no torchao dependency itself.
+from zentorch.vllm.torchao_int8_patch import (  # noqa: E402, F401
+    _apply_torchao_int8_tensor_patch_impl,
+)
+
 logger = get_logger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# PyTorch mainline backports (fixes present in mainline but not in 2.10)
-# ---------------------------------------------------------------------------
-
 _FXGRAPHCACHE_PATCH_APPLIED = False
-
-# ---------------------------------------------------------------------------
-# Patch torchao Int8Tensor F.linear dispatch → zentorch_dynamic_qlinear
-#
-# torchao's Int8Tensor registers a __torch_function__ handler for F.linear
-# that decomposes into choose_qparams → quantize → _int_mm → dequant.
-# We re-register the handler so the traced graph contains a single
-# zentorch_dynamic_qlinear node instead.
-# ---------------------------------------------------------------------------
-
-_DYNAMIC_QLINEAR_PATCH_APPLIED = False
-
-
-def _register_zentorch_linear_dispatch() -> None:
-    """Patch Int8Tensor's F.linear dispatch to call zentorch_dynamic_qlinear."""
-    global _DYNAMIC_QLINEAR_PATCH_APPLIED
-
-    if _DYNAMIC_QLINEAR_PATCH_APPLIED:
-        return
-
-    if importlib.util.find_spec("torchao") is None:
-        logger.info(
-            "[zentorch] torchao not installed, skipping Int8Tensor F.linear patch"
-        )
-        return
-
-    try:
-        from torchao.quantization.quantize_.workflows.int8.int8_tensor import (
-            Int8Tensor,
-        )
-
-        implements = Int8Tensor.implements
-        implements_torch_function = Int8Tensor.implements_torch_function
-
-        @implements(torch.ops.aten.linear.default)
-        @implements_torch_function(torch.nn.functional.linear)
-        def _zentorch_int8_linear(func, types, args, kwargs):
-            activation_tensor = args[0]
-            weight_tensor = args[1]
-            bias = args[2] if len(args) > 2 else None
-
-            if (
-                isinstance(weight_tensor, Int8Tensor)
-                and weight_tensor.act_quant_kwargs is not None
-            ):
-                weight_int8 = weight_tensor.qdata
-                weight_scales = weight_tensor.scale
-                if weight_scales.dim() == 2 and weight_scales.shape[-1] == 1:
-                    weight_scales = weight_scales.squeeze(-1)
-                return torch.ops.zentorch.zentorch_dynamic_qlinear(
-                    activation_tensor, weight_int8, weight_scales, bias,
-                )
-
-            return func(*args, **(kwargs or {}))
-
-        _DYNAMIC_QLINEAR_PATCH_APPLIED = True
-        logger.warning(
-            "[zentorch] Patched Int8Tensor F.linear dispatch -> zentorch_dynamic_qlinear"
-        )
-    except Exception:
-        logger.warning(
-            "[zentorch] Int8Tensor F.linear patch FAILED", exc_info=True,
-        )
 
 
 def _apply_fxgraphcache_pickle_patch() -> bool:
@@ -140,7 +79,9 @@ def _apply_fxgraphcache_pickle_patch() -> bool:
     from torch.torch_version import TorchVersion
 
     if TorchVersion(torch.__version__) < (2, 10):
-        logger.debug("[zentorch] FxGraphCache pickle patch only applies to PyTorch 2.10.0")
+        logger.debug(
+            "[zentorch] FxGraphCache pickle patch only applies to PyTorch 2.10.0"
+        )
         return False
 
     import pickle
@@ -269,7 +210,10 @@ def _apply_faketensor_subclass_patch() -> bool:
 
 @vllm_version_range(min_ver=VLLM_MIN_VERSION, max_ver=VLLM_MAX_VERSION)
 class TorchAOPatch:
-    """Register TorchAO operations for Int4OpaqueTensor support."""
+    """Register TorchAO hooks: Int4 opaque tensor config/ops and Int8Tensor monkey-patch."""
+
+    # Int8Tensor: upstream torchao dispatch (view/permute) + zentorch_dynamic_qlinear
+    # for dynamic int8; see torchao_int8_patch.py.
 
     @classmethod
     def apply(cls) -> bool:
@@ -277,15 +221,23 @@ class TorchAOPatch:
         Register torchao operations including:
         - Int4WeightOnlyOpaqueTensorConfig to ALLOWED_AO_MODULES
         - slice operation for Int4OpaqueTensor
+        - Int8Tensor aten ``view`` (upstream torchao) plus ``zentorch_dynamic_qlinear``
+          for dynamic int8 linear
         """
         if importlib.util.find_spec("torchao") is None:
-            logger.info("[zentorch] TorchAO not installed, skipping Int4 registration")
+            logger.info("[zentorch] TorchAO not installed, skipping TorchAO patch")
             return False
-        from .torchao_register import _register_int4_opaque_tensor_config, _register_int4_slice_op
+        from .torchao_int4_opaque_patch import (
+            _register_int4_opaque_tensor_config,
+            _register_int4_slice_op,
+        )
 
         _register_int4_opaque_tensor_config()
         _register_int4_slice_op()
-        logger.info("[zentorch] Registered TorchAO operations.")
+        _apply_torchao_int8_tensor_patch_impl()
+        logger.info(
+            "[zentorch] Registered TorchAO operations (Int4 + Int8Tensor patch)."
+        )
         return True
 
 
@@ -416,7 +368,9 @@ def _do_patch_rmsnorm():
 
     RMSNorm.forward = patched_forward
     RMSNorm._zentorch_rmsnorm_patched = True
-    logger.info("[zentorch] Patched RMSNorm.forward to use optimized C++ kernels on CPU")
+    logger.info(
+        "[zentorch] Patched RMSNorm.forward to use optimized C++ kernels on CPU"
+    )
     return True
 
 
@@ -613,8 +567,6 @@ class _FusedMoEImportHook:
         if self in sys.meta_path:
             sys.meta_path.remove(self)
 
-        import importlib.util
-
         spec = importlib.util.find_spec(fullname)
         if spec is None or spec.loader is None:
             return None
@@ -697,8 +649,8 @@ def _do_patch_pre_v18_gemm_dispatch():
             return
 
         weights_copy = layer.weight.detach()
-        layer.cpu_linear = (
-            lambda x, weight, bias: torch.nn.functional.linear(x, weights_copy, bias)
+        layer.cpu_linear = lambda x, weight, bias: torch.nn.functional.linear(
+            x, weights_copy, bias
         )
         if remove_weight:
             layer.weight = torch.nn.Parameter(torch.empty(0), requires_grad=False)
@@ -743,6 +695,7 @@ class _PreV18DispatchImportHook:
             sys.meta_path.remove(self)
 
         import importlib
+
         module = importlib.import_module(fullname)
 
         _PRE_V18_HOOK_PATCHES[fullname]()
@@ -758,7 +711,6 @@ class _PreV18DispatchImportHook:
         if self in sys.meta_path:
             sys.meta_path.remove(self)
 
-        import importlib.util
         real_spec = importlib.util.find_spec(fullname)
         if real_spec is None:
             self._maybe_readd()
@@ -1129,9 +1081,7 @@ def register() -> Optional[str]:
         _apply_faketensor_subclass_patch()
         # 2. ValueError catch for cyclic Logger refs in FxGraphCachePickler
         _apply_fxgraphcache_pickle_patch()
-        # 3. Register torchao int8 dynamic quantized linear → zentorch_dynamic_qlinear
-        _register_zentorch_linear_dispatch()
-        # Register and apply all patches (decorators handle version filtering)
+        # Register and apply all patches (decorators handle version filtering);
         _register_patches()
         manager.apply_all()
 

@@ -22,6 +22,7 @@ from unittest_utils import (  # noqa: 402
     q_zero_points_dtype_opt,
     q_linear_dtype_opt,
     get_comp_zero_points,
+    counters,
 )
 from quant_utils import qdq_linear  # noqa: 402
 
@@ -175,6 +176,7 @@ class Test_Qlinear_Model(QLinearTestCase):
             storage_offset=input.shape[-1],
         )
 
+        counters.clear()
         model(
             self.data.x_for_qlinear[input_dtype][input_dim],
             self.data.y_int8[q_weight_idx],
@@ -191,7 +193,7 @@ class Test_Qlinear_Model(QLinearTestCase):
             use_zentorch=True,
             qlinear_output=qlinear_view,
         )
-
+        self.assertEqual(counters["zentorch"]["zentorch_dynamic_qlinear"], 1)
         self.assertEqual(
             simulated_cat_output, zentorch_cat_output, atol=1e-2, rtol=1e-2
         )
