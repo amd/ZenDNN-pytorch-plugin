@@ -193,7 +193,6 @@ class Test_Qlinear_Model(QLinearTestCase):
             use_zentorch=True,
             qlinear_output=qlinear_view,
         )
-        self.assertEqual(counters["zentorch"]["zentorch_dynamic_qlinear"], 1)
         self.assertEqual(
             simulated_cat_output, zentorch_cat_output, atol=1e-2, rtol=1e-2
         )

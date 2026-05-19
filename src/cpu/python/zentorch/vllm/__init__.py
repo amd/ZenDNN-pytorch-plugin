@@ -53,6 +53,9 @@ from zentorch.vllm.core import (
 from zentorch.vllm.torchao_int8_patch import (  # noqa: E402, F401
     _apply_torchao_int8_tensor_patch_impl,
 )
+from zentorch.vllm.moe_class import (  # noqa: E402, F401
+    _apply_torchao_moe_patch_impl,
+)
 
 logger = get_logger(__name__)
 
@@ -210,20 +213,14 @@ def _apply_faketensor_subclass_patch() -> bool:
 
 @vllm_version_range(min_ver=VLLM_MIN_VERSION, max_ver=VLLM_MAX_VERSION)
 class TorchAOPatch:
-    """Register TorchAO hooks: Int4 opaque tensor config/ops and Int8Tensor monkey-patch."""
+    """Register TorchAO hooks: Int4 opaque tensor config/ops, Int8Tensor
+    monkey-patch, and FusedMoE support on TorchAOConfig."""
 
     # Int8Tensor: upstream torchao dispatch (view/permute) + zentorch_dynamic_qlinear
     # for dynamic int8; see torchao_int8_patch.py.
 
     @classmethod
     def apply(cls) -> bool:
-        """
-        Register torchao operations including:
-        - Int4WeightOnlyOpaqueTensorConfig to ALLOWED_AO_MODULES
-        - slice operation for Int4OpaqueTensor
-        - Int8Tensor aten ``view`` (upstream torchao) plus ``zentorch_dynamic_qlinear``
-          for dynamic int8 linear
-        """
         if importlib.util.find_spec("torchao") is None:
             logger.info("[zentorch] TorchAO not installed, skipping TorchAO patch")
             return False
@@ -235,8 +232,10 @@ class TorchAOPatch:
         _register_int4_opaque_tensor_config()
         _register_int4_slice_op()
         _apply_torchao_int8_tensor_patch_impl()
+        _apply_torchao_moe_patch_impl()
         logger.info(
-            "[zentorch] Registered TorchAO operations (Int4 + Int8Tensor patch)."
+            "[zentorch] Registered TorchAO operations "
+            "(Int4 + Int8Tensor patch + FusedMoE)."
         )
         return True
 
