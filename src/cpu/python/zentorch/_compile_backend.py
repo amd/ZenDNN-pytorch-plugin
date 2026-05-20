@@ -13,15 +13,8 @@ from ._optimize import optimize
 from typing import Callable, List, Any
 from ._logging import get_logger
 from torch._functorch.aot_autograd import aot_module_simplified
-from torch.torch_version import TorchVersion
 from ._mkldnn import mkldnn_fuse_fx
 from torch._inductor.fx_passes.pre_grad import fuse_conv_bn, remove_identity
-
-# Make use of existing decompositions functions if Torch version >= 2.1
-# Torch version less than 2.1 doesn't support removal of decompositions
-from torch._decomp import remove_decompositions
-from torch._inductor.decomposition import decompositions, fast_random_decomps
-from torch._inductor.lowering import make_fallback
 
 
 class OptimizePass(CustomGraphPass):
@@ -53,7 +46,6 @@ class OptimizePass(CustomGraphPass):
 optimize_pass = OptimizePass()
 
 
-torch_version = TorchVersion(torch.__version__)
 """
 Pytorch 2.0 has mkldnn_fuse_fx but 2.1 and above Pytorch deprecated \
 mkldnn_fuse_fx function. In Pytorch 2.1 and above this fusion is done \
@@ -63,12 +55,6 @@ We are making use of existing pytorch functions fuse_conv_bn, remove_identity \
 (2.1 and above) has integrated these changes at different places
 """
 
-
-# Make use of existing decompositions functions if Torch version >= 2.1
-# Torch version less than 2.1 doesn't support removal of decompositions
-
-
-REMOVE_DECOMP = True
 
 disable_inductor_flag = False
 
@@ -146,26 +132,6 @@ def zentorch_compiler_noinductor(gm, sample_inputs):
 
 @register_backend
 def zentorch(model, inputs):
-
-    if REMOVE_DECOMP:
-        REMOVE_DECOMP_LIST = [
-            torch.ops.aten.gelu_,
-            torch.ops.aten.gelu,
-            torch.ops.aten.silu_,
-            torch.ops.aten.silu,
-            torch.ops.aten.empty.memory_format,
-        ]
-        remove_decompositions(decompositions, REMOVE_DECOMP_LIST)
-        # Clear the fast_random_decomps cache to avoid using old decompositions
-        # This is necessary as the fast_random_decomps uses LRU cache
-        fast_random_decomps.cache_clear()
-        # PT will throw an error if CI env variable is set
-        # This looks like a bug in PT as this check is unnecessary
-        # before registering the fallback
-        # This can be avoided by calling the API with the warning mode
-        # set to False (torch/_inductor/lowering.py)
-        for op in REMOVE_DECOMP_LIST:
-            make_fallback(op, warn=False)
 
     if disable_inductor_flag:
         logger.info(

@@ -57,19 +57,6 @@ class Custom_Model_Addmm_Alpha_Beta_Silu_Mul(torch.nn.Module):
         return mul_0
 
 
-class Custom_Model_Gelu_Erf(torch.nn.Module):
-    def __init__(self):
-        super(Custom_Model_Gelu_Erf, self).__init__()
-
-    def forward(self, input):
-        mul_0 = torch.mul(input, 0.5)
-        mul_1 = torch.mul(input, 0.7071067811865476)
-        erf_0 = torch.erf(mul_1)
-        add_0 = torch.add(erf_0, 1)
-        mul_2 = torch.mul(mul_0, add_0)
-        return mul_2
-
-
 class Custom_Model_BMM1(nn.Module):
     def __init__(self):
         super(Custom_Model_BMM1, self).__init__()
@@ -179,35 +166,6 @@ class Test_Pattern_Matcher_Model(Zentorch_TestCase):
                 compiled_model, (inp_0, inp_1, inp_2, inp_2), freeze_opt
             )
             self.assertEqual(counters["zentorch"]["pattern_matcher_addmm_silu_mul"], 1)
-
-    @parameterized.expand(product(supported_dtypes, freeze_opt))
-    @torch.inference_mode()
-    def test_gelu_erf_pattern_model(self, dtype, freeze_opt):
-        reset_dynamo()
-        decomp_gelu_model = Custom_Model_Gelu_Erf()
-        model = decomp_gelu_model.to("cpu").eval()
-        compiled_model = torch.compile(model, backend="zentorch")
-        new_dtype = self.data.get_torch_type(dtype)
-        inp = torch.empty((4, 11), dtype=new_dtype)
-        counters.clear()
-        self.assertEqual(counters["zentorch"]["pattern_matcher_gelu"], 0)
-        _ = test_with_freeze_opt(compiled_model, (inp), freeze_opt)
-        # test for both dtypes, two separate tests will be run
-        self.assertEqual(counters["zentorch"]["pattern_matcher_gelu"], 1)
-
-    @parameterized.expand(freeze_opt)
-    @torch.inference_mode()
-    def test_gelu_erf_autocast_pattern_model(self, freeze_opt):
-        reset_dynamo()
-        inp = torch.empty((5, 13))
-        decomp_gelu_model = Custom_Model_Gelu_Erf()
-        model = decomp_gelu_model.to("cpu").eval()
-        compiled_model = torch.compile(model, backend="zentorch")
-        counters.clear()
-        self.assertEqual(counters["zentorch"]["pattern_matcher_gelu"], 0)
-        with torch.autocast("cpu"):
-            _ = test_with_freeze_opt(compiled_model, (inp), freeze_opt)
-            self.assertEqual(counters["zentorch"]["pattern_matcher_gelu"], 1)
 
     @parameterized.expand(product(supported_dtypes, freeze_opt))
     @torch.inference_mode()

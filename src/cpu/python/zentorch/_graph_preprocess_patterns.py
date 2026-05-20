@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2026 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -18,41 +18,6 @@ from functools import partial
 # Take a look at gen_attention_patterns.py file in PT repo as well
 
 at_ops = torch.ops.aten
-
-
-# adding gelu pattern here, find a way to generate patterns
-def _gelu_tanh_pattern(arg_0):
-    mul_0 = at_ops.mul.Tensor(arg_0, 0.5)
-    pow_0 = at_ops.pow.Tensor_Scalar(arg_0, 3.0)
-    mul_1 = at_ops.mul.Tensor(pow_0, 0.044715)
-    add_0 = at_ops.add.Tensor(arg_0, mul_1)
-    mul_2 = at_ops.mul.Tensor(add_0, 0.7978845608028654)
-    tanh_0 = at_ops.tanh.default(mul_2)
-    add_1 = at_ops.add.Tensor(tanh_0, 1.0)
-    mul_3 = at_ops.mul.Tensor(mul_0, add_1)
-    return (mul_3,)
-
-
-def _gelu_tanh_replacement(arg_0):
-    counters["zentorch"]["pattern_matcher_gelu"] += 1
-    gelu_0 = at_ops.gelu.default(arg_0, approximate="tanh")
-    return (gelu_0,)
-
-
-def _gelu_erf_pattern(arg_0):
-    mul_0 = at_ops.mul.Tensor(arg_0, 0.5)
-    mul_1 = at_ops.mul.Tensor(arg_0, 0.7071067811865476)
-    erf_0 = at_ops.erf.default(mul_1)
-    add_0 = at_ops.add.Tensor(erf_0, 1.0)
-    mul_2 = at_ops.mul.Tensor(mul_0, add_0)
-    return (mul_2,)
-
-
-def _gelu_erf_replacement(arg_0):
-    counters["zentorch"]["pattern_matcher_gelu"] += 1
-    gelu_0 = at_ops.gelu.default(arg_0)
-    return (gelu_0,)
-
 
 # Eliminate the copy overhead with first token
 # for ChatGLM3 with zentorch.llm.optimize.
@@ -107,11 +72,8 @@ def _bmm_to_mm_replacement_1(arg_0, arg_1):
     unsqueeze_0 = at_ops.unsqueeze.default(mm_0, 1)
     return (unsqueeze_0,)
 
+
 # adding patterns completed #
-
-
-def _dummy_extra_check(match):
-    return True
 
 
 # Checks for ChatGLM pattern
@@ -141,20 +103,6 @@ def _get_pattern_with_replacement():
     )
 
     candidates = [
-        (
-            _gelu_tanh_pattern,
-            _gelu_tanh_replacement,
-            [arg_1()],  # used to pass arguments
-            {},  # this can be used to pass kwargs
-            _dummy_extra_check,  # fake extra check, cannot be skipped
-        ),
-        (
-            _gelu_erf_pattern,
-            _gelu_erf_replacement,
-            [arg_1()],
-            {},
-            _dummy_extra_check,
-        ),
         (
             _bmm_to_mm_pattern_1,
             _bmm_to_mm_replacement_1,
