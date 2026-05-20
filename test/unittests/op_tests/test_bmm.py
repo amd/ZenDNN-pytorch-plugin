@@ -45,6 +45,16 @@ class Test_BMM_Op(MMTestCase):
         self.assertTrue("unsupported dims for self and mat2" in str(context.exception))
 
     @MMTestCase.hypothesis_params_mm_itr(
+        dtype_list=supported_dtypes
+    )
+    def test_bmm_out_variant(self, dtype):
+
+        expected = torch._C._VariableFunctions.bmm(self.data.x3d, self.data.y3d)
+        out = torch.empty_like(expected)
+        torch.ops.zentorch.zentorch_bmm.out(self.data.x3d, self.data.y3d, out=out)
+        self.assertEqual(expected, out)
+
+    @MMTestCase.hypothesis_params_mm_itr(
         dtype_list=['int']
     )
     def test_bmm_unsupported_dtype(self, dtype):

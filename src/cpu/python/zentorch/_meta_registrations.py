@@ -269,6 +269,11 @@ def meta_zentorch_bmm(input, weight):
     return input.new_empty((input.shape[0], input.shape[1], weight.shape[-1]))
 
 
+@register_meta("zentorch_bmm", "out")
+def meta_zentorch_bmm_out(input, weight, *, out):
+    return
+
+
 @register_meta("zentorch_baddbmm")
 def meta_zentorch_baddbmm(
     bias,
@@ -991,6 +996,7 @@ make_fallback(torch.ops.zentorch.zentorch_addmm_1dbias_silu_mul)
 make_fallback(torch.ops.zentorch.zentorch_embedding_bag)
 make_fallback(torch.ops.zentorch.zentorch_embedding)
 make_fallback(torch.ops.zentorch.zentorch_bmm)
+make_fallback(torch.ops.zentorch.zentorch_bmm.out)
 make_fallback(torch.ops.zentorch.zentorch_baddbmm)
 make_fallback(torch.ops.zentorch.zentorch_mm)
 make_fallback(torch.ops.zentorch.zentorch_mm_relu)
