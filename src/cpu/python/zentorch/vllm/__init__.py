@@ -505,6 +505,8 @@ def _moe_forward_zentorch(
         topk_ids,
         apply_router_weight_on_input,  # skip_weighted
         act,
+        getattr(layer, "w13_scale", None),
+        getattr(layer, "w2_scale", None),
     )
     return output
 
@@ -528,7 +530,6 @@ def _do_patch_fused_moe() -> bool:
         # [E, ...] layout that zentorch_fused_moe expects.
         self.isa = "none"
         self.forward_method = self._zentorch_forward
-
         # zentorch_fused_moe -> zentorch_group_matmul_out_impl consumes the
         # [E, ...] weights via per-expert `.select(0, e)`. ZenDNN's
         # group_matmul expects each per-expert slice to be row-major
@@ -540,6 +541,33 @@ def _do_patch_fused_moe() -> bool:
         from vllm.model_executor.layers.quantization.utils.layer_utils import (
             replace_parameter,
         )
+        # Extract int8 weight scales from torchao Int8Tensor
+        if importlib.util.find_spec("torchao") is None:
+            logger.info(
+                "[zentorch] torchao not installed, skipping Int8Tensor scale extraction"
+            )
+        else:
+            from torchao.quantization.quantize_.workflows.int8.int8_tensor import (
+                Int8Tensor,
+            )
+
+            for weight_attr, scale_attr in [
+                ("w13_weight", "w13_scale"),
+                ("w2_weight", "w2_scale"),
+            ]:
+                w = getattr(layer, weight_attr, None)
+                if isinstance(w, Int8Tensor):
+                    weight_scales = w.scale
+                    if weight_scales.shape[-1] == 1:
+                        weight_scales = weight_scales.squeeze(-1).contiguous()
+                    if weight_scales.dtype not in (torch.float32, torch.bfloat16):
+                        raise ValueError(
+                            f"[zentorch] {weight_attr}.scale must be float32 "
+                            f"or bfloat16, got {weight_scales.dtype}"
+                        )
+                    setattr(layer, scale_attr, weight_scales)
+                    replace_parameter(layer, weight_attr, w.qdata)
+
         if not layer.w13_weight.is_contiguous():
             replace_parameter(layer, "w13_weight", layer.w13_weight.contiguous())
         if not layer.w2_weight.is_contiguous():

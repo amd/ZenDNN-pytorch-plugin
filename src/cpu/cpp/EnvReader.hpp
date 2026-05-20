@@ -51,6 +51,8 @@ private:
                      1); // FusedMoE per-expert grouped-input scratchpad is
                          // ON by default; set to 0 to fall back to the
                          // at::empty-per-expert allocation path.
+    storeEnvVariable("ZENTORCH_ENABLE_CHECKS",
+                     0); // Validation checks disabled by default
   }
 
   // Function to convert and store environment variable value as integer

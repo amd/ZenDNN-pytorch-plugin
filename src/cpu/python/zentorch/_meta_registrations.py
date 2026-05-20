@@ -927,14 +927,16 @@ def meta_zentorch_dynamic_qlinear(
 def meta_zentorch_group_matmul_out(
     gemm_outputs,
     inputs,
-    weights,
-    bias,
-    activation,
+    w13_weights,
     w2_weights,
+    moe_output,
+    topk_weights,
+    row_ptrs,
+    activation,
+    w13_bias,
     w2_bias,
-    moe_output=None,
-    topk_weights=None,
-    row_ptrs=None,
+    w13_scales,
+    w2_scales,
     zentorch_op_name="zentorch::zentorch_group_matmul.out",
 ):
     return
@@ -952,6 +954,8 @@ def meta_zentorch_fused_moe(
     topk_id,
     skip_weighted,
     act,
+    w13_scales=None,
+    w2_scales=None,
     zentorch_op_name="zentorch::zentorch_fused_moe",
 ):
     return

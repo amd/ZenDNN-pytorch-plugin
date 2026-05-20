@@ -4,6 +4,7 @@
  ******************************************************************************/
 
 #include "GroupMatmul.hpp"
+#include "EnvReader.hpp"
 #include "MatmulUtils.hpp"
 #include "Memory.hpp"
 
@@ -29,10 +30,41 @@ static bool has_tensor(const c10::optional<at::Tensor> &opt) {
 // module — a malformed inactive weight would corrupt that cache and bite
 // us when the expert later fires. Inputs and biases are validated only for
 // the active prefix.
+// Shared validation for per-expert quantization scale lists.
+// Checks list size, per-element presence, dtype (f32/bf16), and dim (1D/2D).
 static void
-validate_dtypes_and_shapes(const std::vector<at::Tensor> &inputs,
-                           const std::vector<at::Tensor> &weights,
-                           const std::vector<c10::optional<at::Tensor>> &bias) {
+validate_weight_scales(const std::vector<c10::optional<at::Tensor>> &scales,
+                       int num_ops, const char *param_name) {
+  const bool enable_checks = static_cast<bool>(
+      EnvReader::getEnvVariableAsInt("ZENTORCH_ENABLE_CHECKS"));
+  if (!enable_checks)
+    return;
+  ZENTORCH_CHECK(scales.size() == static_cast<size_t>(num_ops),
+                 "zentorch_group_matmul: ", param_name, ".size() (",
+                 scales.size(), ") must equal num_ops (", num_ops,
+                 ") when weights are int8");
+  for (int op_idx = 0; op_idx < num_ops; ++op_idx) {
+    ZENTORCH_CHECK(has_tensor(scales[op_idx]),
+                   "zentorch_group_matmul: ", param_name, "[", op_idx,
+                   "] is required when weight is int8");
+    const auto &ws = *scales[op_idx];
+    ZENTORCH_CHECK(ws.scalar_type() == c10::kFloat ||
+                       ws.scalar_type() == c10::kBFloat16,
+                   "zentorch_group_matmul: ", param_name, "[", op_idx,
+                   "] must be float32 or bfloat16, got ", ws.scalar_type());
+    ZENTORCH_CHECK(ws.dim() == 1 || ws.dim() == 2,
+                   "zentorch_group_matmul: ", param_name, "[", op_idx,
+                   "] must be 1D or 2D, got ", ws.dim(), "D");
+  }
+}
+
+// Validates per-expert input/weight/bias dtypes, shapes, K-compatibility,
+// and weight_scales (required for int8 weights).
+static void validate_dtypes_and_shapes(
+    const std::vector<at::Tensor> &inputs,
+    const std::vector<at::Tensor> &w13_weights,
+    const std::vector<c10::optional<at::Tensor>> &w13_bias,
+    const std::vector<c10::optional<at::Tensor>> &w13_scales) {
 
   ZENTORCH_CHECK(inputs.size() > 1,
                  "zentorch_group_matmul: sequential mode (inputs.size() == 1) "
@@ -40,14 +72,14 @@ validate_dtypes_and_shapes(const std::vector<at::Tensor> &inputs,
                  "is currently implemented");
 
   const int num_active = static_cast<int>(inputs.size());
-  const int num_total = static_cast<int>(weights.size());
+  const int num_total = static_cast<int>(w13_weights.size());
 
-  ZENTORCH_CHECK(inputs.size() == bias.size(),
+  ZENTORCH_CHECK(inputs.size() == w13_bias.size(),
                  "zentorch_group_matmul: inputs.size() (", inputs.size(),
-                 ") must equal bias.size() (", bias.size(),
+                 ") must equal w13_bias.size() (", w13_bias.size(),
                  ") (active-expert count)");
-  ZENTORCH_CHECK(weights.size() >= inputs.size(),
-                 "zentorch_group_matmul: weights.size() (", weights.size(),
+  ZENTORCH_CHECK(w13_weights.size() >= inputs.size(),
+                 "zentorch_group_matmul: weights.size() (", w13_weights.size(),
                  ") must be >= inputs.size() (", inputs.size(),
                  "); the leading inputs.size() weights are the active "
                  "experts and any extra entries form the prepack-extras "
@@ -66,22 +98,23 @@ validate_dtypes_and_shapes(const std::vector<at::Tensor> &inputs,
 
   // Validate every weight (active + inactive prepack tail).
   for (int op_idx = 0; op_idx < num_total; ++op_idx) {
-    const auto &weight = weights[op_idx];
-    ZENTORCH_CHECK(weight.dim() == 2, "zentorch_group_matmul: weight[", op_idx,
-                   "] must be 2D, got ", weight.dim(), "D");
-    ZENTORCH_CHECK(weight.scalar_type() == ref_dtype,
+    const auto &w13_weight = w13_weights[op_idx];
+    ZENTORCH_CHECK(w13_weight.dim() == 2, "zentorch_group_matmul: weight[",
+                   op_idx, "] must be 2D, got ", w13_weight.dim(), "D");
+    ZENTORCH_CHECK(w13_weight.scalar_type() == ref_dtype ||
+                       w13_weight.scalar_type() == c10::kChar,
                    "zentorch_group_matmul: weight[", op_idx, "] dtype (",
-                   weight.scalar_type(), ") must match input[0] dtype (",
-                   ref_dtype, ")");
-    ZENTORCH_CHECK(weight.size(1) == K_ref, "zentorch_group_matmul: weight[",
-                   op_idx, "] K (", weight.size(1), ") must match input[0] K (",
-                   K_ref, ")");
+                   w13_weight.scalar_type(), ") must match input[0] dtype (",
+                   ref_dtype, ") or be int8");
+    ZENTORCH_CHECK(w13_weight.size(1) == K_ref,
+                   "zentorch_group_matmul: weight[", op_idx, "] K (",
+                   w13_weight.size(1), ") must match input[0] K (", K_ref, ")");
   }
 
   // Validate active-only inputs and biases.
   for (int op_idx = 0; op_idx < num_active; ++op_idx) {
     const auto &input = inputs[op_idx];
-    const auto &weight = weights[op_idx];
+    const auto &w13_weight = w13_weights[op_idx];
 
     ZENTORCH_CHECK(input.dim() == 2, "zentorch_group_matmul: input[", op_idx,
                    "] must be 2D, got ", input.dim(), "D");
@@ -91,20 +124,27 @@ validate_dtypes_and_shapes(const std::vector<at::Tensor> &inputs,
                    ref_dtype, ")");
 
     // Bias must be 1D with size matching N (weight rows) and matching dtype.
-    if (has_tensor(bias[op_idx])) {
-      ZENTORCH_CHECK(bias[op_idx]->dim() == 1, "zentorch_group_matmul: bias[",
-                     op_idx, "] must be 1D");
-      ZENTORCH_CHECK(bias[op_idx]->size(0) == weight.size(0),
-                     "zentorch_group_matmul: bias[", op_idx, "] size (",
-                     bias[op_idx]->size(0), ") must match N (", weight.size(0),
-                     ")");
-      ZENTORCH_CHECK(bias[op_idx]->scalar_type() == ref_dtype,
-                     "zentorch_group_matmul: bias[", op_idx, "] dtype (",
-                     bias[op_idx]->scalar_type(),
+    if (has_tensor(w13_bias[op_idx])) {
+      ZENTORCH_CHECK(w13_bias[op_idx]->dim() == 1,
+                     "zentorch_group_matmul: w13_bias[", op_idx,
+                     "] must be 1D");
+      ZENTORCH_CHECK(w13_bias[op_idx]->size(0) == w13_weight.size(0),
+                     "zentorch_group_matmul: w13_bias[", op_idx, "] size (",
+                     w13_bias[op_idx]->size(0), ") must match N (",
+                     w13_weight.size(0), ")");
+      ZENTORCH_CHECK(w13_bias[op_idx]->scalar_type() == ref_dtype,
+                     "zentorch_group_matmul: w13_bias[", op_idx, "] dtype (",
+                     w13_bias[op_idx]->scalar_type(),
                      ") must match input[0] "
                      "dtype (",
                      ref_dtype, ")");
     }
+  }
+
+  // Validate weight_scales: required when any weight is int8
+  const bool has_int8_weights = w13_weights[0].scalar_type() == c10::kChar;
+  if (has_int8_weights) {
+    validate_weight_scales(w13_scales, num_active, "weight_scales");
   }
 }
 
@@ -119,8 +159,6 @@ static void validate_gemm_outputs(const std::vector<at::Tensor> &gemm_outputs,
                  inputs.size(), ")");
 }
 
-// Todo: https://jira.xilinx.com/browse/ZENAI-3656
-// Add tests for all the failure cases in this op.
 // Validates fused w2 (down projection) list sizes, per-expert shapes, and
 // dtypes. w2_input_dim = N/2 when gated activation is active, N otherwise.
 //
@@ -132,15 +170,16 @@ static void validate_gemm_outputs(const std::vector<at::Tensor> &gemm_outputs,
 // only the active w2 biases.
 static void
 validate_w2_params(const std::vector<at::Tensor> &inputs,
-                   const std::vector<at::Tensor> &weights,
+                   const std::vector<at::Tensor> &w13_weights,
                    const std::vector<c10::optional<at::Tensor>> &w2_weights,
                    const std::vector<c10::optional<at::Tensor>> &w2_bias,
+                   const std::vector<c10::optional<at::Tensor>> &w2_scales,
                    bool use_gated_act) {
 
   ZENTORCH_CHECK(
-      w2_weights.size() == weights.size(),
+      w2_weights.size() == w13_weights.size(),
       "zentorch_group_matmul: w2_weights (", w2_weights.size(),
-      ") must equal weights.size() (", weights.size(),
+      ") must equal weights.size() (", w13_weights.size(),
       ") (full expert count, active prefix + inactive prepack tail)");
   ZENTORCH_CHECK(w2_bias.size() == inputs.size(),
                  "zentorch_group_matmul: w2_bias (", w2_bias.size(),
@@ -151,26 +190,32 @@ validate_w2_params(const std::vector<at::Tensor> &inputs,
   const int num_total = static_cast<int>(w2_weights.size());
   const auto ref_dtype = inputs[0].scalar_type();
 
+  const bool has_int8_w2 =
+      has_tensor(w2_weights[0]) && w2_weights[0]->scalar_type() == c10::kChar;
+
+  if (has_int8_w2) {
+    validate_weight_scales(w2_scales, num_total, "w2_scales");
+  }
+
   // Validate every w2 weight (active + inactive prepack tail).
   for (int op_idx = 0; op_idx < num_total; ++op_idx) {
+    // Each w2 weight must be a defined tensor (not None)
     ZENTORCH_CHECK(has_tensor(w2_weights[op_idx]),
                    "zentorch_group_matmul: w2_weights[", op_idx,
                    "] must not be None when fused w2 is enabled");
     // w2 receives the post-activation output: N/2 with gated act, N without.
-    // Per-expert weights[op_idx] has the same N for both active and inactive
-    // experts in the canonical MoE flow.
-    const int64_t w2_input_dim =
-        use_gated_act ? weights[op_idx].size(0) / 2 : weights[op_idx].size(0);
+    const int64_t w2_input_dim = use_gated_act ? w13_weights[op_idx].size(0) / 2
+                                               : w13_weights[op_idx].size(0);
 
+    const auto w2_dtype = w2_weights[op_idx]->scalar_type();
     ZENTORCH_CHECK(w2_weights[op_idx]->dim() == 2 &&
                        w2_weights[op_idx]->size(1) == w2_input_dim &&
-                       w2_weights[op_idx]->scalar_type() == ref_dtype,
+                       (w2_dtype == ref_dtype || w2_dtype == c10::kChar),
                    "zentorch_group_matmul: w2_weights[", op_idx,
                    "] must be 2D [K_out, ", w2_input_dim, "] with dtype ",
-                   ref_dtype, ", got ", w2_weights[op_idx]->dim(), "D [",
-                   w2_weights[op_idx]->size(0), ", ",
-                   w2_weights[op_idx]->size(1), "] dtype ",
-                   w2_weights[op_idx]->scalar_type());
+                   ref_dtype, " or int8, got ", w2_weights[op_idx]->dim(),
+                   "D [", w2_weights[op_idx]->size(0), ", ",
+                   w2_weights[op_idx]->size(1), "] dtype ", w2_dtype);
   }
 
   // Validate active-only w2 biases.
@@ -204,28 +249,31 @@ static bool validate_moe_params(const c10::optional<at::Tensor> &topk_weights,
 
 static bool
 validate_all_inputs(const std::vector<at::Tensor> &inputs,
-                    const std::vector<at::Tensor> &weights,
-                    const std::vector<c10::optional<at::Tensor>> &bias,
+                    const std::vector<at::Tensor> &w13_weights,
+                    const std::vector<c10::optional<at::Tensor>> &w13_bias,
+                    const std::vector<c10::optional<at::Tensor>> &w13_scales,
                     const std::vector<at::Tensor> &gemm_outputs,
                     const c10::optional<at::Tensor> &topk_weights,
                     const c10::optional<at::Tensor> &row_ptrs,
                     const c10::optional<at::Tensor> &moe_output,
                     const std::vector<c10::optional<at::Tensor>> &w2_weights,
                     const std::vector<c10::optional<at::Tensor>> &w2_bias,
+                    const std::vector<c10::optional<at::Tensor>> &w2_scales,
                     bool use_gated_act) {
 
-  validate_dtypes_and_shapes(inputs, weights, bias);
+  validate_dtypes_and_shapes(inputs, w13_weights, w13_bias, w13_scales);
   if (!gemm_outputs.empty()) {
     validate_gemm_outputs(gemm_outputs, inputs);
   }
   if (!w2_weights.empty()) {
-    validate_w2_params(inputs, weights, w2_weights, w2_bias, use_gated_act);
+    validate_w2_params(inputs, w13_weights, w2_weights, w2_bias, w2_scales,
+                       use_gated_act);
   }
   return validate_moe_params(topk_weights, row_ptrs, moe_output);
 }
 
 // Maps activation string to LowOHA gated activation enum.
-// Supported: "none", "silu", "gelu", "swigluoai".
+// Supported: "none", "silu_and_mul", "gelu_and_mul", "swiglu_oai_mul".
 static zendnnl::lowoha::matmul::grp_matmul_gated_act_t
 map_activation_to_gated_act(std::string_view activation) {
   using gated_act_t = zendnnl::lowoha::matmul::grp_matmul_gated_act_t;
@@ -244,23 +292,24 @@ map_activation_to_gated_act(std::string_view activation) {
 
 void zentorch_group_matmul_out_impl(
     std::vector<at::Tensor> gemm_outputs, const std::vector<at::Tensor> &inputs,
-    const std::vector<at::Tensor> &weights,
-    const std::vector<c10::optional<at::Tensor>> &bias,
-    std::string_view activation,
+    const std::vector<at::Tensor> &w13_weights,
     const std::vector<c10::optional<at::Tensor>> &w2_weights,
-    const std::vector<c10::optional<at::Tensor>> &w2_bias,
     c10::optional<at::Tensor> moe_output,
     const c10::optional<at::Tensor> &topk_weights,
-    const c10::optional<at::Tensor> &row_ptrs,
+    const c10::optional<at::Tensor> &row_ptrs, std::string_view activation,
+    const std::vector<c10::optional<at::Tensor>> &w13_bias,
+    const std::vector<c10::optional<at::Tensor>> &w2_bias,
+    const std::vector<c10::optional<at::Tensor>> &w13_scales,
+    const std::vector<c10::optional<at::Tensor>> &w2_scales,
     const std::string &zentorch_op_name) {
 
   const auto gated_act_type = map_activation_to_gated_act(activation);
   const bool use_gated_act =
       gated_act_type != zendnnl::lowoha::matmul::grp_matmul_gated_act_t::none;
 
-  const bool use_moe = validate_all_inputs(inputs, weights, bias, gemm_outputs,
-                                           topk_weights, row_ptrs, moe_output,
-                                           w2_weights, w2_bias, use_gated_act);
+  const bool use_moe = validate_all_inputs(
+      inputs, w13_weights, w13_bias, w13_scales, gemm_outputs, topk_weights,
+      row_ptrs, moe_output, w2_weights, w2_bias, w2_scales, use_gated_act);
 
   // Two distinct sizes drive the per-op vectors below:
   //
@@ -281,7 +330,7 @@ void zentorch_group_matmul_out_impl(
   // dispatcher learns this layout via params[0].active_matmul /
   // total_matmul, set just before the call below.
   const int num_active = static_cast<int>(inputs.size());
-  const int num_total = static_cast<int>(weights.size());
+  const int num_total = static_cast<int>(w13_weights.size());
 
   // Input-side vectors (sized to the active count).
   const std::vector<char> layouts(num_active, 'r');
@@ -294,6 +343,10 @@ void zentorch_group_matmul_out_impl(
   std::vector<const void *> bias_ptrs(num_active, nullptr);
   std::vector<void *> dst_ptrs(num_active, nullptr);
   std::vector<int> ldc_vec(num_active);
+  // Holds src_scale tensors for dynamic int8 (keeps them alive until kernel
+  // returns)
+  std::vector<at::Tensor> temp_src_scales;
+  const bool has_int8_weights = w13_weights[0].scalar_type() == c10::kChar;
 
   // Weight-side metadata vectors (sized to the total count). The library's
   // prepack-extras contract requires the six vectors below to be
@@ -319,12 +372,12 @@ void zentorch_group_matmul_out_impl(
 
   // Weight metadata population: every expert (active prefix + inactive tail).
   for (int op_idx = 0; op_idx < num_total; ++op_idx) {
-    const auto &weight = weights[op_idx];
-    N_vec[op_idx] = weight.size(0);
-    K_vec[op_idx] = weight.size(1);
-    weight_ptrs[op_idx] = weight.data_ptr();
-    ldb_vec[op_idx] = weight.stride(0);
-    params[op_idx].dtypes.wei = get_zendnnl_dtype(weight);
+    const auto &w13_weight = w13_weights[op_idx];
+    N_vec[op_idx] = w13_weight.size(0);
+    K_vec[op_idx] = w13_weight.size(1);
+    weight_ptrs[op_idx] = w13_weight.data_ptr();
+    ldb_vec[op_idx] = w13_weight.stride(0);
+    params[op_idx].dtypes.wei = get_zendnnl_dtype(w13_weight);
   }
 
   // Input + per-op-params population: active experts only.
@@ -335,9 +388,9 @@ void zentorch_group_matmul_out_impl(
     src_ptrs[op_idx] = input.data_ptr();
     lda_vec[op_idx] = input.stride(0);
 
-    const bool bias_defined = has_tensor(bias[op_idx]);
+    const bool bias_defined = has_tensor(w13_bias[op_idx]);
     if (bias_defined) {
-      bias_ptrs[op_idx] = bias[op_idx]->data_ptr();
+      bias_ptrs[op_idx] = w13_bias[op_idx]->data_ptr();
     }
 
     // When gemm_outputs is empty, pass nullptr — ZenDNN handles allocation
@@ -352,8 +405,41 @@ void zentorch_group_matmul_out_impl(
 
     params[op_idx].dtypes.src = get_zendnnl_dtype(input);
     params[op_idx].dtypes.bias =
-        bias_defined ? get_zendnnl_dtype(*bias[op_idx]) : data_type_t::none;
+        bias_defined ? get_zendnnl_dtype(*w13_bias[op_idx]) : data_type_t::none;
     params[op_idx].plugin_op = zentorch_op_name;
+
+    // Dynamic int8: bf16/fp32 input × s8 weight, kernel quantizes activations
+    if (has_int8_weights) {
+      params[op_idx].dtypes.compute = data_type_t::s8;
+      params[op_idx].dynamic_quant = true;
+      zendnnl::lowoha::matmul::matmul_quantization_params_t qparams{};
+
+      // Weight scale (already validated in validate_dtypes_and_shapes)
+      const auto &ws = *w13_scales[op_idx];
+      qparams.wei_scale.buff = ws.data_ptr();
+      qparams.wei_scale.dt = get_zendnnl_dtype(ws);
+      // Normalize 1D {N} to 2D {1, N} for per-channel format required by LowOHA
+      auto ws_dims = ws.sizes().vec();
+      if (ws_dims.size() == 1) {
+        ws_dims = {1, ws_dims[0]};
+      }
+      qparams.wei_scale.dims = ws_dims;
+
+      // Source scale: caller-allocated buffer, kernel fills it at runtime.
+      // Granularity determined by weight scale shape:
+      //   wei_scale {1, N} (per-channel) → src_scale {M, 1} (per-token)
+      //   wei_scale {G, N} (per-group)   → src_scale {M, G} (per-group)
+      const int64_t M = input.size(0);
+      auto src_scale_tensor =
+          at::detail::empty_strided_cpu({M, 1}, {1, 1}, ws.scalar_type());
+      qparams.src_scale.buff = src_scale_tensor.data_ptr();
+      qparams.src_scale.dt = get_zendnnl_dtype(ws);
+      qparams.src_scale.dims = {M, 1};
+      // Keep tensor alive until group_matmul_direct returns
+      temp_src_scales.push_back(std::move(src_scale_tensor));
+
+      params[op_idx].quant_params = qparams;
+    }
   }
 
   // Engage ZenDNN's framework prepack-extras contract. See
@@ -383,10 +469,11 @@ void zentorch_group_matmul_out_impl(
 
     const int64_t num_tokens = topk_weights->size(0);
     const int64_t topk = topk_weights->size(1);
-    // Gated activations (silu, gelu, swigluoai) use fused [gate_W | up_W]
-    // weights with N = 2*D columns. The GEMM produces [M, 2*D], then the
-    // activation reduces it to [M, D]. So the effective hidden dimension
-    // for the MoE output is N/2 when gated activation is active, N otherwise.
+    // Gated activations (silu_and_mul, gelu_and_mul, swiglu_oai_mul) use fused
+    // [gate_W | up_W] weights with N = 2*D columns. The GEMM produces [M, 2*D],
+    // then the activation reduces it to [M, D]. So the effective hidden
+    // dimension for the MoE output is N/2 when gated activation is active, N
+    // otherwise.
     const int hidden_dim = use_gated_act ? N_vec[0] / 2 : N_vec[0];
 
     moe_params.num_tokens = num_tokens;
@@ -429,6 +516,26 @@ void zentorch_group_matmul_out_impl(
       }
     }
 
+    // Populate Op2 weight scales when w2 weights are int8.
+    // Op2 inherits dynamic_quant, dtypes.compute, and src_scale.dims
+    // from params[i] — only the weight scale is per-pass.
+    if (!w2_scales.empty()) {
+      fused_moe.down_scale.resize(num_active);
+      for (int op_idx = 0; op_idx < num_active; ++op_idx) {
+        if (has_tensor(w2_scales[op_idx])) {
+          const auto &ws = *w2_scales[op_idx];
+          auto &q = fused_moe.down_scale[op_idx];
+          q.buff = ws.data_ptr();
+          q.dt = get_zendnnl_dtype(ws);
+          auto ws_dims = ws.sizes().vec();
+          if (ws_dims.size() == 1) {
+            ws_dims = {1, ws_dims[0]};
+          }
+          q.dims.assign(ws_dims.begin(), ws_dims.end());
+        }
+      }
+    }
+
     // When fused_moe is active, MoE reduce operates on N_down,
     // not on Op1 dst. Adjust hidden_dim accordingly.
     if (use_moe) {
@@ -453,11 +560,13 @@ void zentorch_group_matmul_out_impl(
 
 TORCH_LIBRARY_FRAGMENT(zentorch, m) {
   m.def("zentorch_group_matmul.out(Tensor(a!)[] gemm_outputs, "
-        "Tensor[] inputs, Tensor[] weights, "
-        "Tensor?[] bias, str activation, "
-        "Tensor?[] w2_weights, Tensor?[] w2_bias, "
-        "Tensor(b!)? moe_output=None, Tensor? topk_weights=None, "
-        "Tensor? row_ptrs=None, *, "
+        "Tensor[] inputs, Tensor[] w13_weights, "
+        "Tensor?[] w2_weights, "
+        "Tensor(b!)? moe_output, Tensor? topk_weights, "
+        "Tensor? row_ptrs, str activation, "
+        "Tensor?[] w13_bias, Tensor?[] w2_bias, "
+        "Tensor?[] w13_scales, "
+        "Tensor?[] w2_scales, *, "
         "str zentorch_op_name='zentorch::zentorch_group_matmul.out') "
         "-> ()");
 }

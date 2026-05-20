@@ -286,6 +286,7 @@ build_token_expert_mapping(const at::Tensor &input, const at::Tensor &topk_id) {
 //   torch.ops.zentorch.zentorch_fused_moe(
 //       output, input, w13, w2, w13_bias, w2_bias,
 //       topk_weights, topk_id, skip_weighted, act,
+//       w13_scales=None, w2_scales=None,
 //       *, zentorch_op_name="zentorch::zentorch_fused_moe")
 //
 // `output` is mutated in place (Tensor(a!)). Returns ().
@@ -308,13 +309,13 @@ build_token_expert_mapping(const at::Tensor &input, const at::Tensor &topk_id) {
 //   act            : one of {"silu", "gelu", "swigluoai"}
 // ---------------------------------------------------------------------------
 
-void zentorch_fused_moe(at::Tensor &output, const at::Tensor &input,
-                        const at::Tensor &w13, const at::Tensor &w2,
-                        const c10::optional<at::Tensor> &w13_bias,
-                        const c10::optional<at::Tensor> &w2_bias,
-                        const at::Tensor &topk_weights,
-                        const at::Tensor &topk_id, bool skip_weighted,
-                        std::string_view act, std::string zentorch_op_name) {
+void zentorch_fused_moe(
+    at::Tensor &output, const at::Tensor &input, const at::Tensor &w13,
+    const at::Tensor &w2, const c10::optional<at::Tensor> &w13_bias,
+    const c10::optional<at::Tensor> &w2_bias, const at::Tensor &topk_weights,
+    const at::Tensor &topk_id, bool skip_weighted, std::string_view act,
+    const c10::optional<at::Tensor> &w13_scales,
+    const c10::optional<at::Tensor> &w2_scales, std::string zentorch_op_name) {
 
   const int64_t T = input.size(0);
   const int64_t K = topk_id.size(1);
@@ -359,9 +360,13 @@ void zentorch_fused_moe(at::Tensor &output, const at::Tensor &input,
   std::vector<c10::optional<at::Tensor>> w2_weight_slices(E);
   std::vector<c10::optional<at::Tensor>> w13_bias_slices(E_a);
   std::vector<c10::optional<at::Tensor>> w2_bias_slices(E_a);
+  std::vector<c10::optional<at::Tensor>> w13_scale_slices(E_a);
+  std::vector<c10::optional<at::Tensor>> w2_scale_slices(E_a);
 
   const bool has_w13_bias = w13_bias.has_value() && w13_bias->defined();
   const bool has_w2_bias = w2_bias.has_value() && w2_bias->defined();
+  const bool has_w13_scales = w13_scales.has_value() && w13_scales->defined();
+  const bool has_w2_scales = w2_scales.has_value() && w2_scales->defined();
 
   // Pass 2a: active experts in active_idx order (positions [0, E_a)).
   std::vector<bool> is_active(E, false);
@@ -376,6 +381,12 @@ void zentorch_fused_moe(at::Tensor &output, const at::Tensor &input,
     w2_bias_slices[a] = has_w2_bias
                             ? c10::optional<at::Tensor>(w2_bias->select(0, e))
                             : c10::nullopt;
+    w13_scale_slices[a] =
+        has_w13_scales ? c10::optional<at::Tensor>(w13_scales->select(0, e))
+                       : c10::nullopt;
+    w2_scale_slices[a] =
+        has_w2_scales ? c10::optional<at::Tensor>(w2_scales->select(0, e))
+                      : c10::nullopt;
   }
 
   // Pass 2b: inactive experts in original order (positions [E_a, E)).
@@ -413,6 +424,89 @@ void zentorch_fused_moe(at::Tensor &output, const at::Tensor &input,
   const at::Tensor effective_topk_weights =
       skip_weighted ? at::ones_like(topk_weights) : topk_weights;
 
+  // ---------------------- Split-path for int8 + gated activation ------------
+  // Workaround for a ZenDNN `group_matmul_direct` bug: the fused
+  // W13 -> gated_act -> W2 chain produces row-stride-2 garbage (every-other
+  // row of the W2 output is dropped) when ALL of the following hold:
+  //   - int8 weights for W13 / W2 (scales provided),
+  //   - gated activation (silu / gelu / swigluoai),
+  //   - per-expert M > 1.
+  // Replaying the same work as two non-fused calls produces bit-exact
+  // results, so we split when scales are present. The plain bf16/fp32 path
+  // (no scales) stays on the single-call fast-path below.
+  const bool int8_split_path = has_w13_scales || has_w2_scales;
+
+  if (int8_split_path) {
+    // W13 is [E, 2*I, H]; w13_slices[a] is [2*I, H]. After gated activation
+    // the intermediate is [M_e, I]; W2 is [E, H, I] so W2's output is [M_e, H].
+    const int64_t N = w13.size(1); // 2*I (W13 row dim)
+    const int64_t I = N / 2;       // post-gated-activation hidden dim
+
+    // ----- Call 1: W13 + gated activation only ------------------------------
+    // gemm_outputs are [M_e, N] per active expert; the kernel writes the
+    // gated-activation result into the first I columns (matches the contract
+    // exercised by test_gated_activations).
+    std::vector<at::Tensor> w13_gemm_outs(E_a);
+    for (int64_t a = 0; a < E_a; ++a) {
+      const int64_t M_e = mapping.grouped_inputs[a].size(0);
+      w13_gemm_outs[a] = at::empty({M_e, N}, input.options());
+    }
+
+    const std::vector<c10::optional<at::Tensor>> empty_optional_vec_E{};
+    const std::vector<c10::optional<at::Tensor>> empty_optional_vec_Ea{};
+
+    zentorch_group_matmul_out_impl(
+        /*gemm_outputs=*/w13_gemm_outs,
+        /*inputs=*/mapping.grouped_inputs,
+        /*w13_weights=*/w13_slices,
+        /*w2_weights=*/empty_optional_vec_E,
+        /*moe_output=*/c10::nullopt,
+        /*topk_weights=*/c10::nullopt,
+        /*row_ptrs=*/c10::nullopt,
+        /*activation=*/act,
+        /*w13_bias=*/w13_bias_slices,
+        /*w2_bias=*/empty_optional_vec_Ea,
+        /*w13_scales=*/w13_scale_slices,
+        /*w2_scales=*/empty_optional_vec_Ea,
+        /*zentorch_op_name=*/zentorch_op_name);
+
+    // ----- Call 2: W2 only, with MoE weighted reduce ------------------------
+    // Inputs are the gated-activation outputs [M_e, I] (first I cols of
+    // Call 1's output, made contiguous so the kernel sees a tight stride).
+    // gemm_outputs reuse mapping.grouped_inputs so the pre-built row_ptrs
+    // continue to point at the correct W2 destination rows.
+    std::vector<at::Tensor> silu_outputs(E_a);
+    for (int64_t a = 0; a < E_a; ++a) {
+      silu_outputs[a] = w13_gemm_outs[a].narrow(1, 0, I).contiguous();
+    }
+
+    // For Call 2, W2 acts as the only matmul, so we hand it in as
+    // `w13_weights` (vector<at::Tensor>). Preserve the active-prefix +
+    // inactive-tail layout so ZenDNN's prepack warmer still sees all E
+    // experts.
+    std::vector<at::Tensor> w2_as_w13(E);
+    for (int64_t e = 0; e < E; ++e) {
+      w2_as_w13[e] = w2_weight_slices[e].value();
+    }
+
+    zentorch_group_matmul_out_impl(
+        /*gemm_outputs=*/mapping.grouped_inputs,
+        /*inputs=*/silu_outputs,
+        /*w13_weights=*/w2_as_w13,
+        /*w2_weights=*/empty_optional_vec_E,
+        /*moe_output=*/output,
+        /*topk_weights=*/effective_topk_weights,
+        /*row_ptrs=*/row_ptrs,
+        /*activation=*/"none",
+        /*w13_bias=*/w2_bias_slices,
+        /*w2_bias=*/empty_optional_vec_Ea,
+        /*w13_scales=*/w2_scale_slices,
+        /*w2_scales=*/empty_optional_vec_Ea,
+        /*zentorch_op_name=*/zentorch_op_name);
+
+    return;
+  }
+
   // ---------------------- Single-call fused execution -----------------------
   // gemm_outputs is empty -> ZenDNN allocates W13 outputs internally.
   // We pass `mapping.grouped_inputs` as `w2_outputs`: the W2 down-projection
@@ -423,14 +517,16 @@ void zentorch_fused_moe(at::Tensor &output, const at::Tensor &input,
   zentorch_group_matmul_out_impl(
       /*gemm_outputs=*/{},
       /*inputs=*/mapping.grouped_inputs,
-      /*weights=*/w13_slices,
-      /*bias=*/w13_bias_slices,
-      /*activation=*/act,
+      /*w13_weights=*/w13_slices,
       /*w2_weights=*/w2_weight_slices,
-      /*w2_bias=*/w2_bias_slices,
       /*moe_output=*/output,
       /*topk_weights=*/effective_topk_weights,
       /*row_ptrs=*/row_ptrs,
+      /*activation=*/act,
+      /*w13_bias=*/w13_bias_slices,
+      /*w2_bias=*/w2_bias_slices,
+      /*w13_scales=*/w13_scale_slices,
+      /*w2_scales=*/w2_scale_slices,
       /*zentorch_op_name=*/zentorch_op_name);
 }
 
@@ -443,8 +539,8 @@ TORCH_LIBRARY_FRAGMENT(zentorch, m) {
         "Tensor w13, Tensor w2, "
         "Tensor? w13_bias, Tensor? w2_bias, "
         "Tensor topk_weights, Tensor topk_id, "
-        "bool skip_weighted, "
-        "str act, "
+        "bool skip_weighted, str act, "
+        "Tensor? w13_scales=None, Tensor? w2_scales=None, "
         "*, str zentorch_op_name='zentorch::zentorch_fused_moe') -> ()");
 }
 
