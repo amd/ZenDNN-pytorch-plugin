@@ -219,18 +219,9 @@ def _register_torchao_moe_patches(torchao_mod) -> None:
 
             _pack("w13_weight", w13_up_dim, hidden_size)
             _pack("w2_weight", hidden_size, intermediate_size_per_partition)
-            from vllm.model_executor.layers.fused_moe.cpu_fused_moe import (
-                CPUFusedMOE,
-            )
+            from vllm.model_executor.layers.fused_moe import cpu_fused_moe
 
-            # TorchAO expert weights are tensor subclasses (e.g. Int8Tensor).
-            # Bypass zentorch's CPUFusedMOE patch (zentorch_fused_moe) and vLLM's
-            # grouped-GEMM path; use cpu_fused_moe_torch (per-expert F.linear).
-            self.cpu_fused_moe = object.__new__(CPUFusedMOE)
-            CPUFusedMOE.init_moe_torch(self.cpu_fused_moe, layer)
-            self.cpu_fused_moe.forward_method = CPUFusedMOE.forward_torch.__get__(
-                self.cpu_fused_moe, CPUFusedMOE
-            )
+            self.cpu_fused_moe = cpu_fused_moe.CPUFusedMOE(layer)
 
     TorchAOFusedMoEMethod.__module__ = torchao_mod.__name__
 
