@@ -3,6 +3,7 @@
  * All rights reserved.
  ******************************************************************************/
 
+#include "QuantEmbedBag.hpp"
 #include "EmbeddingUtils.hpp"
 #include "EnvReader.hpp"
 #include "Memory.hpp"

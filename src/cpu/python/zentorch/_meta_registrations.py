@@ -1001,10 +1001,15 @@ make_fallback(torch.ops.zentorch.zentorch_horizontal_embedding_bag_group)
 make_fallback(torch.ops.zentorch.zentorch_horizontal_embedding_group)
 make_fallback(torch.ops.zentorch.zentorch_add_rms_norm_)
 make_fallback(torch.ops.zentorch.zentorch_rms_norm)
-make_fallback(torch.ops.zentorch.zentorch_quant_embedding_bag)
-make_fallback(torch.ops.zentorch.zentorch_quant_embedding_bag.out)
-make_fallback(torch.ops.zentorch.zentorch_horizontal_quant_embedding_bag_group)
-make_fallback(torch.ops.zentorch.zentorch_horizontal_quant_embedding_bag_group.out)
+# All four overloads of the quantized embedding-bag op family
+# (`zentorch_quant_embedding_bag.{default,out}` and
+# `zentorch_horizontal_quant_embedding_bag_group.{default,out}`) are routed
+# through dedicated AOTI shims via `register_lowering` in `_lowerings.py`,
+# so none of them go through `make_fallback`. The `.default` group overload
+# returns `Tensor[]` (variable-length); its lowering
+# (`_ZentorchHorizontalQuantEmbBagGroupDefault`) overrides codegen to emit
+# `(handle_array, N)` to the shim instead of Inductor's default
+# `&handle_0, ..., &handle_{N-1}`.
 make_fallback(torch.ops.zentorch.zentorch_rope)
 make_fallback(torch.ops.zentorch.zentorch_masked_multihead_self_attention)
 make_fallback(torch.ops.zentorch.zentorch_weight_prepack_for_linear)

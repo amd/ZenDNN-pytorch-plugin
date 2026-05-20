@@ -6,25 +6,60 @@
 import os
 
 import torch
+import torch._inductor.config as _inductor_config
+import torch._inductor.ir as _inductor_ir
 from torch._inductor.ir import (
     ExternKernelAlloc,
     FixedLayout,
     FlexibleLayout,
     get_device_type,
     Layout,
-    MutationLayoutSHOULDREMOVE,
     MultiOutput,
     MultiOutputLayout,
+    NoneLayout,
     TensorBox,
 )
+from torch._inductor.virtualized import V
 from torch._inductor.lowering import (
     add_needs_realized_inputs,
+    fallbacks,
     register_lowering,
 )
+from torch.utils import _pytree as pytree
 
 _ZENTORCH_HEADER = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "include", "shim_cpu_zentorch.hpp")
 )
+
+# When zentorch ops are registered into
+# `torch._inductor.config.aot_inductor.custom_ops_to_c_shims` (so cpp_wrapper
+# emits a direct C-ABI call instead of the slow `custom_op_wrapper` Python
+# fallback), the dict ends up keyed by `torch._ops.OpOverload` objects. Those
+# objects reference pybind11-wrapped C++ functions which Python's `pickle`
+# cannot serialize (`RuntimeError: <pybind11_builtins....> is not pickleable.`).
+# `FxGraphHashDetails` pickles the full `inductor_config` to compute the cache
+# key, so without intervention every JIT compile triggers a `BypassFxGraphCache`
+# warning and we lose all FxGraphCache hits.
+#
+# Tell PyTorch to ignore that config key when computing the cache hash. This
+# is correct behaviour for our use: the dict's contents are populated
+# deterministically at zentorch import time, so they're invariant across runs
+# and don't need to participate in the cache key.
+_CACHE_IGNORE_KEY = "aot_inductor.custom_ops_to_c_shims"
+# Use getattr so we degrade gracefully if PyTorch ever renames or removes
+# `_cache_config_ignore_prefix` (it's a private API). Without the guard,
+# `import zentorch` would raise AttributeError on those builds. If the
+# attribute isn't there we silently skip; the only downside is that
+# FxGraphCache will keep bypassing on every compile (same regression we
+# saw before this knob was added) -- the rest of zentorch still works.
+_cache_ignore_prefix = getattr(
+    _inductor_config, "_cache_config_ignore_prefix", None
+)
+if (
+    _cache_ignore_prefix is not None
+    and _CACHE_IGNORE_KEY not in _cache_ignore_prefix
+):
+    _cache_ignore_prefix.append(_CACHE_IGNORE_KEY)
 
 add_needs_realized_inputs(
     [
@@ -36,6 +71,10 @@ add_needs_realized_inputs(
         torch.ops.zentorch.zentorch_qlinear_mul_add.default,
         torch.ops.zentorch.zentorch_qlinear.out,
         torch.ops.zentorch.zentorch_qlinear_relu.out,
+        torch.ops.zentorch.zentorch_quant_embedding_bag.default,
+        torch.ops.zentorch.zentorch_quant_embedding_bag.out,
+        torch.ops.zentorch.zentorch_horizontal_quant_embedding_bag_group.default,
+        torch.ops.zentorch.zentorch_horizontal_quant_embedding_bag_group.out,
     ]
 )
 
@@ -387,7 +426,9 @@ class zentorch_QlinearUnary(ExternKernelAlloc):
         weight_scales, weight_zero_points, bias, output_scales,
         output_zero_points, output_dtype, name,
     ):
-        input.realize()
+        # Pin input contiguity at the IR level so the kernel doesn't pay an
+        # internal at::contiguous() copy on every call under cpp_wrapper.
+        input = cls.require_contiguous(cls.realize_input(input))
         weight.realize()
 
         *m, _ic = input.get_size()
@@ -480,7 +521,7 @@ class zentorch_QlinearUnaryRelu(ExternKernelAlloc):
         weight_scales, weight_zero_points, bias, output_scales,
         output_zero_points, output_dtype, name,
     ):
-        input.realize()
+        input = cls.require_contiguous(cls.realize_input(input))
         weight.realize()
 
         *m, _ic = input.get_size()
@@ -573,7 +614,7 @@ class zentorch_QlinearUnarySigmoid(ExternKernelAlloc):
         weight_scales, weight_zero_points, bias, output_scales,
         output_zero_points, output_dtype, name,
     ):
-        input.realize()
+        input = cls.require_contiguous(cls.realize_input(input))
         weight.realize()
 
         *m, _ic = input.get_size()
@@ -666,10 +707,10 @@ class zentorch_QlinearMulAdd(ExternKernelAlloc):
         weight_scales, weight_zero_points, mul_input, add_input,
         bias, output_scales, output_zero_points, output_dtype, name,
     ):
-        input.realize()
+        input = cls.require_contiguous(cls.realize_input(input))
         weight.realize()
-        mul_input.realize()
-        add_input.realize()
+        mul_input = cls.require_contiguous(cls.realize_input(mul_input))
+        add_input = cls.require_contiguous(cls.realize_input(add_input))
 
         *m, _ic = input.get_size()
         oc, _ic = weight.get_size()
@@ -742,6 +783,125 @@ class zentorch_QlinearMulAdd(ExternKernelAlloc):
         pass
 
 
+class _zentorch_QlinearOutBase(ExternKernelAlloc):
+    """Base for `.out` variants of qlinear ops.
+
+    The kernel writes directly into the user-provided ``out`` tensor and
+    returns nothing. Subclasses provide the bound ``op_overload`` and
+    ``cpp_kernel_name`` for the corresponding AOTI shim.
+
+    Layout is ``NoneLayout``; mutation of ``out`` is exposed to the scheduler
+    via ``mark_buffer_mutated`` and ``get_mutation_names``.
+    """
+
+    _num_required_tensors = 3   # out, input, weight
+    _optional_tensor_presence = [True] * 7
+    codegen_args = _qlinear_codegen_args
+    _op_overload = None
+    _cpp_kernel_name = None
+
+    def __init__(
+        self, layout, inputs, constant_args=(), kwargs=None,
+    ) -> None:
+        out = inputs[0]
+        self.device_type = get_device_type(out)
+        super().__init__(
+            layout, inputs, constant_args, kwargs,
+            op_overload=self._op_overload,
+            cpp_kernel_name=self._cpp_kernel_name,
+        )
+        V.graph.mark_buffer_mutated(out.get_name())
+
+    def get_mutation_names(self):
+        return [self.input_name(0)]
+
+    def codegen(self, wrapper):
+        wrapper.include_extra_header(_ZENTORCH_HEADER)
+        self.codegen_comment(wrapper)
+        args = [*self.codegen_args(), *self.codegen_kwargs()]
+        # `super().codegen()` would route to `generate_extern_kernel_alloc`,
+        # which in cpp_wrapper appends `&out_handle` for a tensor-returning
+        # shim. Our `.out` shim returns void, so emit the call directly.
+        if V.graph.cpp_wrapper:
+            device = d.type if (d := self.get_device()) else V.graph.device_type
+            wrapper.generate_c_shim_extern_kernel_call(
+                self.get_kernel_name(),
+                args,
+                device,
+                stack_traces=self.get_stack_traces(),
+            )
+        else:
+            wrapper.writeline(
+                f"{self.get_kernel_name()}({', '.join(args)}){wrapper.ending}"
+            )
+
+    def apply_constraint(self):
+        pass
+
+    @classmethod
+    def _build_inputs(
+        cls, out, input, weight, input_scales, input_zero_points,
+        weight_scales, weight_zero_points, bias,
+        output_scales, output_zero_points,
+    ):
+        # Pin contiguity on `input` so the kernel takes its `input.view()`
+        # fast-path instead of falling into `input.contiguous().view()`.
+        # `out` comes from upstream `torch.empty(...)` and is already
+        # contiguous; enforcing it via require_contiguous would interfere
+        # with mark_buffer_mutated tracking.
+        out.realize()
+        input = cls.require_contiguous(cls.realize_input(input))
+        weight.realize()
+        inputs = [out, input, weight]
+        optional_tensors = [
+            input_scales, input_zero_points,
+            weight_scales, weight_zero_points,
+            bias, output_scales, output_zero_points,
+        ]
+        for t in optional_tensors:
+            if t is not None:
+                t.realize()
+                inputs.append(t)
+        return inputs, [t is not None for t in optional_tensors]
+
+    @classmethod
+    def create(
+        cls, out, input, weight, input_scales, input_zero_points,
+        weight_scales, weight_zero_points, bias,
+        output_scales, output_zero_points, output_dtype, zentorch_op_name,
+    ):
+        inputs, presence = cls._build_inputs(
+            out, input, weight, input_scales, input_zero_points,
+            weight_scales, weight_zero_points, bias,
+            output_scales, output_zero_points,
+        )
+        device = out.get_device()
+        assert device is not None
+        # Thread `zentorch_op_name` through to the IR node's kwargs so the
+        # shim call carries the caller-supplied name (rather than silently
+        # falling back to the schema default). This matters for any caller
+        # that customizes the name for profiling/counters; without this it
+        # would be a no-op parameter.
+        packed = cls(
+            layout=NoneLayout(device=device),
+            inputs=inputs,
+            constant_args=[output_dtype],
+            kwargs={"zentorch_op_name": zentorch_op_name},
+        )
+        packed._optional_tensor_presence = presence
+        return packed
+
+
+class zentorch_QlinearOut(_zentorch_QlinearOutBase):
+    _op_overload = torch.ops.zentorch.zentorch_qlinear.out
+    _cpp_kernel_name = "aoti_torch_cpu_zentorch_qlinear_out"
+
+
+class zentorch_QlinearReluOut(_zentorch_QlinearOutBase):
+    _op_overload = torch.ops.zentorch.zentorch_qlinear_relu.out
+    _cpp_kernel_name = "aoti_torch_cpu_zentorch_qlinear_relu_out"
+
+
 @register_lowering(torch.ops.zentorch.zentorch_qlinear.default, type_promotion_kind=None)
 def zentorch_qlinear_lowering(
     input: TensorBox,
@@ -803,16 +963,16 @@ def zentorch_qlinear_out_lowering(
     output_scales: TensorBox,
     output_zero_points: TensorBox,
     output_dtype=None,
-    zentorch_op_name="zentorch_qlinear",
+    zentorch_op_name="zentorch_qlinear.out",
 ):
-    result = zentorch_QlinearUnary.create(
-        input, weight, input_scales, input_zero_points,
+    # Routes to the C++ `.out` shim which writes directly into `out`,
+    # avoiding the temp buffer + copy that `realize_into` would generate.
+    zentorch_QlinearOut.create(
+        out, input, weight, input_scales, input_zero_points,
         weight_scales, weight_zero_points, bias,
         output_scales, output_zero_points, output_dtype,
-        "zentorch_qlinear",
+        zentorch_op_name,
     )
-    result = TensorBox.create(result)
-    MutationLayoutSHOULDREMOVE.realize_into(result, out)
 
 
 @register_lowering(torch.ops.zentorch.zentorch_qlinear_relu.out, type_promotion_kind=None)
@@ -828,16 +988,14 @@ def zentorch_qlinear_relu_out_lowering(
     output_scales: TensorBox,
     output_zero_points: TensorBox,
     output_dtype=None,
-    zentorch_op_name="zentorch_qlinear_relu",
+    zentorch_op_name="zentorch_qlinear_relu.out",
 ):
-    result = zentorch_QlinearUnaryRelu.create(
-        input, weight, input_scales, input_zero_points,
+    zentorch_QlinearReluOut.create(
+        out, input, weight, input_scales, input_zero_points,
         weight_scales, weight_zero_points, bias,
         output_scales, output_zero_points, output_dtype,
-        "zentorch_qlinear_relu",
+        zentorch_op_name,
     )
-    result = TensorBox.create(result)
-    MutationLayoutSHOULDREMOVE.realize_into(result, out)
 
 
 @register_lowering(torch.ops.zentorch.zentorch_qlinear_sigmoid.default, type_promotion_kind=None)
@@ -888,6 +1046,246 @@ def zentorch_qlinear_mul_add_lowering(
             "zentorch_qlinear_mul_add",
         )
     )
+
+
+# ============================================================================
+# Quantized embedding bag lowerings.
+#
+# These ops have schemas with `Tensor[]`, `Tensor?[]`, `int[]` and `str` args
+# (see `QuantEmbedBag.cpp` for definitions). None of these types are
+# representable via StableIValue, so the default `make_fallback` route makes
+# `cpp_wrapper` fall back to `torch._inductor.codecache.custom_op_wrapper`,
+# which costs ~25us/call (microbenchmarked) due to GIL acquire/release plus a
+# Python dispatch.
+#
+# We instead route them to dedicated AOTI shims (see `shim_cpu_zentorch.{hpp,
+# cpp}`). The implementation reuses Inductor's `FallbackKernel` (so we get the
+# schema-aware `Tensor[]`/`Tensor?[]`/`int[]` codegen for free via
+# `_generate_temporary_array_pointer` in `cpp_wrapper_cpu.py`) and:
+#   1. Overrides `set_cpp_kernel_name` so each overload (`.default` vs `.out`)
+#      maps to its own shim. By default `FallbackKernel.set_cpp_kernel_name`
+#      uses `kernel._schema.name` for non-aten ops which is the same string for
+#      every overload of a given op, so we'd otherwise collide.
+#   2. Registers the op into `config.aot_inductor.custom_ops_to_c_shims`. This
+#      flips `use_runtime_dispatch` to `False` in `FallbackKernel.codegen`, so
+#      the call is emitted as a direct shim call instead of routed through
+#      `aoti_torch_call_dispatcher` (StableIValue) or `custom_op_wrapper`
+#      (Python).
+#   3. For `.out` variants (void-returning, kernel mutates `Tensor(a!)[]`
+#      output buffers), overrides `codegen()` so we don't append the spurious
+#      `&out_handle` that `generate_c_shim_extern_kernel_alloc` would otherwise
+#      add for tensor-returning shims.
+# ============================================================================
+
+
+class _ZentorchEmbBagFallbackBase(_inductor_ir.FallbackKernel):
+    """Base for FallbackKernels that route to a hand-written zentorch shim."""
+
+    _zen_shim_name = ""  # subclasses set this
+
+    def set_cpp_kernel_name(self, cpp_kernel_name=None):
+        # Forward an explicit name if provided (callers typically don't), else
+        # use the per-subclass shim name. This is what differentiates `.out`
+        # from `.default` -- the parent would otherwise use `_schema.name`
+        # which is identical across overloads for non-aten ops.
+        super().set_cpp_kernel_name(cpp_kernel_name or self._zen_shim_name)
+
+    def codegen(self, wrapper):
+        # Make the zentorch shim function declarations available in the
+        # generated main.cpp. The parent codegen path emits a direct call to
+        # `aoti_torch_cpu_zentorch_*` which would otherwise be undeclared.
+        if V.graph.cpp_wrapper:
+            wrapper.include_extra_header(_ZENTORCH_HEADER)
+        super().codegen(wrapper)
+
+
+class _ZentorchEmbBagFallbackOutBase(_ZentorchEmbBagFallbackBase):
+    """Base for `.out` variants. The kernel writes through user-provided
+    `Tensor(a!)[]` buffers and returns nothing, so we skip the `&out_handle`
+    that `generate_c_shim_extern_kernel_alloc` appends for tensor returns."""
+
+    def codegen(self, wrapper):
+        if not V.graph.cpp_wrapper:
+            return super().codegen(wrapper)
+
+        wrapper.include_extra_header(_ZENTORCH_HEADER)
+
+        kernel = self.op_overload
+        # Mirror the `use_runtime_dispatch` decision the parent makes for
+        # non-aten cpp_wrapper ops; if our op is registered in
+        # `custom_ops_to_c_shims` we take the fast path and emit a direct
+        # shim call. Otherwise fall back to the parent (slow Python path).
+        if kernel in _inductor_config.aot_inductor.custom_ops_to_c_shims:
+            self.use_runtime_dispatch = False
+        else:
+            self.use_runtime_dispatch = True
+
+        if self.use_runtime_dispatch:
+            return super().codegen(wrapper)
+
+        self.codegen_comment(wrapper)
+        args = [*self.codegen_args(), *self.codegen_kwargs()]
+        device = d.type if (d := self.get_device()) else V.graph.device_type
+        wrapper.generate_c_shim_extern_kernel_call(
+            self.cpp_kernel_name, args, device,
+            stack_traces=self.get_stack_traces(),
+        )
+        self.codegen_unbacked_symbol_defs(wrapper)
+
+
+class _ZentorchQuantEmbBag(_ZentorchEmbBagFallbackBase):
+    _zen_shim_name = "aoti_torch_cpu_zentorch_quant_embedding_bag"
+
+
+class _ZentorchQuantEmbBagOut(_ZentorchEmbBagFallbackOutBase):
+    _zen_shim_name = "aoti_torch_cpu_zentorch_quant_embedding_bag_out"
+
+
+class _ZentorchHorizontalQuantEmbBagGroupOut(_ZentorchEmbBagFallbackOutBase):
+    _zen_shim_name = (
+        "aoti_torch_cpu_zentorch_horizontal_quant_embedding_bag_group_out"
+    )
+
+
+class _ZentorchHorizontalQuantEmbBagGroupDefault(_ZentorchEmbBagFallbackBase):
+    """Lowering for `zentorch_horizontal_quant_embedding_bag_group.default`.
+
+    The op returns `Tensor[]` -- a variable-length list of N output tensors,
+    where N is the number of embedding bags fused into the group call (known
+    at lowering time but not at shim-compile time).
+
+    Inductor's standard multi-output cpp_wrapper codegen
+    (`generate_c_shim_fallback_kernel`) would emit one `&handle_i` per
+    output and append all N as separate args at the end of the shim call.
+    That doesn't match our shim signature, which takes a single
+    `(AtenTensorHandle* ret0_handles, int64_t ret0_len_)` pair instead --
+    the only way to express a variable-length return in a fixed C ABI.
+
+    We override `codegen` to allocate an array of N handles, pass
+    `(array, N)` to the shim, then wrap each filled-in handle in a
+    `RAIIAtenTensorHandle` named after the corresponding `MultiOutput`
+    so downstream IR can reference it the usual way.
+    """
+
+    _zen_shim_name = (
+        "aoti_torch_cpu_zentorch_horizontal_quant_embedding_bag_group"
+    )
+
+    def codegen(self, wrapper):
+        if not V.graph.cpp_wrapper:
+            return super().codegen(wrapper)
+
+        wrapper.include_extra_header(_ZENTORCH_HEADER)
+
+        kernel = self.op_overload
+        # Same `use_runtime_dispatch` decision logic as the parent uses for
+        # non-aten cpp_wrapper ops -- if our op is in `custom_ops_to_c_shims`
+        # we take the direct-shim path; otherwise punt back to the parent.
+        if kernel in _inductor_config.aot_inductor.custom_ops_to_c_shims:
+            self.use_runtime_dispatch = False
+        else:
+            self.use_runtime_dispatch = True
+
+        if self.use_runtime_dispatch:
+            return super().codegen(wrapper)
+
+        self.codegen_comment(wrapper)
+        args = [*self.codegen_args(), *self.codegen_kwargs()]
+
+        # Allocate an array of N output handles and pass (array, N) to the
+        # shim instead of N separate `&handle` args. Guard the degenerate
+        # `n_outputs == 0` case: `AtenTensorHandle name[0];` is a
+        # gcc-extension (UB by ISO C++) and emitting `nullptr` is what the
+        # shim already expects when there's nothing to write back.
+        outputs = list(self.outputs)
+        n_outputs = len(outputs)
+        if n_outputs:
+            arr_var = f"{self.get_name()}_handles"
+            wrapper.writeline(f"AtenTensorHandle {arr_var}[{n_outputs}];")
+            args.append(arr_var)
+        else:
+            args.append("nullptr")
+        args.append(f"{n_outputs}L")
+
+        device = d.type if (d := self.get_device()) else V.graph.device_type
+        wrapper.generate_c_shim_extern_kernel_call(
+            self.cpp_kernel_name, args, device,
+            stack_traces=self.get_stack_traces(),
+        )
+
+        # Wrap each returned handle in RAII so it gets freed on scope exit.
+        # The MultiOutput names are what downstream IR (`getitem(group, i)`)
+        # codegens against, so we must name the RAII wrappers accordingly.
+        for idx, output in enumerate(outputs):
+            wrapper.writeline(
+                f"RAIIAtenTensorHandle {output.get_name()}({arr_var}[{idx}]);"
+            )
+
+        self.codegen_unbacked_symbol_defs(wrapper)
+
+
+def _shim_routed_handler(kernel, fk_class):
+    """Build a `register_lowering` handler that creates `fk_class` (a
+    FallbackKernel subclass with our explicit shim name) and registers the op
+    into `custom_ops_to_c_shims` so the cpp_wrapper codegen takes the direct
+    shim path."""
+    fallbacks.add(kernel)
+    _inductor_config.aot_inductor.custom_ops_to_c_shims.setdefault(kernel, [])
+
+    def handler(*args, **kwargs):
+        def wrap_tensors(x):
+            return TensorBox.create(x) if isinstance(x, _inductor_ir.IRNode) else x
+
+        return pytree.tree_map(
+            wrap_tensors, fk_class.create(kernel, *args, **kwargs)
+        )
+
+    handler._is_fallback_handler = True  # type: ignore[attr-defined]
+    return handler
+
+
+# Register the actual lowerings. This *replaces* the corresponding
+# `make_fallback` entries in `_meta_registrations.py`, which must be removed.
+
+register_lowering(
+    torch.ops.zentorch.zentorch_quant_embedding_bag.default,
+    type_promotion_kind=None,
+)(
+    _shim_routed_handler(
+        torch.ops.zentorch.zentorch_quant_embedding_bag.default,
+        _ZentorchQuantEmbBag,
+    )
+)
+
+register_lowering(
+    torch.ops.zentorch.zentorch_quant_embedding_bag.out,
+    type_promotion_kind=None,
+)(
+    _shim_routed_handler(
+        torch.ops.zentorch.zentorch_quant_embedding_bag.out,
+        _ZentorchQuantEmbBagOut,
+    )
+)
+
+register_lowering(
+    torch.ops.zentorch.zentorch_horizontal_quant_embedding_bag_group.out,
+    type_promotion_kind=None,
+)(
+    _shim_routed_handler(
+        torch.ops.zentorch.zentorch_horizontal_quant_embedding_bag_group.out,
+        _ZentorchHorizontalQuantEmbBagGroupOut,
+    )
+)
+
+register_lowering(
+    torch.ops.zentorch.zentorch_horizontal_quant_embedding_bag_group.default,
+    type_promotion_kind=None,
+)(
+    _shim_routed_handler(
+        torch.ops.zentorch.zentorch_horizontal_quant_embedding_bag_group.default,
+        _ZentorchHorizontalQuantEmbBagGroupDefault,
+    )
+)
 
 
 # -----------------------------------------------------------------------------
