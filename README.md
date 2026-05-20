@@ -13,7 +13,7 @@ Table of Contents
   - [Third Party Libraries](#13-third-party-libraries)
   - [Supported OS](#14-supported-os)
 - [Installation](#2-installation)
-  - [From Binaries](#21-from-binaries)
+  - [From PyPI](#21-from-pypi)
   - [From Source](#22-from-source)
 - [Unit Tests](#3-unit-tests)
   - [Install Unit tests Dependencies](#31-install-unit-tests-dependencies)
@@ -45,7 +45,7 @@ Table of Contents
 
 ## 1.1. Overview
 
-__The latest stable ZenDNN Plugin for PyTorch* (zentorch) [2.12.0.0](https://github.com/amd/ZenDNN-pytorch-plugin/tree/r2.12.0.0).__
+__The latest stable ZenDNN Plugin for PyTorch* (zentorch) [2.12.0.0](https://github.com/amd/ZenDNN-pytorch-plugin/tree/v2.12.0.0).__
 
 The ZenDNN plugin for PyTorch is called zentorch.
 
@@ -114,7 +114,7 @@ Refer to the [support matrix](https://www.amd.com/en/developer/zendnn.html#getti
 _zentorch_ can be installed using binary wheel file or can be built from source itself.
 _zentorch_ supports PyTorch v2.12.0 and v2.11.0. Install the zentorch version matching your PyTorch — zentorch v2.12.0.0 for PyTorch v2.12.0, or zentorch v2.11.0.0 for PyTorch v2.11.0.
 
-## 2.1. From Binaries
+## 2.1. From PyPI
 
 * Create conda or python environment and activate it.
 * Uninstall any existing _zentorch_ installations.
@@ -125,9 +125,7 @@ pip uninstall zentorch
 ```bash
 pip install torch==2.12.0 --index-url https://download.pytorch.org/whl/cpu
 ```
-* Use one of two methods to install zentorch:
-
-Using pip utility
+* Install latest stable zentorch v2.12.0.0
 ```bash
 pip install zentorch==2.12.0.0
 ```
@@ -188,8 +186,7 @@ python setup.py bdist_wheel
 
 #### 2.2.2.5. To install the wheel file of _zentorch_
 ```bash
-cd dist
-pip install zentorch-2.12.0.0-cp310-cp310-linux_x86_64.whl
+pip install dist/zentorch-2.12.0.0-cp310-cp310-linux_x86_64.whl
 ```
 >**Note:** After installation, run the following script for recommended environment settings:
 >```bash
