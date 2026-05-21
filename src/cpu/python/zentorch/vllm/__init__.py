@@ -524,8 +524,14 @@ def _do_patch_fused_moe() -> bool:
         return True
 
     CPUFusedMOE._zentorch_forward = _moe_forward_zentorch
+    CPUFusedMOE._original_init = CPUFusedMOE.__init__
 
     def _patched_init(self, layer):
+        # Zentorch does not support fp16 for fused MOE
+        # hence falling back to the native VLLM path
+        if layer.w13_weight.dtype == torch.float16:
+            return self._original_init(self, layer)
+
         # Skip vLLM's prepacking + grouped-gemm path; we use the standard
         # [E, ...] layout that zentorch_fused_moe expects.
         self.isa = "none"
