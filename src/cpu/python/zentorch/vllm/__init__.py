@@ -338,10 +338,14 @@ _RMSNORM_HOOK_INSTALLED = False
 
 
 def _do_patch_rmsnorm():
-    """Patch RMSNorm.forward to use vLLM's optimized C++ kernels on CPU."""
+    """Patch RMSNorm.forward to use zentorch fused add-RMS-norm kernel
+    for all dtypes except FP16, which falls back to vLLM's fused_add_rms_norm
+    as the zentorch FP16 rmsnorm path is not yet stable.
+    """
     try:
         from vllm.model_executor.layers.layernorm import (
             RMSNorm,
+            fused_add_rms_norm,
         )
     except ImportError:
         return False
@@ -357,6 +361,10 @@ def _do_patch_rmsnorm():
         if self.variance_size_override is not None:
             return self.forward_native(x, residual)
         if residual is not None:
+            if x.dtype == torch.float16:
+                return fused_add_rms_norm(
+                    x, residual, self.weight.data, self.variance_epsilon
+                )
             torch.ops.zentorch.zentorch_add_rms_norm_(
                 x, self.weight.data, residual, self.variance_epsilon
             )
@@ -367,9 +375,7 @@ def _do_patch_rmsnorm():
 
     RMSNorm.forward = patched_forward
     RMSNorm._zentorch_rmsnorm_patched = True
-    logger.info(
-        "[zentorch] Patched RMSNorm.forward to use optimized C++ kernels on CPU"
-    )
+    logger.info("[zentorch] Patched RMSNorm.forward (bf16/fp32->zentorch, fp16->vllm)")
     return True
 
 
