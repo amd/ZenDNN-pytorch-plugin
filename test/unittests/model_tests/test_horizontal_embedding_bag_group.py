@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2026 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -17,9 +17,12 @@ from unittest_utils import (  # noqa: 402
     reset_dynamo,
     run_tests,
     supported_dtypes,
+    update_supported_dtypes,
     freeze_opt,
     test_with_freeze_opt,
 )
+
+supported_dtypes = update_supported_dtypes(supported_dtypes, "zentorch_embedding")
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
@@ -55,9 +58,7 @@ class Custom_Model_Embedding_Bag_Group(nn.Module):
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class Test_Embedding_Bag_Group_Model(EmbTestCase):
-    @EmbTestCase.hypothesis_params_emb_itr(
-        dtype_list=supported_dtypes
-    )
+    @EmbTestCase.hypothesis_params_emb_itr(dtype_list=supported_dtypes)
     @torch.inference_mode()
     def test_embedding_bag_group_model(self, dtype):
         model = Custom_Model_Embedding_Bag_Group(self.data.R)
@@ -72,8 +73,7 @@ class Test_Embedding_Bag_Group_Model(EmbTestCase):
         self.assertEqual(model_output, compiled_model_output)
 
     @EmbTestCase.hypothesis_params_emb_itr(
-        dtype_list=supported_dtypes,
-        freeze_list=freeze_opt
+        dtype_list=supported_dtypes, freeze_list=freeze_opt
     )
     @torch.inference_mode()
     def test_embedding_bag_group_compile_model(self, dtype, freeze_opt):

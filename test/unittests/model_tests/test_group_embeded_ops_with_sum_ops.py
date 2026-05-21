@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2026 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -16,9 +16,12 @@ from unittest_utils import (  # noqa: 402
     reset_dynamo,
     run_tests,
     supported_dtypes,
+    update_supported_dtypes,
     freeze_opt,
     test_with_freeze_opt,
 )
+
+supported_dtypes = update_supported_dtypes(supported_dtypes, "zentorch_embedding")
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
@@ -64,8 +67,7 @@ class Custom_Model_Embedding_Sum_nodes(nn.Module):
 # Both the group ops are being tested here, with the heterogeneous op being sum
 class Test_Group_Embeded_Ops_With_Sum_Ops_Model(EmbTestCase):
     @EmbTestCase.hypothesis_params_emb_itr(
-        dtype_list=supported_dtypes,
-        freeze_list=freeze_opt
+        dtype_list=supported_dtypes, freeze_list=freeze_opt
     )
     @torch.inference_mode()
     def test_group_eb_with_sum_model(self, dtype, freeze_opt):
@@ -79,15 +81,12 @@ class Test_Group_Embeded_Ops_With_Sum_Ops_Model(EmbTestCase):
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
         compiled_output = test_with_freeze_opt(
-            compiled_graph,
-            (indices, offsets),
-            freeze_opt
+            compiled_graph, (indices, offsets), freeze_opt
         )
         self.assertEqual(native_output, compiled_output)
 
     @EmbTestCase.hypothesis_params_emb_itr(
-        dtype_list=supported_dtypes,
-        freeze_list=freeze_opt
+        dtype_list=supported_dtypes, freeze_list=freeze_opt
     )
     @torch.inference_mode()
     def test_group_embedding_with_sum_model(self, dtype, freeze_opt):
@@ -96,11 +95,7 @@ class Test_Group_Embeded_Ops_With_Sum_Ops_Model(EmbTestCase):
         native_output = model(indices)
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
-        compiled_output = test_with_freeze_opt(
-            compiled_graph,
-            (indices),
-            freeze_opt
-        )
+        compiled_output = test_with_freeze_opt(compiled_graph, (indices), freeze_opt)
         self.assertEqual(native_output, compiled_output)
 
 

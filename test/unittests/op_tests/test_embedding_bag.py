@@ -18,7 +18,10 @@ from unittest_utils import (  # noqa: 402
     scale_grad_opt,
     sparse_opt,
     supported_dtypes,
+    update_supported_dtypes,
 )
+
+supported_dtypes = update_supported_dtypes(supported_dtypes, "zentorch_embedding")
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")

@@ -17,12 +17,14 @@ from unittest_utils import (  # noqa: 402
     reset_dynamo,
     run_tests,
     supported_dtypes,
+    update_supported_dtypes,
     zentorch,
     freeze_opt,
     test_with_freeze_opt,
     counters,
 )
 
+supported_dtypes = update_supported_dtypes(supported_dtypes, "zentorch_linear")
 
 LINEAR_BINARY_OPS = {
     "add": {
@@ -62,7 +64,13 @@ LINEAR_TOLERANCES = {
 
 class LinearBinaryBinaryModel(nn.Module):
     def __init__(
-        self, in_features: int, out_features: int, dtype: torch.dtype, op1, op2, bias: bool
+        self,
+        in_features: int,
+        out_features: int,
+        dtype: torch.dtype,
+        op1,
+        op2,
+        bias: bool,
     ):
         super().__init__()
         self.linear = nn.Linear(in_features, out_features, bias=bias, dtype=dtype)
@@ -73,7 +81,7 @@ class LinearBinaryBinaryModel(nn.Module):
         self,
         input_tensor: torch.Tensor,
         binary_tensor1: torch.Tensor,
-        binary_tensor2: torch.Tensor
+        binary_tensor2: torch.Tensor,
     ) -> torch.Tensor:
         linear_out = self.linear(input_tensor)
         first_binary_out = self.binary_op1(linear_out, binary_tensor1)
@@ -102,8 +110,12 @@ class Test_Linear_Binary_Binary_Model(AddmmTestCase):
         binary_tensor2 = torch.randn_like(reference_linear)
 
         # Compute native output
-        first_binary_out = LINEAR_BINARY_BINARY_OPS[key]["op1"](reference_linear, binary_tensor1)
-        native_output = LINEAR_BINARY_BINARY_OPS[key]["op2"](first_binary_out, binary_tensor2)
+        first_binary_out = LINEAR_BINARY_BINARY_OPS[key]["op1"](
+            reference_linear, binary_tensor1
+        )
+        native_output = LINEAR_BINARY_BINARY_OPS[key]["op2"](
+            first_binary_out, binary_tensor2
+        )
 
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
@@ -117,18 +129,24 @@ class Test_Linear_Binary_Binary_Model(AddmmTestCase):
         )
         self.assertEqual(counters["zentorch"][counter_key], 1)
         if freeze_flag:
-            self.assertEqual(counters["zentorch"]["zentorch_weight_prepack_for_linear"], 1)
+            self.assertEqual(
+                counters["zentorch"]["zentorch_weight_prepack_for_linear"], 1
+            )
         tolerance = LINEAR_TOLERANCES.get(dtype, {"atol": 1e-3, "rtol": 1e-3})
         self.assertEqual(native_output, compiled_output, **tolerance)
 
-    @AddmmTestCase.hypothesis_params_addmm_itr(dtype_list=supported_dtypes, freeze_list=freeze_opt)
+    @AddmmTestCase.hypothesis_params_addmm_itr(
+        dtype_list=supported_dtypes, freeze_list=freeze_opt
+    )
     @torch.inference_mode()
     def test_linear_add_add_model(self, dtype, freeze_opt):
         for bias_name, bias_flag in LINEAR_BIAS_CASES.items():
             with self.subTest(bias=bias_name):
                 self._run_binary_binary_post_op("add_add", bias_flag, dtype, freeze_opt)
 
-    @AddmmTestCase.hypothesis_params_addmm_itr(dtype_list=supported_dtypes, freeze_list=freeze_opt)
+    @AddmmTestCase.hypothesis_params_addmm_itr(
+        dtype_list=supported_dtypes, freeze_list=freeze_opt
+    )
     @torch.inference_mode()
     def test_linear_mul_add_model(self, dtype, freeze_opt):
         for bias_name, bias_flag in LINEAR_BIAS_CASES.items():

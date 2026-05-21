@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2026 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -14,7 +14,9 @@ from unittest_utils import (  # noqa: 402
     has_zentorch,
     run_tests,
     supported_dtypes,
+    update_supported_dtypes,
 )
+supported_dtypes = update_supported_dtypes(supported_dtypes, "zentorch_embedding")
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")

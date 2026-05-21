@@ -17,6 +17,7 @@ try:
 
     # for pattern matcher
     from zentorch._utils import counters
+    from zentorch import is_fp16_capable, get_fp16_registry
 
     has_zentorch = True
 except ImportError:
@@ -37,6 +38,7 @@ class DataTypes:
     mapDtypes = {
         "float32": torch.float32,
         "bfloat16": torch.bfloat16,
+        "float16": torch.float16,
         "int": torch.int,
         "int8": torch.int8,
         "uint8": torch.uint8,
@@ -137,6 +139,12 @@ else:
     print("Warning: Skipping Bfloat16 Testcases since they \
 are not supported on this hardware")
 
+if has_zentorch and zentorch._C.is_fp16_supported():
+    supported_dtypes.append(("float16"))
+else:
+    print("Warning: Skipping float16 Testcases since they \
+are not supported on this hardware")
+
 include_last_offset_opt = [True, False]
 INCLUDE_LAST_OFFSET_OPT_DEF = [False]
 scale_grad_opt = [True, False]
@@ -224,6 +232,23 @@ def reset_dynamo():
     torch._functorch._aot_autograd.autograd_cache.AOTAutogradCache.clear()
 
 
+# This function is used to remove fp16 from supported_dtypes
+# if the op is not fp16 capable/op is None
+def update_supported_dtypes(supported_dtypes, op_name=None):
+    if "float16" in supported_dtypes:
+        if op_name is None:
+            return [dtype for dtype in supported_dtypes if dtype != "float16"]
+        ops = get_fp16_registry().keys()
+        if op_name in ops:
+            if not is_fp16_capable(op_name):
+                return [dtype for dtype in supported_dtypes if dtype != "float16"]
+            else:
+                return supported_dtypes
+        else:
+            raise ValueError(f"Incorrect op for capability check: {op_name}")
+    return supported_dtypes
+
+
 # Method to hadle test with freezeing enable
 # and parameterized based on freezing option
 def test_with_freeze_opt(compiled_graph, inputs, freeze_opt):
@@ -300,6 +325,7 @@ class Test_Data(metaclass=Singleton):
         self.dtypes = {
             "float32": torch.float32,
             "bfloat16": torch.bfloat16,
+            "float16": torch.float16,
             "int": torch.int,
             "int8": torch.int8,
             "uint8": torch.uint8,
@@ -340,7 +366,7 @@ class Test_Data(metaclass=Singleton):
         # since we have some int tests that calls create_unittest_data with
         # dtype torch.int - we need to handle the creation
         # of input_scalar for that case
-        if torch_type in [torch.bfloat16, torch.float32]:
+        if torch_type in [torch.bfloat16, torch.float32, torch.float16]:
             self.input_scalar = torch.rand(()).type(torch_type)
         else:
             self.input_scalar = torch.randint(0, 100, ()).type(torch_type)
@@ -423,6 +449,11 @@ class Test_Data(metaclass=Singleton):
                 3: torch.randn(self.m, self.p, self.k).type(torch.bfloat16),
                 4: torch.randn(self.m, self.p, self.q, self.k).type(torch.bfloat16),
             },
+            "float16": {
+                2: torch.randn(self.m, self.k).type(torch.float16),
+                3: torch.randn(self.m, self.p, self.k).type(torch.float16),
+                4: torch.randn(self.m, self.p, self.q, self.k).type(torch.float16),
+            },
             "int8": {
                 2: torch.randint(-128, 127, (self.m, self.k)).type(torch.int8),
                 3: torch.randint(-128, 127, (self.m, self.p, self.k)).type(torch.int8),
@@ -468,6 +499,12 @@ class Test_Data(metaclass=Singleton):
                     # 1D Tensor
                     "uint8": torch.randint(0, 255, (1,)).type(torch.uint8),
                 },
+                "float16": {
+                    # Scalar Tensor
+                    "int8": torch.tensor(0).type(torch.int8),
+                    # 1D Tensor
+                    "uint8": torch.randint(0, 255, (1,)).type(torch.uint8),
+                },
                 "int8": {
                     # 1D Tensor
                     "int8": torch.zeros(1).type(torch.int8),
@@ -502,6 +539,10 @@ class Test_Data(metaclass=Singleton):
                     "positive_scales": None,
                     # "negative_scales" : None,
                 },
+                "float16": {
+                    "positive_scales": None,
+                    # "negative_scales" : None,
+                },
                 "uint8": {
                     "positive_scales": torch.rand((1,)).type(torch.float32),
                     # "negative_scales" : torch.rand((1,)).type(torch.float32) * -1,
@@ -516,6 +557,7 @@ class Test_Data(metaclass=Singleton):
             "per_tensor": {
                 "float32": None,
                 "bfloat16": None,
+                "float16": None,
                 "uint8": torch.randint(0, 255, (1,)).type(torch.uint8),
                 "int8": torch.zeros(1).type(torch.int8),
             },
@@ -566,6 +608,7 @@ class Test_Data(metaclass=Singleton):
         # issue.
         self.woq_qweight = {
             "bfloat16": copy.deepcopy(woq_qweight),
+            "float16": copy.deepcopy(woq_qweight),
             "float32": copy.deepcopy(woq_qweight),
         }
         woq_scales = torch.randn(self.woq_k // group_size, self.woq_n).type(
@@ -573,6 +616,7 @@ class Test_Data(metaclass=Singleton):
         )
         self.woq_scales = {
             "bfloat16": copy.deepcopy(woq_scales),
+            "float16": copy.deepcopy(woq_scales.type(torch.float16)),
             "float32": copy.deepcopy(woq_scales.type(torch.float32)),
         }
         self.woq_qzeros = [

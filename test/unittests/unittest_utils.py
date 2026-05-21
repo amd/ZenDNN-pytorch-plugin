@@ -24,6 +24,7 @@ from zentorch_test_utils import (  # noqa: 402 # noqa: F401
     has_zentorch,
     counters,
     supported_dtypes,
+    update_supported_dtypes,
     supported_dtypes_def,
     qlinear_dtypes,
     Q_LINEAR_DTYPE_OPT_DEF,

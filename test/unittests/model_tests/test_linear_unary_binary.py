@@ -17,12 +17,14 @@ from unittest_utils import (  # noqa: 402
     reset_dynamo,
     run_tests,
     supported_dtypes,
+    update_supported_dtypes,
     zentorch,
     freeze_opt,
     test_with_freeze_opt,
     counters,
 )
 
+supported_dtypes = update_supported_dtypes(supported_dtypes, "zentorch_linear")
 
 LINEAR_UNARY_OPS = {
     "silu": {
@@ -60,7 +62,13 @@ LINEAR_TOLERANCES = {
 
 class LinearUnaryBinaryModel(nn.Module):
     def __init__(
-        self, in_features: int, out_features: int, dtype: torch.dtype, unary_op, binary_op, bias: bool
+        self,
+        in_features: int,
+        out_features: int,
+        dtype: torch.dtype,
+        unary_op,
+        binary_op,
+        bias: bool,
     ):
         super().__init__()
         self.linear = nn.Linear(in_features, out_features, bias=bias, dtype=dtype)
@@ -68,9 +76,7 @@ class LinearUnaryBinaryModel(nn.Module):
         self.binary_op = binary_op
 
     def forward(
-        self,
-        input_tensor: torch.Tensor,
-        binary_tensor: torch.Tensor
+        self, input_tensor: torch.Tensor, binary_tensor: torch.Tensor
     ) -> torch.Tensor:
         linear_out = self.linear(input_tensor)
         unary_out = self.unary_op(linear_out)
@@ -99,7 +105,9 @@ class Test_Linear_Unary_Binary_Model(AddmmTestCase):
 
         # Compute native output
         unary_out = LINEAR_UNARY_BINARY_OPS[key]["unary_op"](reference_linear)
-        native_output = LINEAR_UNARY_BINARY_OPS[key]["binary_op"](unary_out, binary_tensor)
+        native_output = LINEAR_UNARY_BINARY_OPS[key]["binary_op"](
+            unary_out, binary_tensor
+        )
 
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
@@ -113,11 +121,15 @@ class Test_Linear_Unary_Binary_Model(AddmmTestCase):
         )
         self.assertEqual(counters["zentorch"][counter_key], 1)
         if freeze_flag:
-            self.assertEqual(counters["zentorch"]["zentorch_weight_prepack_for_linear"], 1)
+            self.assertEqual(
+                counters["zentorch"]["zentorch_weight_prepack_for_linear"], 1
+            )
         tolerance = LINEAR_TOLERANCES.get(dtype, {"atol": 1e-3, "rtol": 1e-3})
         self.assertEqual(native_output, compiled_output, **tolerance)
 
-    @AddmmTestCase.hypothesis_params_addmm_itr(dtype_list=supported_dtypes, freeze_list=freeze_opt)
+    @AddmmTestCase.hypothesis_params_addmm_itr(
+        dtype_list=supported_dtypes, freeze_list=freeze_opt
+    )
     @torch.inference_mode()
     def test_linear_silu_mul_model(self, dtype, freeze_opt):
         for bias_name, bias_flag in LINEAR_BIAS_CASES.items():

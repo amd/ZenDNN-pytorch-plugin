@@ -17,12 +17,15 @@ from unittest_utils import (  # noqa: 402
     reset_dynamo,
     run_tests,
     supported_dtypes,
+    update_supported_dtypes,
     seq_length_opt,
     batch_size_opt,
     mask_type_opt,
     num_heads_opt,
     head_dim_opt,
 )
+
+supported_dtypes = update_supported_dtypes(supported_dtypes, "zentorch_sdpa")
 
 
 class Custom_Model_Sdpa(torch.nn.Module):
@@ -44,9 +47,7 @@ class Test_Sdpa_Model(SDPATestCase):
         head_dim_opt_list=head_dim_opt,
     )
     @torch.inference_mode()
-    def test_sdpa_model(
-        self, dtype, mask_type, head_dim
-    ):
+    def test_sdpa_model(self, dtype, mask_type, head_dim):
         reset_dynamo()
         native_model = Custom_Model_Sdpa().eval()
         zentorch_model = Custom_Model_Sdpa().eval()

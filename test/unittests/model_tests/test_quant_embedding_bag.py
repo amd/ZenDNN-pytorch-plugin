@@ -18,9 +18,11 @@ from unittest_utils import (  # noqa: 402
     run_tests,
     counters,
     supported_dtypes,
+    update_supported_dtypes,
     reset_dynamo,
 )
 
+supported_dtypes = update_supported_dtypes(supported_dtypes)
 NUM_BITS_UINT4 = 4
 
 
@@ -103,7 +105,9 @@ class Test_WOQ_Embedding_Bag_Group(Zentorch_TestCase):
         offsets = torch.tensor([0, 1, 2], dtype=torch.long)
         # TODO Check with zendnn for decimal place rounding
         scales = torch.rand(weight.size(0), 1).round(decimals=2)
-        zero_points = torch.randint(low=0, high=15, size=(weight.size(0),), dtype=torch.int32)
+        zero_points = torch.randint(
+            low=0, high=15, size=(weight.size(0),), dtype=torch.int32
+        )
         zero_points_expanded = zero_points.unsqueeze(1).expand(weight.shape)
         dequant_weight = (weight - zero_points_expanded) * scales
         dequant_weight = dequant_weight.to(torch_type)
@@ -160,7 +164,9 @@ class Test_WOQ_Embedding_Bag_Group(Zentorch_TestCase):
         offsets = torch.tensor([0, 1, 2], dtype=torch.long)
         # TODO Check with zendnn for decimal place rounding
         scales = torch.rand(weight.size(0), 1).round(decimals=2)
-        zero_points = torch.randint(low=0, high=15, size=(weight.size(0),), dtype=torch.int32)
+        zero_points = torch.randint(
+            low=0, high=15, size=(weight.size(0),), dtype=torch.int32
+        )
         zero_points_expanded = zero_points.unsqueeze(1).expand(weight.shape)
         dequant_weight = (weight - zero_points_expanded) * scales
         dequant_weight = dequant_weight.to(torch_type)

@@ -18,11 +18,14 @@ from unittest_utils import (  # noqa: 402
     reset_dynamo,
     run_tests,
     supported_dtypes,
+    update_supported_dtypes,
     zentorch,
     freeze_opt,
     test_with_freeze_opt,
     counters,
 )
+
+supported_dtypes = update_supported_dtypes(supported_dtypes, "zentorch_linear")
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
@@ -73,7 +76,9 @@ class Test_Linear_Model_AMP(AddmmTestCase):
         # Compile inside autocast context so FX graph includes convert_element_type operations
         with torch.autocast(device_type="cpu", dtype=torch.bfloat16):
             native_output = native_model(input_3d)
-            compiled_output = test_with_freeze_opt(compiled_graph, (input_3d,), freeze_opt)
+            compiled_output = test_with_freeze_opt(
+                compiled_graph, (input_3d,), freeze_opt
+            )
 
         self.assertEqual(counters["zentorch"]["zentorch_linear"], 3)
         self.assertTrue(torch.allclose(native_output, compiled_output))

@@ -19,9 +19,12 @@ from unittest_utils import (  # noqa: 402
     reset_dynamo,
     run_tests,
     supported_dtypes,
+    update_supported_dtypes,
     test_with_freeze_opt,
     counters,
 )
+
+supported_dtypes = update_supported_dtypes(supported_dtypes, "zentorch_linear")
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")

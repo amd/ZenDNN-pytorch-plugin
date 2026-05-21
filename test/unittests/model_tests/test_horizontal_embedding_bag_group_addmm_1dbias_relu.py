@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2026 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -15,10 +15,13 @@ from unittest_utils import (  # noqa: 402
     reset_dynamo,
     run_tests,
     supported_dtypes,
+    update_supported_dtypes,
     zentorch,
     freeze_opt,
     test_with_freeze_opt,
 )
+
+supported_dtypes = update_supported_dtypes(supported_dtypes, "zentorch_embedding")
 
 
 class Custom_Model_Group_Embedding_Bag_Addmm_1dbias_Relu(torch.nn.Module):
@@ -75,8 +78,7 @@ class Custom_Model_Group_Embedding_Bag_Addmm_1dbias_Relu(torch.nn.Module):
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class Test_Group_Embedding_Bag_Addmm_1dbias_Relu_Model(EmbTestCase):
     @EmbTestCase.hypothesis_params_emb_itr(
-        dtype_list=supported_dtypes,
-        freeze_list=freeze_opt
+        dtype_list=supported_dtypes, freeze_list=freeze_opt
     )
     @torch.inference_mode()
     def test_group_embedding_bag_addmm_1dbias_relu_model(self, dtype, freeze_opt):
@@ -90,9 +92,7 @@ class Test_Group_Embedding_Bag_Addmm_1dbias_Relu_Model(EmbTestCase):
         reset_dynamo()
         compiled_model = torch.compile(model, backend="zentorch")
         compiled_output = test_with_freeze_opt(
-            compiled_model,
-            (indices, offsets, mlp_inputs),
-            freeze_opt
+            compiled_model, (indices, offsets, mlp_inputs), freeze_opt
         )
         self.assertEqual(native_output, compiled_output)
 

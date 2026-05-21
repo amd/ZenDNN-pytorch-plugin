@@ -16,10 +16,13 @@ from unittest_utils import (  # noqa: 402
     reset_dynamo,
     run_tests,
     supported_dtypes,
+    update_supported_dtypes,
     zentorch,
     freeze_opt,
     test_with_freeze_opt,
 )
+
+supported_dtypes = update_supported_dtypes(supported_dtypes, "zentorch_mm")
 
 
 class Custom_Model_MM_Relu2(nn.Module):
@@ -49,8 +52,7 @@ class Custom_Model_MM_ReLU1(nn.Module):
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class Test_MM_RELU_Model(AddmmTestCase):
     @AddmmTestCase.hypothesis_params_addmm_itr(
-        dtype_list=supported_dtypes,
-        freeze_list=freeze_opt
+        dtype_list=supported_dtypes, freeze_list=freeze_opt
     )
     @torch.inference_mode()
     def test_mm_relu2_optimize_model(self, dtype, freeze_opt):
@@ -62,18 +64,12 @@ class Test_MM_RELU_Model(AddmmTestCase):
                 reset_dynamo()
                 compiled_graph = torch.compile(model, backend="zentorch")
                 compiled_graph_output = test_with_freeze_opt(
-                    compiled_graph,
-                    (
-                        self.data.x1[i],
-                        self.data.y1[j]
-                    ),
-                    freeze_opt
+                    compiled_graph, (self.data.x1[i], self.data.y1[j]), freeze_opt
                 )
                 self.assertEqual(model_output, compiled_graph_output)
 
     @AddmmTestCase.hypothesis_params_addmm_itr(
-        dtype_list=supported_dtypes,
-        freeze_list=freeze_opt
+        dtype_list=supported_dtypes, freeze_list=freeze_opt
     )
     @torch.inference_mode()
     def test_mm_relu2_zero_input_optimize_model(self, dtype, freeze_opt):
@@ -83,18 +79,12 @@ class Test_MM_RELU_Model(AddmmTestCase):
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
         compiled_graph_output = test_with_freeze_opt(
-            compiled_graph,
-            (
-                self.data.x1[0] * 0,
-                self.data.y1[0] * 0
-            ),
-            freeze_opt
+            compiled_graph, (self.data.x1[0] * 0, self.data.y1[0] * 0), freeze_opt
         )
         self.assertEqual(model_output, compiled_graph_output)
 
     @AddmmTestCase.hypothesis_params_addmm_itr(
-        dtype_list=supported_dtypes,
-        freeze_list=freeze_opt
+        dtype_list=supported_dtypes, freeze_list=freeze_opt
     )
     @torch.inference_mode()
     def test_mm_relu2_negative_input_optimize_model(self, dtype, freeze_opt):
@@ -104,15 +94,12 @@ class Test_MM_RELU_Model(AddmmTestCase):
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
         compiled_graph_output = test_with_freeze_opt(
-            compiled_graph,
-            (self.data.x1[0] * -1, self.data.y1[0] * -1),
-            freeze_opt
+            compiled_graph, (self.data.x1[0] * -1, self.data.y1[0] * -1), freeze_opt
         )
         self.assertEqual(model_output, compiled_graph_output)
 
     @AddmmTestCase.hypothesis_params_addmm_itr(
-        dtype_list=supported_dtypes,
-        freeze_list=freeze_opt
+        dtype_list=supported_dtypes, freeze_list=freeze_opt
     )
     @torch.inference_mode()
     def test_mm_relu1_model(self, dtype, freeze_opt):
@@ -124,9 +111,7 @@ class Test_MM_RELU_Model(AddmmTestCase):
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
         compiled_graph_output = test_with_freeze_opt(
-            compiled_graph,
-            (self.data.input),
-            freeze_opt
+            compiled_graph, (self.data.input), freeze_opt
         )
         self.assertEqual(model_output, compiled_graph_output)
 

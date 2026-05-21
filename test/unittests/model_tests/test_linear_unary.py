@@ -17,12 +17,14 @@ from unittest_utils import (  # noqa: 402
     reset_dynamo,
     run_tests,
     supported_dtypes,
+    update_supported_dtypes,
     zentorch,
     freeze_opt,
     test_with_freeze_opt,
     counters,
 )
 
+supported_dtypes = update_supported_dtypes(supported_dtypes, "zentorch_linear")
 LINEAR_ACTIVATIONS = {
     "relu": {
         "factory": nn.ReLU,
@@ -62,6 +64,7 @@ class Custom_Deep_Linear_Activation_Model(nn.Module):
     Model with three linear layers + activation, intermediate activation,
     then three more linear layers + activation
     """
+
     def __init__(self, k, dtype):
         super().__init__()
         self.post_op = torch.nn.ReLU()
@@ -93,7 +96,9 @@ class Custom_Deep_Linear_Activation_Model(nn.Module):
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class Test_Linear_Unary_Model(AddmmTestCase):
 
-    def _run_activation(self, key, dtype, freeze_flag, model=None, input_tensor=None, expected_count=1):
+    def _run_activation(
+        self, key, dtype, freeze_flag, model=None, input_tensor=None, expected_count=1
+    ):
         case = LINEAR_ACTIVATIONS[key]
         if model is None:
             linear = nn.Linear(
@@ -148,37 +153,51 @@ class Test_Linear_Unary_Model(AddmmTestCase):
             expected_count=6,
         )
 
-    @AddmmTestCase.hypothesis_params_addmm_itr(dtype_list=supported_dtypes, freeze_list=freeze_opt)
+    @AddmmTestCase.hypothesis_params_addmm_itr(
+        dtype_list=supported_dtypes, freeze_list=freeze_opt
+    )
     @torch.inference_mode()
     def test_linear_relu_model(self, dtype, freeze_opt):
         self._run_activation("relu", dtype, freeze_opt)
 
-    @AddmmTestCase.hypothesis_params_addmm_itr(dtype_list=supported_dtypes, freeze_list=freeze_opt)
+    @AddmmTestCase.hypothesis_params_addmm_itr(
+        dtype_list=supported_dtypes, freeze_list=freeze_opt
+    )
     @torch.inference_mode()
     def test_linear_gelu_tanh_model(self, dtype, freeze_opt):
         self._run_activation("gelu_tanh", dtype, freeze_opt)
 
-    @AddmmTestCase.hypothesis_params_addmm_itr(dtype_list=supported_dtypes, freeze_list=freeze_opt)
+    @AddmmTestCase.hypothesis_params_addmm_itr(
+        dtype_list=supported_dtypes, freeze_list=freeze_opt
+    )
     @torch.inference_mode()
     def test_linear_gelu_erf_model(self, dtype, freeze_opt):
         self._run_activation("gelu_erf", dtype, freeze_opt)
 
-    @AddmmTestCase.hypothesis_params_addmm_itr(dtype_list=supported_dtypes, freeze_list=freeze_opt)
+    @AddmmTestCase.hypothesis_params_addmm_itr(
+        dtype_list=supported_dtypes, freeze_list=freeze_opt
+    )
     @torch.inference_mode()
     def test_linear_silu_model(self, dtype, freeze_opt):
         self._run_activation("silu", dtype, freeze_opt)
 
-    @AddmmTestCase.hypothesis_params_addmm_itr(dtype_list=supported_dtypes, freeze_list=freeze_opt)
+    @AddmmTestCase.hypothesis_params_addmm_itr(
+        dtype_list=supported_dtypes, freeze_list=freeze_opt
+    )
     @torch.inference_mode()
     def test_linear_sigmoid_model(self, dtype, freeze_opt):
         self._run_activation("sigmoid", dtype, freeze_opt)
 
-    @AddmmTestCase.hypothesis_params_addmm_itr(dtype_list=supported_dtypes, freeze_list=freeze_opt)
+    @AddmmTestCase.hypothesis_params_addmm_itr(
+        dtype_list=supported_dtypes, freeze_list=freeze_opt
+    )
     @torch.inference_mode()
     def test_linear_tanh_model(self, dtype, freeze_opt):
         self._run_activation("tanh", dtype, freeze_opt)
 
-    @AddmmTestCase.hypothesis_params_addmm_itr(dtype_list=supported_dtypes, freeze_list=freeze_opt)
+    @AddmmTestCase.hypothesis_params_addmm_itr(
+        dtype_list=supported_dtypes, freeze_list=freeze_opt
+    )
     @torch.inference_mode()
     def test_deep_linear_relu_sigmoid_model(self, dtype, freeze_opt):
         self._run_deep_linear_activation("relu", dtype, freeze_opt)

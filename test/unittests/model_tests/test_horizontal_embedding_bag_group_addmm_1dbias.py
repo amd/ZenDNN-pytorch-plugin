@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2026 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -16,10 +16,13 @@ from unittest_utils import (  # noqa: 402
     reset_dynamo,
     run_tests,
     supported_dtypes,
+    update_supported_dtypes,
     zentorch,
     freeze_opt,
     test_with_freeze_opt,
 )
+
+supported_dtypes = update_supported_dtypes(supported_dtypes, "zentorch_embedding")
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
@@ -68,8 +71,7 @@ class Custom_Model_Group_Addmm_1dbias_Embedding_Bag(nn.Module):
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class Test_Group_Embedding_Bad_Addmm_1dbias_Model(EmbTestCase):
     @EmbTestCase.hypothesis_params_emb_itr(
-        dtype_list=supported_dtypes,
-        freeze_list=freeze_opt
+        dtype_list=supported_dtypes, freeze_list=freeze_opt
     )
     @torch.inference_mode()
     def test_group_embedding_bag_addmm_1dbias_model(self, dtype, freeze_opt):
@@ -86,8 +88,7 @@ class Test_Group_Embedding_Bad_Addmm_1dbias_Model(EmbTestCase):
         self.assertEqual(native_output, compiled_output)
 
     @EmbTestCase.hypothesis_params_emb_itr(
-        dtype_list=supported_dtypes,
-        freeze_list=freeze_opt
+        dtype_list=supported_dtypes, freeze_list=freeze_opt
     )
     @torch.inference_mode()
     def test_group_addmm_1dbias_embedding_bag_model(self, dtype, freeze_opt):

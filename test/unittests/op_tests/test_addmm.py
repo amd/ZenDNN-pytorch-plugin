@@ -15,15 +15,16 @@ from unittest_utils import (  # noqa: 402
     run_tests,
     skip_test_pt_2_0,
     supported_dtypes,
+    update_supported_dtypes,
     zentorch,
 )
+
+supported_dtypes = update_supported_dtypes(supported_dtypes, "zentorch_addmm")
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class Test_Addmm_Op(MMTestCase):
-    @MMTestCase.hypothesis_params_mm_itr(
-        dtype_list=supported_dtypes
-    )
+    @MMTestCase.hypothesis_params_mm_itr(dtype_list=supported_dtypes)
     @unittest.skipIf(skip_test_pt_2_0, "Skipping test due to PT2.0 instability")
     def test_addmm_variants(self, dtype):
 
@@ -130,9 +131,7 @@ class Test_Addmm_Op(MMTestCase):
             rtol=1e-2,
         )
 
-    @MMTestCase.hypothesis_params_mm_itr(
-        dtype_list=supported_dtypes
-    )
+    @MMTestCase.hypothesis_params_mm_itr(dtype_list=supported_dtypes)
     @torch.inference_mode()
     def test_addmm_mismatched_dimensions(self, dtype):
         # The test will not fail when k == n
@@ -151,7 +150,9 @@ class Test_Addmm_Op(MMTestCase):
                 "unsupported dims for self, mat1 and mat2" in str(context.exception)
             )
             with self.assertRaises(RuntimeError) as context:
-                torch.ops.zentorch.zentorch_addmm(self.data.x3d, self.data.x, self.data.x)
+                torch.ops.zentorch.zentorch_addmm(
+                    self.data.x3d, self.data.x, self.data.x
+                )
             self.assertTrue(
                 "Incompatible dimensions/shape for self tensor in addmm op"
                 in str(context.exception)
@@ -163,9 +164,7 @@ class Test_Addmm_Op(MMTestCase):
                 in str(context.exception)
             )
 
-    @MMTestCase.hypothesis_params_mm_itr(
-        dtype_list=['int']
-    )
+    @MMTestCase.hypothesis_params_mm_itr(dtype_list=["int"])
     def test_addmm_unsupported_dtype(self, dtype):
 
         with self.assertRaises(RuntimeError) as context:
@@ -175,21 +174,15 @@ class Test_Addmm_Op(MMTestCase):
             "zentorch_matmul only supports Float and BFloat16" in str(context.exception)
         )
 
-    @MMTestCase.hypothesis_params_mm_itr(
-        dtype_list=['float32']
-    )
+    @MMTestCase.hypothesis_params_mm_itr(dtype_list=["float32"])
     def test_float_addmm_bfloat16_postop(self):
         bias_as_postop = self.data.input.clone().to(torch.bfloat16)
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_addmm(bias_as_postop, self.data.x, self.data.y)
 
-        self.assertTrue(
-            "zentorch_matmul only supports" in str(context.exception)
-        )
+        self.assertTrue("zentorch_matmul only supports" in str(context.exception))
 
-    @MMTestCase.hypothesis_params_mm_itr(
-        dtype_list=['float32']
-    )
+    @MMTestCase.hypothesis_params_mm_itr(dtype_list=["float32"])
     def test_float_addmm_float_postop(self):
         self.assertEqual(
             torch._C._VariableFunctions.addmm(
@@ -200,9 +193,7 @@ class Test_Addmm_Op(MMTestCase):
             ),
         )
 
-    @MMTestCase.hypothesis_params_mm_itr(
-        dtype_list=['bfloat16']
-    )
+    @MMTestCase.hypothesis_params_mm_itr(dtype_list=["bfloat16"])
     def test_bfloat16_addmm_int_postop(self):
         self.skip_if_bfloat16_unsupported_hardware()
         bias_as_postop = self.data.input.clone().to(torch.int)
@@ -214,9 +205,7 @@ class Test_Addmm_Op(MMTestCase):
             in str(context_int.exception)
         )
 
-    @MMTestCase.hypothesis_params_mm_itr(
-        dtype_list=['bfloat16']
-    )
+    @MMTestCase.hypothesis_params_mm_itr(dtype_list=["bfloat16"])
     def test_bfloat16_addmm_bfloat16_postop(self):
         self.skip_if_bfloat16_unsupported_hardware()
         self.assertEqual(
@@ -228,9 +217,7 @@ class Test_Addmm_Op(MMTestCase):
             ),
         )
 
-    @MMTestCase.hypothesis_params_mm_itr(
-        dtype_list=['int']
-    )
+    @MMTestCase.hypothesis_params_mm_itr(dtype_list=["int"])
     def test_int_addmm_postop(self):
         bias_as_postop = self.data.input.clone().to(torch.int)
         with self.assertRaises(RuntimeError) as context_int:
@@ -241,9 +228,7 @@ class Test_Addmm_Op(MMTestCase):
             in str(context_int.exception)
         )
 
-    @MMTestCase.hypothesis_params_mm_itr(
-        dtype_list=supported_dtypes
-    )
+    @MMTestCase.hypothesis_params_mm_itr(dtype_list=supported_dtypes)
     @unittest.skipIf(skip_test_pt_2_0, "Skipping test due to PT2.0 instability")
     def test_addmm_relu_with_kw(self, dtype):
 
@@ -303,9 +288,7 @@ class Test_Addmm_Op(MMTestCase):
             rtol=1e-2,
         )
 
-    @MMTestCase.hypothesis_params_mm_itr(
-        dtype_list=supported_dtypes
-    )
+    @MMTestCase.hypothesis_params_mm_itr(dtype_list=supported_dtypes)
     def test_addmm_with_zero_alpha(self, dtype):
 
         self.assertEqual(
@@ -317,9 +300,7 @@ class Test_Addmm_Op(MMTestCase):
             ),
         )
 
-    @MMTestCase.hypothesis_params_mm_itr(
-        dtype_list=supported_dtypes
-    )
+    @MMTestCase.hypothesis_params_mm_itr(dtype_list=supported_dtypes)
     @unittest.skipIf(skip_test_pt_2_0, "Skipping test due to PT2.0 instability")
     def test_addmm_relu_without_kw(self, dtype):
 

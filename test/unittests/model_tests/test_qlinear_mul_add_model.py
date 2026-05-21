@@ -121,9 +121,7 @@ class Test_Qlinear_Mul_Add_Model(QLinearTestCase):
 
             B, M, N = max(2, self.data.b), max(2, self.data.m), max(2, self.data.n)
 
-            model = Model(
-                M, N, pos_config["mul_arg_pos"], pos_config["add_arg_pos"]
-            )
+            model = Model(M, N, pos_config["mul_arg_pos"], pos_config["add_arg_pos"])
             if dtype == "bfloat16":
                 model = model.to(torch.bfloat16)
             inputs = torch.randn(B, M, dtype=torch_dtype)

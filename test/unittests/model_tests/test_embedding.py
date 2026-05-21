@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2024-2025 Advanced Micro Devices, Inc.
+# Copyright (c) 2024-2026 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -16,10 +16,13 @@ from unittest_utils import (  # noqa: 402
     reset_dynamo,
     run_tests,
     supported_dtypes,
+    update_supported_dtypes,
     freeze_opt,
     test_with_freeze_opt,
     counters,
 )
+
+supported_dtypes = update_supported_dtypes(supported_dtypes, "zentorch_embedding")
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
@@ -36,8 +39,7 @@ class Custom_Model_Embedding(nn.Module):
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class Test_Embedding_Model(EmbTestCase):
     @EmbTestCase.hypothesis_params_emb_itr(
-        dtype_list=supported_dtypes,
-        freeze_list=freeze_opt
+        dtype_list=supported_dtypes, freeze_list=freeze_opt
     )
     @torch.inference_mode()
     def test_embedding_compile_model(self, dtype, freeze_opt):
@@ -50,9 +52,7 @@ class Test_Embedding_Model(EmbTestCase):
         counters.clear()
         self.assertEqual(counters["zentorch"]["zentorch_embedding"], 0)
         compiled_graph_output = test_with_freeze_opt(
-            compiled_graph,
-            (input),
-            freeze_opt
+            compiled_graph, (input), freeze_opt
         )
         self.assertEqual(counters["zentorch"]["zentorch_embedding"], 1)
         self.assertEqual(model_output, compiled_graph_output)

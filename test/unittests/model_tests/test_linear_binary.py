@@ -17,12 +17,14 @@ from unittest_utils import (  # noqa: 402
     reset_dynamo,
     run_tests,
     supported_dtypes,
+    update_supported_dtypes,
     zentorch,
     freeze_opt,
     test_with_freeze_opt,
     counters,
 )
 
+supported_dtypes = update_supported_dtypes(supported_dtypes, "zentorch_linear")
 
 LINEAR_BINARY_OPS = {
     "add": {
@@ -64,7 +66,12 @@ class LinearBinaryModel(nn.Module):
 class Test_Linear_Binary_Model(AddmmTestCase):
 
     def _run_binary_post_op(
-        self, key: str, bias_flag: bool, dtype: str, freeze_flag: bool, transposed_binary: bool = False
+        self,
+        key: str,
+        bias_flag: bool,
+        dtype: str,
+        freeze_flag: bool,
+        transposed_binary: bool = False,
     ) -> None:
         if dtype == "bfloat16":
             self.skip_if_bfloat16_unsupported_hardware()
@@ -78,7 +85,9 @@ class Test_Linear_Binary_Model(AddmmTestCase):
         )
         reference_linear = model.linear(self.data.input)
         if transposed_binary:
-            binary_tensor = torch.randn(reference_linear.shape[::-1], dtype=torch_dtype).t()
+            binary_tensor = torch.randn(
+                reference_linear.shape[::-1], dtype=torch_dtype
+            ).t()
         else:
             binary_tensor = torch.randn_like(reference_linear)
         native_output = LINEAR_BINARY_OPS[key]["op"](reference_linear, binary_tensor)
@@ -98,30 +107,40 @@ class Test_Linear_Binary_Model(AddmmTestCase):
         else:
             self.assertEqual(counters["zentorch"][counter_key], 1)
         if freeze_flag:
-            self.assertEqual(counters["zentorch"]["zentorch_weight_prepack_for_linear"], 1)
+            self.assertEqual(
+                counters["zentorch"]["zentorch_weight_prepack_for_linear"], 1
+            )
         tolerance = LINEAR_TOLERANCES.get(dtype, {"atol": 1e-3, "rtol": 1e-3})
         self.assertEqual(native_output, compiled_output, **tolerance)
 
-    @AddmmTestCase.hypothesis_params_addmm_itr(dtype_list=supported_dtypes, freeze_list=freeze_opt)
+    @AddmmTestCase.hypothesis_params_addmm_itr(
+        dtype_list=supported_dtypes, freeze_list=freeze_opt
+    )
     @torch.inference_mode()
     def test_linear_add_model(self, dtype, freeze_opt):
         for bias_name, bias_flag in LINEAR_BIAS_CASES.items():
             with self.subTest(bias=bias_name):
                 self._run_binary_post_op("add", bias_flag, dtype, freeze_opt)
 
-    @AddmmTestCase.hypothesis_params_addmm_itr(dtype_list=supported_dtypes, freeze_list=freeze_opt)
+    @AddmmTestCase.hypothesis_params_addmm_itr(
+        dtype_list=supported_dtypes, freeze_list=freeze_opt
+    )
     @torch.inference_mode()
     def test_linear_mul_model(self, dtype, freeze_opt):
         for bias_name, bias_flag in LINEAR_BIAS_CASES.items():
             with self.subTest(bias=bias_name):
                 self._run_binary_post_op("mul", bias_flag, dtype, freeze_opt)
 
-    @AddmmTestCase.hypothesis_params_addmm_itr(dtype_list=supported_dtypes, freeze_list=freeze_opt)
+    @AddmmTestCase.hypothesis_params_addmm_itr(
+        dtype_list=supported_dtypes, freeze_list=freeze_opt
+    )
     @torch.inference_mode()
     def test_linear_add_model_with_transposed_binary(self, dtype, freeze_opt):
         for bias_name, bias_flag in LINEAR_BIAS_CASES.items():
             with self.subTest(bias=bias_name):
-                self._run_binary_post_op("add", bias_flag, dtype, freeze_opt, transposed_binary=True)
+                self._run_binary_post_op(
+                    "add", bias_flag, dtype, freeze_opt, transposed_binary=True
+                )
 
 
 if __name__ == "__main__":

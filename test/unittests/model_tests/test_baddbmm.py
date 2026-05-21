@@ -16,10 +16,13 @@ from unittest_utils import (  # noqa: 402
     reset_dynamo,
     run_tests,
     supported_dtypes,
+    update_supported_dtypes,
     zentorch,
     freeze_opt,
     test_with_freeze_opt,
 )
+
+supported_dtypes = update_supported_dtypes(supported_dtypes, "zentorch_baddbmm")
 
 
 class Custom_Model_Baddbmm(nn.Module):
@@ -47,8 +50,7 @@ class Custom_Model_Baddbmm_Unsupport(nn.Module):
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class Test_Baddbmm_Model(AddmmTestCase):
     @AddmmTestCase.hypothesis_params_addmm_itr(
-        dtype_list=supported_dtypes,
-        freeze_list=freeze_opt
+        dtype_list=supported_dtypes, freeze_list=freeze_opt
     )
     @torch.inference_mode()
     def test_baddbmm_model(self, dtype, freeze_opt):
@@ -62,15 +64,14 @@ class Test_Baddbmm_Model(AddmmTestCase):
                 compiled_graph_output = test_with_freeze_opt(
                     compiled_graph,
                     (self.data.M2, self.data.x2[i], self.data.y2[j]),
-                    freeze_opt
+                    freeze_opt,
                 )
                 self.assertEqual(
                     model_output, compiled_graph_output, atol=1e-5, rtol=1e-3
                 )
 
     @AddmmTestCase.hypothesis_params_addmm_itr(
-        dtype_list=supported_dtypes,
-        freeze_list=freeze_opt
+        dtype_list=supported_dtypes, freeze_list=freeze_opt
     )
     @torch.inference_mode()
     def test_baddbmm_unsupport_model(self, dtype, freeze_opt):
@@ -80,9 +81,7 @@ class Test_Baddbmm_Model(AddmmTestCase):
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
         compiled_graph_output = test_with_freeze_opt(
-            compiled_graph,
-            (self.data.M3, self.data.x2[0]),
-            freeze_opt
+            compiled_graph, (self.data.M3, self.data.x2[0]), freeze_opt
         )
         self.assertEqual(model_output, compiled_graph_output, atol=1e-5, rtol=1e-3)
 

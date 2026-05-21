@@ -20,6 +20,7 @@ from unittest_utils import (  # noqa: 402
     reset_dynamo,
     run_tests,
     supported_dtypes,
+    update_supported_dtypes,
     zentorch,
     skip_test_pt_2_1,
     freeze_opt,
@@ -126,7 +127,9 @@ class Custom_Model_MM_Silu(torch.nn.Module):
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 @unittest.skipIf(skip_test_pt_2_1, "Pattern matcher disabled for Torch < 2.2")
 class Test_Pattern_Matcher_Model(Zentorch_TestCase):
-    @parameterized.expand(product(supported_dtypes, freeze_opt))
+    @parameterized.expand(
+        product(update_supported_dtypes(supported_dtypes, "zentorch_addmm"), freeze_opt)
+    )
     @torch.inference_mode()
     def test_addmm_silu_mul_pattern_model(self, dtype, freeze_opt):
         reset_dynamo()
@@ -147,7 +150,9 @@ class Test_Pattern_Matcher_Model(Zentorch_TestCase):
             # test for both dtypes, two separate tests will be run
             self.assertEqual(counters["zentorch"]["pattern_matcher_addmm_silu_mul"], 1)
 
-    @parameterized.expand(product(supported_dtypes, freeze_opt))
+    @parameterized.expand(
+        product(update_supported_dtypes(supported_dtypes, "zentorch_addmm"), freeze_opt)
+    )
     @torch.inference_mode()
     def test_addmm_alpha_beta_silu_mul_pattern_model(self, dtype, freeze_opt):
         reset_dynamo()
@@ -167,7 +172,9 @@ class Test_Pattern_Matcher_Model(Zentorch_TestCase):
             )
             self.assertEqual(counters["zentorch"]["pattern_matcher_addmm_silu_mul"], 1)
 
-    @parameterized.expand(product(supported_dtypes, freeze_opt))
+    @parameterized.expand(
+        product(update_supported_dtypes(supported_dtypes, "zentorch_bmm"), freeze_opt)
+    )
     @torch.inference_mode()
     def test_bmm1_pattern_model(self, dtype, freeze_opt):
         reset_dynamo()
@@ -220,7 +227,9 @@ class Test_Pattern_Matcher_Model(Zentorch_TestCase):
         self.assertEqual(counters["zentorch"]["pattern_matcher_bmm_to_mm"], 0)
         self.assertEqual(native_output, zentorch_graph_output)
 
-    @parameterized.expand(product(supported_dtypes, freeze_opt))
+    @parameterized.expand(
+        product(update_supported_dtypes(supported_dtypes, "zentorch_bmm"), freeze_opt)
+    )
     @torch.inference_mode()
     def test_bmm2_pattern_model(self, dtype, freeze_opt):
         reset_dynamo()
@@ -255,7 +264,9 @@ class Test_Pattern_Matcher_Model(Zentorch_TestCase):
             rtol=2 * inner_dim * (1e-6),
         )
 
-    @parameterized.expand(product(supported_dtypes, freeze_opt))
+    @parameterized.expand(
+        product(update_supported_dtypes(supported_dtypes, "zentorch_mm"), freeze_opt)
+    )
     @torch.inference_mode()
     def test_mm_silu_pattern_model(self, dtype, freeze_opt):
         reset_dynamo()

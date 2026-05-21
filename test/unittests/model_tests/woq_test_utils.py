@@ -30,9 +30,9 @@ def symmetric_quantize_weight_per_channel(weight, qmin=-8, qmax=7):
     scale = weight_absmax / max(abs(qmin), abs(qmax))
     scale = torch.clamp(scale, min=1e-8).to(torch.float32)
     zero_point = torch.zeros_like(scale).to(torch.int8)
-    quantized_weight = torch.clamp(
-        torch.round(weight / scale), qmin, qmax
-    ).to(torch.int8)
+    quantized_weight = torch.clamp(torch.round(weight / scale), qmin, qmax).to(
+        torch.int8
+    )
     return quantized_weight, scale, zero_point
 
 
@@ -51,9 +51,9 @@ def symmetric_quantize_weight_per_group(weight, group_size, qmin=-8, qmax=7):
     scale = weight_absmax / max(abs(qmin), abs(qmax))
     scale = torch.clamp(scale, min=1e-8).to(torch.float32)
     zero_point = torch.zeros(out_features, n_groups, 1, dtype=torch.int8)
-    quantized_weight = torch.clamp(
-        torch.round(weight_grouped / scale), qmin, qmax
-    ).to(torch.int8)
+    quantized_weight = torch.clamp(torch.round(weight_grouped / scale), qmin, qmax).to(
+        torch.int8
+    )
 
     return quantized_weight, scale, zero_point
 
@@ -83,7 +83,9 @@ class WOQ_Linear_Model(nn.Module):
             )
             self.view_shape = (out_features, in_features)
         else:
-            w_int8, scale_fp32, zp_int8 = symmetric_quantize_weight_per_channel(original)
+            w_int8, scale_fp32, zp_int8 = symmetric_quantize_weight_per_channel(
+                original
+            )
             self.view_shape = None
 
         self.register_buffer("weight", w_int8)

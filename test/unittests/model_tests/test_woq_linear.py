@@ -29,9 +29,9 @@ def symmetric_quantize_weight_per_channel(weight, qmin=-8, qmax=7):
     scale = weight_absmax / max(abs(qmin), abs(qmax))
     scale = torch.clamp(scale, min=1e-8).to(torch.float32)
     zero_point = torch.zeros_like(scale).to(torch.int8)
-    quantized_weight = torch.clamp(
-        torch.round(weight / scale), qmin, qmax
-    ).to(torch.int8)
+    quantized_weight = torch.clamp(torch.round(weight / scale), qmin, qmax).to(
+        torch.int8
+    )
     return quantized_weight, scale, zero_point
 
 
@@ -53,9 +53,9 @@ def symmetric_quantize_weight_per_group(weight, group_size, qmin=-8, qmax=7):
     scale = weight_absmax / max(abs(qmin), abs(qmax))
     scale = torch.clamp(scale, min=1e-8).to(torch.float32)
     zero_point = torch.zeros(out_features, n_groups, 1, dtype=torch.int8)
-    quantized_weight = torch.clamp(
-        torch.round(weight_grouped / scale), qmin, qmax
-    ).to(torch.int8)
+    quantized_weight = torch.clamp(torch.round(weight_grouped / scale), qmin, qmax).to(
+        torch.int8
+    )
 
     return quantized_weight, scale, zero_point
 
@@ -98,7 +98,9 @@ class WOQ_Linear_Model(nn.Module):
             )
             self.view_shape = (out_features, in_features)
         else:
-            w_int8, scale_fp32, zp_int8 = symmetric_quantize_weight_per_channel(original)
+            w_int8, scale_fp32, zp_int8 = symmetric_quantize_weight_per_channel(
+                original
+            )
             self.view_shape = None
 
         self.register_buffer("weight", w_int8)
@@ -146,14 +148,18 @@ class Test_WOQ_Linear(Zentorch_TestCase):
     @torch.inference_mode()
     def test_woq_linear_per_channel_mm_no_bias(self):
         batch, in_features, out_features = 4, 64, 48
-        model = WOQ_Linear_Model(out_features, in_features, group_size=None, bias=False).eval()
+        model = WOQ_Linear_Model(
+            out_features, in_features, group_size=None, bias=False
+        ).eval()
         x = torch.randn(batch, in_features, dtype=torch.bfloat16)
         self._assert_woq_pattern_replaced(model, x, "WOQ per-channel mm")
 
     @torch.inference_mode()
     def test_woq_linear_per_channel_addmm_with_bias(self):
         batch, in_features, out_features = 4, 64, 48
-        model = WOQ_Linear_Model(out_features, in_features, group_size=None, bias=True).eval()
+        model = WOQ_Linear_Model(
+            out_features, in_features, group_size=None, bias=True
+        ).eval()
         x = torch.randn(batch, in_features, dtype=torch.bfloat16)
         self._assert_woq_pattern_replaced(model, x, "WOQ per-channel addmm")
 

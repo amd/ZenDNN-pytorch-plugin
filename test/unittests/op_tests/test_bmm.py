@@ -15,7 +15,9 @@ from unittest_utils import (  # noqa: E402
     run_tests,
     skip_test_pt_2_0,
     supported_dtypes,
+    update_supported_dtypes,
 )
+supported_dtypes = update_supported_dtypes(supported_dtypes, "zentorch_bmm")
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")

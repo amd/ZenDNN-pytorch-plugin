@@ -20,11 +20,14 @@ from unittest_utils import (  # noqa: 402
     reset_dynamo,
     run_tests,
     supported_dtypes,
+    update_supported_dtypes,
     zentorch,
     skip_test_pt_2_1,
     freeze_opt,
     test_with_freeze_opt,
 )
+
+supported_dtypes = update_supported_dtypes(supported_dtypes, "zentorch_mm")
 
 
 class Custom_Model_MM_Silu_Mul(nn.Module):
@@ -50,14 +53,11 @@ class Custom_Model_MM_Silu_Mul(nn.Module):
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
-@unittest.skipIf(
-    skip_test_pt_2_1, "Pattern matcher disabled for Torch < 2.2"
-)
+@unittest.skipIf(skip_test_pt_2_1, "Pattern matcher disabled for Torch < 2.2")
 class Test_MM_SiLU_Mul_Model(MMTestCase):
 
     @MMTestCase.hypothesis_params_mm_itr(
-        dtype_list=supported_dtypes,
-        freeze_list=freeze_opt
+        dtype_list=supported_dtypes, freeze_list=freeze_opt
     )
     @torch.inference_mode()
     def test_mm_silu_mul_with_bias_model(self, dtype, freeze_opt):
@@ -77,31 +77,20 @@ class Test_MM_SiLU_Mul_Model(MMTestCase):
         counters.clear()
         # autocast subtest
         with self.subTest(dtype="float32"):
-            self.assertEqual(
-                counters["zentorch"]["zentorch_linear_silu"], 0
-            )
+            self.assertEqual(counters["zentorch"]["zentorch_linear_silu"], 0)
             with torch.autocast("cpu"):
                 _ = compiled_graph(model_input)
-                self.assertEqual(
-                    counters["zentorch"]["zentorch_linear_silu"], 1
-                )
+                self.assertEqual(counters["zentorch"]["zentorch_linear_silu"], 1)
                 counters.clear()
-        self.assertEqual(
-            counters["zentorch"]["zentorch_linear_mul"], 0
-        )
+        self.assertEqual(counters["zentorch"]["zentorch_linear_mul"], 0)
         compiled_graph_output = test_with_freeze_opt(
-            compiled_graph,
-            (model_input),
-            freeze_opt
+            compiled_graph, (model_input), freeze_opt
         )
-        self.assertEqual(
-            counters["zentorch"]["zentorch_linear_mul"], 1
-        )
+        self.assertEqual(counters["zentorch"]["zentorch_linear_mul"], 1)
         self.assertEqual(model_output, compiled_graph_output)
 
     @MMTestCase.hypothesis_params_mm_itr(
-        dtype_list=supported_dtypes,
-        freeze_list=freeze_opt
+        dtype_list=supported_dtypes, freeze_list=freeze_opt
     )
     @torch.inference_mode()
     def test_mm_silu_mul_without_bias_model(self, dtype, freeze_opt):
@@ -128,9 +117,7 @@ class Test_MM_SiLU_Mul_Model(MMTestCase):
                 counters.clear()
         self.assertEqual(counters["zentorch"]["zentorch_linear_mul"], 0)
         compiled_graph_output = test_with_freeze_opt(
-            compiled_graph,
-            (model_input),
-            freeze_opt
+            compiled_graph, (model_input), freeze_opt
         )
         self.assertEqual(counters["zentorch"]["zentorch_linear_mul"], 1)
         self.assertEqual(model_output, compiled_graph_output)

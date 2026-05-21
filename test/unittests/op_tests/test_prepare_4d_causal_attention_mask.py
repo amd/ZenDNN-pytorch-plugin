@@ -1,5 +1,5 @@
 # ******************************************************************************
-# Copyright (c) 2025 Advanced Micro Devices, Inc.
+# Copyright (c) 2026 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
 
@@ -16,9 +16,10 @@ from unittest_utils import (  # noqa: 402
     has_zentorch,
     run_tests,
     supported_dtypes,
+    update_supported_dtypes,
     Test_Data,
 )
-
+supported_dtypes = update_supported_dtypes(supported_dtypes)
 
 sliding_windows = [10, 40]
 seq_lens = [1, 32]

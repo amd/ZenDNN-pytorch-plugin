@@ -9,7 +9,6 @@ from torch import nn
 import sys
 from pathlib import Path
 
-
 sys.path.append(str(Path(__file__).parent.parent))
 from quant_utils import qdq_linear  # noqa: E402
 from unittest_utils import (  # noqa: 402
@@ -124,7 +123,7 @@ class Test_Inplace_Cat_Model(QLinearTestCase):
         q_granularity_opt_list=q_granularity_opt,
         q_zero_points_dtype_opt_list=q_zero_points_dtype_opt,
         q_linear_dtype_opt_list=q_linear_dtype_opt,
-        q_linear_output_dtype_opt_list=q_linear_dtype_opt
+        q_linear_output_dtype_opt_list=q_linear_dtype_opt,
     )
     @torch.inference_mode()
     def test_inplace_cat_model(

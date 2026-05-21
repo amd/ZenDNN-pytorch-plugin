@@ -16,11 +16,15 @@ from unittest_utils import (  # noqa: 402
     reset_dynamo,
     run_tests,
     supported_dtypes,
+    update_supported_dtypes,
     zentorch,
     freeze_opt,
     test_with_freeze_opt,
-    counters
+    counters,
 )
+
+supported_dtypes = update_supported_dtypes(supported_dtypes, "zentorch_mm")
+supported_dtypes = update_supported_dtypes(supported_dtypes, "zentorch_bmm")
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
@@ -28,6 +32,7 @@ class Custom_Model_MM_BMM(nn.Module):
     def __init__(self, batch_size):
         super(Custom_Model_MM_BMM, self).__init__()
         self.batch_size = batch_size
+
     # MM followed by BMM: MM output is fed into BMM
 
     def forward(self, x_2d, y_2d, z_3d):
@@ -40,8 +45,7 @@ class Custom_Model_MM_BMM(nn.Module):
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class Test_MM_BMM_Model(AddmmTestCase):
     @AddmmTestCase.hypothesis_params_addmm_itr(
-        dtype_list=supported_dtypes,
-        freeze_list=freeze_opt, time_out=30000
+        dtype_list=supported_dtypes, freeze_list=freeze_opt, time_out=30000
     )
     @torch.inference_mode()
     def test_mm_bmm_model(self, dtype, freeze_opt):

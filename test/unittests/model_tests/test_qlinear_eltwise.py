@@ -74,7 +74,10 @@ class Test_Qlinear_Eltwise_Model(QLinearTestCase):
         q_granularity_opt_list=q_granularity_opt,
         q_zero_points_dtype_opt_list=q_zero_points_dtype_opt,
         qlinear_eltwise_opt_list=qlinear_eltwise_map.keys(),
-        q_linear_output_dtype_opt_list=["float32", "bfloat16"]  # o/p dtype is float only in this case
+        q_linear_output_dtype_opt_list=[
+            "float32",
+            "bfloat16",
+        ],  # o/p dtype is float only in this case
     )
     @torch.inference_mode()
     def test_qlinear_eltwise_model(

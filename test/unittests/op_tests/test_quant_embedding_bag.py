@@ -16,8 +16,10 @@ from unittest_utils import (  # noqa: 402
     reset_dynamo,
     run_tests,
     supported_dtypes,
+    update_supported_dtypes,
     zentorch,
 )
+supported_dtypes = update_supported_dtypes(supported_dtypes)
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")

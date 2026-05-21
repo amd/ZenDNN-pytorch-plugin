@@ -80,7 +80,10 @@ class Test_WOQ_Linear_Unary_Fusion(Zentorch_TestCase):
         ).eval()
         x = torch.randn(batch, in_features, dtype=torch.bfloat16)
         self._assert_fusion_replaced(
-            model, x, "zentorch_woq_linear_gelu_erf", "WOQ linear + GELU_ERF (with bias)"
+            model,
+            x,
+            "zentorch_woq_linear_gelu_erf",
+            "WOQ linear + GELU_ERF (with bias)",
         )
 
 

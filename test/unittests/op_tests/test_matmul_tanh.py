@@ -16,13 +16,14 @@ from unittest_utils import (  # noqa: 402
     run_tests,
     reset_dynamo,
     supported_dtypes,
+    update_supported_dtypes
 )
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class Test_MM_Tanh(MMTestCase):
     @MMTestCase.hypothesis_params_mm_itr(
-        dtype_list=supported_dtypes
+        dtype_list=update_supported_dtypes(supported_dtypes, "zentorch_mm")
     )
     @torch.inference_mode()
     def test_mm_tanh(self, dtype):
@@ -35,7 +36,7 @@ class Test_MM_Tanh(MMTestCase):
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class Test_Addmm_Tanh(AddmmTestCase):
     @AddmmTestCase.hypothesis_params_addmm_itr(
-        dtype_list=supported_dtypes
+        dtype_list=update_supported_dtypes(supported_dtypes, "zentorch_addmm")
     )
     @torch.inference_mode()
     def test_addmm_tanh(self, dtype):
@@ -47,7 +48,7 @@ class Test_Addmm_Tanh(AddmmTestCase):
         self.assertEqual(native_output, zentorch_output)
 
     @AddmmTestCase.hypothesis_params_addmm_itr(
-        dtype_list=supported_dtypes
+        dtype_list=update_supported_dtypes(supported_dtypes, "zentorch_addmm")
     )
     @torch.inference_mode()
     def test_addmm_tanh_with_alpha_beta(self, dtype):
@@ -66,7 +67,7 @@ class Test_Addmm_Tanh(AddmmTestCase):
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class Test_Addmm_1dbias_Tanh(AddmmTestCase):
     @AddmmTestCase.hypothesis_params_addmm_itr(
-        dtype_list=supported_dtypes
+        dtype_list=update_supported_dtypes(supported_dtypes, "zentorch_addmm")
     )
     @torch.inference_mode()
     def test_addmm_1dbias_tanh(self, dtype):

@@ -87,7 +87,7 @@ class Test_Qlinear_Mul_Add_Model(QLinearTestCase):
         q_granularity_opt_list=q_granularity_opt,
         q_zero_points_dtype_opt_list=q_zero_points_dtype_opt,
         q_linear_dtype_opt_list=q_linear_dtype_opt,
-        q_linear_output_dtype_opt_list=["float32", "bfloat16"]
+        q_linear_output_dtype_opt_list=["float32", "bfloat16"],
     )
     @torch.inference_mode()
     def test_qlinear_mul_add_model(
@@ -134,7 +134,9 @@ class Test_Qlinear_Mul_Add_Model(QLinearTestCase):
                     self.data.bias_for_qlinear[bias_opt_idx],
                     self.data.x_scales["per_tensor"],
                     get_comp_zero_points(
-                        self.data.x_zero_points["per_tensor"][input_dtype][q_zero_points_dtype]
+                        self.data.x_zero_points["per_tensor"][input_dtype][
+                            q_zero_points_dtype
+                        ]
                     ),
                     self.data.y_scales[q_granularity_val],
                     get_comp_zero_points(self.data.y_zero_points[q_granularity_val]),
@@ -155,7 +157,9 @@ class Test_Qlinear_Mul_Add_Model(QLinearTestCase):
                     self.data.bias_for_qlinear[bias_opt_idx],
                     self.data.x_scales["per_tensor"],
                     get_comp_zero_points(
-                        self.data.x_zero_points["per_tensor"][input_dtype][q_zero_points_dtype]
+                        self.data.x_zero_points["per_tensor"][input_dtype][
+                            q_zero_points_dtype
+                        ]
                     ),
                     self.data.y_scales[q_granularity_val],
                     get_comp_zero_points(self.data.y_zero_points[q_granularity_val]),

@@ -17,10 +17,13 @@ from unittest_utils import (  # noqa: 402
     reset_dynamo,
     run_tests,
     supported_dtypes,
+    update_supported_dtypes,
     freeze_opt,
     test_with_freeze_opt,
     DataTypes,
 )
+
+supported_dtypes = update_supported_dtypes(supported_dtypes, "zentorch_embedding")
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
@@ -69,9 +72,7 @@ class Test_Embedding_Bag_Model(EmbTestCase):
             zen_compiled_graph, (input), freeze_opt
         )
 
-        self.assertEqual(
-            zen_compiled_graph_output, ind_compiled_graph_output
-        )
+        self.assertEqual(zen_compiled_graph_output, ind_compiled_graph_output)
 
 
 if __name__ == "__main__":
