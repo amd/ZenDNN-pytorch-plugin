@@ -273,7 +273,7 @@ validate_all_inputs(const std::vector<at::Tensor> &inputs,
 }
 
 // Maps activation string to LowOHA gated activation enum.
-// Supported: "none", "silu_and_mul", "gelu_and_mul", "swiglu_oai_mul".
+// Supported: "none", "silu", "gelu", "swigluoai".
 static zendnnl::lowoha::matmul::grp_matmul_gated_act_t
 map_activation_to_gated_act(std::string_view activation) {
   using gated_act_t = zendnnl::lowoha::matmul::grp_matmul_gated_act_t;

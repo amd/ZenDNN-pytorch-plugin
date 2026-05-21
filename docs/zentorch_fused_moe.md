@@ -128,7 +128,44 @@ After Pass 1, allocate `grouped_inputs[a] = at::empty({tokens_per_active[a], H})
 
 For each pair `i`, look up the pre-assigned `(a, pos)` and `memcpy` row `t = i / K` of `input` into row `pos` of `grouped_inputs[a]`. No locks, no atomics — Pass 1 guarantees every `(a, pos)` is unique.
 
-### 6.2 Phase 2 — Active-only weight slicing + fused execution
+### 6.2 Worked example
+
+Setup: T = 3 tokens, H = 4, E = 5 experts, K = 2 top-k routing.
+
+```
+input  [T, H] = [[ t0_h0, t0_h1, t0_h2, t0_h3 ],   # token 0
+                 [ t1_h0, t1_h1, t1_h2, t1_h3 ],   # token 1
+                 [ t2_h0, t2_h1, t2_h2, t2_h3 ]]   # token 2
+
+topk_id [T, K] = [[ 3, 0 ],     # token 0 -> experts {3, 0}
+                  [ 3, 1 ],     # token 1 -> experts {3, 1}
+                  [ 0, 1 ]]     # token 2 -> experts {0, 1}
+```
+
+After Pass 1 (single sweep over T·K = 6 pairs, first-encounter ordering):
+
+```
+active_expert_ids = [ 3, 0, 1 ]      # E_a = 3 (experts 2 and 4 never appear)
+tokens_per_active = [ 2, 2, 2 ]      # final M_e per active slot
+
+topk_to_expert_row [6 entries] = (active_idx, row_in_expert):
+  i=0 (t=0,k=0) -> (a=0, row=0)   # expert 3
+  i=1 (t=0,k=1) -> (a=1, row=0)   # expert 0
+  i=2 (t=1,k=0) -> (a=0, row=1)   # expert 3
+  i=3 (t=1,k=1) -> (a=2, row=0)   # expert 1
+  i=4 (t=2,k=0) -> (a=1, row=1)   # expert 0
+  i=5 (t=2,k=1) -> (a=2, row=1)   # expert 1
+```
+
+After Pass 2 (parallel memcpy using the pre-assigned positions):
+
+```
+grouped_inputs[0]  (active_idx 0 = expert 3, M=2) = [ input[0], input[1] ]
+grouped_inputs[1]  (active_idx 1 = expert 0, M=2) = [ input[0], input[2] ]
+grouped_inputs[2]  (active_idx 2 = expert 1, M=2) = [ input[1], input[2] ]
+```
+
+### 6.3 Phase 2 — Active-only weight slicing + fused execution
 
 With the active set known, the op:
 
@@ -137,7 +174,7 @@ With the active set known, the op:
 3. If `skip_weighted` is set, substitutes an all-ones weight vector (router weights have been pre-applied to `input` by the caller).
 4. Calls `zentorch_group_matmul_out_impl` once with `gemm_outputs={}` (backend allocates W13 outputs internally), `w2_outputs = grouped_inputs` (aliased), and the post-op metadata (`topk_weights`, `row_ptrs`, `moe_output = output`).
 
-### 6.3 Buffer aliasing — why `w2_outputs == grouped_inputs` is safe
+### 6.4 Buffer aliasing — why `w2_outputs == grouped_inputs` is safe
 
 Within `group_matmul_direct`'s fused chain, the lifetime of each `grouped_inputs[a]` buffer is:
 
@@ -150,7 +187,7 @@ W13 reads grouped_inputs[a]   ──►   W13 outputs (internal buffer)
 
 W13 has finished reading `grouped_inputs[a]` before W2 starts writing it, so reusing the buffer saves an `at::empty({M_e, H})` per active expert without aliasing hazards. The `row_ptrs` table targets the same buffers, so the post-op reads the W2 outputs directly without an extra copy.
 
-### 6.4 Execution flow
+### 6.5 Execution flow
 
 ```
 zentorch_fused_moe()

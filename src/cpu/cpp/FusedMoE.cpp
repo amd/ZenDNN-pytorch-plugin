@@ -7,6 +7,7 @@
 #include "GroupMatmul.hpp"
 #include "Utils.hpp"
 #include <ATen/Parallel.h>
+#include <ATen/record_function.h>
 #include <algorithm>
 #include <cstddef>
 #include <cstdlib>
@@ -224,37 +225,41 @@ build_token_expert_mapping(const at::Tensor &input, const at::Tensor &topk_id) {
   const bool use_scratchpad = static_cast<bool>(int_env_value);
 
   mapping.grouped_inputs.resize(E_a);
-  if (use_scratchpad) {
-    const size_t row_bytes_sz = static_cast<size_t>(row_bytes);
-    std::vector<size_t> region_offsets(E_a);
-    size_t total_bytes = 0;
-    for (int64_t a = 0; a < E_a; ++a) {
-      region_offsets[a] = total_bytes;
-      total_bytes +=
-          round_up_to(static_cast<size_t>(tokens_per_active[a]) * row_bytes_sz,
-                      FusedMoEScratchpad::kAlignment);
+  {
+    RECORD_FUNCTION("zentorch::fused_moe::scratchpad_allocation",
+                    c10::ArrayRef<c10::IValue>({}));
+    if (use_scratchpad) {
+      const size_t row_bytes_sz = static_cast<size_t>(row_bytes);
+      std::vector<size_t> region_offsets(E_a);
+      size_t total_bytes = 0;
+      for (int64_t a = 0; a < E_a; ++a) {
+        region_offsets[a] = total_bytes;
+        total_bytes += round_up_to(static_cast<size_t>(tokens_per_active[a]) *
+                                       row_bytes_sz,
+                                   FusedMoEScratchpad::kAlignment);
+      }
+      auto &sp = FusedMoEScratchpad::get();
+      sp.reserve(total_bytes);
+      std::byte *base = sp.data();
+      for (int64_t a = 0; a < E_a; ++a) {
+        mapping.grouped_inputs[a] = at::from_blob(
+            base + region_offsets[a], {tokens_per_active[a], H},
+            /*deleter=*/[](void *) {}, input.options());
+      }
+    } else {
+      for (int64_t a = 0; a < E_a; ++a) {
+        mapping.grouped_inputs[a] =
+            at::empty({tokens_per_active[a], H}, input.options());
+      }
     }
-    auto &sp = FusedMoEScratchpad::get();
-    sp.reserve(total_bytes);
-    std::byte *base = sp.data();
-    for (int64_t a = 0; a < E_a; ++a) {
-      mapping.grouped_inputs[a] = at::from_blob(
-          base + region_offsets[a], {tokens_per_active[a], H},
-          /*deleter=*/[](void *) {}, input.options());
-    }
-  } else {
-    for (int64_t a = 0; a < E_a; ++a) {
-      mapping.grouped_inputs[a] =
-          at::empty({tokens_per_active[a], H}, input.options());
-    }
-  }
+  } // RECORD_FUNCTION scratchpad_allocation
 
   // ----- Pass 2: parallel memcpy using pre-assigned positions -------------
   // No atomics — `topk_to_expert_row[i]` already tells us where row i lands.
-  // `std::byte` (not `char`) makes the byte-pointer arithmetic intent explicit
-  // and avoids the implementation-defined signedness of plain `char`. Like
-  // `char`/`unsigned char`, it is exempt from strict aliasing so it can
-  // legally point into any tensor's storage.
+  // `std::byte` (not `char`) makes the byte-pointer arithmetic intent
+  // explicit and avoids the implementation-defined signedness of plain
+  // `char`. Like `char`/`unsigned char`, it is exempt from strict aliasing so
+  // it can legally point into any tensor's storage.
   const auto *src_base =
       reinterpret_cast<const std::byte *>(input.const_data_ptr());
 
@@ -323,34 +328,40 @@ void zentorch_fused_moe(
   const int64_t row_bytes = input.size(1) * input.element_size();
 
   // ---------------------- Phase 1: token-expert grouping ---------------------
-  const auto mapping = build_token_expert_mapping(input, topk_id);
+  TokenExpertMapping mapping;
+  {
+    RECORD_FUNCTION("zentorch::fused_moe::token_expert_grouping",
+                    c10::ArrayRef<c10::IValue>({}));
+    mapping = build_token_expert_mapping(input, topk_id);
+  }
   const int64_t E_a = static_cast<int64_t>(mapping.active_expert_ids.size());
 
   // ---------------------- Temporary Guard ------------------------------------
-  // Guard: zentorch_group_matmul_out_impl requires E_a > 1.
-  // E_a == 1 is structurally guaranteed when K == 1 and T == 1
-  // (apply_router_weight_on_input=True path). Rather than letting the
-  // call reach group_matmul_direct and crash on its inputs.size() > 1
-  // assertion, fail here with a clear, actionable message.
+  // zentorch_group_matmul_out_impl requires E_a > 1. E_a == 1 is structurally
+  // guaranteed when K == 1 and T == 1 (apply_router_weight_on_input=True
+  // path). Rather than letting the call reach group_matmul_direct and crash
+  // on its inputs.size() > 1 assertion, fail here with a clear, actionable
+  // message.
   TORCH_CHECK(
       E_a > 1, "zentorch_fused_moe: only ", E_a,
       " expert(s) received tokens. "
       "zentorch_group_matmul_out_impl requires at least 2 active experts. "
       "This typically occurs with K=1 routing "
       "(apply_router_weight_on_input=True) "
-      "at single-token decode (T=1). Use the standard vLLM cpu_fused_moe path "
+      "at single-token decode (T=1). Use the standard vLLM cpu_fused_moe "
+      "path "
       "for this configuration, or unset ZENTORCH_FUSED_MOE.");
 
   // ---------------------- Phase 2: build weight & bias slices ---------------
   // Weight contract with zentorch_group_matmul_out_impl: w13 / w2 lists are
   // sized E (all experts), with the E_a active experts placed FIRST in
-  // active_idx order so they line up with `mapping.grouped_inputs[a]`, then
-  // the inactive experts appended in their original [0, E) order. Example:
-  // active_expert_ids = [3, 0, 1] over E=6 experts -> weight order
-  // [3, 0, 1, 2, 4, 5]. GroupMatmul ties current GEMM work to inputs.size(),
-  // so only the first E_a entries participate in this dispatch's matmul
-  // computation; the trailing inactive weights are still passed through the
-  // prepack-extras path to ZenDNN for prepack cache warming.
+  // active_idx order so they line up with `mapping.grouped_inputs[a]`, then the
+  // inactive experts appended in their original [0, E) order. Example:
+  // active_expert_ids = [3, 0, 1] over E=6 experts -> weight order [3, 0, 1, 2,
+  // 4, 5]. GroupMatmul ties current GEMM work to inputs.size(), so only the
+  // first E_a entries participate in this dispatch's matmul computation; the
+  // trailing inactive weights are still passed through the prepack-extras path
+  // to ZenDNN for prepack cache warming.
   //
   // Bias lists stay sized E_a (active only) - biases are only consumed for
   // experts that receive tokens, so there's no reason to materialize slices
@@ -402,12 +413,13 @@ void zentorch_fused_moe(
   }
 
   // ---------------------- Phase 5 setup: row_ptrs for weighted reduce -------
-  // ZenDNN's MoE postop reads each (t, k) result via a raw row address, then
-  // accumulates `topk_weights[t, k] * row` into `output[t]`. We reuse the
-  // per-expert `grouped_inputs` buffers as the W2 output destinations: by the
-  // time W2 needs to write, W13 has already consumed its inputs from these
-  // buffers within the fused chain, and both shapes are [M_e, H]. row_ptrs
-  // therefore point directly into `mapping.grouped_inputs`.
+  // ZenDNN's MoE postop reads each (t, k) result via a raw row
+  // address, then accumulates `topk_weights[t, k] * row` into `output[t]`. We
+  // reuse the per-expert `grouped_inputs` buffers as the W2 output
+  // destinations: by the time W2 needs to write, W13 has already consumed its
+  // inputs from these buffers within the fused chain, and both shapes are
+  // [M_e, H]. row_ptrs therefore point directly into
+  // `mapping.grouped_inputs`.
   auto row_ptrs =
       at::empty({total_pairs}, at::TensorOptions().dtype(at::kLong));
   int64_t *row_ptrs_data = row_ptrs.data_ptr<int64_t>();
@@ -424,28 +436,20 @@ void zentorch_fused_moe(
   const at::Tensor effective_topk_weights =
       skip_weighted ? at::ones_like(topk_weights) : topk_weights;
 
-  // ---------------------- Split-path for int8 + gated activation ------------
-  // Workaround for a ZenDNN `group_matmul_direct` bug: the fused
-  // W13 -> gated_act -> W2 chain produces row-stride-2 garbage (every-other
-  // row of the W2 output is dropped) when ALL of the following hold:
-  //   - int8 weights for W13 / W2 (scales provided),
-  //   - gated activation (silu / gelu / swigluoai),
-  //   - per-expert M > 1.
-  // Replaying the same work as two non-fused calls produces bit-exact
-  // results, so we split when scales are present. The plain bf16/fp32 path
-  // (no scales) stays on the single-call fast-path below.
-  const bool int8_split_path = has_w13_scales || has_w2_scales;
+  const bool two_pass =
+      static_cast<bool>(EnvReader::getEnvVariableAsInt("ZENTORCH_TWO_PASS"));
 
-  if (int8_split_path) {
+  if (two_pass) {
     // W13 is [E, 2*I, H]; w13_slices[a] is [2*I, H]. After gated activation
-    // the intermediate is [M_e, I]; W2 is [E, H, I] so W2's output is [M_e, H].
+    // the intermediate is [M_e, I]; W2 is [E, H, I] so W2's output is [M_e,
+    // H].
     const int64_t N = w13.size(1); // 2*I (W13 row dim)
     const int64_t I = N / 2;       // post-gated-activation hidden dim
 
-    // ----- Call 1: W13 + gated activation only ------------------------------
-    // gemm_outputs are [M_e, N] per active expert; the kernel writes the
-    // gated-activation result into the first I columns (matches the contract
-    // exercised by test_gated_activations).
+    // ----- Call 1: W13 + gated activation only
+    // -------------------------------- gemm_outputs are [M_e, N] per active
+    // expert; the kernel writes the gated-activation result into the first I
+    // columns.
     std::vector<at::Tensor> w13_gemm_outs(E_a);
     for (int64_t a = 0; a < E_a; ++a) {
       const int64_t M_e = mapping.grouped_inputs[a].size(0);
@@ -455,29 +459,33 @@ void zentorch_fused_moe(
     const std::vector<c10::optional<at::Tensor>> empty_optional_vec_E{};
     const std::vector<c10::optional<at::Tensor>> empty_optional_vec_Ea{};
 
-    zentorch_group_matmul_out_impl(
-        /*gemm_outputs=*/w13_gemm_outs,
-        /*inputs=*/mapping.grouped_inputs,
-        /*w13_weights=*/w13_slices,
-        /*w2_weights=*/empty_optional_vec_E,
-        /*moe_output=*/c10::nullopt,
-        /*topk_weights=*/c10::nullopt,
-        /*row_ptrs=*/c10::nullopt,
-        /*activation=*/act,
-        /*w13_bias=*/w13_bias_slices,
-        /*w2_bias=*/empty_optional_vec_Ea,
-        /*w13_scales=*/w13_scale_slices,
-        /*w2_scales=*/empty_optional_vec_Ea,
-        /*zentorch_op_name=*/zentorch_op_name);
+    {
+      RECORD_FUNCTION("zentorch::fused_moe::two_pass::w13_activation",
+                      c10::ArrayRef<c10::IValue>({}));
+      zentorch_group_matmul_out_impl(
+          /*gemm_outputs=*/w13_gemm_outs,
+          /*inputs=*/mapping.grouped_inputs,
+          /*w13_weights=*/w13_slices,
+          /*w2_weights=*/empty_optional_vec_E,
+          /*moe_output=*/c10::nullopt,
+          /*topk_weights=*/c10::nullopt,
+          /*row_ptrs=*/c10::nullopt,
+          /*activation=*/act,
+          /*w13_bias=*/w13_bias_slices,
+          /*w2_bias=*/empty_optional_vec_Ea,
+          /*w13_scales=*/w13_scale_slices,
+          /*w2_scales=*/empty_optional_vec_Ea,
+          /*zentorch_op_name=*/zentorch_op_name);
+    }
 
-    // ----- Call 2: W2 only, with MoE weighted reduce ------------------------
-    // Inputs are the gated-activation outputs [M_e, I] (first I cols of
-    // Call 1's output, made contiguous so the kernel sees a tight stride).
-    // gemm_outputs reuse mapping.grouped_inputs so the pre-built row_ptrs
-    // continue to point at the correct W2 destination rows.
-    std::vector<at::Tensor> silu_outputs(E_a);
+    // ----- Call 2: W2 only, with MoE weighted reduce
+    // -------------------------- Inputs are the gated-activation outputs [M_e,
+    // I] (first I cols of Call 1's output, made contiguous so the kernel sees a
+    // tight stride). gemm_outputs reuse mapping.grouped_inputs so the pre-built
+    // row_ptrs continue to point at the correct W2 destination rows.
+    std::vector<at::Tensor> activation_outputs(E_a);
     for (int64_t a = 0; a < E_a; ++a) {
-      silu_outputs[a] = w13_gemm_outs[a].narrow(1, 0, I).contiguous();
+      activation_outputs[a] = w13_gemm_outs[a].narrow(1, 0, I).contiguous();
     }
 
     // For Call 2, W2 acts as the only matmul, so we hand it in as
@@ -489,20 +497,24 @@ void zentorch_fused_moe(
       w2_as_w13[e] = w2_weight_slices[e].value();
     }
 
-    zentorch_group_matmul_out_impl(
-        /*gemm_outputs=*/mapping.grouped_inputs,
-        /*inputs=*/silu_outputs,
-        /*w13_weights=*/w2_as_w13,
-        /*w2_weights=*/empty_optional_vec_E,
-        /*moe_output=*/output,
-        /*topk_weights=*/effective_topk_weights,
-        /*row_ptrs=*/row_ptrs,
-        /*activation=*/"none",
-        /*w13_bias=*/w2_bias_slices,
-        /*w2_bias=*/empty_optional_vec_Ea,
-        /*w13_scales=*/w2_scale_slices,
-        /*w2_scales=*/empty_optional_vec_Ea,
-        /*zentorch_op_name=*/zentorch_op_name);
+    {
+      RECORD_FUNCTION("zentorch::fused_moe::two_pass::w2_reduce",
+                      c10::ArrayRef<c10::IValue>({}));
+      zentorch_group_matmul_out_impl(
+          /*gemm_outputs=*/mapping.grouped_inputs,
+          /*inputs=*/activation_outputs,
+          /*w13_weights=*/w2_as_w13,
+          /*w2_weights=*/empty_optional_vec_E,
+          /*moe_output=*/output,
+          /*topk_weights=*/effective_topk_weights,
+          /*row_ptrs=*/row_ptrs,
+          /*activation=*/"none",
+          /*w13_bias=*/w2_bias_slices,
+          /*w2_bias=*/empty_optional_vec_Ea,
+          /*w13_scales=*/w2_scale_slices,
+          /*w2_scales=*/empty_optional_vec_Ea,
+          /*zentorch_op_name=*/zentorch_op_name);
+    }
 
     return;
   }
@@ -514,6 +526,7 @@ void zentorch_fused_moe(
   // an allocation per active expert. The full chain
   // (W13 -> gated_act -> W2 -> weighted_reduce -> output) runs inside one
   // `group_matmul_direct` call.
+  // This path handles both bf16/f32 weights and int8 weights (with scales).
   zentorch_group_matmul_out_impl(
       /*gemm_outputs=*/{},
       /*inputs=*/mapping.grouped_inputs,

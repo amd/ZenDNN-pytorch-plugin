@@ -53,6 +53,10 @@ private:
                          // at::empty-per-expert allocation path.
     storeEnvVariable("ZENTORCH_ENABLE_CHECKS",
                      0); // Validation checks disabled by default
+    storeEnvVariable("ZENTORCH_TWO_PASS",
+                     0); // Two-pass fused MoE (split W13+act and W2+reduce)
+                         // disabled by default; set to 1 to force two-pass
+                         // execution even for non-int8 weights.
   }
 
   // Function to convert and store environment variable value as integer
