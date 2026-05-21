@@ -74,7 +74,7 @@ class Test_MM_Op(MMTestCase):
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_mm(self.data.x, self.data.y)
         self.assertTrue(
-            "zentorch_matmul only supports Float and BFloat16" in str(context.exception)
+            "zentorch_matmul only supports Float32, BFloat16 and Float16" in str(context.exception)
         )
 
     @MMTestCase.hypothesis_params_mm_itr(

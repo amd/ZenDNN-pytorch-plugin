@@ -36,6 +36,8 @@ inline auto get_zendnnl_dtype(const at::Tensor &atensor) {
     return data_type_t::u8;
   case c10::kQInt8:
     return data_type_t::s8;
+  case c10::kHalf:
+    return data_type_t::f16;
   default:
     ZENTORCH_CHECK(false, "Unsupported data type.");
   }

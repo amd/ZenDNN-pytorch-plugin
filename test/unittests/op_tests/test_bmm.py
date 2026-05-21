@@ -65,7 +65,7 @@ class Test_BMM_Op(MMTestCase):
             torch.ops.zentorch.zentorch_bmm(self.data.x3d, self.data.y3d)
 
         self.assertTrue(
-            "zentorch_matmul only supports Float and BFloat16" in str(context.exception)
+            "zentorch_matmul only supports Float32, BFloat16 and Float16" in str(context.exception)
         )
 
 

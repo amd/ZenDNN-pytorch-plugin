@@ -228,28 +228,34 @@ check_valid_dtypes_for_matmul(const at::Tensor &mat1, const at::Tensor &mat2,
   // -> Bias being optional in the addmm variants, needs to be checked if it is
   //    a defined tensor or not.
   // -> The tensors which are inputs to the actual matmul call are confirmed
-  //    to be either of datatype float32 or bfloat16, but not a combination.
+  //    to be either of datatype float32, bfloat16 or float16, but not a
+  //    combination.
   // -> The previous check is combined with the check of the
   //    destination (result) buffer.
-  // -> If the dataype is bfloat16, the machine capability is checked.
+  // -> If the dataype is bfloat16 or float16, the machine capability is
+  //    checked.
   // -> Based on the post op buffer vector size, the dtypes of all the post ops
   //    are determined. Again here, all the post op buffers must be of the same
-  //    dtype as the matmul parameters, either float32 or bfloat16, not a
-  //    combination of both.
+  //    dtype as the matmul parameters, either float32, bfloat16 or float16,
+  //    not a combination.
 
   const bool is_bias_defined = bias.numel();
   const bool is_mat1_fp32 = (mat1.scalar_type() == c10::ScalarType::Float);
   const bool is_mat1_bf16 = (mat1.scalar_type() == c10::ScalarType::BFloat16);
+  const bool is_mat1_fp16 = (mat1.scalar_type() == c10::ScalarType::Half);
   const bool is_mat2_fp32 = (mat2.scalar_type() == c10::ScalarType::Float);
   const bool is_mat2_bf16 = (mat2.scalar_type() == c10::ScalarType::BFloat16);
+  const bool is_mat2_fp16 = (mat2.scalar_type() == c10::ScalarType::Half);
   const bool is_result_fp32 = (result.scalar_type() == c10::ScalarType::Float);
   const bool is_result_bf16 =
       (result.scalar_type() == c10::ScalarType::BFloat16);
-  bool is_bias_fp32, is_bias_bf16;
+  const bool is_result_fp16 = (result.scalar_type() == c10::ScalarType::Half);
+  bool is_bias_fp32, is_bias_bf16, is_bias_fp16;
 
   if (is_bias_defined) {
     is_bias_fp32 = (bias.scalar_type() == c10::ScalarType::Float);
     is_bias_bf16 = (bias.scalar_type() == c10::ScalarType::BFloat16);
+    is_bias_fp16 = (bias.scalar_type() == c10::ScalarType::Half);
   }
 
   const bool are_params_fp32 =
@@ -260,14 +266,25 @@ check_valid_dtypes_for_matmul(const at::Tensor &mat1, const at::Tensor &mat2,
       is_bias_defined
           ? (is_mat1_bf16 && is_mat2_bf16 && is_bias_bf16 && is_result_bf16)
           : (is_mat1_bf16 && is_mat2_bf16 && is_result_bf16);
+  const bool are_params_fp16 =
+      is_bias_defined
+          ? (is_mat1_fp16 && is_mat2_fp16 && is_bias_fp16 && is_result_fp16)
+          : (is_mat1_fp16 && is_mat2_fp16 && is_result_fp16);
 
-  ZENTORCH_CHECK(are_params_fp32 ^ are_params_bf16,
-                 "zentorch_matmul only supports Float and BFloat16");
+  ZENTORCH_CHECK((are_params_fp32 ^ are_params_bf16 ^ are_params_fp16) &&
+                     !(are_params_fp32 && are_params_bf16 && are_params_fp16),
+                 "zentorch_matmul only supports Float32, BFloat16 and Float16");
 
   if (are_params_bf16) {
     ZENTORCH_CHECK(zentorch::zendnn_bf16_device_check(),
                    "zentorch_matmul bf16 path needs the cpu support "
                    "avx512bf16");
+  }
+
+  if (are_params_fp16) {
+    ZENTORCH_CHECK(zentorch::zendnn_fp16_device_check(),
+                   "zentorch_matmul fp16 path needs the cpu support "
+                   "avx512fp16");
   }
 
   if (post_op_buffers.empty()) {
@@ -276,25 +293,32 @@ check_valid_dtypes_for_matmul(const at::Tensor &mat1, const at::Tensor &mat2,
   }
   bool are_postops_fp32 = true;
   bool are_postops_bf16 = true;
+  bool are_postops_fp16 = true;
 
   for (const at::Tensor &buffer : post_op_buffers) {
     are_postops_fp32 =
         are_postops_fp32 && (buffer.scalar_type() == c10::ScalarType::Float);
     are_postops_bf16 =
         are_postops_bf16 && (buffer.scalar_type() == c10::ScalarType::BFloat16);
+    are_postops_fp16 =
+        are_postops_fp16 && (buffer.scalar_type() == c10::ScalarType::Half);
   }
 
-  if (are_params_fp32 && !are_params_bf16) {
-    ZENTORCH_CHECK((are_postops_fp32 && !are_postops_bf16),
-                   "zentorch_matmul only supports Float post ops "
-                   "when input matrix is Float");
-  } else if (are_params_bf16 && !are_params_fp32) {
-    ZENTORCH_CHECK((are_postops_bf16 && !are_postops_fp32),
+  if (are_params_fp32 && !are_params_bf16 && !are_params_fp16) {
+    ZENTORCH_CHECK((are_postops_fp32 && !are_postops_bf16 && !are_postops_fp16),
+                   "zentorch_matmul only supports Float32 post ops "
+                   "when input matrix is Float32");
+  } else if (are_params_bf16 && !are_params_fp32 && !are_params_fp16) {
+    ZENTORCH_CHECK((are_postops_bf16 && !are_postops_fp32 && !are_postops_fp16),
                    "zentorch_matmul only supports BFloat16 post ops "
                    "when input matrix is BFloat16");
+  } else if (are_params_fp16 && !are_params_fp32 && !are_params_bf16) {
+    ZENTORCH_CHECK((are_postops_fp16 && !are_postops_fp32 && !are_postops_bf16),
+                   "zentorch_matmul only supports Float16 post ops "
+                   "when input matrix is Float16");
   } else {
-    ZENTORCH_CHECK(false, "zentorch_matmul only supports Float and BFloat16 "
-                          "parameters and postops");
+    ZENTORCH_CHECK(false, "zentorch_matmul only supports Float, BFloat16 and"
+                          "Float16 parameters and postops");
   }
 }
 
@@ -608,12 +632,14 @@ inline bool validate_zendnnl_direct_kernel_usage(
     const at::Tensor &input, const at::Tensor &weight, const at::Tensor &bias,
     const at::Tensor &result, const std::vector<at::Tensor> &post_op_buffers) {
 
-  // Currently this kernel supports only float32 and bfloat16 datatype
-  // Define the datatype check as a lambda
-  // The tensors for this kernel have to be either float or bfloat16
+  // Currently this kernel supports only float32, bfloat16 and
+  // float16 datatype. Define the datatype check as a lambda
+  // The tensors for this kernel have to be either float, bfloat16
+  // or float16.
   auto is_dtype_supported = [](const at::Tensor &x) {
     return ((x.scalar_type() == c10::ScalarType::Float) ||
-            (x.scalar_type() == c10::ScalarType::BFloat16));
+            (x.scalar_type() == c10::ScalarType::BFloat16) ||
+            (x.scalar_type() == c10::ScalarType::Half));
   };
 
   const bool are_tensor_dtypes_valid =

@@ -26,7 +26,6 @@ from torch._inductor.fx_passes.mkldnn_fusion import (
     _silu_fusion,
 )
 
-
 pass_pattern = PatternMatcherPass()
 aten = torch.ops.aten
 prims = torch.ops.prims
@@ -39,10 +38,11 @@ def create_pattern(
     compute_fn: CallFunction,
     unary_fusion: Callable[[CallFunction], CallFunction],
     with_prims: bool = False,
+    dtype: torch.dtype = torch.bfloat16,
     users: int = 1,
 ) -> CallFunction:
     if with_prims:
-        # linear->f32->unary->bf16
+        # linear->f32->unary->bf16/fp16
         upd_compute_fn = CallFunction(
             prims.convert_element_type,
             compute_fn,
@@ -51,11 +51,11 @@ def create_pattern(
         )
         unary_op = unary_fusion(upd_compute_fn)
         # return node will always have a single user
-        # we only support bf16 for now
+        # we only support bf16 and fp16 for now
         final_call_fn = CallFunction(
             prims.convert_element_type,
             unary_op,
-            torch.bfloat16,
+            dtype,
             _users=1,
         )
     else:
@@ -148,7 +148,11 @@ def register_patterns(
             approximate: Any = None
         ) -> None:
             def repl(
-                mat_1: Any, mat_2: Any, bias: Any, is_weight_prepacked: Any, zentorch_op_name: Any
+                mat_1: Any,
+                mat_2: Any,
+                bias: Any,
+                is_weight_prepacked: Any,
+                zentorch_op_name: Any,
             ) -> torch.Tensor:
                 counters["zentorch"]["zentorch_linear_" + post_op_name] += 1
                 return zentorch.zentorch_linear_unary(
@@ -164,7 +168,9 @@ def register_patterns(
                     ),
                 )
 
-            match.replace_by_example(repl, [mat_1, mat_2, bias, is_weight_prepacked, zentorch_op_name])
+            match.replace_by_example(
+                repl, [mat_1, mat_2, bias, is_weight_prepacked, zentorch_op_name]
+            )
 
     else:
 
@@ -180,7 +186,9 @@ def register_patterns(
             zentorch_op_name: Any,
             approximate: Any = None
         ) -> None:
-            def repl(mat_1: Any, mat_2: Any, is_weight_prepacked: Any, zentorch_op_name: Any) -> torch.Tensor:
+            def repl(
+                mat_1: Any, mat_2: Any, is_weight_prepacked: Any, zentorch_op_name: Any
+            ) -> torch.Tensor:
                 counters["zentorch"]["zentorch_linear_" + post_op_name] += 1
                 return zentorch.zentorch_linear_unary(
                     mat_1,
@@ -194,7 +202,9 @@ def register_patterns(
                     ),
                 )
 
-            match.replace_by_example(repl, [mat_1, mat_2, is_weight_prepacked, zentorch_op_name])
+            match.replace_by_example(
+                repl, [mat_1, mat_2, is_weight_prepacked, zentorch_op_name]
+            )
 
 
 # create a map to pass to unary_fusions_generator
@@ -215,32 +225,38 @@ fusions_mapper = {
 def register_unary_fusions() -> None:
     for bias in [True, False]:
         for post_op, (fusion, users) in fusions_mapper.items():
-            if post_op in ("gelu_erf", "gelu_tanh", "silu"):
-                # we will create and register prims patterns with these as well since
-                # convert_element nodes appear in the graph for lower precision (bf16)
-                prims_pattern = create_pattern(
-                    create_linear_compute_fn(bias=bias),
+            for dtype in [torch.bfloat16, torch.float16]:
+                if post_op in ("gelu_erf", "gelu_tanh", "silu"):
+                    # we will create and register prims patterns with these as well since
+                    # convert_element nodes appear in the graph for lower precision (bf16/fp16)
+                    prims_pattern = create_pattern(
+                        create_linear_compute_fn(bias=bias),
+                        fusion,
+                        with_prims=True,
+                        dtype=dtype,
+                        users=users,
+                    )
+                    register_patterns(post_op, prims_pattern, bias)
+
+                pattern = create_pattern(
+                    create_linear_compute_fn(bias=bias, users=users),
                     fusion,
-                    with_prims=True,
+                    dtype=dtype,
                     users=users,
                 )
-                register_patterns(post_op, prims_pattern, bias)
-            pattern = create_pattern(
-                create_linear_compute_fn(bias=bias, users=users), fusion, users=users
-            )
-            # if post-op has -no-decomp string we will remove that
-            # additionally if gelu is present, we will add the extra_check as well
-            # and register twice for erf and tanh
-            if "-no-decomp" in post_op:
-                post_op = post_op.removesuffix("-no-decomp")
-                if post_op == "gelu":
-                    register_patterns(
-                        "gelu_erf", pattern, bias, extra_check=gelu_erf_check
-                    )
-                    register_patterns(
-                        "gelu_tanh", pattern, bias, extra_check=gelu_tanh_check
-                    )
-            register_patterns(post_op, pattern, bias)
+                # if post-op has -no-decomp string we will remove that
+                # additionally if gelu is present, we will add the extra_check as well
+                # and register twice for erf and tanh
+                if "-no-decomp" in post_op:
+                    post_op = post_op.removesuffix("-no-decomp")
+                    if post_op == "gelu":
+                        register_patterns(
+                            "gelu_erf", pattern, bias, extra_check=gelu_erf_check
+                        )
+                        register_patterns(
+                            "gelu_tanh", pattern, bias, extra_check=gelu_tanh_check
+                        )
+                register_patterns(post_op, pattern, bias)
 
 
 def zentorch_unary_post_op_fusions(fx_graph: Graph) -> Graph:

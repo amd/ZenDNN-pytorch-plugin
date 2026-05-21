@@ -16,11 +16,12 @@ FP16_CAPABLE_OPS = {
     "zentorch_sdpa": False,
     "zentorch_rope": False,
     "zentorch_mmha": False,
-    "zentorch_linear": False,
+    "zentorch_linear": True,
     "zentorch_woq_linear": False,
-    "zentorch_weight_prepack": False,
+    "zentorch_weight_prepack": True,
     "zentorch_qlinear": False,
 }
+FP16_CAPABLE_OPS = dict(sorted(FP16_CAPABLE_OPS.items(), reverse=True))
 
 
 # This function is responsible for enable the ops based on the env varible.

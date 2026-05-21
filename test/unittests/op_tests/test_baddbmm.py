@@ -47,7 +47,7 @@ class Test_Baddbmm_Op(MMTestCase):
                 self.data.input3d, self.data.x3d, self.data.y3d
             )
         self.assertTrue(
-            "zentorch_matmul only supports Float and BFloat16" in str(context.exception)
+            "zentorch_matmul only supports Float32, BFloat16 and Float16" in str(context.exception)
         )
 
     @MMTestCase.hypothesis_params_mm_itr(
@@ -166,7 +166,7 @@ class Test_Baddbmm_Op(MMTestCase):
                 bias_as_postop, self.data.x3d, self.data.y3d
             )
         self.assertTrue(
-            "zentorch_matmul only supports Float post ops" in str(context.exception)
+            "zentorch_matmul only supports Float32 post ops" in str(context.exception)
         )
 
     @MMTestCase.hypothesis_params_mm_itr(
@@ -194,7 +194,7 @@ class Test_Baddbmm_Op(MMTestCase):
                 bias_as_postop, self.data.x3d, self.data.x3d
             )
         self.assertTrue(
-            "zentorch_matmul only supports Float and BFloat16"
+            "zentorch_matmul only supports Float32, BFloat16 and Float16"
             in str(context_int.exception)
         )
 

@@ -66,7 +66,10 @@ class Test_Linear_Model(AddmmTestCase):
             self.assertEqual(
                 counters["zentorch"]["zentorch_weight_prepack_for_linear"], 3
             )
-        self.assertEqual(native_output, compiled_output)
+        tol = 1e-2 if dtype == "float16" else 1e-5
+        self.assertTrue(
+            torch.allclose(native_output, compiled_output, atol=tol, rtol=tol)
+        )
 
 
 if __name__ == "__main__":

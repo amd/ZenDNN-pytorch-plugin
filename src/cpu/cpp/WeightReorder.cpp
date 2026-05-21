@@ -23,11 +23,11 @@ zentorch_weight_prepack_for_linear(const at::Tensor &weight,
   ZENTORCH_CHECK(weight.dim() == 2,
                  "Weight tensor must be 2D for linear layer prepacking, got ",
                  weight.dim(), "D tensor.");
-  ZENTORCH_CHECK(
-      weight.scalar_type() == c10::ScalarType::Float ||
-          weight.scalar_type() == c10::ScalarType::BFloat16,
-      "Currently weight prepacking only supports float32 or bfloat16 "
-      "dtype for weight tensor");
+  ZENTORCH_CHECK(weight.scalar_type() == c10::ScalarType::Float ||
+                     weight.scalar_type() == c10::ScalarType::BFloat16 ||
+                     weight.scalar_type() == c10::ScalarType::Half,
+                 "Currently weight prepacking only supports float32, "
+                 "bfloat16 or float16 dtype for weight tensor");
 
   // Linear op internally works on transposed weight tensor, so to
   // prepack the weight we need to use transposed weight.

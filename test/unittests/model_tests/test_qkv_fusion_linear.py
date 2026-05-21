@@ -139,8 +139,14 @@ class Custom_Model_QKV_Linear_Longformer(nn.Module):
 class Custom_Model_QKV_Linear_ZenTorch(nn.Module):
     """QKV model calling zentorch_linear_unary directly with configurable kwargs."""
 
-    def __init__(self, dtype, input_dim, hidden_dim,
-                 is_weight_prepacked=False, post_ops=("none", "none", "none")):
+    def __init__(
+        self,
+        dtype,
+        input_dim,
+        hidden_dim,
+        is_weight_prepacked=False,
+        post_ops=("none", "none", "none"),
+    ):
         super().__init__()
         self.linear_q = nn.Linear(input_dim, hidden_dim, bias=True, dtype=dtype)
         self.linear_k = nn.Linear(input_dim, hidden_dim, bias=True, dtype=dtype)
@@ -152,19 +158,25 @@ class Custom_Model_QKV_Linear_ZenTorch(nn.Module):
 
     def forward(self, x):
         q = torch.ops.zentorch.zentorch_linear_unary(
-            x, self.linear_q.weight, self.linear_q.bias,
+            x,
+            self.linear_q.weight,
+            self.linear_q.bias,
             is_weight_prepacked=self.is_weight_prepacked,
             post_op=self.post_op_q,
             zentorch_op_name="zentorch::zentorch_linear_unary",
         )
         k = torch.ops.zentorch.zentorch_linear_unary(
-            x, self.linear_k.weight, self.linear_k.bias,
+            x,
+            self.linear_k.weight,
+            self.linear_k.bias,
             is_weight_prepacked=self.is_weight_prepacked,
             post_op=self.post_op_k,
             zentorch_op_name="zentorch::zentorch_linear_unary",
         )
         v = torch.ops.zentorch.zentorch_linear_unary(
-            x, self.linear_v.weight, self.linear_v.bias,
+            x,
+            self.linear_v.weight,
+            self.linear_v.bias,
             is_weight_prepacked=self.is_weight_prepacked,
             post_op=self.post_op_v,
             zentorch_op_name="zentorch::zentorch_linear_unary",
@@ -215,7 +227,10 @@ class Test_QKV_Fusion_Linear_Model(AddmmTestCase):
             compiled_graph, (input_tensor,), freeze_opt=True
         )
         self.assertEqual(counters["zentorch"]["qkv_fusion_linear"], 1)
-        self.assertEqual(native_output, compiled_output)
+        tol = 1e-2 if dtype == "float16" else 1e-5
+        self.assertTrue(
+            torch.allclose(native_output, compiled_output, atol=tol, rtol=tol)
+        )
 
     # Added higher time_out for this test as it was failing with deadline exceeded error frequently
     # TODO: Investigate why it requires higher deadline: ZENAI-3638
@@ -315,7 +330,9 @@ class Test_QKV_Fusion_Linear_Model(AddmmTestCase):
             is_weight_prepacked=True,
         )
         input_tensor = torch.randn(
-            self.data.b, self.data.m, self.data.k,
+            self.data.b,
+            self.data.m,
+            self.data.k,
             dtype=DataTypes.get_torch_type(dtype),
         )
 
@@ -323,9 +340,7 @@ class Test_QKV_Fusion_Linear_Model(AddmmTestCase):
         counters.clear()
         compiled_graph = torch.compile(model, backend="zentorch")
         with self.assertLogs("zentorch", level="INFO") as cm:
-            test_with_freeze_opt(
-                compiled_graph, (input_tensor,), freeze_opt=True
-            )
+            test_with_freeze_opt(compiled_graph, (input_tensor,), freeze_opt=True)
         self.assertEqual(counters["zentorch"]["qkv_fusion_linear"], 0)
         self.assertTrue(
             any("prepacked weights" in msg for msg in cm.output),
@@ -346,7 +361,9 @@ class Test_QKV_Fusion_Linear_Model(AddmmTestCase):
             post_ops=("relu", "gelu_erf", "relu"),
         )
         input_tensor = torch.randn(
-            self.data.b, self.data.m, self.data.k,
+            self.data.b,
+            self.data.m,
+            self.data.k,
             dtype=DataTypes.get_torch_type(dtype),
         )
 
@@ -380,7 +397,9 @@ class Test_QKV_Fusion_Linear_Model(AddmmTestCase):
             post_ops=("relu", "relu", "relu"),
         )
         input_tensor = torch.randn(
-            self.data.b, self.data.m, self.data.k,
+            self.data.b,
+            self.data.m,
+            self.data.k,
             dtype=DataTypes.get_torch_type(dtype),
         )
 
