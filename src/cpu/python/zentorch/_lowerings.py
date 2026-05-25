@@ -479,7 +479,10 @@ class zentorch_QlinearUnary(ExternKernelAlloc):
             ),
             inputs=inputs,
             constant_args=constant_args,
-            kwargs=None,
+            # Route the caller-supplied op name into the IR node's kwargs so
+            # `codegen_kwargs` emits it instead of falling back to the schema
+            # default. Matches what the linear / .out lowerings already do.
+            kwargs={"zentorch_op_name": name},
         )
         packed._optional_tensor_presence = [
             input_scales is not None,
@@ -572,7 +575,7 @@ class zentorch_QlinearUnaryRelu(ExternKernelAlloc):
             ),
             inputs=inputs,
             constant_args=constant_args,
-            kwargs=None,
+            kwargs={"zentorch_op_name": name},
         )
         packed._optional_tensor_presence = [
             input_scales is not None,
@@ -665,7 +668,7 @@ class zentorch_QlinearUnarySigmoid(ExternKernelAlloc):
             ),
             inputs=inputs,
             constant_args=constant_args,
-            kwargs=None,
+            kwargs={"zentorch_op_name": name},
         )
         packed._optional_tensor_presence = [
             input_scales is not None,
@@ -764,7 +767,7 @@ class zentorch_QlinearMulAdd(ExternKernelAlloc):
             ),
             inputs=inputs,
             constant_args=constant_args,
-            kwargs=None,
+            kwargs={"zentorch_op_name": name},
         )
         packed._optional_tensor_presence = [
             input_scales is not None,
@@ -921,7 +924,7 @@ def zentorch_qlinear_lowering(
             input, weight, input_scales, input_zero_points,
             weight_scales, weight_zero_points, bias,
             output_scales, output_zero_points, output_dtype,
-            "zentorch_qlinear",
+            zentorch_op_name,
         )
     )
 
@@ -945,7 +948,7 @@ def zentorch_qlinear_relu_lowering(
             input, weight, input_scales, input_zero_points,
             weight_scales, weight_zero_points, bias,
             output_scales, output_zero_points, output_dtype,
-            "zentorch_qlinear_relu",
+            zentorch_op_name,
         )
     )
 
@@ -1017,7 +1020,7 @@ def zentorch_qlinear_sigmoid_lowering(
             input, weight, input_scales, input_zero_points,
             weight_scales, weight_zero_points, bias,
             output_scales, output_zero_points, output_dtype,
-            "zentorch_qlinear_sigmoid",
+            zentorch_op_name,
         )
     )
 
@@ -1043,7 +1046,7 @@ def zentorch_qlinear_mul_add_lowering(
             input, weight, input_scales, input_zero_points,
             weight_scales, weight_zero_points, mul_input, add_input,
             bias, output_scales, output_zero_points, output_dtype,
-            "zentorch_qlinear_mul_add",
+            zentorch_op_name,
         )
     )
 
@@ -1366,7 +1369,7 @@ def _make_woq_linear_unary_class(class_name, op_overload, cpp_kernel_name):
                 ),
                 inputs=inputs,
                 constant_args=(),
-                kwargs=None,
+                kwargs={"zentorch_op_name": name},
             )
             packed._optional_tensor_presence = [
                 True,
@@ -1466,7 +1469,7 @@ class zentorch_WoqLinearAdd(ExternKernelAlloc):
             ),
             inputs=inputs,
             constant_args=(),
-            kwargs=None,
+            kwargs={"zentorch_op_name": name},
         )
         packed._optional_tensor_presence = [
             True,
@@ -1542,7 +1545,7 @@ def _make_woq_linear_binary_binary_class(class_name, op_overload,
                 ),
                 inputs=inputs,
                 constant_args=(),
-                kwargs=None,
+                kwargs={"zentorch_op_name": name},
             )
             packed._optional_tensor_presence = [
                 True,
@@ -1588,7 +1591,7 @@ def zentorch_woq_linear_lowering(
     return TensorBox.create(
         zentorch_WoqLinear.create(
             input, weight, weight_scales, weight_zero_points, bias,
-            "zentorch_woq_linear",
+            zentorch_op_name,
         )
     )
 
@@ -1608,7 +1611,7 @@ def zentorch_woq_linear_relu_lowering(
     return TensorBox.create(
         zentorch_WoqLinearRelu.create(
             input, weight, weight_scales, weight_zero_points, bias,
-            "zentorch_woq_linear_relu",
+            zentorch_op_name,
         )
     )
 
@@ -1628,7 +1631,7 @@ def zentorch_woq_linear_sigmoid_lowering(
     return TensorBox.create(
         zentorch_WoqLinearSigmoid.create(
             input, weight, weight_scales, weight_zero_points, bias,
-            "zentorch_woq_linear_sigmoid",
+            zentorch_op_name,
         )
     )
 
@@ -1648,7 +1651,7 @@ def zentorch_woq_linear_gelu_tanh_lowering(
     return TensorBox.create(
         zentorch_WoqLinearGeluTanh.create(
             input, weight, weight_scales, weight_zero_points, bias,
-            "zentorch_woq_linear_gelu_tanh",
+            zentorch_op_name,
         )
     )
 
@@ -1668,7 +1671,7 @@ def zentorch_woq_linear_gelu_erf_lowering(
     return TensorBox.create(
         zentorch_WoqLinearGeluErf.create(
             input, weight, weight_scales, weight_zero_points, bias,
-            "zentorch_woq_linear_gelu_erf",
+            zentorch_op_name,
         )
     )
 
@@ -1689,7 +1692,7 @@ def zentorch_woq_linear_add_lowering(
     return TensorBox.create(
         zentorch_WoqLinearAdd.create(
             input, weight, weight_scales, weight_zero_points, add_input, bias,
-            "zentorch_woq_linear_add",
+            zentorch_op_name,
         )
     )
 
@@ -1712,7 +1715,7 @@ def zentorch_woq_linear_mul_add_lowering(
         zentorch_WoqLinearMulAdd.create(
             input, weight, weight_scales, weight_zero_points,
             mul_input, add_input, bias,
-            "zentorch_woq_linear_mul_add",
+            zentorch_op_name,
         )
     )
 
@@ -1735,6 +1738,6 @@ def zentorch_woq_linear_add_add_lowering(
         zentorch_WoqLinearAddAdd.create(
             input, weight, weight_scales, weight_zero_points,
             add_input, add_input_2, bias,
-            "zentorch_woq_linear_add_add",
+            zentorch_op_name,
         )
     )
