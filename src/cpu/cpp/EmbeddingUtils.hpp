@@ -13,6 +13,7 @@ namespace zentorch {
 inline void zen_embedding_weight_check(const at::Tensor &weight) {
   const bool is_weight_bf16 =
       (weight.scalar_type() == c10::ScalarType::BFloat16);
+  const bool is_weight_fp16 = (weight.scalar_type() == c10::ScalarType::Half);
   const bool is_weight_fp32 = (weight.scalar_type() == c10::ScalarType::Float);
   // check if the device supports AVX512
   if (is_weight_bf16) {
@@ -20,9 +21,15 @@ inline void zen_embedding_weight_check(const at::Tensor &weight) {
                    "zentorch_embedding bf16 path needs the cpu support "
                    "avx512bf16");
   }
-  // check if datatype is either Float32 or Bfloat16
-  ZENTORCH_CHECK(is_weight_fp32 ^ is_weight_bf16,
-                 "zentorch_embedding only supports Float and BFloat16");
+  if (is_weight_fp16) {
+    ZENTORCH_CHECK(zentorch::zendnn_fp16_device_check(),
+                   "zentorch_embedding fp16 path needs the cpu support "
+                   "avx512fp16");
+  }
+  // check if datatype is Float32, Bfloat16 or Float16
+  ZENTORCH_CHECK(
+      is_weight_fp32 || is_weight_bf16 || is_weight_fp16,
+      "zentorch_embedding only supports Float32, BFloat16 and Float16");
 }
 
 inline void zen_quant_embed_tensor_check(const at::Tensor &weight,

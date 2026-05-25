@@ -440,7 +440,7 @@ def replace_with_composite_zentorch_ops(fx_graph: torch.fx.Graph) -> torch.fx.Gr
     for node in fx_graph.nodes:
         if node.target != at_ops._embedding_bag.default:
             continue
-        if not is_valid_fp16("zentorch_embedding_bag", node):
+        if not is_valid_fp16("zentorch_embedding", node):
             continue
         users = list(node.users.keys())
         if len(users) != 1:
