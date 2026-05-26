@@ -56,7 +56,7 @@ class Test_MM_RELU_Model(AddmmTestCase):
     )
     @torch.inference_mode()
     def test_mm_relu2_optimize_model(self, dtype, freeze_opt):
-
+        tol = 1e-2 if dtype == "float16" else 1e-5
         model = Custom_Model_MM_Relu2().eval()
         for i in range(len(self.data.x1)):
             for j in range(len(self.data.y1)):
@@ -66,7 +66,9 @@ class Test_MM_RELU_Model(AddmmTestCase):
                 compiled_graph_output = test_with_freeze_opt(
                     compiled_graph, (self.data.x1[i], self.data.y1[j]), freeze_opt
                 )
-                self.assertEqual(model_output, compiled_graph_output)
+                self.assertEqual(
+                    model_output, compiled_graph_output, atol=tol, rtol=tol
+                )
 
     @AddmmTestCase.hypothesis_params_addmm_itr(
         dtype_list=supported_dtypes, freeze_list=freeze_opt
@@ -88,7 +90,7 @@ class Test_MM_RELU_Model(AddmmTestCase):
     )
     @torch.inference_mode()
     def test_mm_relu2_negative_input_optimize_model(self, dtype, freeze_opt):
-
+        tol = 1e-2 if dtype == "float16" else 1e-5
         model = Custom_Model_MM_Relu2().eval()
         model_output = model(self.data.x1[0] * -1, self.data.y1[0] * -1)
         reset_dynamo()
@@ -96,7 +98,7 @@ class Test_MM_RELU_Model(AddmmTestCase):
         compiled_graph_output = test_with_freeze_opt(
             compiled_graph, (self.data.x1[0] * -1, self.data.y1[0] * -1), freeze_opt
         )
-        self.assertEqual(model_output, compiled_graph_output)
+        self.assertEqual(model_output, compiled_graph_output, atol=tol, rtol=tol)
 
     @AddmmTestCase.hypothesis_params_addmm_itr(
         dtype_list=supported_dtypes, freeze_list=freeze_opt
@@ -106,7 +108,9 @@ class Test_MM_RELU_Model(AddmmTestCase):
 
         model = Custom_Model_MM_ReLU1(self.data.n, self.data.m, self.data.k).eval()
         if dtype == "bfloat16":
-            model = model.bfloat16()
+            model = model.to(torch.bfloat16)
+        elif dtype == "float16":
+            model = model.to(torch.float16)
         model_output = model(self.data.input)
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")

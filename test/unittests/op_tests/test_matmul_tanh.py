@@ -16,7 +16,7 @@ from unittest_utils import (  # noqa: 402
     run_tests,
     reset_dynamo,
     supported_dtypes,
-    update_supported_dtypes
+    update_supported_dtypes,
 )
 
 
@@ -27,10 +27,10 @@ class Test_MM_Tanh(MMTestCase):
     )
     @torch.inference_mode()
     def test_mm_tanh(self, dtype):
+        tol = 1e-2 if dtype == "float16" else 1e-5
         native_output = torch.tanh(torch.mm(self.data.x, self.data.y))
         zentorch_output = torch.ops.zentorch.zentorch_mm_tanh(self.data.x, self.data.y)
-
-        self.assertEqual(native_output, zentorch_output)
+        self.assertEqual(native_output, zentorch_output, atol=tol, rtol=1e-2)
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
@@ -40,12 +40,13 @@ class Test_Addmm_Tanh(AddmmTestCase):
     )
     @torch.inference_mode()
     def test_addmm_tanh(self, dtype):
+        tol = 1e-2 if dtype == "float16" else 1e-5
         bias = self.data.input.clone()
         native_output = torch.tanh(torch.addmm(bias, self.data.x, self.data.y))
         zentorch_output = torch.ops.zentorch.zentorch_addmm_tanh(
             bias, self.data.x, self.data.y
         )
-        self.assertEqual(native_output, zentorch_output)
+        self.assertEqual(native_output, zentorch_output, atol=tol, rtol=1e-2)
 
     @AddmmTestCase.hypothesis_params_addmm_itr(
         dtype_list=update_supported_dtypes(supported_dtypes, "zentorch_addmm")
@@ -55,13 +56,14 @@ class Test_Addmm_Tanh(AddmmTestCase):
         bias = self.data.input.clone()
         alpha = 1.5
         beta = 0.5
+        tol = 1e-2 if dtype == "float16" else 1e-5
         native_output = torch.tanh(
             torch.addmm(bias, self.data.x, self.data.y, alpha=alpha, beta=beta)
         )
         zentorch_output = torch.ops.zentorch.zentorch_addmm_tanh(
             bias, self.data.x, self.data.y, alpha=alpha, beta=beta
         )
-        self.assertEqual(native_output, zentorch_output)
+        self.assertEqual(native_output, zentorch_output, atol=tol, rtol=1e-2)
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")

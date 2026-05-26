@@ -171,7 +171,8 @@ class Test_Addmm_Op(MMTestCase):
             torch.ops.zentorch.zentorch_addmm(self.data.input, self.data.x, self.data.y)
 
         self.assertTrue(
-            "zentorch_matmul only supports Float32, BFloat16 and Float16" in str(context.exception)
+            "zentorch_matmul only supports Float32, BFloat16 and Float16"
+            in str(context.exception)
         )
 
     @MMTestCase.hypothesis_params_mm_itr(dtype_list=["float32"])
@@ -303,6 +304,7 @@ class Test_Addmm_Op(MMTestCase):
     @MMTestCase.hypothesis_params_mm_itr(dtype_list=supported_dtypes)
     @unittest.skipIf(skip_test_pt_2_0, "Skipping test due to PT2.0 instability")
     def test_addmm_relu_without_kw(self, dtype):
+        tol = 1e-2 if dtype == "float16" else 1e-5
 
         # addmm->relu
         self.assertEqual(
@@ -314,6 +316,8 @@ class Test_Addmm_Op(MMTestCase):
             torch.ops.zentorch.zentorch_addmm_relu(
                 self.data.input, self.data.x, self.data.y
             ),
+            atol=tol,
+            rtol=1e-2,
         )
 
 

@@ -8,10 +8,10 @@ import os
 # TODO: Remove this once the fp16 support is fully implemented
 FP16_CAPABLE_OPS = {
     "zentorch_embedding": True,
-    "zentorch_mm": False,
-    "zentorch_bmm": False,
-    "zentorch_addmm": False,
-    "zentorch_baddbmm": False,
+    "zentorch_mm": True,
+    "zentorch_bmm": True,
+    "zentorch_addmm": True,
+    "zentorch_baddbmm": True,
     "zentorch_convolution": False,
     "zentorch_sdpa": False,
     "zentorch_rope": False,

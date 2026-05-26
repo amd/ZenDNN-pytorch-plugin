@@ -82,8 +82,10 @@ at::Tensor zendnnl_matmul_impl(
       // TODO: add support for alpha when bias is defined
       ZENTORCH_CHECK(
           !(input_.scalar_type() == c10::ScalarType::BFloat16 ||
-            weight_.scalar_type() == c10::ScalarType::BFloat16),
-          "zentorch_matmul is not supported for bf16 "
+            weight_.scalar_type() == c10::ScalarType::BFloat16 ||
+            input_.scalar_type() == c10::ScalarType::Half ||
+            weight_.scalar_type() == c10::ScalarType::Half),
+          "zentorch_matmul is not supported for bf16 or fp16 "
           "tensors when bias is defined and alpha is not equal to 1");
     }
   }

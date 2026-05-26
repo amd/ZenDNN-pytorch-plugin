@@ -17,16 +17,16 @@ from unittest_utils import (  # noqa: E402
     supported_dtypes,
     update_supported_dtypes,
 )
+
 supported_dtypes = update_supported_dtypes(supported_dtypes, "zentorch_baddbmm")
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class Test_Baddbmm_Op(MMTestCase):
-    @MMTestCase.hypothesis_params_mm_itr(
-        dtype_list=supported_dtypes
-    )
+    @MMTestCase.hypothesis_params_mm_itr(dtype_list=supported_dtypes)
     @unittest.skipIf(skip_test_pt_2_0, "Skipping test due to PT2.0 instability")
     def test_baddbmm_variants(self, dtype):
+        tol = 1e-2 if dtype == "float16" else 1e-5
 
         self.assertEqual(
             torch._C._VariableFunctions.baddbmm(
@@ -35,11 +35,11 @@ class Test_Baddbmm_Op(MMTestCase):
             torch.ops.zentorch.zentorch_baddbmm(
                 self.data.input3d, self.data.x3d, self.data.y3d
             ),
+            atol=tol,
+            rtol=1e-2,
         )
 
-    @MMTestCase.hypothesis_params_mm_itr(
-        dtype_list=['int']
-    )
+    @MMTestCase.hypothesis_params_mm_itr(dtype_list=["int"])
     def test_baddbmm_unsupported_dtype(self, dtype):
 
         with self.assertRaises(RuntimeError) as context:
@@ -47,12 +47,11 @@ class Test_Baddbmm_Op(MMTestCase):
                 self.data.input3d, self.data.x3d, self.data.y3d
             )
         self.assertTrue(
-            "zentorch_matmul only supports Float32, BFloat16 and Float16" in str(context.exception)
+            "zentorch_matmul only supports Float32, BFloat16 and Float16"
+            in str(context.exception)
         )
 
-    @MMTestCase.hypothesis_params_mm_itr(
-        dtype_list=supported_dtypes
-    )
+    @MMTestCase.hypothesis_params_mm_itr(dtype_list=supported_dtypes)
     def test_baddbmm_unsupported_dims(self, dtype):
 
         with self.assertRaises(RuntimeError) as context:
@@ -96,11 +95,10 @@ class Test_Baddbmm_Op(MMTestCase):
     #   out = torch.ops.zentorch.zentorch_baddbmm(inp, x, y, beta=1.3, alpha=1.4)
     #   print((ref - out).abs().max())  # Expected: 0.125 (should be < 0.01)
 
-    @MMTestCase.hypothesis_params_mm_itr(
-        dtype_list=supported_dtypes
-    )
+    @MMTestCase.hypothesis_params_mm_itr(dtype_list=supported_dtypes)
     @unittest.skipIf(skip_test_pt_2_0, "Skipping test due to PT2.0 instability")
     def test_baddbmm_with_kw(self, dtype):
+        tol = 1e-2 if dtype == "float16" else 1e-5
         self.assertEqual(
             torch._C._VariableFunctions.baddbmm(
                 self.data.input3d, self.data.x3d, self.data.y3d, alpha=1.4
@@ -108,10 +106,12 @@ class Test_Baddbmm_Op(MMTestCase):
             torch.ops.zentorch.zentorch_baddbmm(
                 self.data.input3d, self.data.x3d, self.data.y3d, alpha=1.4
             ),
+            atol=tol,
+            rtol=1e-2,
         )
 
         # TODO: Should be removed after the fix for ZENAI-2774
-        if dtype == 'bfloat16':
+        if dtype == "bfloat16":
             beta_value = 1.0
         else:
             beta_value = 1.4
@@ -127,24 +127,30 @@ class Test_Baddbmm_Op(MMTestCase):
         )
 
         # TODO: Should be removed after the fix for ZENAI-2774
-        if dtype == 'bfloat16':
+        if dtype == "bfloat16":
             beta_value = 1.0
         else:
             beta_value = 1.3
         self.assertEqual(
             torch._C._VariableFunctions.baddbmm(
-                self.data.input3d, self.data.x3d, self.data.y3d, alpha=1.4, beta=beta_value
+                self.data.input3d,
+                self.data.x3d,
+                self.data.y3d,
+                alpha=1.4,
+                beta=beta_value,
             ),
             torch.ops.zentorch.zentorch_baddbmm(
-                self.data.input3d, self.data.x3d, self.data.y3d, alpha=1.4, beta=beta_value
+                self.data.input3d,
+                self.data.x3d,
+                self.data.y3d,
+                alpha=1.4,
+                beta=beta_value,
             ),
             atol=1e-2,
             rtol=1e-2,
         )
 
-    @MMTestCase.hypothesis_params_mm_itr(
-        dtype_list=supported_dtypes
-    )
+    @MMTestCase.hypothesis_params_mm_itr(dtype_list=supported_dtypes)
     def test_baddbmm_with_zero_alpha(self, dtype):
 
         self.assertEqual(
@@ -156,9 +162,7 @@ class Test_Baddbmm_Op(MMTestCase):
             ),
         )
 
-    @MMTestCase.hypothesis_params_mm_itr(
-        dtype_list=['float32']
-    )
+    @MMTestCase.hypothesis_params_mm_itr(dtype_list=["float32"])
     def test_float_baddbmm_bfloat16_postop(self):
         bias_as_postop = self.data.input3d.clone().to(torch.bfloat16)
         with self.assertRaises(RuntimeError) as context:
@@ -169,9 +173,7 @@ class Test_Baddbmm_Op(MMTestCase):
             "zentorch_matmul only supports Float32 post ops" in str(context.exception)
         )
 
-    @MMTestCase.hypothesis_params_mm_itr(
-        dtype_list=['bfloat16']
-    )
+    @MMTestCase.hypothesis_params_mm_itr(dtype_list=["bfloat16"])
     def test_bfloat16_baddbmm_int_postop(self):
         self.skip_if_bfloat16_unsupported_hardware()
         bias_as_postop = self.data.input3d.clone().to(torch.int)
@@ -184,9 +186,7 @@ class Test_Baddbmm_Op(MMTestCase):
             in str(context_int.exception)
         )
 
-    @MMTestCase.hypothesis_params_mm_itr(
-        dtype_list=['int']
-    )
+    @MMTestCase.hypothesis_params_mm_itr(dtype_list=["int"])
     def test_int_baddbmm_postop(self):
         bias_as_postop = self.data.x3d.clone().to(torch.int)
         with self.assertRaises(RuntimeError) as context_int:

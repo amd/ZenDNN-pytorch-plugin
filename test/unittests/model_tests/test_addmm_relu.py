@@ -80,7 +80,9 @@ class Test_Addmm_Relu_Model(AddmmTestCase):
     def test_addmm_relu1_model(self, dtype, freeze_opt):
         model = Custom_Model_Addmm_Relu1(self.data.n, self.data.m).eval()
         if dtype == "bfloat16":
-            model = model.bfloat16()
+            model = model.to(torch.bfloat16)
+        elif dtype == "float16":
+            model = model.to(torch.float16)
         model_output = model(self.data.input)
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")

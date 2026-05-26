@@ -194,7 +194,8 @@ class Test_Pattern_Matcher_Model(Zentorch_TestCase):
             compiled_model, (arg_0, arg_1), freeze_opt
         )
         self.assertEqual(counters["zentorch"]["pattern_matcher_bmm_to_mm"], 1)
-        self.assertEqual(native_output, zentorch_graph_output)
+        tol = 1e-2 if dtype == "float16" else 1e-5
+        self.assertEqual(native_output, zentorch_graph_output, atol=tol, rtol=tol)
 
         # case 2: arg_0.size(1) != 1
         arg_0 = torch.randn((512, 64, 32), dtype=new_dtype)
@@ -208,7 +209,7 @@ class Test_Pattern_Matcher_Model(Zentorch_TestCase):
             compiled_model, (arg_0, arg_1), freeze_opt
         )
         self.assertEqual(counters["zentorch"]["pattern_matcher_bmm_to_mm"], 0)
-        self.assertEqual(native_output, zentorch_graph_output)
+        self.assertEqual(native_output, zentorch_graph_output, atol=tol, rtol=tol)
 
         # Case 3: arg_0 is 2D and arg_1 is 3D
         neg_expand_model = Custom_Model_BMM3()
@@ -274,6 +275,8 @@ class Test_Pattern_Matcher_Model(Zentorch_TestCase):
         model = mm_split_model.to("cpu").eval()
         if dtype == "bfloat16":
             model = model.to(torch.bfloat16)
+        elif dtype == "float16":
+            model = model.to(torch.float16)
         new_dtype = self.data.get_torch_type(dtype)
         inp = torch.rand((4, 64, 30), dtype=new_dtype)
         model_op = model(inp)

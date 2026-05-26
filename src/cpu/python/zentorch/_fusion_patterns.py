@@ -150,12 +150,16 @@ def _matmul_dtypes_check(match):
     #        be fp32.
     #     -> If the matmul parameters are bf16, then the post op buffers must
     #        be bf16.
+    #     -> If the matmul parameters are fp16, then the post op buffers must
+    #        be fp16.
 
     is_fp32 = True
     is_bf16 = True
+    is_fp16 = True
     do_post_ops_exist = False
     post_op_dtypes_fp32 = True
     post_op_dtypes_bf16 = True
+    post_op_dtypes_fp16 = True
     for k, v in match.kwargs.items():
         # kwargs ex. beta has a int/float value
         if isinstance(v, (int, float)):
@@ -169,18 +173,25 @@ def _matmul_dtypes_check(match):
             post_op_dtypes_fp32 = post_op_dtypes_fp32 and (
                 v.meta["val"].dtype == torch.float
             )
+            post_op_dtypes_fp16 = post_op_dtypes_fp16 and (
+                v.meta["val"].dtype == torch.float16
+            )
             do_post_ops_exist = True
         else:
             is_bf16 = is_bf16 and (v.meta["val"].dtype == torch.bfloat16)
             is_fp32 = is_fp32 and (v.meta["val"].dtype == torch.float)
+            is_fp16 = is_fp16 and (v.meta["val"].dtype == torch.float16)
 
     if do_post_ops_exist:
-        if is_fp32 and not is_bf16:
-            return post_op_dtypes_fp32 and not post_op_dtypes_bf16
-        elif is_bf16 and not is_fp32:
-            return post_op_dtypes_bf16 and not post_op_dtypes_fp32
+        if is_fp32 and not is_bf16 and not is_fp16:
+            return post_op_dtypes_fp32 and not post_op_dtypes_bf16 and not post_op_dtypes_fp16
+        elif is_bf16 and not is_fp32 and not is_fp16:
+            return post_op_dtypes_bf16 and not post_op_dtypes_fp32 and not post_op_dtypes_fp16
+        elif is_fp16 and not is_fp32 and not is_bf16:
+            return post_op_dtypes_fp16 and not post_op_dtypes_fp32 and not post_op_dtypes_bf16
+        return False
     else:
-        return is_bf16 ^ is_fp32
+        return (is_bf16 ^ is_fp32 ^ is_fp16) and not (is_bf16 and is_fp32 and is_fp16)
 
 
 def _dim_check(match):

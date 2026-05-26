@@ -64,13 +64,9 @@ class Test_MM_SiLU_Mul_Model(MMTestCase):
         model = Custom_Model_MM_Silu_Mul(self.data, bias=True)
         model_input = self.data.input.view(1, self.data.m, self.data.n)
         if dtype == "bfloat16":
-            if zentorch._C.is_bf16_supported():
-                model = model.bfloat16()
-            else:
-                self.skipTest(
-                    "Warning: Skipping Bfloat16 Testcases since they are not "
-                    + "supported on this hardware"
-                )
+            model = model.to(torch.bfloat16)
+        elif dtype == "float16":
+            model = model.to(torch.float16)
         model_output = model(model_input)
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
@@ -97,13 +93,9 @@ class Test_MM_SiLU_Mul_Model(MMTestCase):
         model = Custom_Model_MM_Silu_Mul(self.data, bias=False)
         model_input = self.data.input.view(1, self.data.m, self.data.n)
         if dtype == "bfloat16":
-            if zentorch._C.is_bf16_supported():
-                model = model.bfloat16()
-            else:
-                self.skipTest(
-                    "Warning: Skipping Bfloat16 Testcases since they are not "
-                    + "supported on this hardware"
-                )
+            model = model.to(torch.bfloat16)
+        elif dtype == "float16":
+            model = model.to(torch.float16)
         model_output = model(model_input)
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")

@@ -17,25 +17,24 @@ from unittest_utils import (  # noqa: E402
     supported_dtypes,
     update_supported_dtypes,
 )
+
 supported_dtypes = update_supported_dtypes(supported_dtypes, "zentorch_bmm")
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class Test_BMM_Op(MMTestCase):
-    @MMTestCase.hypothesis_params_mm_itr(
-        dtype_list=supported_dtypes
-    )
+    @MMTestCase.hypothesis_params_mm_itr(dtype_list=supported_dtypes)
     @unittest.skipIf(skip_test_pt_2_0, "Skipping test due to PT2.0 instability")
     def test_bmm_variants(self, dtype):
-
+        tol = 1e-2 if dtype == "float16" else 1e-5
         self.assertEqual(
             torch._C._VariableFunctions.bmm(self.data.x3d, self.data.y3d),
             torch.ops.zentorch.zentorch_bmm(self.data.x3d, self.data.y3d),
+            atol=tol,
+            rtol=tol,
         )
 
-    @MMTestCase.hypothesis_params_mm_itr(
-        dtype_list=supported_dtypes
-    )
+    @MMTestCase.hypothesis_params_mm_itr(dtype_list=supported_dtypes)
     def test_bmm_unsupported_dims(self, dtype):
 
         with self.assertRaises(RuntimeError) as context:
@@ -46,26 +45,23 @@ class Test_BMM_Op(MMTestCase):
             torch.ops.zentorch.zentorch_bmm(self.data.x, self.data.x)
         self.assertTrue("unsupported dims for self and mat2" in str(context.exception))
 
-    @MMTestCase.hypothesis_params_mm_itr(
-        dtype_list=supported_dtypes
-    )
+    @MMTestCase.hypothesis_params_mm_itr(dtype_list=supported_dtypes)
     def test_bmm_out_variant(self, dtype):
-
+        tol = 1e-2 if dtype == "float16" else 1e-5
         expected = torch._C._VariableFunctions.bmm(self.data.x3d, self.data.y3d)
         out = torch.empty_like(expected)
         torch.ops.zentorch.zentorch_bmm.out(self.data.x3d, self.data.y3d, out=out)
-        self.assertEqual(expected, out)
+        self.assertEqual(expected, out, atol=tol, rtol=tol)
 
-    @MMTestCase.hypothesis_params_mm_itr(
-        dtype_list=['int']
-    )
+    @MMTestCase.hypothesis_params_mm_itr(dtype_list=["int"])
     def test_bmm_unsupported_dtype(self, dtype):
 
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_bmm(self.data.x3d, self.data.y3d)
 
         self.assertTrue(
-            "zentorch_matmul only supports Float32, BFloat16 and Float16" in str(context.exception)
+            "zentorch_matmul only supports Float32, BFloat16 and Float16"
+            in str(context.exception)
         )
 
 

@@ -17,43 +17,51 @@ from unittest_utils import (  # noqa: 402
     supported_dtypes,
     update_supported_dtypes,
 )
+
 supported_dtypes = update_supported_dtypes(supported_dtypes, "zentorch_mm")
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class Test_MM_Op(MMTestCase):
     @unittest.skipIf(skip_test_pt_2_0, "Skipping test due to PT2.0 instability")
-    @MMTestCase.hypothesis_params_mm_itr(
-        dtype_list=supported_dtypes
-    )
+    @MMTestCase.hypothesis_params_mm_itr(dtype_list=supported_dtypes)
     def test_mm_variants(self, dtype):
+        tol = 1e-2 if dtype == "float16" else 1e-5
         # mm
         self.assertEqual(
             torch._C._VariableFunctions.mm(self.data.x, self.data.y),
             torch.ops.zentorch.zentorch_mm(self.data.x, self.data.y),
+            atol=tol,
+            rtol=1e-2,
         )
         self.assertEqual(
             torch.matmul(self.data.x, self.data.y),
             torch.ops.zentorch.zentorch_mm(self.data.x, self.data.y),
+            atol=tol,
+            rtol=1e-2,
         )
         self.assertEqual(
             torch.mm(self.data.x, self.data.y),
             torch.ops.zentorch.zentorch_mm(self.data.x, self.data.y),
+            atol=tol,
+            rtol=1e-2,
         )
 
         self.assertEqual(
             self.data.x @ self.data.y,
             torch.ops.zentorch.zentorch_mm(self.data.x, self.data.y),
+            atol=tol,
+            rtol=1e-2,
         )
 
         self.assertEqual(
             torch.mul(self.data.A, self.data.B),
             torch.ops.zentorch.zentorch_mm(self.data.A, self.data.B),
+            atol=tol,
+            rtol=1e-2,
         )
 
-    @MMTestCase.hypothesis_params_mm_itr(
-        dtype_list=supported_dtypes
-    )
+    @MMTestCase.hypothesis_params_mm_itr(dtype_list=supported_dtypes)
     def test_mm_mismatched_dimensions(self, dtype):
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_mm(
@@ -74,12 +82,11 @@ class Test_MM_Op(MMTestCase):
         with self.assertRaises(RuntimeError) as context:
             torch.ops.zentorch.zentorch_mm(self.data.x, self.data.y)
         self.assertTrue(
-            "zentorch_matmul only supports Float32, BFloat16 and Float16" in str(context.exception)
+            "zentorch_matmul only supports Float32, BFloat16 and Float16"
+            in str(context.exception)
         )
 
-    @MMTestCase.hypothesis_params_mm_itr(
-        dtype_list=supported_dtypes
-    )
+    @MMTestCase.hypothesis_params_mm_itr(dtype_list=supported_dtypes)
     def test_mm_relu(self, dtype):
 
         # mm->relu

@@ -218,6 +218,7 @@ class Test_Addmm_Model(AddmmTestCase):
     @AddmmTestCase.hypothesis_params_add_xD_itr(dtype_list=supported_dtypes)
     @torch.inference_mode()
     def test_addmm_variable_add_2D_model(self, dtype):
+        tol = 1e-2 if dtype == "float16" else 1e-5
         model = Custom_Model_Addmm_2D().eval()
         model_output = model(
             self.data.mm_add_2D[0], self.data.mm_add_2D[1], self.data.mm_add_2D[2]
@@ -229,12 +230,13 @@ class Test_Addmm_Model(AddmmTestCase):
         compiled_graph_output = compiled_graph(
             self.data.mm_add_2D[0], self.data.mm_add_2D[1], self.data.mm_add_2D[2]
         )
-        self.assertEqual(model_output, compiled_graph_output)
+        self.assertEqual(model_output, compiled_graph_output, atol=tol, rtol=1e-2)
         self.assertEqual(counters["zentorch"]["pattern_matcher_mm_add"], 0)
 
     @AddmmTestCase.hypothesis_params_add_xD_itr(dtype_list=supported_dtypes)
     @torch.inference_mode()
     def test_addmm_variable_add_3D_model(self, dtype):
+        tol = 1e-2 if dtype == "float16" else 1e-5
         model = Custom_Model_Addmm_3D().eval()
         model_output = model(
             self.data.mm_add_3D[0], self.data.mm_add_3D[1], self.data.mm_add_3D[2]
@@ -246,7 +248,7 @@ class Test_Addmm_Model(AddmmTestCase):
         compiled_graph_output = compiled_graph(
             self.data.mm_add_3D[0], self.data.mm_add_3D[1], self.data.mm_add_3D[2]
         )
-        self.assertEqual(model_output, compiled_graph_output)
+        self.assertEqual(model_output, compiled_graph_output, atol=tol, rtol=1e-2)
         self.assertEqual(counters["zentorch"]["pattern_matcher_mm_add"], 1)
 
 

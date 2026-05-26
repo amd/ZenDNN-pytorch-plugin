@@ -33,7 +33,9 @@ class Test_MM_Silu_Model(MMTestCase):
     def test_mm_with_bias_silu_model(self, dtype, freeze_opt):
         model = nn.Sequential(nn.Linear(self.data.n, self.data.m, bias=True), nn.SiLU())
         if dtype == "bfloat16":
-            model = model.bfloat16()
+            model = model.to(torch.bfloat16)
+        elif dtype == "float16":
+            model = model.to(torch.float16)
         model_output = model(self.data.input)
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
@@ -51,7 +53,9 @@ class Test_MM_Silu_Model(MMTestCase):
             nn.Linear(self.data.n, self.data.m, bias=False), nn.SiLU()
         )
         if dtype == "bfloat16":
-            model = model.bfloat16()
+            model = model.to(torch.bfloat16)
+        elif dtype == "float16":
+            model = model.to(torch.float16)
         model_output = model(self.data.input)
         reset_dynamo()
         compiled_graph = torch.compile(model, backend="zentorch")
