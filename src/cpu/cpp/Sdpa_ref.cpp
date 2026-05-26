@@ -111,8 +111,11 @@ std::tuple<at::Tensor, at::Tensor> zentorch_scaled_dot_product_attention_impl(
       "dim is {2, 4}");
   // Input validation for tensor types, shapes,attention mask and AVX512
   // support.
-  if ((dtype == at::kBFloat16 || dtype == at::kFloat) &&
-      is_avx512_supported()) {
+  bool is_dtype_supported =
+      (dtype == at::kBFloat16 && zendnn_bf16_device_check()) ||
+      (dtype == at::kHalf && zendnn_fp16_device_check()) ||
+      (dtype == at::kFloat && is_avx512_supported());
+  if (is_dtype_supported) {
     at::Tensor output = at::empty_like(query, query.options()).transpose(1, 2);
     const auto accumulate_dtype = at::toOpMathType(dtype);
     at::Tensor logsumexp = at::empty({batchSize, qSize, num_head},
@@ -148,6 +151,24 @@ std::tuple<at::Tensor, at::Tensor> zentorch_scaled_dot_product_attention_impl(
             attn_mask, scale);
       } else {
         flash_attention_kernel_impl_512<at::BFloat16, at::BFloat16>(
+            output, logsumexp, query, key, value, dropout_p, is_causal,
+            attn_mask, scale);
+      }
+    } else if (query.scalar_type() == at::kHalf) {
+      ZENTORCH_CHECK(!attn_mask.has_value() ||
+                         attn_mask.value().scalar_type() == at::kFloat ||
+                         attn_mask.value().scalar_type() == at::kHalf,
+                     "zentorch_scaled_dot_product_attention_flash_"
+                     "attention: Attention mask "
+                     "is supported for FP32 and FP16 dtype when the query "
+                     "is of type FP16");
+      if (!attn_mask.has_value() ||
+          attn_mask.value().scalar_type() == at::kFloat) {
+        flash_attention_kernel_impl_512<at::Half, float>(
+            output, logsumexp, query, key, value, dropout_p, is_causal,
+            attn_mask, scale);
+      } else {
+        flash_attention_kernel_impl_512<at::Half, at::Half>(
             output, logsumexp, query, key, value, dropout_p, is_causal,
             attn_mask, scale);
       }

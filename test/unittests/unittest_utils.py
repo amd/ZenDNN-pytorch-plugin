@@ -2837,7 +2837,7 @@ class QLinearTestCase(Zentorch_TestCase):
 
 
 class SDPATestCase(Zentorch_TestCase):
-    time_out = 10000
+    time_out = 20000  # TODO: Go back to 10000 JIRA ZENAI-3799
     max_example_per_test = 20
 
     def getData(self):

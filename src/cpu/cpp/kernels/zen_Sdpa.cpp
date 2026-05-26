@@ -36,16 +36,21 @@ inline void zendnn_gemm(int64_t m, int64_t n, int64_t k, float alpha,
                         float beta, float *c, int64_t ldc, bool TransA,
                         bool TransB) {
 
-  constexpr bool is_input_float = std::is_same_v<T, float>;
   zendnnl::lowoha::matmul::matmul_params params;
   zendnnl::lowoha::matmul::matmul_data_types matmul_dtype;
   matmul_dtype.bias = data_type_t::none;
   matmul_dtype.compute = data_type_t::none;
+  matmul_dtype.dst = data_type_t::f32; // Destination data type is Float32
 
-  matmul_dtype.src = is_input_float ? data_type_t::f32 : data_type_t::bf16;
-  matmul_dtype.wei = is_input_float ? data_type_t::f32 : data_type_t::bf16;
-  matmul_dtype.dst =
-      data_type_t::f32; // Destination data type is always Float32.
+  if constexpr (std::is_same_v<T, float>) {
+    matmul_dtype.src = matmul_dtype.wei = data_type_t::f32;
+  } else if constexpr (std::is_same_v<T, at::BFloat16>) {
+    matmul_dtype.src = matmul_dtype.wei = data_type_t::bf16;
+  } else if constexpr (std::is_same_v<T, at::Half>) {
+    matmul_dtype.src = matmul_dtype.wei = data_type_t::f16;
+  } else {
+    ZENTORCH_CHECK(false, "unsupported zendnn_gemm dtype");
+  }
   params.dtypes = matmul_dtype;
   params.lowoha_algo = matmul_algo_t::aocl_dlp;
 
@@ -625,6 +630,14 @@ template void flash_attention_kernel_impl_512<float, float>(
     const at::Tensor &, const at::Tensor &, double, bool,
     std::optional<at::Tensor>, std::optional<double>);
 template void flash_attention_kernel_impl_512<at::BFloat16, at::BFloat16>(
+    const at::Tensor &, const at::Tensor &, const at::Tensor &,
+    const at::Tensor &, const at::Tensor &, double, bool,
+    std::optional<at::Tensor>, std::optional<double>);
+template void flash_attention_kernel_impl_512<at::Half, at::Half>(
+    const at::Tensor &, const at::Tensor &, const at::Tensor &,
+    const at::Tensor &, const at::Tensor &, double, bool,
+    std::optional<at::Tensor>, std::optional<double>);
+template void flash_attention_kernel_impl_512<at::Half, float>(
     const at::Tensor &, const at::Tensor &, const at::Tensor &,
     const at::Tensor &, const at::Tensor &, double, bool,
     std::optional<at::Tensor>, std::optional<double>);

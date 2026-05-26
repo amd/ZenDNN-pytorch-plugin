@@ -13,7 +13,7 @@ FP16_CAPABLE_OPS = {
     "zentorch_addmm": True,
     "zentorch_baddbmm": True,
     "zentorch_convolution": False,
-    "zentorch_sdpa": False,
+    "zentorch_sdpa": True,
     "zentorch_rope": False,
     "zentorch_mmha": False,
     "zentorch_linear": True,
