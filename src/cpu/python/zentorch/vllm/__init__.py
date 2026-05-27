@@ -13,6 +13,8 @@ Patches:
 - CompilationConfig repr (all versions)
 - Import-hook GEMM dispatch patching (v15-v17)
   v18+ GEMM is handled natively via is_zen_cpu() in dispatch_cpu_unquantized_gemm.
+- Out-of-tree runtime activation starts at v20; older families are retained only
+  for legacy detection and patch metadata.
 
 Reference: https://blog.vllm.ai/2025/11/20/vllm-plugin-system.html
 """
@@ -662,6 +664,9 @@ class FusedMoEPatch:
 # ---------------------------------------------------------------------------
 # vLLM 0.15-0.17 GEMM Dispatch Hook
 # ---------------------------------------------------------------------------
+#
+# Retained legacy logic for pre-v20 families. Current OOT runtime support starts
+# at vLLM 0.20.0, so register() rejects these families before activation.
 #
 # On vLLM 0.15-0.17 we patch dispatch_cpu_unquantized_gemm to route
 # through torch.nn.functional.linear. optimize_pass then rewrites

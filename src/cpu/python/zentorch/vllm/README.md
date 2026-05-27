@@ -9,6 +9,9 @@
 
 The **zentorch vLLM plugin** integrates [zentorch](https://github.com/amd/ZenDNN-pytorch-plugin) with [vLLM's V1 engine](https://docs.vllm.ai/en/stable/usage/v1_guide/) to deliver optimized large language model inference on AMD EPYC™ CPUs. By leveraging ZenDNN's highly optimized kernels, this plugin accelerates linear and embedding operations in vLLM, providing significant throughput improvements for popular LLMs.
 
+> **Note:**
+> This README documents the **out-of-tree** zentorch plugin shipped by the `zentorch` package. Starting with vLLM `0.18.0`, zentorch support is also upstreamed as the native in-tree `ZenCpuPlatform`. If `zentorch` is installed on supported AMD hardware with AVX512 support, vLLM will automatically activate that in-tree platform; otherwise it falls back to the standard CPU platform. An out-of-tree compatibility warning does not necessarily mean zentorch itself is unsupported.
+
 The plugin uses vLLM's platform and general plugin entry points to:
 - Inject zentorch optimization passes into `torch.compile`
 - Bypass or reroute GEMM dispatch so zentorch linear kernels stay active
@@ -29,10 +32,10 @@ The plugin uses vLLM's platform and general plugin entry points to:
 
 | Component | Version | Notes |
 |-----------|---------|-------|
-| vLLM | 0.15.0 - 0.21.0 | V1 engine fully supported |
+| vLLM | 0.18.0 - 0.21.0 | In-tree `ZenCpuPlatform` is available from 0.18.0 on supported AMD AVX512 systems; out-of-tree plugin runtime support starts at 0.20.0 |
 | Python | 3.10+ | |
-| PyTorch | 2.10.0 (vLLM 0.15.0-0.19.x) / 2.11.0 (vLLM 0.20.0-0.21.0) | Auto-installed by vLLM |
-| TorchAO | 0.16.0 (vLLM 0.15.0-0.19.x) / 0.17.0 (vLLM 0.20.0-0.21.0) | |
+| PyTorch | 2.10.0 (vLLM 0.18.0-0.19.x) / 2.11.0 (vLLM 0.20.0-0.21.0) | Auto-installed by vLLM |
+| TorchAO | 0.16.0 (vLLM 0.18.0-0.19.x) / 0.17.0 (vLLM 0.20.0-0.21.0) | |
 
 ---
 
@@ -98,16 +101,18 @@ The plugin leverages AMD EPYC specific intrinsics and optimizations to accelerat
 
      > **Important:** Pre-built vLLM CPU binaries are available from [0.13.0](https://docs.vllm.ai/en/stable/getting_started/installation/cpu/#pre-built-wheels), so all currently supported versions can use the published CPU wheels.
 
-   - Supported versions: 0.15.0, 0.15.1, 0.16.0, 0.17.0, 0.17.1, 0.18.0, 0.18.1, 0.19.0, 0.19.1, 0.20.0, 0.20.1, 0.20.2, 0.21.0. Check out the appropriate release tag before building.
+   - Supported versions: 0.18.0, 0.18.1, 0.19.0, 0.19.1, 0.20.0, 0.20.1, 0.20.2, 0.21.0. Check out the appropriate release tag before building.
 
 3. **Install zentorch:**
 
    | vLLM version | PyTorch version (auto-installed by vLLM) | zentorch install method |
    |--------------|-----------------|------------------------|
-   | 0.15.0 - 0.19.1 | 2.10.0 | PyPI or source |
+   | 0.18.0 - 0.19.1 | 2.10.0 | Install zentorch to enable the in-tree `ZenCpuPlatform` |
    | 0.20.0 - 0.21.0 | 2.11.0 | PyPI or source |
 
-   - **From PyPI** (vLLM 0.15.0+):
+   > **Note:** The out-of-tree plugin is supported only with vLLM `0.20.0+` and, when present, takes precedence over the in-tree `ZenCpuPlatform` on supported AMD AVX512 systems. To use the in-tree platform instead, build and install zentorch with `ZENTORCH_VLLM_PLUGIN_BUILD=0`, which omits the out-of-tree vLLM plugin from the wheel.
+
+   - **From PyPI** (vLLM 0.18.0+):
      ```bash
      pip install zentorch
      ```
@@ -123,7 +128,7 @@ No code changes are required. Once installed, simply run your vLLM inference wor
 
 > **Note:**
 >
-> - Upon importing vLLM, you should see the following message in the logs:
+> - On the out-of-tree plugin path, importing vLLM should log:
 >   ```
 >   INFO [__init__.py] Platform plugin zentorch is activated
 >   ```
@@ -239,7 +244,8 @@ Mount volumes (`-v`) for model files and any datasets you need inside the contai
 
 If you don't see "Platform plugin zentorch is activated":
 1. Verify zentorch is installed: `python -c "import zentorch"`
-2. Check vLLM version: `python -c "import vllm; print(vllm.__version__)"` (must be 0.15.0 - 0.21.0)
+2. Check vLLM version: `python -c "import vllm; print(vllm.__version__)"` (must be 0.18.0 - 0.21.0)
+3. On supported AMD AVX512 hardware, vLLM `0.18.0+` may activate the in-tree `ZenCpuPlatform` instead of logging "Platform plugin zentorch is activated".
 
 ### Stale Compilation Cache
 

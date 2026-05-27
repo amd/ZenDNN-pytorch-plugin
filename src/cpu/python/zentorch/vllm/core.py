@@ -20,7 +20,8 @@ from zentorch._logging import get_logger
 
 logger = get_logger(__name__)
 
-# Supported vLLM versions
+# Known vLLM versions retained for family detection and legacy patch gating.
+# Out-of-tree runtime support is enforced separately and starts at vLLM 0.20.0.
 VLLM_MIN_VERSION = "0.15.0"
 VLLM_MAX_VERSION = "0.21.0"
 
