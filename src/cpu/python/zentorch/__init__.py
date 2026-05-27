@@ -34,14 +34,6 @@ _check_dual_install()
 import os  # noqa: E402
 import ctypes  # noqa: E402
 
-# Load libzentorch.so with RTLD_GLOBAL so that AOTI-compiled modules can
-# find the shim functions (aoti_torch_cpu_zentorch_*)
-_lib_dir = os.path.dirname(os.path.abspath(__file__))
-_lib_path = os.path.join(_lib_dir, "libzentorch.so")
-if os.path.exists(_lib_path):
-    # The mode parameter must be passed directly to CDLL for RTLD_GLOBAL to work
-    ctypes.CDLL(_lib_path, mode=os.RTLD_GLOBAL | os.RTLD_NOW)
-
 from ._build_info import __torchversion__ as buildtime_torchversion  # noqa: E402
 from torch.torch_version import __version__ as runtime_torchversion  # noqa: E402
 
@@ -73,6 +65,17 @@ if _runtime_minor != _buildtime_minor:
         f"The installed zentorch binary is only compatible "
         f"with PyTorch versions {_buildtime_minor}.x"
     )
+
+# Load libzentorch.so with RTLD_GLOBAL so that AOTI-compiled modules can
+# find the shim functions (aoti_torch_cpu_zentorch_*).
+# This MUST happen after `torch` has been imported above: libzentorch.so
+# references ATen symbols from libtorch_cpu.so, and RTLD_NOW would fail
+# to resolve them if the torch shared libraries are not yet loaded.
+_lib_dir = os.path.dirname(os.path.abspath(__file__))
+_lib_path = os.path.join(_lib_dir, "libzentorch.so")
+if os.path.exists(_lib_path):
+    # The mode parameter must be passed directly to CDLL for RTLD_GLOBAL to work
+    ctypes.CDLL(_lib_path, mode=os.RTLD_GLOBAL | os.RTLD_NOW)
 
 from ._optimize import optimize  # noqa
 from ._optimize_for_export import export_optimize_pass  # noqa
