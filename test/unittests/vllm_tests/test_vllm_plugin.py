@@ -7,13 +7,13 @@
 Unit tests for zentorch.vllm plugin.
 
 Tests verify:
-- Runtime compatibility checks for supported versions (0.20.0 - 0.20.2)
+- Runtime compatibility checks for supported versions (0.20.0 - 0.21.0)
 - Version parsing logic
 - Patch registration and application
 - Individual patch functionality (oneDNN disable, CompilationConfig repr, etc.)
 - Platform configuration
 
-Runtime-supported vLLM versions: 0.20.0, 0.20.1, 0.20.2
+Runtime-supported vLLM versions: 0.20.0, 0.20.1, 0.20.2, 0.21.0
 Retained legacy version map: 0.15.0, 0.15.1, 0.16.0, 0.17.0, 0.17.1, 0.18.0,
 0.18.1, 0.19.0, 0.19.1
 """
@@ -92,6 +92,7 @@ class TestVersionParsing(unittest.TestCase):
             "0.20.0",
             "0.20.1",
             "0.20.2",
+            "0.21.0",
         ]
         for ver in expected_versions:
             self.assertIn(ver, _VERSION_MAP, f"{ver} should be in VERSION_MAP")
@@ -141,6 +142,11 @@ class TestVersionParsing(unittest.TestCase):
         self.assertEqual(_VERSION_MAP.get(_base_version("0.20.2+cpu")), "v20")
         self.assertEqual(_VERSION_MAP.get(_base_version("0.20.2rc0+cpu")), "v20")
 
+        # v21 family
+        self.assertEqual(_VERSION_MAP.get(_base_version("0.21.0")), "v21")
+        self.assertEqual(_VERSION_MAP.get(_base_version("0.21.0+cpu")), "v21")
+        self.assertEqual(_VERSION_MAP.get(_base_version("0.21.0rc1+cpu")), "v21")
+
     def test_version_family_detection_unsupported(self):
         """VERSION_MAP should return None for unsupported versions."""
         from zentorch.vllm.core import _base_version, _VERSION_MAP
@@ -158,7 +164,7 @@ class TestVersionParsing(unittest.TestCase):
             "0.14.1",
             "0.19.2",
             "0.20.3",
-            "0.21.0",
+            "0.21.1",
             "1.0.0",
         ]
         for ver in unsupported:
@@ -224,6 +230,32 @@ class TestVllmPluginVersionCheck(unittest.TestCase):
                 mock.patch.object(
                     zv, "_install_pre_v18_dispatch_hooks"
                 ) as install_hooks,
+            ):
+                result = zv.register()
+
+            self.assertEqual(result, "zentorch.vllm.platform.ZenCPUPlatform")
+            register_patches.assert_called_once_with()
+            apply_all.assert_called_once_with()
+            install_hooks.assert_not_called()
+
+    def test_register_accepts_v21_runtime(self):
+        """register() should accept vLLM 0.21.0 as a supported runtime version."""
+        spec, zv = _load_source_vllm_module()
+        fake_vllm = types.ModuleType("vllm")
+        fake_vllm.__version__ = "0.21.0"
+
+        with mock.patch.dict(sys.modules, {"zentorch.vllm": zv, "vllm": fake_vllm}):
+            spec.loader.exec_module(zv)
+            zv._INITIALIZED = False
+
+            with (
+                mock.patch.object(zv, "get_version_family", return_value="v21"),
+                mock.patch.object(zv, "_apply_faketensor_subclass_patch"),
+                mock.patch.object(zv, "_apply_fxgraphcache_pickle_patch"),
+                mock.patch.object(zv, "_register_zentorch_linear_dispatch"),
+                mock.patch.object(zv, "_register_patches") as register_patches,
+                mock.patch.object(zv.manager, "apply_all") as apply_all,
+                mock.patch.object(zv, "_install_pre_v18_dispatch_hooks") as install_hooks,
             ):
                 result = zv.register()
 
@@ -428,7 +460,7 @@ class TestPlatformProfilerPatchVersionRange(unittest.TestCase):
     """Test profiler patch version gating in platform.py."""
 
     def test_profiler_patch_range_uses_normalized_versions(self):
-        """Profiler patch should use a normalized 0.15.0-0.20.2 version range."""
+        """Profiler patch should use a normalized 0.15.0-0.21.0 version range."""
         from zentorch.vllm import platform
 
         cases = [
@@ -454,7 +486,10 @@ class TestPlatformProfilerPatchVersionRange(unittest.TestCase):
             ("0.20.2+cpu", True),
             ("0.20.2rc0+cpu", True),
             ("0.20.3", False),
-            ("0.21.0", False),
+            ("0.21.0", True),
+            ("0.21.0+cpu", True),
+            ("0.21.0rc1+cpu", True),
+            ("0.21.1", False),
         ]
 
         for version_str, expected in cases:

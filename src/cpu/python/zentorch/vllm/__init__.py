@@ -46,6 +46,7 @@ from zentorch.vllm.core import (
     VLLM_V20,
     VLLM_V20_1,
     VLLM_V20_2,
+    VLLM_V21,
 )
 
 # Re-exported at module scope so tests can mock the Int8Tensor dispatch impl
@@ -316,6 +317,7 @@ class CompilationConfigReprPatch:
     VLLM_V20,
     VLLM_V20_1,
     VLLM_V20_2,
+    VLLM_V21,
 )
 class CPUProfilerPatch:
     """Stub: Actual patching happens in platform.py check_and_update_config.
