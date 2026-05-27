@@ -1032,3 +1032,283 @@ make_fallback(
 )
 if hasattr(torch.ops.zentorch, "zentorch_sdpa"):
     make_fallback(torch.ops.zentorch.zentorch_sdpa)
+
+
+# GatedDeltaNet (GDN) ops for Qwen3.5 / Qwen3-Next CPU attention.
+
+
+@register_meta("gdn_chunk_local_cumsum")
+def meta_gdn_chunk_local_cumsum(
+    g,
+    chunk_size,
+    cu_seqlens,
+    chunk_indices,
+    zentorch_op_name="zentorch::gdn_chunk_local_cumsum",
+):
+    return g.new_empty(g.size(), dtype=torch.float32)
+
+
+@register_meta("gdn_l2norm_fwd")
+def meta_gdn_l2norm_fwd(
+    x,
+    eps,
+    zentorch_op_name="zentorch::gdn_l2norm_fwd",
+):
+    return x.new_empty(x.size())
+
+
+@register_meta("gdn_chunk_scaled_dot_kkt_fwd")
+def meta_gdn_chunk_scaled_dot_kkt_fwd(
+    k,
+    g,
+    beta,
+    cu_seqlens,
+    chunk_indices,
+    chunk_size,
+    zentorch_op_name="zentorch::gdn_chunk_scaled_dot_kkt_fwd",
+):
+    B = k.size(0)
+    T = k.size(1)
+    H = beta.size(2)
+    return k.new_empty((B, T, H, chunk_size), dtype=torch.float32)
+
+
+@register_meta("gdn_solve_tril")
+def meta_gdn_solve_tril(
+    A,
+    cu_seqlens,
+    chunk_indices,
+    zentorch_op_name="zentorch::gdn_solve_tril",
+):
+    return A.new_empty(A.size(), dtype=torch.float32)
+
+
+@register_meta("gdn_recompute_w_u_fwd")
+def meta_gdn_recompute_w_u_fwd(
+    k,
+    v,
+    beta,
+    g_cumsum,
+    A,
+    cu_seqlens,
+    chunk_indices,
+    zentorch_op_name="zentorch::gdn_recompute_w_u_fwd",
+):
+    B = k.size(0)
+    T = k.size(1)
+    H = v.size(2)
+    K_dim = k.size(3)
+    V_dim = v.size(3)
+    w = k.new_empty((B, T, H, K_dim))
+    u = v.new_empty((B, T, H, V_dim))
+    return w, u
+
+
+@register_meta("gdn_chunk_gated_delta_rule_fwd_h")
+def meta_gdn_chunk_gated_delta_rule_fwd_h(
+    k,
+    w,
+    u,
+    g,
+    initial_state,
+    output_final_state,
+    chunk_size,
+    save_new_value,
+    cu_seqlens,
+    chunk_offsets,
+    NT_total,
+    zentorch_op_name="zentorch::gdn_chunk_gated_delta_rule_fwd_h",
+):
+    B = k.size(0)
+    T = k.size(1)
+    H = u.size(2)
+    K_dim = k.size(3)
+    V_dim = u.size(3)
+    N = cu_seqlens.size(0) - 1
+    h_out = k.new_empty((B, NT_total, H, V_dim, K_dim))
+    v_new = (
+        u.new_empty((B, T, H, V_dim))
+        if save_new_value else u.new_empty((0,))
+    )
+    final_state = (
+        k.new_empty((N, H, V_dim, K_dim), dtype=torch.float32)
+        if output_final_state else k.new_empty((0,), dtype=torch.float32)
+    )
+    return h_out, v_new, final_state
+
+
+@register_meta("gdn_chunk_fwd_o")
+def meta_gdn_chunk_fwd_o(
+    q,
+    k,
+    v,
+    h,
+    g,
+    scale,
+    cu_seqlens,
+    chunk_offsets,
+    chunk_size,
+    zentorch_op_name="zentorch::gdn_chunk_fwd_o",
+):
+    B = q.size(0)
+    T = q.size(1)
+    H = v.size(2)
+    V_dim = v.size(3)
+    return v.new_empty((B, T, H, V_dim))
+
+
+@register_meta("gdn_fused_recurrent_gated_delta_rule_packed_decode")
+def meta_gdn_fused_recurrent_gated_delta_rule_packed_decode(
+    mixed_qkv,
+    a,
+    b,
+    A_log,
+    dt_bias,
+    scale,
+    initial_state,
+    out,
+    ssm_state_indices,
+    use_qk_l2norm_in_kernel,
+    zentorch_op_name=(
+        "zentorch::gdn_fused_recurrent_gated_delta_rule_packed_decode"
+    ),
+):
+    return None
+
+
+@register_meta("gdn_fused_sigmoid_gating_delta_rule_update")
+def meta_gdn_fused_sigmoid_gating_delta_rule_update(
+    A_log,
+    a,
+    b,
+    dt_bias,
+    q,
+    k,
+    v,
+    beta_temp,
+    threshold,
+    scale,
+    initial_state,
+    cu_seqlens,
+    ssm_state_indices,
+    num_accepted_tokens,
+    use_qk_l2norm_in_kernel,
+    zentorch_op_name="zentorch::gdn_fused_sigmoid_gating_delta_rule_update",
+):
+    return q.new_empty(v.size())
+
+
+@register_meta("gdn_fused_post_conv_prep")
+def meta_gdn_fused_post_conv_prep(
+    conv_output,
+    a,
+    b,
+    A_log,
+    dt_bias,
+    num_k_heads,
+    head_k_dim,
+    head_v_dim,
+    apply_l2norm,
+    output_g_exp,
+    zentorch_op_name="zentorch::gdn_fused_post_conv_prep",
+):
+    L = conv_output.size(0)
+    H = num_k_heads
+    K = head_k_dim
+    V = head_v_dim
+    HV = A_log.size(0)
+    q = conv_output.new_empty((L, H, K))
+    k = conv_output.new_empty((L, H, K))
+    v = conv_output.new_empty((L, HV, V))
+    g = conv_output.new_empty((L, HV), dtype=torch.float32)
+    beta = conv_output.new_empty((L, HV), dtype=torch.float32)
+    return q, k, v, g, beta
+
+
+@register_meta("gdn_causal_conv1d_update")
+def meta_gdn_causal_conv1d_update(
+    x,
+    conv_state,
+    weight,
+    bias,
+    activation,
+    conv_state_indices,
+    null_block_id,
+    pad_slot_id,
+    zentorch_op_name="zentorch::gdn_causal_conv1d_update",
+):
+    return x.new_empty(x.size())
+
+
+@register_meta("gdn_causal_conv1d_fn")
+def meta_gdn_causal_conv1d_fn(
+    x,
+    weight,
+    bias,
+    conv_states,
+    query_start_loc,
+    cache_indices,
+    has_initial_state,
+    activation,
+    pad_slot_id,
+    zentorch_op_name="zentorch::gdn_causal_conv1d_fn",
+):
+    return x.new_empty(x.size())
+
+
+@register_meta("gdn_rms_norm_gated")
+def meta_gdn_rms_norm_gated(
+    x,
+    weight,
+    z,
+    eps,
+    activation,
+    zentorch_op_name="zentorch::gdn_rms_norm_gated",
+):
+    return x.new_empty(x.size())
+
+
+@register_meta("gdn_chunk_gated_delta_rule_fwd")
+def meta_gdn_chunk_gated_delta_rule_fwd(
+    q,
+    k,
+    v,
+    g,
+    beta,
+    scale,
+    initial_state,
+    output_final_state,
+    chunk_size,
+    cu_seqlens,
+    chunk_indices,
+    chunk_offsets,
+    zentorch_op_name="zentorch::gdn_chunk_gated_delta_rule_fwd",
+):
+    B = q.size(0)
+    T = q.size(1)
+    H = v.size(2)
+    K_dim = q.size(3)
+    V_dim = v.size(3)
+    N = cu_seqlens.size(0) - 1
+    o = v.new_empty((B, T, H, V_dim))
+    if output_final_state:
+        final_state = k.new_empty((N, H, V_dim, K_dim), dtype=torch.float32)
+    else:
+        final_state = k.new_empty((0,), dtype=torch.float32)
+    return o, final_state
+
+
+make_fallback(torch.ops.zentorch.gdn_chunk_local_cumsum)
+make_fallback(torch.ops.zentorch.gdn_l2norm_fwd)
+make_fallback(torch.ops.zentorch.gdn_chunk_scaled_dot_kkt_fwd)
+make_fallback(torch.ops.zentorch.gdn_solve_tril)
+make_fallback(torch.ops.zentorch.gdn_recompute_w_u_fwd)
+make_fallback(torch.ops.zentorch.gdn_chunk_gated_delta_rule_fwd_h)
+make_fallback(torch.ops.zentorch.gdn_chunk_fwd_o)
+make_fallback(torch.ops.zentorch.gdn_chunk_gated_delta_rule_fwd)
+make_fallback(torch.ops.zentorch.gdn_rms_norm_gated)
+make_fallback(torch.ops.zentorch.gdn_causal_conv1d_fn)
+make_fallback(torch.ops.zentorch.gdn_causal_conv1d_update)
+make_fallback(torch.ops.zentorch.gdn_fused_post_conv_prep)
+make_fallback(torch.ops.zentorch.gdn_fused_sigmoid_gating_delta_rule_update)
+make_fallback(torch.ops.zentorch.gdn_fused_recurrent_gated_delta_rule_packed_decode)

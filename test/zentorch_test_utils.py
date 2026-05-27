@@ -35,6 +35,29 @@ freeze_def_opt = [False]
 woq_dtypes = []
 
 
+# Per-dtype atol/rtol used by op tests that compare cpp output against
+# a higher-precision oracle. Looser than torch.testing._internal defaults
+# for bf16/fp16 because oracle is typically computed in fp32 and cast back.
+_DEFAULT_TOLERANCES = {
+    torch.float32: (1e-5, 1e-5),
+    torch.bfloat16: (1e-2, 5e-3),
+    torch.float16: (5e-3, 2e-3),
+}
+
+
+def default_tolerance(*dtypes: torch.dtype) -> tuple[float, float]:
+    """Return (atol, rtol) — the loosest tolerance across the supplied dtypes.
+
+    Used by op tests that compare cpp output against an oracle when input,
+    state, or accumulation precisions differ (e.g. bf16 cpp vs fp32 oracle).
+    Raises KeyError on an unknown dtype rather than silently defaulting.
+    """
+    if not dtypes:
+        return 0.0, 0.0
+    tols = [_DEFAULT_TOLERANCES[dt] for dt in dtypes]
+    return max(t[0] for t in tols), max(t[1] for t in tols)
+
+
 class DataTypes:
 
     mapDtypes = {

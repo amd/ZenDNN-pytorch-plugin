@@ -1048,6 +1048,23 @@ class CPURunnerShutdownPatch:
         return _apply_torch_accelerator_noop_patch()
 
 
+# GatedDeltaNet (Qwen3.5 / Qwen3-Next) CPU forward override (vLLM PR #41025).
+
+
+@vllm_version("0.21.0")
+class GatedDeltaNetPatch:
+    """Override ``GatedDeltaNetAttention.forward_cpu`` with ``forward_cpu_zen``."""
+
+    @classmethod
+    def apply(cls) -> bool:
+        # Import the leaf patch module directly (not via vllm.layers) so the
+        # deferred import hook is installed before any vLLM mamba submodule
+        # is touched. forward.py (which transitively imports gdn_linear_attn)
+        # is loaded later, inside patch._do_apply(), only after the hook fires.
+        from zentorch.vllm.layers.gdn import patch as gdn_patch
+        return gdn_patch.apply_deferred()
+
+
 # ---------------------------------------------------------------------------
 # Registration
 # ---------------------------------------------------------------------------
@@ -1068,6 +1085,7 @@ def _register_patches():
     manager.register("CppIndirectAssert", CppIndirectAssertPatch)
     manager.register("CPURunnerShutdown", CPURunnerShutdownPatch)
     manager.register("FusedMoE", FusedMoEPatch)
+    manager.register("GatedDeltaNet", GatedDeltaNetPatch)
 
     _REGISTERED = True
 

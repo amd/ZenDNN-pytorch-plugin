@@ -485,6 +485,7 @@ class TestPlatformProfilerPatchVersionRange(unittest.TestCase):
             ("0.20.2", True),
             ("0.20.2+cpu", True),
             ("0.20.2rc0+cpu", True),
+            ("0.20.2rc1.dev94+cpu", True),
             ("0.20.3", False),
             ("0.21.0", True),
             ("0.21.0+cpu", True),

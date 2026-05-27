@@ -1,5 +1,5 @@
 #******************************************************************************
-# Copyright (c) 2023-2025 Advanced Micro Devices, Inc.
+# Copyright (c) 2023-2026 Advanced Micro Devices, Inc.
 # All rights reserved.
 #******************************************************************************
 
@@ -7,8 +7,9 @@ IF (NOT MHA_FOUND)
 
 find_package(Torch REQUIRED)
 
-# Collect all .cpp files in the src directory
-file(GLOB cpu_kernels "${CMAKE_CURRENT_SOURCE_DIR}/src/cpu/cpp/kernels/*.cpp")
+# Collect all .cpp files in the kernels tree (recursively, so that
+# sub-trees like kernels/layers/gdn/ are picked up automatically).
+file(GLOB_RECURSE cpu_kernels "${CMAKE_CURRENT_SOURCE_DIR}/src/cpu/cpp/kernels/*.cpp")
 
 # setting necessary flags for .cpp files
 set(FLAGS "-Wall -Werror -Wno-unknown-pragmas -Wno-error=uninitialized \
