@@ -495,7 +495,7 @@ def _moe_forward_zentorch(
         )
 
     # Op accumulates into output -> caller must zero-initialize.
-    output = torch.zeros_like(input)
+    output = torch.empty_like(input)
 
     if apply_router_weight_on_input:
         # Match vLLM's behavior: pre-apply the K=1 router weight to the input

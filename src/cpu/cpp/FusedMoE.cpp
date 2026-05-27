@@ -13,6 +13,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <torch/library.h>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -99,6 +100,62 @@ inline size_t round_up_to(size_t bytes, size_t alignment) {
   return ((bytes + alignment - 1) / alignment) * alignment;
 }
 
+// ---------------------------------------------------------------------------
+// ExpertSliceCache — per-tensor cache of dim-0 expert views
+//
+// Caches the [N, K] / [K] view tensors produced by `select(0, e)` so that we
+// only pay the ATen dispatcher cost once per (tensor, expert) pair across the
+// life of the process — not once per `zentorch_fused_moe` invocation.
+//
+// Why we need a multi-entry cache:
+//   MoE models stack many MoE layers (e.g. Qwen3-30B-A3B has 48), and every
+//   decode step calls `zentorch_fused_moe` once per layer. A single-slot
+//   cache (last tensor seen) thrashes between layers and rebuilds every call.
+//   Keying by `TensorImpl*` lets each layer's weight/bias/scale tensors hold
+//   their own slice list, so the hit rate after step 1 is effectively 100%.
+//
+// Why we avoid `unbind(0)`:
+//   `unbind(0)` is implemented as a loop of `select(0, i)` internally, so it
+//   pays the same per-expert dispatcher cost AND adds an outer `aten::unbind`
+//   wrapper on top. Measured 8.7s of `select` becoming 5.9s of `select` +
+//   5.7s of `unbind` — a net regression. Calling `select` directly inside
+//   the cache build keeps the one-time fill cheaper.
+//
+// Lifetime / safety:
+//   - The cache stores `at::Tensor` (strong) handles, so the underlying
+//     `TensorImpl` is kept alive for the process. For inference workloads
+//     where model weights live until shutdown this is benign (~1 MB total
+//     for 48 layers × 128 experts × {w13, w2, biases, scales}).
+//   - `TensorImpl*` can in principle be reused if a tensor is freed and a
+//     new one allocated at the same address. Holding a strong ref prevents
+//     that for the cached tensors themselves, eliminating the aliasing risk.
+//   - Not thread-safe across concurrent `zentorch_fused_moe` calls. Matches
+//     existing assumptions of this op (single inference stream per process).
+// ---------------------------------------------------------------------------
+class ExpertSliceCache {
+public:
+  // Returns the per-expert views for `tensor`. On first encounter, builds
+  // them with one `select(0, e)` per expert; subsequent calls are an
+  // unordered_map lookup.
+  const std::vector<at::Tensor> &get(const at::Tensor &tensor) {
+    const auto *impl = tensor.unsafeGetTensorImpl();
+    auto it = entries_.find(impl);
+    if (it != entries_.end()) {
+      return it->second;
+    }
+    const int64_t E = tensor.size(0);
+    std::vector<at::Tensor> slices;
+    slices.reserve(E);
+    for (int64_t e = 0; e < E; ++e) {
+      slices.emplace_back(tensor.select(0, e));
+    }
+    return entries_.emplace(impl, std::move(slices)).first->second;
+  }
+
+private:
+  std::unordered_map<const c10::TensorImpl *, std::vector<at::Tensor>> entries_;
+};
+
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -117,14 +174,21 @@ inline size_t round_up_to(size_t bytes, size_t alignment) {
 //     - For each (t, k), record `topk_to_expert_row[i] = (active_idx, pos)`
 //       where `pos = tokens_per_active[a]++` is the deterministic write
 //       position in active slot a's eventual input tensor (no atomics needed).
+//     - Also append the source token id `t` to
+//       `source_tokens_per_active[a]` so Pass-2 can iterate per-expert
+//       without re-scanning `topk_to_expert_row`.
 //
-//   Pass 2 (parallel; the actual data movement):
+//   Pass 2 (per-expert parallel; the actual data movement):
 //     - Allocate one [M_e, H] tensor per active expert, indexed by
 //       active_idx (so `grouped_inputs.size() == E_a`, ready to hand to
 //       `group_matmul` directly).
-//     - `at::parallel_for` over the T*K pairs: for each i, look up the
-//       pre-assigned (active_idx, pos) and `memcpy` row `t` of `input`
-//       into row `pos` of `grouped_inputs[active_idx]`.
+//     - `at::parallel_for` over the E_a active experts (`grain_size=1`):
+//       each worker owns one destination buffer and walks its own
+//       `source_tokens_per_active[a]` list to memcpy the source rows in.
+//       This exposes ~E_a tasks (instead of `total_pairs / grain_size`)
+//       and confines each thread's writes to a single destination buffer,
+//       avoiding the scattered-write and false-sharing pattern of a
+//       per-pair scheme.
 //
 // All Pass-1 auxiliary state is sized to E_a (not E) — `active_expert_ids`
 // is the single source of truth for the active set, no reverse map needed.
@@ -141,9 +205,11 @@ inline size_t round_up_to(size_t bytes, size_t alignment) {
 //                     [ 0, 1 ]]     # token 2 -> experts {0, 1}
 //
 // After Pass 1 (single sweep over T*K=6 pairs, first-encounter ordering):
-//   active_expert_ids = [ 3, 0, 1 ]                     # E_a = 3
-//   tokens_per_active = [ 2, 2, 2 ]                     # local; final M_e per
-//   active slot
+//   active_expert_ids        = [ 3, 0, 1 ]              # E_a = 3
+//   source_tokens_per_active = [ [0, 1], [0, 2], [1, 2] ]
+//                                # a=0 (expert 3): tokens 0, 1
+//                                # a=1 (expert 0): tokens 0, 2
+//                                # a=2 (expert 1): tokens 1, 2
 //
 //   topk_to_expert_row [T*K = 6 entries] = (active_idx, row_in_expert):
 //     i=0 (t=0,k=0) -> (a=0, row=0)   # expert 3
@@ -153,7 +219,7 @@ inline size_t round_up_to(size_t bytes, size_t alignment) {
 //     i=4 (t=2,k=0) -> (a=1, row=1)   # expert 0
 //     i=5 (t=2,k=1) -> (a=2, row=1)   # expert 1
 //
-// After Pass 2 (parallel memcpy using the pre-assigned positions):
+// After Pass 2 (per-expert parallel memcpy):
 //   grouped_inputs[0]  (active_idx 0 = expert 3, M=2) = [ input[0], input[1] ]
 //   grouped_inputs[1]  (active_idx 1 = expert 0, M=2) = [ input[0], input[2] ]
 //   grouped_inputs[2]  (active_idx 2 = expert 1, M=2) = [ input[1], input[2] ]
@@ -167,7 +233,14 @@ struct TokenExpertMapping {
   // for the a-th active expert. Order is first-encounter in `topk_id`.
   std::vector<int32_t> active_expert_ids;
   // T*K entries; index (t*K + k) holds (active_idx, row_in_expert).
+  // Kept token-major because Phase 5's `row_ptrs` setup walks pairs in this
+  // order to build the MoE weighted-reduce postop input.
   std::vector<std::pair<int32_t, int32_t>> topk_to_expert_row;
+  // Size E_a. source_tokens_per_active[a] lists the source `input` row ids
+  // (t values) that fill grouped_inputs[a], in the deterministic in-expert
+  // order assigned by Pass-1. Pass-2 consumes this directly so each worker
+  // thread walks one contiguous list and writes one destination buffer.
+  std::vector<std::vector<int32_t>> source_tokens_per_active;
 };
 
 static TokenExpertMapping
@@ -186,24 +259,33 @@ build_token_expert_mapping(const at::Tensor &input, const at::Tensor &topk_id) {
   // `active_expert_ids` is the only structure that tracks the active set;
   // resolving an already-seen expert back to its active slot is a small
   // linear scan (E_a is in the tens for typical MoE configs, stays in L1).
+  // Per-active source-token lists are built in lockstep so Pass-2 can walk
+  // one contiguous list per expert without a second sweep.
   TokenExpertMapping mapping;
   mapping.topk_to_expert_row.resize(total_pairs);
-
   std::vector<int32_t> tokens_per_active; // grows alongside active_expert_ids
-  for (int64_t i = 0; i < total_pairs; ++i) {
-    const int32_t e = topk_id_serialized[i];
-    auto it = std::find(mapping.active_expert_ids.begin(),
-                        mapping.active_expert_ids.end(), e);
-    int32_t a;
-    if (it == mapping.active_expert_ids.end()) {
-      a = static_cast<int32_t>(mapping.active_expert_ids.size());
-      mapping.active_expert_ids.emplace_back(e);
-      tokens_per_active.emplace_back(0);
-    } else {
-      a = static_cast<int32_t>(it - mapping.active_expert_ids.begin());
+  {
+    RECORD_FUNCTION("zentorch::fused_moe::pass1_active_set_build",
+                    c10::ArrayRef<c10::IValue>({}));
+    for (int64_t i = 0; i < total_pairs; ++i) {
+      const int32_t e = topk_id_serialized[i];
+      const int32_t t = static_cast<int32_t>(i / K);
+      auto it = std::find(mapping.active_expert_ids.begin(),
+                          mapping.active_expert_ids.end(), e);
+      int32_t a;
+      if (it == mapping.active_expert_ids.end()) {
+        a = static_cast<int32_t>(mapping.active_expert_ids.size());
+        mapping.active_expert_ids.emplace_back(e);
+        tokens_per_active.emplace_back(0);
+        mapping.source_tokens_per_active.emplace_back();
+      } else {
+        a = static_cast<int32_t>(it - mapping.active_expert_ids.begin());
+      }
+      const int32_t pos = tokens_per_active[a]++;
+      mapping.topk_to_expert_row[i] = {a, pos};
+      mapping.source_tokens_per_active[a].emplace_back(t);
     }
-    mapping.topk_to_expert_row[i] = {a, tokens_per_active[a]++};
-  }
+  } // RECORD_FUNCTION pass1_active_set_build
   const int64_t E_a = static_cast<int64_t>(mapping.active_expert_ids.size());
 
   // ----- Allocate per-active-expert [M_e, H] tensors ----------------------
@@ -254,30 +336,58 @@ build_token_expert_mapping(const at::Tensor &input, const at::Tensor &topk_id) {
     }
   } // RECORD_FUNCTION scratchpad_allocation
 
-  // ----- Pass 2: parallel memcpy using pre-assigned positions -------------
-  // No atomics — `topk_to_expert_row[i]` already tells us where row i lands.
+  // ----- Pass 2: per-expert parallel memcpy --------------------------------
+  // Each worker thread owns exactly one active expert and streams its rows
+  // sequentially into that expert's [M_e, H] destination buffer. Compared
+  // with parallelizing over the T*K (t, k) pairs in token-major order, this
+  // gives us:
+  //   - One destination buffer per thread (no cache-line / store-buffer
+  //     contention between threads writing into different experts).
+  //   - Sequential writes within each destination (auto-vectorizable, ideal
+  //     for streaming stores).
+  //   - More tasks than the per-pair scheme could expose: per-pair was
+  //     capped at `total_pairs / grain_size` (= 4 for T*K=256, grain_size=64),
+  //     here we expose `E_a` tasks (~32-64 for typical MoE configs) — enough
+  //     to actually use the available cores.
+  //
+  // grain_size=1 lets the runtime hand one expert per task. Same idiom used
+  // by `kernels/zen_Sdpa.cpp` and the per-row loop in `QuantEmbedBag.cpp`.
+  //
   // `std::byte` (not `char`) makes the byte-pointer arithmetic intent
   // explicit and avoids the implementation-defined signedness of plain
-  // `char`. Like `char`/`unsigned char`, it is exempt from strict aliasing so
-  // it can legally point into any tensor's storage.
+  // `char`. Like `char`/`unsigned char`, it is exempt from strict aliasing
+  // so it can legally point into any tensor's storage.
   const auto *src_base =
       reinterpret_cast<const std::byte *>(input.const_data_ptr());
 
   std::vector<std::byte *> dst_base(E_a);
-  for (int64_t a = 0; a < E_a; ++a) {
-    dst_base[a] =
-        reinterpret_cast<std::byte *>(mapping.grouped_inputs[a].data_ptr());
-  }
+  {
+    RECORD_FUNCTION("zentorch::fused_moe::pass2_dst_base_setup",
+                    c10::ArrayRef<c10::IValue>({}));
+    for (int64_t a = 0; a < E_a; ++a) {
+      dst_base[a] =
+          reinterpret_cast<std::byte *>(mapping.grouped_inputs[a].data_ptr());
+    }
+  } // RECORD_FUNCTION pass2_dst_base_setup
 
-  at::parallel_for(0, total_pairs, /*grain_size=*/64,
-                   [&](int64_t begin, int64_t end) {
-                     for (int64_t i = begin; i < end; ++i) {
-                       const int64_t t = i / K;
-                       const auto [a, pos] = mapping.topk_to_expert_row[i];
-                       std::memcpy(dst_base[a] + pos * row_bytes,
-                                   src_base + t * row_bytes, row_bytes);
-                     }
-                   });
+  {
+    RECORD_FUNCTION("zentorch::fused_moe::pass2_parallel_memcpy",
+                    c10::ArrayRef<c10::IValue>({}));
+    at::parallel_for(
+        0, E_a, /*grain_size=*/1, [&](int64_t a_begin, int64_t a_end) {
+          for (int64_t a = a_begin; a < a_end; ++a) {
+            std::byte *dst = dst_base[a];
+            const auto &src_tokens = mapping.source_tokens_per_active[a];
+            const int64_t M_e = static_cast<int64_t>(src_tokens.size());
+            for (int64_t p = 0; p < M_e; ++p) {
+              std::memcpy(dst + p * row_bytes,
+                          src_base +
+                              static_cast<int64_t>(src_tokens[p]) * row_bytes,
+                          row_bytes);
+            }
+          }
+        });
+  } // RECORD_FUNCTION pass2_parallel_memcpy
 
   return mapping;
 }
@@ -379,24 +489,48 @@ void zentorch_fused_moe(
   const bool has_w13_scales = w13_scales.has_value() && w13_scales->defined();
   const bool has_w2_scales = w2_scales.has_value() && w2_scales->defined();
 
+  // Per-tensor caches of dim-0 expert views. Each cache is keyed by
+  // TensorImpl*, so the 48 MoE layers in models like Qwen3-30B-A3B each get
+  // their own entry and do not evict each other. After the first decode
+  // step, every lookup below is an unordered_map hit (no `select` calls).
+  // Caches are function-local statics: zero churn while the process runs,
+  // released at process shutdown along with the model weights.
+  static ExpertSliceCache w13_cache;
+  static ExpertSliceCache w2_cache;
+  static ExpertSliceCache w13_bias_cache;
+  static ExpertSliceCache w2_bias_cache;
+  static ExpertSliceCache w13_scales_cache;
+  static ExpertSliceCache w2_scales_cache;
+
+  const auto &w13_all_slices = w13_cache.get(w13);
+  const auto &w2_all_slices = w2_cache.get(w2);
+  const std::vector<at::Tensor> *w13_bias_all_slices =
+      has_w13_bias ? &w13_bias_cache.get(*w13_bias) : nullptr;
+  const std::vector<at::Tensor> *w2_bias_all_slices =
+      has_w2_bias ? &w2_bias_cache.get(*w2_bias) : nullptr;
+  const std::vector<at::Tensor> *w13_scales_all_slices =
+      has_w13_scales ? &w13_scales_cache.get(*w13_scales) : nullptr;
+  const std::vector<at::Tensor> *w2_scales_all_slices =
+      has_w2_scales ? &w2_scales_cache.get(*w2_scales) : nullptr;
+
   // Pass 2a: active experts in active_idx order (positions [0, E_a)).
   std::vector<bool> is_active(E, false);
   for (int64_t a = 0; a < E_a; ++a) {
     const int64_t e = mapping.active_expert_ids[a];
     is_active[e] = true;
-    w13_slices[a] = w13.select(0, e);
-    w2_weight_slices[a] = w2.select(0, e);
-    w13_bias_slices[a] = has_w13_bias
-                             ? c10::optional<at::Tensor>(w13_bias->select(0, e))
-                             : c10::nullopt;
-    w2_bias_slices[a] = has_w2_bias
-                            ? c10::optional<at::Tensor>(w2_bias->select(0, e))
-                            : c10::nullopt;
+    w13_slices[a] = w13_all_slices[e];
+    w2_weight_slices[a] = w2_all_slices[e];
+    w13_bias_slices[a] =
+        has_w13_bias ? c10::optional<at::Tensor>((*w13_bias_all_slices)[e])
+                     : c10::nullopt;
+    w2_bias_slices[a] =
+        has_w2_bias ? c10::optional<at::Tensor>((*w2_bias_all_slices)[e])
+                    : c10::nullopt;
     w13_scale_slices[a] =
-        has_w13_scales ? c10::optional<at::Tensor>(w13_scales->select(0, e))
+        has_w13_scales ? c10::optional<at::Tensor>((*w13_scales_all_slices)[e])
                        : c10::nullopt;
     w2_scale_slices[a] =
-        has_w2_scales ? c10::optional<at::Tensor>(w2_scales->select(0, e))
+        has_w2_scales ? c10::optional<at::Tensor>((*w2_scales_all_slices)[e])
                       : c10::nullopt;
   }
 
@@ -407,8 +541,8 @@ void zentorch_fused_moe(
     if (is_active[e]) {
       continue;
     }
-    w13_slices[fill_idx] = w13.select(0, e);
-    w2_weight_slices[fill_idx] = w2.select(0, e);
+    w13_slices[fill_idx] = w13_all_slices[e];
+    w2_weight_slices[fill_idx] = w2_all_slices[e];
     ++fill_idx;
   }
 
