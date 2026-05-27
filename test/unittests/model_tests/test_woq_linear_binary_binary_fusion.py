@@ -16,11 +16,13 @@ import torch  # noqa: E402
 from torch import nn  # noqa: E402
 
 from unittest_utils import (  # noqa: E402
+    WOQTestCase,
     has_zentorch,
     reset_dynamo,
     run_tests,
     counters,
-    Zentorch_TestCase,
+    DataTypes,
+    woq_dtypes,
 )
 from woq_test_utils import WOQ_Linear_Model  # noqa: E402
 
@@ -29,7 +31,7 @@ from woq_test_utils import WOQ_Linear_Model  # noqa: E402
 class WOQ_Linear_Add_Add_Model(nn.Module):
     """WOQ linear (with bias) + add + add: add(add(woq(x), a), b)."""
 
-    def __init__(self, out_features, in_features):
+    def __init__(self, out_features, in_features, dtype):
         super().__init__()
         self.woq = WOQ_Linear_Model(
             out_features, in_features, group_size=None, bias=True
@@ -37,11 +39,11 @@ class WOQ_Linear_Add_Add_Model(nn.Module):
         self.out_features = out_features
         self.register_buffer(
             "add_1",
-            torch.randn(out_features, dtype=torch.bfloat16).unsqueeze(0),
+            torch.randn(out_features, dtype=dtype).unsqueeze(0),
         )
         self.register_buffer(
             "add_2",
-            torch.randn(out_features, dtype=torch.bfloat16).unsqueeze(0),
+            torch.randn(out_features, dtype=dtype).unsqueeze(0),
         )
 
     def forward(self, x):
@@ -55,7 +57,7 @@ class WOQ_Linear_Add_Add_Model(nn.Module):
 class WOQ_Linear_Mul_Add_Model(nn.Module):
     """WOQ linear (with bias) + mul + add: add(mul(woq(x), m), b)."""
 
-    def __init__(self, out_features, in_features):
+    def __init__(self, out_features, in_features, dtype):
         super().__init__()
         self.woq = WOQ_Linear_Model(
             out_features, in_features, group_size=None, bias=True
@@ -63,11 +65,11 @@ class WOQ_Linear_Mul_Add_Model(nn.Module):
         self.out_features = out_features
         self.register_buffer(
             "mul_operand",
-            torch.randn(out_features, dtype=torch.bfloat16).unsqueeze(0),
+            torch.randn(out_features, dtype=dtype).unsqueeze(0),
         )
         self.register_buffer(
             "add_operand",
-            torch.randn(out_features, dtype=torch.bfloat16).unsqueeze(0),
+            torch.randn(out_features, dtype=dtype).unsqueeze(0),
         )
 
     def forward(self, x):
@@ -78,7 +80,7 @@ class WOQ_Linear_Mul_Add_Model(nn.Module):
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
-class Test_WOQ_Linear_Binary_Binary_Fusion(Zentorch_TestCase):
+class Test_WOQ_Linear_Binary_Binary_Fusion(WOQTestCase):
     """Test that WOQ linear + binary-binary patterns are fused."""
 
     def _assert_fusion_replaced(self, model, x, counter_key, pattern_description):
@@ -99,11 +101,27 @@ class Test_WOQ_Linear_Binary_Binary_Fusion(Zentorch_TestCase):
             f"Compiled {pattern_description} output should match eager.",
         )
 
+    # Test Fails while generalising test
+    # Bug has been reported Jira ID: ZENAI-3716
+    # @WOQTestCase.hypothesis_params_woq_itr(
+    #     dtype_opt_list=woq_dtypes,
+    #     batch_opt_list=batch_opt,
+    #     in_features_opt_list=in_features_opt,
+    #     out_features_opt_list=out_features_opt,
+    #     bias_opt_list=woq_bias_opt,
+    # )
+    @WOQTestCase.hypothesis_params_woq_itr(
+        dtype_opt_list=woq_dtypes,
+        batch_opt_list=[4],
+        in_features_opt_list=[64],
+        out_features_opt_list=[48],
+        bias_opt_list=[True]
+    )
     @torch.inference_mode()
     def test_woq_linear_add_add(self):
-        batch, in_features, out_features = 4, 64, 48
-        model = WOQ_Linear_Add_Add_Model(out_features, in_features).eval()
-        x = torch.randn(batch, in_features, dtype=torch.bfloat16)
+        woq_dtype = DataTypes.get_torch_type(self.data.dtype)
+        model = WOQ_Linear_Add_Add_Model(self.data.out_features, self.data.in_features, woq_dtype).eval()
+        x = self.data.woq_input
         self._assert_fusion_replaced(
             model,
             x,
@@ -111,11 +129,27 @@ class Test_WOQ_Linear_Binary_Binary_Fusion(Zentorch_TestCase):
             "WOQ linear + add + add",
         )
 
+    # Test Fails while generalising test
+    # Bug has been reported Jira ID: ZENAI-3717
+    # @WOQTestCase.hypothesis_params_woq_itr(
+    #     dtype_opt_list=woq_dtypes,
+    #     batch_opt_list=batch_opt,
+    #     in_features_opt_list=in_features_opt,
+    #     out_features_opt_list=out_features_opt,
+    #     bias_opt_list=woq_bias_opt,
+    # )
+    @WOQTestCase.hypothesis_params_woq_itr(
+        dtype_opt_list=woq_dtypes,
+        batch_opt_list=[4],
+        in_features_opt_list=[64],
+        out_features_opt_list=[48],
+        bias_opt_list=[True]
+    )
     @torch.inference_mode()
     def test_woq_linear_mul_add(self):
-        batch, in_features, out_features = 4, 64, 48
-        model = WOQ_Linear_Mul_Add_Model(out_features, in_features).eval()
-        x = torch.randn(batch, in_features, dtype=torch.bfloat16)
+        woq_dtype = DataTypes.get_torch_type(self.data.dtype)
+        model = WOQ_Linear_Mul_Add_Model(self.data.out_features, self.data.in_features, woq_dtype).eval()
+        x = self.data.woq_input
         self._assert_fusion_replaced(
             model,
             x,

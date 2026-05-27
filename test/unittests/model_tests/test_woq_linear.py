@@ -11,11 +11,15 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
 from unittest_utils import (  # noqa: 402
+    WOQTestCase,
     has_zentorch,
     reset_dynamo,
     run_tests,
     counters,
-    Zentorch_TestCase,
+    woq_dtypes,
+    batch_opt,
+    in_features_opt,
+    out_features_opt,
 )
 
 
@@ -121,7 +125,7 @@ class WOQ_Linear_Model(nn.Module):
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
-class Test_WOQ_Linear(Zentorch_TestCase):
+class Test_WOQ_Linear(WOQTestCase):
     """Test that WOQ linear graph patterns (per-channel and per-group,
     mm and addmm) are matched and replaced by zentorch_woq_linear."""
 
@@ -145,46 +149,73 @@ class Test_WOQ_Linear(Zentorch_TestCase):
             f"Compiled {pattern_description} output should match eager.",
         )
 
+    @WOQTestCase.hypothesis_params_woq_itr(
+        dtype_opt_list=woq_dtypes,
+        batch_opt_list=batch_opt,
+        in_features_opt_list=in_features_opt,
+        out_features_opt_list=out_features_opt,
+        bias_opt_list=[False],
+    )
     @torch.inference_mode()
     def test_woq_linear_per_channel_mm_no_bias(self):
-        batch, in_features, out_features = 4, 64, 48
         model = WOQ_Linear_Model(
-            out_features, in_features, group_size=None, bias=False
+            self.data.out_features, self.data.in_features, group_size=None, bias=self.data.with_bias
         ).eval()
-        x = torch.randn(batch, in_features, dtype=torch.bfloat16)
+        x = self.data.woq_input
         self._assert_woq_pattern_replaced(model, x, "WOQ per-channel mm")
 
+    @WOQTestCase.hypothesis_params_woq_itr(
+        dtype_opt_list=woq_dtypes,
+        batch_opt_list=batch_opt,
+        in_features_opt_list=in_features_opt,
+        out_features_opt_list=out_features_opt,
+        bias_opt_list=[True],
+        time_out=20000
+    )
     @torch.inference_mode()
     def test_woq_linear_per_channel_addmm_with_bias(self):
-        batch, in_features, out_features = 4, 64, 48
         model = WOQ_Linear_Model(
-            out_features, in_features, group_size=None, bias=True
+            self.data.out_features, self.data.in_features, group_size=None, bias=self.data.with_bias
         ).eval()
-        x = torch.randn(batch, in_features, dtype=torch.bfloat16)
+        x = self.data.woq_input
         self._assert_woq_pattern_replaced(model, x, "WOQ per-channel addmm")
 
+    @WOQTestCase.hypothesis_params_woq_itr(
+        dtype_opt_list=woq_dtypes,
+        batch_opt_list=batch_opt,
+        in_features_opt_list=in_features_opt,
+        out_features_opt_list=out_features_opt,
+        bias_opt_list=[False],
+        group_size_opt_list=[16, 32],
+    )
     @torch.inference_mode()
     @unittest.skip(
         "Per-group WOQ compiled vs eager numerical match pending backend verification"
     )
     def test_woq_linear_per_group_mm_no_bias(self):
-        batch, in_features, out_features, group_size = 4, 64, 48, 16
         model = WOQ_Linear_Model(
-            out_features, in_features, group_size=group_size, bias=False
+            self.data.out_features, self.data.in_features, group_size=self.data.group_size, bias=self.data.with_bias
         ).eval()
-        x = torch.randn(batch, in_features, dtype=torch.bfloat16)
+        x = self.data.woq_input
         self._assert_woq_pattern_replaced(model, x, "WOQ per-group mm")
 
+    @WOQTestCase.hypothesis_params_woq_itr(
+        dtype_opt_list=woq_dtypes,
+        batch_opt_list=batch_opt,
+        in_features_opt_list=in_features_opt,
+        out_features_opt_list=out_features_opt,
+        bias_opt_list=[True],
+        group_size_opt_list=[16, 32],
+    )
     @torch.inference_mode()
     @unittest.skip(
         "Per-group WOQ compiled vs eager numerical match pending backend verification"
     )
     def test_woq_linear_per_group_addmm_with_bias(self):
-        batch, in_features, out_features, group_size = 4, 64, 48, 16
         model = WOQ_Linear_Model(
-            out_features, in_features, group_size=group_size, bias=True
+            self.data.out_features, self.data.in_features, group_size=self.data.group_size, bias=self.data.with_bias
         ).eval()
-        x = torch.randn(batch, in_features, dtype=torch.bfloat16)
+        x = self.data.woq_input
         self._assert_woq_pattern_replaced(model, x, "WOQ per-group addmm")
 
 

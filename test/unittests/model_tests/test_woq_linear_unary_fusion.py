@@ -14,11 +14,15 @@ import torch  # noqa: E402
 from torch import nn  # noqa: E402
 
 from unittest_utils import (  # noqa: E402
+    WOQTestCase,
     has_zentorch,
     reset_dynamo,
     run_tests,
     counters,
-    Zentorch_TestCase,
+    woq_dtypes,
+    batch_opt,
+    in_features_opt,
+    out_features_opt,
 )
 from woq_test_utils import WOQ_Linear_Model  # noqa: E402
 
@@ -40,7 +44,7 @@ class WOQ_Linear_Unary_Model(nn.Module):
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
-class Test_WOQ_Linear_Unary_Fusion(Zentorch_TestCase):
+class Test_WOQ_Linear_Unary_Fusion(WOQTestCase):
     """Test that WOQ linear + unary patterns are matched and replaced by fused ops."""
 
     def _assert_fusion_replaced(self, model, x, counter_key, pattern_description):
@@ -61,24 +65,36 @@ class Test_WOQ_Linear_Unary_Fusion(Zentorch_TestCase):
             f"Compiled {pattern_description} output should match eager.",
         )
 
+    @WOQTestCase.hypothesis_params_woq_itr(
+        dtype_opt_list=woq_dtypes,
+        batch_opt_list=batch_opt,
+        in_features_opt_list=in_features_opt,
+        out_features_opt_list=out_features_opt,
+        bias_opt_list=[False]
+    )
     @torch.inference_mode()
     def test_woq_linear_gelu_no_bias(self):
-        batch, in_features, out_features = 4, 64, 48
         model = WOQ_Linear_Unary_Model(
-            out_features, in_features, torch.nn.functional.gelu, bias=False
+            self.data.out_features, self.data.in_features, torch.nn.functional.gelu, bias=self.data.with_bias
         ).eval()
-        x = torch.randn(batch, in_features, dtype=torch.bfloat16)
+        x = self.data.woq_input
         self._assert_fusion_replaced(
             model, x, "zentorch_woq_linear_gelu_erf", "WOQ linear + GELU_ERF (no bias)"
         )
 
+    @WOQTestCase.hypothesis_params_woq_itr(
+        dtype_opt_list=woq_dtypes,
+        batch_opt_list=batch_opt,
+        in_features_opt_list=in_features_opt,
+        out_features_opt_list=out_features_opt,
+        bias_opt_list=[True]
+    )
     @torch.inference_mode()
     def test_woq_linear_gelu_with_bias(self):
-        batch, in_features, out_features = 4, 64, 48
         model = WOQ_Linear_Unary_Model(
-            out_features, in_features, torch.nn.functional.gelu, bias=True
+            self.data.out_features, self.data.in_features, torch.nn.functional.gelu, bias=self.data.with_bias
         ).eval()
-        x = torch.randn(batch, in_features, dtype=torch.bfloat16)
+        x = self.data.woq_input
         self._assert_fusion_replaced(
             model,
             x,

@@ -14,6 +14,12 @@ from unittest_utils import (  # noqa: 402
     has_zentorch,
     zentorch,
     run_tests,
+    WOQ_INT4_BATCH_RANGE,
+    WOQ_INT4_IN_FEATURES_MULT_OPT,
+    WOQ_INT4_OUT_FEATURES_OPT,
+    WOQ_INT4_GROUP_SIZE_OPT,
+    WOQ_INT4_BIAS_OPT,
+    woq_dtypes,
 )
 
 
@@ -82,33 +88,30 @@ class Test_WOQLinear_Asymmetric(WOQTestCase):
 
         return int_data, scale_and_zero
 
-    @WOQTestCase.hypothesis_params_woq_int4_itr()
+    @WOQTestCase.hypothesis_params_woq_itr(
+        dtype_opt_list=woq_dtypes,
+        batch_opt_list=WOQ_INT4_BATCH_RANGE,
+        in_features_opt_list=WOQ_INT4_IN_FEATURES_MULT_OPT,
+        out_features_opt_list=WOQ_INT4_OUT_FEATURES_OPT,
+        group_size_opt_list=WOQ_INT4_GROUP_SIZE_OPT,
+        bias_opt_list=WOQ_INT4_BIAS_OPT
+    )
     @torch.inference_mode()
     def test_woq_linear_asymmetric(
-        self, tensor_seed, batch, in_features, out_features, group_size, with_bias
+        self
     ):
         """Asymmetric WOQ per-group, opaque tensor path."""
-        unique_seed = (
-            hash((tensor_seed, batch, in_features, out_features, group_size, with_bias))
-            & 0x7FFFFFFF
-        )
-        g = torch.Generator().manual_seed(unique_seed)
-        input = torch.randn(batch, in_features, dtype=torch.bfloat16, generator=g)
-        weight = (
-            torch.randn(out_features, in_features, dtype=torch.bfloat16, generator=g)
-            * 0.02
-        )
-        bias = (
-            torch.randn(out_features, dtype=torch.bfloat16, generator=g) * 0.01
-            if with_bias
-            else None
-        )
 
-        int_data, scale_and_zero = self._quantize_weight(weight, group_size)
+        input = self.data.woq_input
+        weight = self.data.woq_weight * 0.02
+
+        bias = self.data.woq_bias
+
+        int_data, scale_and_zero = self._quantize_weight(weight, self.data.group_size)
         int4_packed = torch.ops.aten._convert_weight_to_int4pack_for_cpu(int_data, 1)
 
         pytorch_result = torch.ops.aten._weight_int4pack_mm_for_cpu(
-            input, int4_packed, group_size, scale_and_zero
+            input, int4_packed, self.data.group_size, scale_and_zero
         )
         if bias is not None:
             pytorch_result = pytorch_result + bias
@@ -127,7 +130,7 @@ class Test_WOQLinear_Asymmetric(WOQTestCase):
         )
 
         diff = (zentorch_result - pytorch_result).abs()
-        tag = "with bias" if with_bias else "no bias"
+        tag = "with bias" if self.data.woq_bias is not None else "no bias"
         print(
             f"\n[{tag}] Max diff: {diff.max().item():.6f}, "
             f"Mean diff: {diff.mean().item():.6f}"

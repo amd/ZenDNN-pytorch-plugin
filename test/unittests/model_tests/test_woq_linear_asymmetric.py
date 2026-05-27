@@ -16,6 +16,11 @@ from unittest_utils import (  # noqa: 402
     run_tests,
     counters,
     WOQTestCase,
+    woq_dtypes,
+    WOQ_INT4_BATCH_RANGE,
+    WOQ_INT4_IN_FEATURES_MULT_OPT,
+    WOQ_INT4_OUT_FEATURES_OPT,
+    WOQ_INT4_GROUP_SIZE_OPT,
 )
 
 QUANT_MIN, QUANT_MAX = 0, 15
@@ -75,14 +80,10 @@ class WOQ_Linear_Asymmetric_Model(nn.Module):
     Weights are quantized using the torchao tinygemm convention.
     """
 
-    def __init__(self, out_features, in_features, group_size, generator=None):
+    def __init__(self, weight, group_size):
         super().__init__()
-        original_weight = (
-            torch.randn(
-                out_features, in_features, dtype=torch.bfloat16, generator=generator
-            )
-            * 0.02
-        )
+        original_weight = weight * 0.02
+
         int_data, scale_and_zero = quantize_weight_tinygemm(original_weight, group_size)
         packed_weight = torch.ops.aten._convert_weight_to_int4pack_for_cpu(int_data, 1)
 
@@ -126,26 +127,28 @@ class Test_WOQ_Linear_Asymmetric(WOQTestCase):
             f"Max diff: {diff.max().item():.6f}",
         )
 
-    @WOQTestCase.hypothesis_params_woq_int4_itr(bias_opt_list=[False], time_out=30000)
+    @WOQTestCase.hypothesis_params_woq_itr(
+        dtype_opt_list=woq_dtypes,
+        batch_opt_list=WOQ_INT4_BATCH_RANGE,
+        in_features_opt_list=WOQ_INT4_IN_FEATURES_MULT_OPT,
+        out_features_opt_list=WOQ_INT4_OUT_FEATURES_OPT,
+        group_size_opt_list=WOQ_INT4_GROUP_SIZE_OPT,
+        bias_opt_list=[False],
+        time_out=30000
+    )
     @torch.inference_mode()
     def test_woq_linear_asymmetric_int4_opaque(
-        self, tensor_seed, batch, in_features, out_features, group_size
+        self,
     ):
-        """Asymmetric WOQ Int4OpaqueTensor pattern replacement."""
-        unique_seed = (
-            hash((tensor_seed, batch, in_features, out_features, group_size))
-            & 0x7FFFFFFF
-        )
-        g = torch.Generator().manual_seed(unique_seed)
         model = WOQ_Linear_Asymmetric_Model(
-            out_features, in_features, group_size, generator=g
+            self.data.woq_weight, self.data.group_size
         ).eval()
-        x = torch.randn(batch, in_features, dtype=torch.bfloat16, generator=g)
+        x = self.data.woq_input
         self._assert_woq_pattern_replaced(
             model,
             x,
             f"Asymmetric WOQ Int4OpaqueTensor "
-            f"(N={out_features}, K={in_features}, gs={group_size})",
+            f"(N={self.data.woq_weight.shape[0]}, K={self.data.woq_weight.shape[1]}, gs={self.data.group_size})",
         )
 
 

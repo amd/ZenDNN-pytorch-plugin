@@ -8,7 +8,6 @@ from pathlib import Path
 import os
 from hypothesis import given, settings, Verbosity, seed, strategies as st
 import inspect
-import copy
 from dataclasses import dataclass
 import unittest
 import pickle
@@ -36,7 +35,6 @@ from zentorch_test_utils import (  # noqa: 402 # noqa: F401
     freeze_opt,
     freeze_def_opt,
     test_with_freeze_opt,
-    woq_dtypes,
     mode_opt,
     MODE_OPT_DEF,
     include_last_offset_opt,
@@ -47,6 +45,10 @@ from zentorch_test_utils import (  # noqa: 402 # noqa: F401
     SCALE_GRAD_OPT_DEF,
     input_dim_opt,
     INPUT_DIM_OPT_DEF,
+    batch_opt,
+    in_features_opt,
+    out_features_opt,
+    woq_bias_opt,
     q_weight_list_opt,
     Q_WEIGHT_LIST_OPT_DEF,
     bias_opt,
@@ -59,6 +61,8 @@ from zentorch_test_utils import (  # noqa: 402 # noqa: F401
     q_zero_points_dtype_opt,
     Q_ZERO_POINTS_DTYPE_OPT_DEF,
     q_linear_dtype_opt,
+    woq_group_size_def,
+    DataTypes,
     conv_stride,
     conv_stride_def,
     conv_padding,
@@ -110,12 +114,7 @@ from zentorch_test_utils import (  # noqa: 402 # noqa: F401
     # mm vars
     MM_INPUT_SCALER_RANGE,
     # woq variables
-    WOQ_M_RANGE,
-    WOQ_X_RANGE,
-    WOQ_Y_RANGE,
-    WOQ_K_RANGE,
     woq_dtypes,
-    WOQ_QZEROS_NONZERO_DIM_RANGE,
     # woq int4 opaque tensor variables
     WOQ_INT4_BATCH_RANGE,
     WOQ_INT4_OUT_FEATURES_OPT,
@@ -1716,420 +1715,131 @@ class WOQTestCase(Zentorch_TestCase):
 
     def createData(
         self,
+        batch,
+        in_features,
+        out_features,
+        with_bias,
         dtype,
-        woq_m,
-        woq_x,
-        woq_y,
-        woq_k,
-        b,
-        m,
-        n,
-        packing_ratio,
-        group_size_val,
+        group_size,
         woq_input,
-        woq_add,
-        woq_mul,
-        woq_qweight,
-        woq_scales,
-        woq_qzeros,
-        woq_qzeros_nonzero,
+        woq_weight,
         woq_bias,
-        input3d,
-        input1d,
+        woq_mul_input,
+        woq_add_input,
+        woq_add_input_2,
     ):
         self.data.create_data_woq(
+            batch=batch,
+            in_features=in_features,
+            out_features=out_features,
+            with_bias=with_bias,
             dtype=dtype,
-            woq_m=woq_m,
-            woq_x=woq_x,
-            woq_y=woq_y,
-            woq_k=woq_k,
-            b=b,
-            m=m,
-            n=n,
-            packing_ratio=packing_ratio,
-            group_size_val=group_size_val,
+            group_size=group_size,
             woq_input=woq_input,
-            woq_add=woq_add,
-            woq_mul=woq_mul,
-            woq_qweight=woq_qweight,
-            woq_scales=woq_scales,
-            woq_qzeros=woq_qzeros,
-            woq_qzeros_nonzero=woq_qzeros_nonzero,
+            woq_weight=woq_weight,
             woq_bias=woq_bias,
-            input3d=input3d,
-            input1d=input1d,
+            woq_mul_input=woq_mul_input,
+            woq_add_input=woq_add_input,
+            woq_add_input_2=woq_add_input_2,
         )
 
     def createDataFromVal(self, val):
         (
             hypStr,
             tensor_seed,
+            batch,
+            in_features,
+            out_features,
+            with_bias,
             dtype,
-            freeze,
-            woq_m,
-            woq_x,
-            woq_y,
-            woq_k,
-            b,
-            m,
-            n,
-            scales_dtype,
-            woq_input_dim,
-            woq_bias_idx,
-            woq_qzeros_idx,
-            group_size_val,
+            group_size,
             woq_input,
-            packing_ratio,
-            woq_add,
-            woq_mul,
-            woq_qweight,
-            woq_scales,
-            woq_qzeros,
-            woq_qzeros_nonzero,
+            woq_weight,
             woq_bias,
-            input3d,
-            input1d,
+            woq_mul_input,
+            woq_add_input,
+            woq_add_input_2,
         ) = val
+
         self.createData(
+            batch=batch,
+            in_features=in_features,
+            out_features=out_features,
+            with_bias=with_bias,
             dtype=dtype,
-            woq_m=woq_m,
-            woq_x=woq_x,
-            woq_y=woq_y,
-            woq_k=woq_k,
-            b=b,
-            m=m,
-            n=n,
-            packing_ratio=packing_ratio,
-            group_size_val=group_size_val,
+            group_size=group_size,
             woq_input=woq_input,
-            woq_add=woq_add,
-            woq_mul=woq_mul,
-            woq_qweight=woq_qweight,
-            woq_scales=woq_scales,
-            woq_qzeros=woq_qzeros,
-            woq_qzeros_nonzero=woq_qzeros_nonzero,
+            woq_weight=woq_weight,
             woq_bias=woq_bias,
-            input3d=input3d,
-            input1d=input1d,
+            woq_mul_input=woq_mul_input,
+            woq_add_input=woq_add_input,
+            woq_add_input_2=woq_add_input_2,
         )
 
-    @seed(seed=SEED)
     @staticmethod
     @st.composite
     def tensor_woq_strategy(
         draw,
-        woq_dtypes_list,
-        input_dim_opt_list,
+        batch_opt_list,
+        in_features_opt_list,
+        out_features_opt_list,
         bias_opt_list,
-        woq_qzeros_opt_list,
-        group_size_opt_list=group_size_def_opt,
-        scales_dtype_list=supported_dtypes_def,
-        freeze_list=freeze_def_opt,
-        woq_m_Range=WOQ_M_RANGE,
-        woq_x_Range=WOQ_X_RANGE,
-        woq_y_Range=WOQ_Y_RANGE,
-        woq_k_Range=WOQ_K_RANGE,
-        bRange=B_RANGE,
-        mRange=M_RANGE,
-        nRange=N_RANGE,
-        woq_qzeros_nonzero_dim_Range=WOQ_QZEROS_NONZERO_DIM_RANGE,
+        dtype_opt_list=woq_dtypes,
+        group_size_opt_list=woq_group_size_def,
         tensor_seed=0,
     ):
-        hypStr = ""
-        if not tensor_seed:
-            tensor_seed = getRandomSeed()
-        hypStr += f"tensor_seed={tensor_seed}, "
-        generator = torch.Generator()
-        generator.manual_seed(tensor_seed)
-        dtype = draw(st.sampled_from(woq_dtypes_list))
-        hypStr += f"woq_dtypes_list=[{dtype!r}], "
-        woq_input_dim = draw(st.sampled_from(input_dim_opt_list))
-        hypStr += f"input_dim_opt_list=[{woq_input_dim}], "
-        woq_bias_idx = draw(st.sampled_from(bias_opt_list))
-        hypStr += f"bias_opt_list=[{woq_bias_idx}], "
-        woq_qzeros_idx = draw(st.sampled_from(woq_qzeros_opt_list))
-        hypStr += f"woq_qzeros_opt_list=[{woq_qzeros_idx}], "
-        scales_dtype = draw(st.sampled_from(scales_dtype_list))
-        hypStr += f"scales_dtype_list=[{scales_dtype!r}], "
-        freeze = draw(st.sampled_from(freeze_list))
-        hypStr += f"freeze_list=[{freeze}], "
-        group_size_val = draw(st.sampled_from(group_size_opt_list))
-        hypStr += f"group_size_opt_list=[{group_size_val}], "
-        woq_m = draw(st.integers(woq_m_Range.get_min(), woq_m_Range.get_max()))
-        hypStr += f"woq_m_Range=Range({woq_m}, {woq_m}), "
-        woq_x = draw(st.integers(woq_x_Range.get_min(), woq_x_Range.get_max()))
-        hypStr += f"woq_x_Range=Range({woq_x}, {woq_x}), "
-        woq_y = draw(st.integers(woq_y_Range.get_min(), woq_y_Range.get_max()))
-        hypStr += f"woq_y_Range=Range({woq_y}, {woq_y}), "
-        woq_k = draw(st.integers(woq_k_Range.get_min(), woq_k_Range.get_max()))
-        hypStr += f"woq_k_Range=Range({woq_k}, {woq_k}), "
-        b = draw(st.integers(bRange.get_min(), bRange.get_max()))
-        hypStr += f"bRange=Range({b}, {b}), "
-        m = draw(st.integers(mRange.get_min(), mRange.get_max()))
-        hypStr += f"mRange=Range({m}, {m}), "
-        n = draw(st.integers(nRange.get_min(), nRange.get_max()))
-        hypStr += f"nRange=Range({n}, {n}), "
-        woq_qzeros_nonzero_dim = draw(
-            st.integers(
-                woq_qzeros_nonzero_dim_Range.get_min(),
-                woq_qzeros_nonzero_dim_Range.get_max(),
-            )
-        )
-        hypStr += f"woq_qzeros_nonzero_dim_Range=Range({woq_qzeros_nonzero_dim}, {woq_qzeros_nonzero_dim}), "
+        """Unified strategy for WOQ tests (per-channel and per-group).
 
-        torch_type = DataTypes.get_torch_type(dtype)
-        constants = HypothesisConstants()
-        group_size = group_size_val
-        packing_ratio = constants.packing_ratio
-        if group_size == -1:
-            woq_k = woq_k * packing_ratio
-            group_size = woq_k
-        else:
-            woq_k = woq_k * packing_ratio * group_size
+        Generates all test data including dimensions and tensors.
+        This is where ALL random tensor creation happens.
 
-        woq_n = woq_k
-
-        woq_input = {
-            2: torch.randn(woq_m, woq_k, generator=generator).type(torch_type),
-            3: torch.randn(woq_m, woq_y, woq_k, generator=generator).type(torch_type),
-            4: torch.randn(woq_m, woq_x, woq_y, woq_k, generator=generator).type(
-                torch_type
-            ),
-        }
-        woq_add = {
-            2: torch.randn(woq_m, woq_n, generator=generator).type(torch_type),
-            3: torch.randn(woq_m, woq_y, woq_n, generator=generator).type(torch_type),
-            4: torch.randn(woq_m, woq_x, woq_y, woq_n, generator=generator).type(
-                torch_type
-            ),
-        }
-        woq_mul = {
-            2: torch.randn(woq_m, woq_n, generator=generator).type(torch_type),
-            3: torch.randn(woq_m, woq_y, woq_n, generator=generator).type(torch_type),
-            4: torch.randn(woq_m, woq_x, woq_y, woq_n, generator=generator).type(
-                torch_type
-            ),
-        }
-        woq_qweight = torch.randn(
-            woq_k, woq_n // packing_ratio, generator=generator
-        ).type(torch.int32)
-        woq_qweight = {
-            "bfloat16": copy.deepcopy(woq_qweight),
-            "float32": copy.deepcopy(woq_qweight),
-        }
-        woq_scales = torch.randn(woq_k // group_size, woq_n, generator=generator).type(
-            torch.bfloat16
-        )
-        woq_scales = {
-            "bfloat16": copy.deepcopy(woq_scales),
-            "float32": copy.deepcopy(woq_scales.type(torch.float32)),
-        }
-        woq_qzeros = [
-            None,
-            torch.zeros(woq_k // group_size, woq_n // packing_ratio).type(torch.int32),
-        ]
-        woq_qzeros_nonzero = torch.randint(
-            1,
-            woq_qzeros_nonzero_dim,
-            (woq_k // group_size, woq_n // packing_ratio),
-            generator=generator,
-        ).type(torch.int32)
-        woq_bias = [
-            None,
-            torch.randn(woq_n, generator=generator).type(torch_type),
-        ]
-
-        input3d = torch.randn(b, m, n, generator=generator).type(torch_type)
-        input1d = torch.randn(n, generator=generator).type(torch_type)
-
-        return (
-            hypStr,
-            tensor_seed,
-            dtype,
-            freeze,
-            woq_m,
-            woq_x,
-            woq_y,
-            woq_k,
-            b,
-            m,
-            n,
-            scales_dtype,
-            woq_input_dim,
-            woq_bias_idx,
-            woq_qzeros_idx,
-            group_size_val,
-            woq_input,
-            packing_ratio,
-            woq_add,
-            woq_mul,
-            woq_qweight,
-            woq_scales,
-            woq_qzeros,
-            woq_qzeros_nonzero,
-            woq_bias,
-            input3d,
-            input1d,
-        )
-
-    @staticmethod
-    def hypothesis_params_woq_itr(
-        woq_dtypes_list,
-        input_dim_opt_list,
-        bias_opt_list,
-        woq_qzeros_opt_list,
-        group_size_opt_list=group_size_def_opt,
-        scales_dtype_list=supported_dtypes_def,
-        freeze_list=freeze_def_opt,
-        woq_m_Range=WOQ_M_RANGE,
-        woq_x_Range=WOQ_X_RANGE,
-        woq_y_Range=WOQ_Y_RANGE,
-        woq_k_Range=WOQ_K_RANGE,
-        bRange=B_RANGE,
-        mRange=M_RANGE,
-        nRange=N_RANGE,
-        woq_qzeros_nonzero_dim_Range=WOQ_QZEROS_NONZERO_DIM_RANGE,
-        tensor_seed=0,
-    ):
-        skip_reason = None
-        if not all(
-            [
-                woq_dtypes_list,
-                input_dim_opt_list,
-                bias_opt_list,
-                woq_qzeros_opt_list,
-                scales_dtype_list,
-            ]
-        ):
-            skip_reason = "one or more required input lists are empty"
-
-        def hypothesis_params_woq_itr_impl(function):
-            if skip_reason:
-                print(f"Skipping test - {function.__name__}: {skip_reason}")
-                return unittest.skipIf(True, skip_reason)(function)
-
-            @settings(
-                deadline=WOQTestCase.time_out,
-                max_examples=WOQTestCase.max_example_per_test,
-                verbosity=Verbosity.quiet,
-            )
-            @given(
-                val=WOQTestCase.tensor_woq_strategy(
-                    woq_dtypes_list,
-                    input_dim_opt_list,
-                    bias_opt_list,
-                    woq_qzeros_opt_list,
-                    group_size_opt_list=group_size_opt_list,
-                    scales_dtype_list=scales_dtype_list,
-                    freeze_list=freeze_list,
-                    woq_m_Range=woq_m_Range,
-                    woq_x_Range=woq_x_Range,
-                    woq_y_Range=woq_y_Range,
-                    woq_k_Range=woq_k_Range,
-                    bRange=bRange,
-                    mRange=mRange,
-                    nRange=nRange,
-                    woq_qzeros_nonzero_dim_Range=woq_qzeros_nonzero_dim_Range,
-                    tensor_seed=tensor_seed,
-                )
-            )
-            def wrapper(obj, val, *args, **kwargs):
-                try:
-                    (
-                        hypStr,
-                        tensor_seed,
-                        dtype,
-                        freeze,
-                        woq_m,
-                        woq_x,
-                        woq_y,
-                        woq_k,
-                        b,
-                        m,
-                        n,
-                        scales_dtype,
-                        woq_input_dim,
-                        woq_bias_idx,
-                        woq_qzeros_idx,
-                        group_size_val,
-                        *_,
-                    ) = val
-
-                    if not hasattr(obj, "getData") or not isinstance(
-                        obj.getData(), Test_Data
-                    ):
-                        raise RuntimeError(
-                            "hypothesis_params_woq_itr called with invalid object"
-                        )
-
-                    obj.createDataFromVal(val)
-
-                    test_args = {
-                        "dtype": dtype,
-                        "scales_dtype": scales_dtype,
-                        "woq_input_dim": woq_input_dim,
-                        "woq_bias_idx": woq_bias_idx,
-                        "woq_qzeros_idx": woq_qzeros_idx,
-                        "group_size_val": group_size_val,
-                        "freeze_opt": freeze,
-                    }
-                    required_args = inspect.signature(function).parameters.keys()
-
-                    function(
-                        obj,
-                        *args,
-                        **{k: v for k, v in test_args.items() if k in required_args},
-                        **kwargs,
-                    )
-                except Exception as e:
-                    if not isinstance(e, unittest.SkipTest):
-                        decName = "WOQTestCase.hypothesis_params_woq_itr"
-                        pklReplayFunction = "WOQTestCase.replay_from_pickle"
-                        obj.handleException(
-                            obj,
-                            str(e),
-                            hypStr,
-                            function.__name__,
-                            decName,
-                            pklReplayFunction,
-                            val,
-                            test_args,
-                        )
-                    raise  # Re-raise the exception after printing
-                return
-
-            return wrapper
-
-        return hypothesis_params_woq_itr_impl
-
-    @seed(seed=SEED)
-    @staticmethod
-    @st.composite
-    def tensor_woq_int4_strategy(
-        draw,
-        batch_Range=WOQ_INT4_BATCH_RANGE,
-        out_features_opt_list=WOQ_INT4_OUT_FEATURES_OPT,
-        group_size_opt_list=WOQ_INT4_GROUP_SIZE_OPT,
-        in_features_mult_opt_list=WOQ_INT4_IN_FEATURES_MULT_OPT,
-        bias_opt_list=WOQ_INT4_BIAS_OPT,
-        tensor_seed=0,
-    ):
+        Args:
+            dtype_opt_list: List of dtype strings to test. Defaults to woq_dtype.
+            group_size_opt_list: List of group sizes for per-group quantization.
+                                 Defaults to woq_group_size_def ([16]). Pass [None] for per-channel.
+        """
         hypStr = ""
         if not tensor_seed:
             tensor_seed = getRandomSeed()
         hypStr += f"tensor_seed={tensor_seed}, "
 
-        batch = draw(st.integers(batch_Range.get_min(), batch_Range.get_max()))
-        hypStr += f"batch_Range=Range({batch},{batch}), "
+        # Draw dimensions
+        batch = draw(st.sampled_from(batch_opt_list))
+        hypStr += f"batch_opt_list=[{batch}], "
+        in_features = draw(st.sampled_from(in_features_opt_list))
+        hypStr += f"in_features_opt_list=[{in_features}], "
         out_features = draw(st.sampled_from(out_features_opt_list))
         hypStr += f"out_features_opt_list=[{out_features}], "
-        group_size = draw(st.sampled_from(group_size_opt_list))
-        hypStr += f"group_size_opt_list=[{group_size}], "
-        in_features_mult = draw(st.sampled_from(in_features_mult_opt_list))
-        hypStr += f"in_features_mult_opt_list=[{in_features_mult}], "
-        in_features = group_size * in_features_mult
         with_bias = draw(st.sampled_from(bias_opt_list))
         hypStr += f"bias_opt_list=[{with_bias}], "
+
+        # Draw dtype string and map to torch dtype
+        dtype_str = draw(st.sampled_from(dtype_opt_list))
+        hypStr += f"dtype_opt_list=[{dtype_str!r}], "
+        dtype = DataTypes.get_torch_type(dtype_str)
+
+        # Draw group_size
+        group_size = draw(st.sampled_from(group_size_opt_list))
+        if group_size is not None:
+            hypStr += f"group_size_opt_list=[{group_size}], "
+
+        # Create all tensors using seeded generator
+        # This is the ONLY place where random tensors are created
+        generator = torch.Generator()
+        generator.manual_seed(tensor_seed)
+
+        woq_input = torch.randn(batch, in_features, dtype=dtype, generator=generator)
+        woq_weight = torch.randn(out_features, in_features, dtype=dtype, generator=generator)
+        woq_bias = (
+            torch.randn(out_features, dtype=dtype, generator=generator)
+            if with_bias
+            else None
+        )
+
+        # For binary fusion tests (mul_add, add_add)
+        woq_mul_input = torch.randn(batch, out_features, dtype=dtype, generator=generator)
+        woq_add_input = torch.randn(batch, out_features, dtype=dtype, generator=generator)
+        woq_add_input_2 = torch.randn(batch, out_features, dtype=dtype, generator=generator)
 
         return (
             hypStr,
@@ -2137,68 +1847,62 @@ class WOQTestCase(Zentorch_TestCase):
             batch,
             in_features,
             out_features,
-            group_size,
             with_bias,
+            dtype_str,
+            group_size,
+            woq_input,
+            woq_weight,
+            woq_bias,
+            woq_mul_input,
+            woq_add_input,
+            woq_add_input_2,
         )
 
     @staticmethod
-    def hypothesis_params_woq_int4_itr(
-        batch_Range=WOQ_INT4_BATCH_RANGE,
-        out_features_opt_list=WOQ_INT4_OUT_FEATURES_OPT,
-        group_size_opt_list=WOQ_INT4_GROUP_SIZE_OPT,
-        in_features_mult_opt_list=WOQ_INT4_IN_FEATURES_MULT_OPT,
-        bias_opt_list=WOQ_INT4_BIAS_OPT,
+    def hypothesis_params_woq_itr(
+        batch_opt_list,
+        in_features_opt_list,
+        out_features_opt_list,
+        bias_opt_list,
+        dtype_opt_list=woq_dtypes,
+        group_size_opt_list=woq_group_size_def,
         tensor_seed=0,
         time_out=None,
     ):
-        def hypothesis_params_woq_int4_itr_impl(function):
+        """Unified hypothesis iterator for WOQ tests (per-channel and per-group).
+        """
+        def hypothesis_params_woq_itr_impl(function):
             @settings(
                 deadline=WOQTestCase.time_out if time_out is None else time_out,
                 max_examples=WOQTestCase.max_example_per_test,
                 verbosity=Verbosity.quiet,
             )
             @given(
-                val=WOQTestCase.tensor_woq_int4_strategy(
-                    batch_Range=batch_Range,
+                val=WOQTestCase.tensor_woq_strategy(
+                    batch_opt_list=batch_opt_list,
+                    in_features_opt_list=in_features_opt_list,
                     out_features_opt_list=out_features_opt_list,
-                    group_size_opt_list=group_size_opt_list,
-                    in_features_mult_opt_list=in_features_mult_opt_list,
                     bias_opt_list=bias_opt_list,
+                    dtype_opt_list=dtype_opt_list,
+                    group_size_opt_list=group_size_opt_list,
                     tensor_seed=tensor_seed,
                 )
             )
             def wrapper(obj, val, *args, **kwargs):
                 try:
-                    (
-                        hypStr,
-                        tensor_seed,
-                        batch,
-                        in_features,
-                        out_features,
-                        group_size,
-                        with_bias,
-                    ) = val
+                    hypStr, _, _, _, _, _, dtype, *_ = val
 
-                    test_args = {
-                        "tensor_seed": tensor_seed,
-                        "batch": batch,
-                        "in_features": in_features,
-                        "out_features": out_features,
-                        "group_size": group_size,
-                        "with_bias": with_bias,
-                    }
-                    required_args = inspect.signature(function).parameters.keys()
+                    obj.createDataFromVal(val)
 
-                    function(
-                        obj,
-                        *args,
-                        **{k: v for k, v in test_args.items() if k in required_args},
-                        **kwargs,
-                    )
+                    # Call the test function (no parameters needed - uses self.data)
+                    function(obj, *args, **kwargs)
                 except Exception as e:
                     if not isinstance(e, unittest.SkipTest):
-                        decName = "WOQTestCase.hypothesis_params_woq_int4_itr"
+                        decName = "WOQTestCase.hypothesis_params_woq_itr"
                         pklReplayFunction = "WOQTestCase.replay_from_pickle"
+                        test_args = {
+                            "dtype": dtype,
+                        }
                         obj.handleException(
                             obj,
                             str(e),
@@ -2214,7 +1918,7 @@ class WOQTestCase(Zentorch_TestCase):
 
             return wrapper
 
-        return hypothesis_params_woq_int4_itr_impl
+        return hypothesis_params_woq_itr_impl
 
 
 class QLinearTestCase(Zentorch_TestCase):

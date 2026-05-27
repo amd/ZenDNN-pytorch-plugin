@@ -29,6 +29,8 @@ supported_dtypes = ["float32"]
 supported_dtypes_def = []
 qlinear_dtypes = []
 freeze_opt = [True, False]
+
+woq_group_size_def = [16]  # Per-channel tests should explicitly pass [None]
 freeze_def_opt = [False]
 woq_dtypes = []
 
@@ -103,10 +105,10 @@ WOQ_QZEROS_NONZERO_DIM_RANGE = Range(15, 15)
 #   out_features must be a multiple of 64 (BLOCK_N in unpack_int4pack_to_int8)
 #   group_size must be 32, 64, 128, or 256 (_weight_int4pack_mm_for_cpu)
 #   in_features = group_size * multiplier (must be divisible by group_size)
-WOQ_INT4_BATCH_RANGE = Range(1, 8)
+WOQ_INT4_BATCH_RANGE = [1, 2, 3, 4, 5, 6, 7, 8]
 WOQ_INT4_OUT_FEATURES_OPT = [64, 128]
 WOQ_INT4_GROUP_SIZE_OPT = [128, 256]
-WOQ_INT4_IN_FEATURES_MULT_OPT = [2, 4]
+WOQ_INT4_IN_FEATURES_MULT_OPT = [256, 512, 1024]
 WOQ_INT4_BIAS_OPT = [True, False]
 
 MM_ADD_1D_M_RANGE = Range(148, 148)
@@ -155,6 +157,10 @@ sparse_opt = [True, False]
 SPARSE_OPT_DEF = [False]
 input_dim_opt = [2, 3, 4]
 INPUT_DIM_OPT_DEF = [2]
+batch_opt = [1, 4, 16, 24, 32]
+in_features_opt = [32, 64, 128]
+out_features_opt = [32, 48, 64]
+woq_bias_opt = [True, False]
 q_weight_list_opt = [0, 1]
 Q_WEIGHT_LIST_OPT_DEF = [0]
 bias_opt = [0, 1]
@@ -811,51 +817,6 @@ class Test_Data(metaclass=Singleton):
         self.y3d = y3d
         self.input3d = input3d
 
-    # Create data for woq_linear tests
-    # Ensure data creation for this cateogry tests in this function
-    def create_data_woq(
-        self,
-        dtype,
-        woq_m,
-        woq_x,
-        woq_y,
-        woq_k,
-        b,
-        m,
-        n,
-        packing_ratio,
-        group_size_val,
-        woq_input,
-        woq_add,
-        woq_mul,
-        woq_qweight,
-        woq_scales,
-        woq_qzeros,
-        woq_qzeros_nonzero,
-        woq_bias,
-        input3d,
-        input1d,
-    ):
-        self.woq_m, self.woq_x, self.woq_y, self.woq_k = (woq_m, woq_x, woq_y, woq_k)
-        self.b, self.m, self.n = (b, m, n)
-
-        self.woq_group_size = group_size_val
-        self.packing_ratio = packing_ratio
-
-        self.woq_input = woq_input
-        self.woq_add = woq_add
-        self.woq_mul = woq_mul
-        woq_qweight = woq_qweight
-
-        self.woq_qweight = woq_qweight
-        woq_scales = woq_scales
-        self.woq_scales = woq_scales
-        self.woq_qzeros = woq_qzeros
-        self.woq_qzeros_nonzero = woq_qzeros_nonzero
-        self.woq_bias = woq_bias
-        self.input3d = input3d
-        self.input1d = input1d
-
     # Create data for qlinear tests
     # Ensure data creation for this cateogry tests in this function
     def create_data_qlinear(
@@ -934,6 +895,46 @@ class Test_Data(metaclass=Singleton):
         self.sdpa_key = sdpa_key
         self.sdpa_value = sdpa_value
         self.mask_shape = mask_shape
+
+    def create_data_woq(
+        self,
+        batch,
+        in_features,
+        out_features,
+        with_bias,
+        dtype,
+        group_size,
+        woq_input,
+        woq_weight,
+        woq_bias,
+        woq_mul_input,
+        woq_add_input,
+        woq_add_input_2,
+    ):
+        """Store test data for WOQ tests (per-channel and per-group).
+
+        Receives pre-created tensors from the hypothesis strategy and stores them.
+        Tests simply access these pre-created tensors from self.data.
+
+        Args:
+            dtype: Data type string (e.g., "bfloat16", "float32").
+            group_size: Group size for per-group quantization, or None for per-channel.
+        """
+        # Store dimensions and parameters
+        self.batch = batch
+        self.in_features = in_features
+        self.out_features = out_features
+        self.with_bias = with_bias
+        self.dtype = dtype
+        self.group_size = group_size
+
+        # Store all pre-created tensors
+        self.woq_input = woq_input
+        self.woq_weight = woq_weight
+        self.woq_bias = woq_bias
+        self.woq_mul_input = woq_mul_input
+        self.woq_add_input = woq_add_input
+        self.woq_add_input_2 = woq_add_input_2
 
     # TODO ZENAI-1522
     # Change str_type -> str_type.lower()
