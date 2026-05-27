@@ -128,6 +128,14 @@ std::tuple<at::Tensor, at::Tensor> zentorch_scaled_dot_product_attention_impl(
         at::GradMode::is_enabled() &&
         (query.requires_grad() || key.requires_grad() || value.requires_grad());
 
+    // Both downstream kernels (in-plugin AVX-512 flash and ZenDNN direct)
+    // consume the mask via vectorized loads on its innermost (KV) axis and
+    // require stride(-1) == 1. Normalize here for callers that do not
+    // satisfy this (e.g. T5 cross-attention); a no-op when already so.
+    if (attn_mask.has_value() && attn_mask->defined() &&
+        attn_mask->stride(-1) != 1) {
+      attn_mask = attn_mask->contiguous();
+    }
     const bool use_zendnnl_direct_sdpa = (int_env_value == 1) && !requires_lse;
     if (use_zendnnl_direct_sdpa) {
       // ZenDNN flash SDPA is inference-only and does not compute logsumexp.
