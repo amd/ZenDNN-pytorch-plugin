@@ -515,7 +515,7 @@ TORCH_LIBRARY(zentorch, m) {
   m.def("zentorch_bmm.out(Tensor self, Tensor mat2, str "
         "zentorch_op_name='zentorch::zentorch_bmm', *, Tensor(a!) out) "
         "-> ()",
-        {at::Tag::needs_contiguous_strides, at::Tag::out_variant});
+        {at::Tag::needs_contiguous_strides});
   m.def(
       "zentorch_addmm(Tensor self, Tensor mat1, Tensor mat2, *, Scalar beta=1, "
       "Scalar alpha=1, str zentorch_op_name='zentorch::zentorch_addmm') "
