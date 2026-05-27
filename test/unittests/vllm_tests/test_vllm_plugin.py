@@ -252,7 +252,7 @@ class TestVllmPluginVersionCheck(unittest.TestCase):
                 mock.patch.object(zv, "get_version_family", return_value="v21"),
                 mock.patch.object(zv, "_apply_faketensor_subclass_patch"),
                 mock.patch.object(zv, "_apply_fxgraphcache_pickle_patch"),
-                mock.patch.object(zv, "_register_zentorch_linear_dispatch"),
+                mock.patch.object(zv, "_apply_torchao_int8_tensor_patch_impl"),
                 mock.patch.object(zv, "_register_patches") as register_patches,
                 mock.patch.object(zv.manager, "apply_all") as apply_all,
                 mock.patch.object(zv, "_install_pre_v18_dispatch_hooks") as install_hooks,
