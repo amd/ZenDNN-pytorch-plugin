@@ -197,9 +197,6 @@ All sub-tests use `K == K_out == N` (buffer reuse constraint). Parameterized wit
 | Limitation | Detail |
 |------------|--------|
 | Mixed bf16-Op1 / int8-Op2 | Unsupported — LowOHA enforces one quant scheme for both passes |
-| Buffer reuse constraint | Fused w2 requires `K == K_out` (kernel writes w2 output back into input buffers) |
-| int8 + gated activation + fused w2 | Produces incorrect results — ZenDNN's `group_matmul_direct` does not correctly propagate `src_scale` buffers when dynamic int8 quantization is combined with gated activation + fused w2 in the MoE pipeline. Standalone int8 group GEMM without gated activation works correctly. |
-| Validation gating | Input validation checks (`validate_all_inputs`) are gated by `ZENTORCH_ENABLE_CHECKS` env var, read via `EnvReader::getEnvVariableAsInt()`. Because `EnvReader` caches values at initialization time (`std::call_once`), the env var must be set **before process start** — setting it after the process has begun has no effect. Default: `0` (disabled). |
 
 ## 8. Reference
 

@@ -248,8 +248,8 @@ build_token_expert_mapping(const at::Tensor &input, const at::Tensor &topk_id) {
       }
     } else {
       for (int64_t a = 0; a < E_a; ++a) {
-        mapping.grouped_inputs[a] =
-            at::empty({tokens_per_active[a], H}, input.options());
+        mapping.grouped_inputs[a] = at::detail::empty_strided_cpu(
+            {tokens_per_active[a], H}, {H, 1}, input.options());
       }
     }
   } // RECORD_FUNCTION scratchpad_allocation
@@ -420,8 +420,8 @@ void zentorch_fused_moe(
   // inputs from these buffers within the fused chain, and both shapes are
   // [M_e, H]. row_ptrs therefore point directly into
   // `mapping.grouped_inputs`.
-  auto row_ptrs =
-      at::empty({total_pairs}, at::TensorOptions().dtype(at::kLong));
+  at::Tensor row_ptrs =
+      at::detail::empty_strided_cpu({total_pairs}, {1}, at::kLong);
   int64_t *row_ptrs_data = row_ptrs.data_ptr<int64_t>();
   for (int64_t i = 0; i < total_pairs; ++i) {
     const auto [a, pos] = mapping.topk_to_expert_row[i];
@@ -453,7 +453,8 @@ void zentorch_fused_moe(
     std::vector<at::Tensor> w13_gemm_outs(E_a);
     for (int64_t a = 0; a < E_a; ++a) {
       const int64_t M_e = mapping.grouped_inputs[a].size(0);
-      w13_gemm_outs[a] = at::empty({M_e, N}, input.options());
+      w13_gemm_outs[a] =
+          at::detail::empty_strided_cpu({M_e, N}, {N, 1}, input.options());
     }
 
     const std::vector<c10::optional<at::Tensor>> empty_optional_vec_E{};

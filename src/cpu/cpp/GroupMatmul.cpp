@@ -194,7 +194,7 @@ validate_w2_params(const std::vector<at::Tensor> &inputs,
       has_tensor(w2_weights[0]) && w2_weights[0]->scalar_type() == c10::kChar;
 
   if (has_int8_w2) {
-    validate_weight_scales(w2_scales, num_total, "w2_scales");
+    validate_weight_scales(w2_scales, num_active, "w2_scales");
   }
 
   // Validate every w2 weight (active + inactive prepack tail).

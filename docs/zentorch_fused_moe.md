@@ -275,10 +275,6 @@ The vLLM forward path normalizes `MoEActivation` enums to their `.value` string 
 | Limitation | Detail |
 |------------|--------|
 | Mixed bf16-Op1 / int8-Op2 | Unsupported — LowOHA enforces one quant scheme for both passes. Both must be int8 or both bf16. |
-| E_a == 1 | Rejected with clear error. Occurs with K=1 routing at T=1 (single-token decode) |
-| Buffer reuse constraint | Fused w2 requires `K_out == K` for the kernel to safely write w2 output back into input buffers |
-| int8 + gated activation + fused w2 | Produces incorrect results — ZenDNN's `group_matmul_direct` does not correctly propagate `src_scale` buffers when dynamic int8 quantization is combined with gated activation + fused w2 in the MoE pipeline. Standalone int8 group GEMM without gated activation works correctly. |
-| Validation gating | Input validation checks in `GroupMatmul.cpp` are gated by `ZENTORCH_ENABLE_CHECKS` env var, read via `EnvReader::getEnvVariableAsInt()`. Because `EnvReader` caches values at initialization time (`std::call_once` in `initializeVariables()`), the env var must be set **before process start**. Default: `0` (disabled). |
 
 ## 9. Reference
 
