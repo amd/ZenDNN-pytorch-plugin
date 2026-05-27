@@ -242,6 +242,7 @@ _desc_file = "DESCRIPTION_WEEKLY.md" if RELEASE_TYPE == "weekly" else "DESCRIPTI
 long_description = ""
 with open(Path(project_root_dir, _desc_file), encoding="utf-8") as f:
     long_description = f.read()
+long_description = long_description.replace("{{PYTORCH_VERSION}}", PT_VERSION)
 
 _build_info_section = "\n## Build Information\n\n"
 _build_info_section += "| Field | Value |\n|---|---|\n"

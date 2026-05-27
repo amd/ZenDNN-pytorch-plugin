@@ -45,11 +45,11 @@ Table of Contents
 
 ## 1.1. Overview
 
-__The latest stable ZenDNN Plugin for PyTorch* (zentorch) [2.12.0.0](https://github.com/amd/ZenDNN-pytorch-plugin/tree/v2.12.0.0).__
+__The pre-release for ZenDNN Plugin for PyTorch* (zentorch) [2.12.0.1]__
 
 The ZenDNN plugin for PyTorch is called zentorch.
 
-zentorch 2.12.0.0 plugin is the PyTorch plugin which comes with ZenDNN 5.2.2.
+zentorch 2.12.0.1 plugin is the PyTorch plugin which comes with ZenDNN 6.0.0.
 This upgrade continues the focus on optimizing inference with Recommender Systems and Large Language Models on AMD EPYC™ CPUs. It includes AMD EPYC™ enhancements for bfloat16 performance, expanded support for cutting-edge models like Llama 3.2 and 3.3, Microsoft Phi, and more as well as support for a wide-variety of quantization configurations.
 The quantization support included 4-bit weight-only quantization, along with support for INT8 dynamic activation and INT8 weight quantization, and quantized support for the DLRM-v2 model with a mix of 8-bit and 4-bit quantization.
 This also includes support for running generative models with vLLM.
@@ -59,12 +59,12 @@ They also incorporate optimized embedding bag kernels and enhanced zenMatMul mat
 
 Combined with PyTorch's torch.compile, zentorch transforms deep learning pipelines into finely-tuned, AMD-specific engines, delivering unparalleled efficiency and speed for large-scale inference workloads
 
-_zentorch_ supports PyTorch v2.12.0 and v2.11.0. Install the zentorch version matching your PyTorch — zentorch 2.12.0.0 for PyTorch v2.12.0, or zentorch 2.11.0.0 for PyTorch v2.11.0, offering a high-performance experience for deep learning on AMD EPYC™ platforms.
+_zentorch_ supports PyTorch v2.12.0 and v2.11.0. Install the zentorch version matching your PyTorch — zentorch 2.12.0.1 for PyTorch v2.12.0, or zentorch 2.11.0.1 for PyTorch v2.11.0, offering a high-performance experience for deep learning on AMD EPYC™ platforms.
 
 
 ## Support
 
-We welcome feedback, suggestions, and bug reports. Should you have any of the these, please kindly file an issue on the ZenDNN Plugin for PyTorch Github page [here](https://github.com/amd/ZenDNN-pytorch-plugin/issues)
+We welcome feedback, suggestions, and bug reports. Should you have any of the these, please kindly file an issue on the ZenDNN Plugin for PyTorch GitHub page [here](https://github.com/amd/ZenDNN-pytorch-plugin/issues)
 
 ## License
 
@@ -112,7 +112,7 @@ Refer to the [support matrix](https://www.amd.com/en/developer/zendnn.html#getti
 # 2. Installation
 
 _zentorch_ can be installed using binary wheel file or can be built from source itself.
-_zentorch_ supports PyTorch v2.12.0 and v2.11.0. Install the zentorch version matching your PyTorch — zentorch v2.12.0.0 for PyTorch v2.12.0, or zentorch v2.11.0.0 for PyTorch v2.11.0.
+_zentorch_ supports PyTorch v2.12.0 and v2.11.0. Install the zentorch version matching your PyTorch — zentorch v2.12.0.1 for PyTorch v2.12.0, or zentorch v2.11.0.1 for PyTorch v2.11.0.
 
 ## 2.1. From PyPI
 
@@ -146,7 +146,7 @@ git clone https://github.com/amd/ZenDNN-pytorch-plugin.git
 cd ZenDNN-pytorch-plugin
 ```
 >**Notes:**
->* The repository defaults to the main branch. To build the stable 2.12.0.0 release, checkout the tag v2.12.0.0: ```git checkout v2.12.0.0```
+>* The repository defaults to the main branch. To build the rc1 for 2.12.0.1, checkout the tag v2.12.0.1_rc1: ```git checkout v2.12.0.1_rc1```
 >* ```export ZENDNNL_MANYLINUX_BUILD=1``` is needed for build from source for RHEL/FEDORA/Almalinux/CentOS OS families
 
 ### 2.2.1. Preparing third party repositories
@@ -186,7 +186,7 @@ python setup.py bdist_wheel
 
 #### 2.2.2.5. To install the wheel file of _zentorch_
 ```bash
-pip install dist/zentorch-2.12.0.0-cp310-cp310-linux_x86_64.whl
+pip install dist/zentorch-2.12.0.1-cp310-cp310-linux_x86_64.whl
 ```
 >**Note:** After installation, run the following script for recommended environment settings:
 >```bash
@@ -208,6 +208,7 @@ python test/install_requirements.py
 ```bash
 export ZENDNNL_MATMUL_WEIGHT_CACHE=0
 export ZENDNNL_ZP_COMP_CACHE=0
+export ZENDNNL_ENABLE_POSTOP_CACHE=0
 ```
 
 ## 3.2 Run All Unit Tests
@@ -316,8 +317,8 @@ tokenizer.save_pretrained(output_dir)
 ```
 
 >**Notes:**
->* Ensure you have the required dependencies installed: `pip install transformers torchao==0.16.0`
->* zentorch currently only supports `torchao==0.16.0` for quantization.
+>* Ensure you have the required dependencies installed: `pip install transformers torchao==0.17.0`
+>* zentorch currently only supports `torchao==0.17.0` for quantization.
 >* Use `safe_serialization=False` when saving for compatibility with zentorch.
 >* The `modules_to_not_convert` parameter specifies modules that should be skipped during quantization. The `lm_head` module is generally avoided, as it introduces a high accuracy deficit. Some models require additional modules to be skipped as mentioned above.
 
@@ -452,7 +453,7 @@ TORCH_COMPILE_DEBUG=1 python test.py
 For more information about TORCH_COMPILE_DEBUG refer to the official PyTorch documentation available.
 
 # 6. Performance tuning and Benchmarking
-zentorch v2.12.0.0 plugin is supported with ZenDNN v5.2.2 plugin. Please see the **Tuning Guidelines** section of ZenDNN User Guide for performance tuning. ZenDNN User Guide can be downloaded from [here](https://developer.amd.com/zendnn)
+zentorch v2.12.0.1 plugin is supported with ZenDNN v6.0.0 plugin. Please see the **Tuning Guidelines** section of ZenDNN User Guide for performance tuning. ZenDNN User Guide can be downloaded from [here](https://developer.amd.com/zendnn)
 
 # 7. Additional Utilities:
 

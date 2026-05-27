@@ -12,13 +12,13 @@ They also incorporate optimized embedding bag kernels and enhanced zenMatMul mat
 
 The vLLM-ZenTorch plugin extends these benefits to the vLLM inference engine, enabling plug-and-play acceleration of large language model inference on AMD EPYC™ CPUs. By integrating ZenTorch with vLLM, users can achieve significant throughput improvements for LLM workloads with zero code changes.
 
-The zentorch plugin seamlessly works with PyTorch 2.12.0 and 2.11.0, offering a high-performance experience for deep learning on AMD EPYC™ platforms.
+The zentorch plugin seamlessly works with PyTorch {{PYTORCH_VERSION}}, offering a high-performance experience for deep learning on AMD EPYC™ platforms.
 
 In addition to stable (GA) releases, the zentorch plugin provides weekly releases via the `zentorch-weekly` package on PyPI.
 
 ## Support
 
-We welcome feedback, suggestions, and bug reports. Should you have any of the these, please kindly file an issue on the ZenDNN Plugin for PyTorch Github page [here](https://github.com/amd/ZenDNN-pytorch-plugin/issues)
+We welcome feedback, suggestions, and bug reports. Should you have any of the these, please kindly file an issue on the ZenDNN Plugin for PyTorch GitHub page [here](https://github.com/amd/ZenDNN-pytorch-plugin/issues)
 
 ## License
 

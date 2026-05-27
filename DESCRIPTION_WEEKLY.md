@@ -4,13 +4,13 @@ The ZenDNN PyTorch plugin is called zentorch. Combined with PyTorch's torch.comp
 
 This is a **weekly** release of zentorch, published as `zentorch-weekly` on PyPI.
 
-The zentorch plugin seamlessly works with PyTorch 2.12.0 and 2.11.0, offering a high-performance experience for deep learning on AMD EPYC™ platforms.
+The zentorch plugin seamlessly works with PyTorch {{PYTORCH_VERSION}}, offering a high-performance experience for deep learning on AMD EPYC™ platforms.
 
 For stable (GA) releases, install the `zentorch` package instead.
 
 ## Support
 
-We welcome feedback, suggestions, and bug reports. Should you have any of the these, please kindly file an issue on the ZenDNN Plugin for PyTorch Github page [here](https://github.com/amd/ZenDNN-pytorch-plugin/issues)
+We welcome feedback, suggestions, and bug reports. Should you have any of the these, please kindly file an issue on the ZenDNN Plugin for PyTorch GitHub page [here](https://github.com/amd/ZenDNN-pytorch-plugin/issues)
 
 ## License
 

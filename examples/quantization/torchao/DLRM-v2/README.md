@@ -120,11 +120,11 @@ compiled = torch.compile(quantized, backend="inductor")
 ## Requirements
 
 - PyTorch 2.x with PT2E support (recommended version- 2.12.0)
-- TorchAO (`torchao.quantization.pt2e`) (recommended version- 0.16.0)
+- TorchAO (`torchao.quantization.pt2e`) (recommended version- 0.17.0)
 - DLRMv2 model (`dlrm_model.DLRMMLPerf`)
 - Dataset(`multihot-criteo`)
 - scikit-learn
-- zentorch (recommended version- 2.12.0.0)
+- zentorch (recommended version- 2.12.0.1)
 
 ## ROC AUC Accuracy Scores
 

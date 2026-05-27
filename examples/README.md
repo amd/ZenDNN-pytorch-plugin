@@ -23,30 +23,6 @@ python dlrm_example.py
 AUC Score: 0.5
 ```
 
-## LLAMA: Bfloat16
-### Execute the following command to run inference for llama bf16 model:
-```bash
-python llama_bf16_example.py
-```
-### Output
-
-```plain
-'Hi, How are you today? I hope you are having a great day. I'
-```
-
-## LLAMA: Weight Only Quantization
-Please update the following line with the correct path to your quantized model in llama_woq_example.py:
-```python
-safetensor_path = "<Path to Quantized Model>"
-```
-### Execute the following command to run inference for llama woq model:
-```bash
-python llama_woq_example.py
-```
-### Output
-```plain
-'Hi, How are you today? I hope you are having a great day. I'
-```
 
 ## Resnet
 ### Execute the following command to run inference for resnet model:
