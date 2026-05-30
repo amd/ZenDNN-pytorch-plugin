@@ -158,7 +158,7 @@ jobs:
         shell: bash 
         
       - name: Checkout ZenDNN_PyTorch_Plugin
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
          ref: ${{ 
             github.event.action == 'zendnnl-pr' && 'zentorch_zendnnl' ||

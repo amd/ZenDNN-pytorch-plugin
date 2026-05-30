@@ -1,3 +1,8 @@
+# ******************************************************************************
+# Copyright (c) 2025-2026 Advanced Micro Devices, Inc.
+# All rights reserved.
+# ******************************************************************************
+
 name: ZenDNN PyTorch Plugin CI
 
 on:
@@ -35,7 +40,7 @@ jobs:
       ZENDNN_REF: ${{ github.event.inputs.zendnn_ref || github.event.client_payload.zendnn_ref || '' }}
     steps:
       - name: Checkout ZenDNN_PyTorch_Plugin
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 

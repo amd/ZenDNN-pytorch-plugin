@@ -157,7 +157,7 @@ jobs:
         shell: bash
 
       - name: Checkout ZenDNN_PyTorch_Plugin
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0  # Fetch ALL history including all commits
 
