@@ -17,7 +17,7 @@ permissions:
 jobs:
   notify_teams:
     runs-on: amd-zenai-arc-xsmall-dind
-    timeout-minutes: 90
+    timeout-minutes: 120
     if: github.actor != 'github-actions[bot]'
     
     steps:
@@ -161,7 +161,7 @@ jobs:
             
             let checks = await getAllChecks();
             let attempts = 0;
-            const maxAttempts = 30; // 30 minutes max
+            const maxAttempts = 90; // 90 minutes max wait for builds
             
             console.log(`\n🔄 Starting monitoring loop...`);
             
