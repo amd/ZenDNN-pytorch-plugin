@@ -9,9 +9,12 @@ import os
 from hypothesis import given, settings, Verbosity, seed, strategies as st
 import inspect
 from dataclasses import dataclass
+import random
 import unittest
 import pickle
 from datetime import datetime
+
+import numpy as np
 
 sys.path.append(str(Path(__file__).parent.parent))
 
@@ -84,6 +87,7 @@ from zentorch_test_utils import (  # noqa: 402 # noqa: F401
     HEAD_DIM_OPT_DEF,
     torch,
     DataTypes,
+    Range,
     SEED,
     # common variables
     B_RANGE,
@@ -122,6 +126,17 @@ from zentorch_test_utils import (  # noqa: 402 # noqa: F401
     WOQ_INT4_GROUP_SIZE_OPT,
     WOQ_INT4_IN_FEATURES_MULT_OPT,
     WOQ_INT4_BIAS_OPT,
+    # group_matmul variables
+    GROUP_MATMUL_NUM_EXPERTS,
+    GROUP_MATMUL_M_VALUES,
+    GROUP_MATMUL_K_VALUES,
+    GROUP_MATMUL_N_VALUES,
+    GROUP_MATMUL_D_VALUES,
+    GROUP_MATMUL_K_OUT_VALUES,
+    GROUP_MATMUL_TOPK_VALUES,
+    GROUP_MATMUL_NUM_TOKENS_VALUES,
+    GROUP_MATMUL_INT8_K_VALUES,
+    GROUP_MATMUL_INT8_GATED_K_VALUES,
     # add_xD variables
     MM_ADD_1D_M_RANGE,
     MM_ADD_1D_K_RANGE,
@@ -944,6 +959,489 @@ class AddmmTestCase(Zentorch_TestCase):
             return wrapper
 
         return hypothesis_params_add_xD_itr_impl
+
+
+class GroupMatmulTestCase(Zentorch_TestCase):
+    """Base class for group_matmul hypothesis-based tests.
+
+    Provides a composite strategy and decorator for generating randomized
+    dimension parameters (num_experts, M, K, N, D, K_out, topk, num_tokens).
+    """
+    # Each example builds per-expert w13/w2 weights, biases, scales and MoE
+    # routing tensors, making it much heavier than a single matmul, so we run
+    # fewer examples than the default 20.
+    # NOTE: time_out=20000 with max_example_per_test=10 produced flaky
+    # failures; tracked in ZENAI-3838. Until that is resolved, keep the
+    # default 10000 deadline and a reduced example count.
+    time_out = 10000
+    max_example_per_test = 5
+
+    def getData(self):
+        return self.data
+
+    def createData(
+        self,
+        dtype,
+        num_experts,
+        M,
+        K,
+        N,
+        D,
+        K_out,
+        topk,
+        num_tokens,
+        inputs,
+        w13_bias_none,
+        w13_weights,
+        w13_weights_int8,
+        w13_scales,
+        w13_int8_raw,
+        w13_weights_gated,
+        w13_bias_gated,
+        w2_weights_gated,
+        w2_bias_gated,
+        w13_weights_int8_gated,
+        w13_scales_gated,
+        w2_weights_int8_gated,
+        w2_scales_gated,
+        w13_weights_int8_square,
+        w13_scales_square,
+        w2_weights_int8_square,
+        w2_scales_square,
+        hidden_states,
+        topk_indices,
+        topk_weights_routing,
+    ):
+        self.data.create_data_group_matmul(
+            dtype=dtype,
+            num_experts=num_experts,
+            M=M,
+            K=K,
+            N=N,
+            D=D,
+            K_out=K_out,
+            topk=topk,
+            num_tokens=num_tokens,
+            inputs=inputs,
+            w13_bias_none=w13_bias_none,
+            w13_weights=w13_weights,
+            w13_weights_int8=w13_weights_int8,
+            w13_scales=w13_scales,
+            w13_int8_raw=w13_int8_raw,
+            w13_weights_gated=w13_weights_gated,
+            w13_bias_gated=w13_bias_gated,
+            w2_weights_gated=w2_weights_gated,
+            w2_bias_gated=w2_bias_gated,
+            w13_weights_int8_gated=w13_weights_int8_gated,
+            w13_scales_gated=w13_scales_gated,
+            w2_weights_int8_gated=w2_weights_int8_gated,
+            w2_scales_gated=w2_scales_gated,
+            w13_weights_int8_square=w13_weights_int8_square,
+            w13_scales_square=w13_scales_square,
+            w2_weights_int8_square=w2_weights_int8_square,
+            w2_scales_square=w2_scales_square,
+            hidden_states=hidden_states,
+            topk_indices=topk_indices,
+            topk_weights_routing=topk_weights_routing,
+        )
+
+    def createDataFromVal(self, val):
+        (
+            hypStr,
+            tensor_seed,
+            dtype,
+            num_experts,
+            M,
+            K,
+            N,
+            D,
+            K_out,
+            topk,
+            num_tokens,
+            inputs,
+            w13_bias_none,
+            w13_weights,
+            w13_weights_int8,
+            w13_scales,
+            w13_int8_raw,
+            w13_weights_gated,
+            w13_bias_gated,
+            w2_weights_gated,
+            w2_bias_gated,
+            w13_weights_int8_gated,
+            w13_scales_gated,
+            w2_weights_int8_gated,
+            w2_scales_gated,
+            w13_weights_int8_square,
+            w13_scales_square,
+            w2_weights_int8_square,
+            w2_scales_square,
+            hidden_states,
+            topk_indices,
+            topk_weights_routing,
+        ) = val
+        self.createData(
+            dtype=dtype,
+            num_experts=num_experts,
+            M=M,
+            K=K,
+            N=N,
+            D=D,
+            K_out=K_out,
+            topk=topk,
+            num_tokens=num_tokens,
+            inputs=inputs,
+            w13_bias_none=w13_bias_none,
+            w13_weights=w13_weights,
+            w13_weights_int8=w13_weights_int8,
+            w13_scales=w13_scales,
+            w13_int8_raw=w13_int8_raw,
+            w13_weights_gated=w13_weights_gated,
+            w13_bias_gated=w13_bias_gated,
+            w2_weights_gated=w2_weights_gated,
+            w2_bias_gated=w2_bias_gated,
+            w13_weights_int8_gated=w13_weights_int8_gated,
+            w13_scales_gated=w13_scales_gated,
+            w2_weights_int8_gated=w2_weights_int8_gated,
+            w2_scales_gated=w2_scales_gated,
+            w13_weights_int8_square=w13_weights_int8_square,
+            w13_scales_square=w13_scales_square,
+            w2_weights_int8_square=w2_weights_int8_square,
+            w2_scales_square=w2_scales_square,
+            hidden_states=hidden_states,
+            topk_indices=topk_indices,
+            topk_weights_routing=topk_weights_routing,
+        )
+
+    @seed(seed=SEED)
+    @staticmethod
+    @st.composite
+    def tensor_group_matmul_strategy(
+        draw,
+        dtype_list=supported_dtypes_def,
+        num_experts_Range=GROUP_MATMUL_NUM_EXPERTS,
+        m_Range=GROUP_MATMUL_M_VALUES,
+        k_list=GROUP_MATMUL_K_VALUES,
+        n_Range=GROUP_MATMUL_N_VALUES,
+        d_list=GROUP_MATMUL_D_VALUES,
+        k_out_list=GROUP_MATMUL_K_OUT_VALUES,
+        topk_list=GROUP_MATMUL_TOPK_VALUES,
+        num_tokens_list=GROUP_MATMUL_NUM_TOKENS_VALUES,
+        tensor_seed=0,
+    ):
+        hypStr = ""
+        if not tensor_seed:
+            tensor_seed = getRandomSeed()
+        hypStr += f"tensor_seed={tensor_seed}, "
+        generator = torch.Generator()
+        generator.manual_seed(tensor_seed)
+
+        dtype = draw(st.sampled_from(dtype_list))
+        hypStr += f"dtype_list=[{dtype!r}], "
+        num_experts = draw(
+            st.integers(num_experts_Range.get_min(), num_experts_Range.get_max())
+        )
+        hypStr += f"num_experts_Range=Range({num_experts},{num_experts}), "
+        M = draw(st.integers(m_Range.get_min(), m_Range.get_max()))
+        hypStr += f"m_Range=Range({M},{M}), "
+        K = draw(st.sampled_from(k_list))
+        hypStr += f"k_list=[{K}], "
+        N = draw(st.integers(n_Range.get_min(), n_Range.get_max()))
+        hypStr += f"n_Range=Range({N},{N}), "
+        D = draw(st.sampled_from(d_list))
+        K_out = draw(st.sampled_from(k_out_list))
+        topk = draw(st.sampled_from(topk_list))
+        num_tokens = draw(st.sampled_from(num_tokens_list))
+
+        hypStr += (
+            f"d_list=[{D}], k_out_list=[{K_out}], "
+            f"topk_list=[{topk}], num_tokens_list=[{num_tokens}]"
+        )
+
+        torch_type = DataTypes.get_torch_type(dtype)
+
+        def _quantize_per_channel(fp32_list, out_features):
+            """Per-channel symmetric int8 quantisation along axis 0."""
+            int8_list, scale_list = [], []
+            for w in fp32_list:
+                s = w.abs().amax(dim=1).clamp(min=1e-12) / 127.0
+                zp = torch.zeros(out_features, dtype=torch.long)
+                wq = torch.quantize_per_channel(
+                    w, s, zp, axis=0, dtype=torch.qint8
+                )
+                int8_list.append(wq.int_repr())
+                scale_list.append(
+                    wq.q_per_channel_scales().to(torch.float32)
+                )
+            return int8_list, scale_list
+
+        # ---- Plain per-expert activations [M, K] ----
+        inputs = [
+            torch.randn(M, K, generator=generator).type(torch_type)
+            for _ in range(num_experts)
+        ]
+
+        # ---- Per-expert "no bias" list ----
+        w13_bias_none = [None] * num_experts
+
+        w13_weights = [
+            torch.randn(N, K, generator=generator).type(torch_type)
+            for _ in range(num_experts)
+        ]
+
+        _w13_weights_primary_fp32 = [
+            torch.randn(N, K, generator=generator) for _ in range(num_experts)
+        ]
+        w13_weights_int8, w13_scales = _quantize_per_channel(
+            _w13_weights_primary_fp32, out_features=N
+        )
+
+        # ---- Raw int8 w13 [N, K] for the negative test ----
+        w13_int8_raw = [
+            torch.randint(
+                -128, 128, (N, K), dtype=torch.int8, generator=generator
+            )
+            for _ in range(num_experts)
+        ]
+
+        # ---- Gated-shape weights / biases ----
+        # N_act = 2*D so the kernel halves the gate / up split to D columns;
+        # K_out is forced to K so W2 buffer-reuse stays valid.
+        N_act = 2 * D
+        w13_weights_gated = [
+            torch.randn(N_act, K, generator=generator).type(torch_type)
+            for _ in range(num_experts)
+        ]
+        w13_bias_gated = [
+            torch.randn(N_act, generator=generator).type(torch_type)
+            for _ in range(num_experts)
+        ]
+        w2_weights_gated = [
+            torch.randn(K, D, generator=generator).type(torch_type)
+            for _ in range(num_experts)
+        ]
+        w2_bias_gated = [
+            torch.randn(K, generator=generator).type(torch_type)
+            for _ in range(num_experts)
+        ]
+
+        # Int8 gated set: per-channel quantised w13 [N_act, K] and
+        # w2 [K, D], plus matching fp32 references and bf16/f32 biases.
+        w13_weights_gated_fp32 = [
+            torch.randn(N_act, K, generator=generator)
+            for _ in range(num_experts)
+        ]
+        w13_weights_int8_gated, w13_scales_gated = _quantize_per_channel(
+            w13_weights_gated_fp32, out_features=N_act
+        )
+
+        w2_weights_gated_fp32 = [
+            torch.randn(K, D, generator=generator)
+            for _ in range(num_experts)
+        ]
+        w2_weights_int8_gated, w2_scales_gated = _quantize_per_channel(
+            w2_weights_gated_fp32, out_features=K
+        )
+
+        # Used by sub-test 1 of test_int8_w13_and_w2_single_pass, which runs
+        # cascaded W13 -> W2 with activation="none" and N=K_out=K so the
+        # kernel can write W2 output back into the input buffers in place.
+        w13_weights_int8_square_fp32 = [
+            torch.randn(K, K, generator=generator)
+            for _ in range(num_experts)
+        ]
+        w13_weights_int8_square, w13_scales_square = _quantize_per_channel(
+            w13_weights_int8_square_fp32, out_features=K
+        )
+        w2_weights_int8_square_fp32 = [
+            torch.randn(K, K, generator=generator)
+            for _ in range(num_experts)
+        ]
+        w2_weights_int8_square, w2_scales_square = _quantize_per_channel(
+            w2_weights_int8_square_fp32, out_features=K
+        )
+
+        # ---- MoE routing tensors keyed on (num_tokens, K, topk) ----
+        hidden_states = torch.randn(num_tokens, K, generator=generator).type(
+            torch_type
+        )
+        topk_indices = torch.randint(
+            0, num_experts, (num_tokens, topk), generator=generator
+        )
+        topk_weights_routing = torch.rand(
+            num_tokens, topk, generator=generator
+        )
+
+        return (
+            hypStr,
+            tensor_seed,
+            dtype,
+            num_experts,
+            M,
+            K,
+            N,
+            D,
+            K_out,
+            topk,
+            num_tokens,
+            inputs,
+            w13_bias_none,
+            w13_weights,
+            w13_weights_int8,
+            w13_scales,
+            w13_int8_raw,
+            w13_weights_gated,
+            w13_bias_gated,
+            w2_weights_gated,
+            w2_bias_gated,
+            w13_weights_int8_gated,
+            w13_scales_gated,
+            w2_weights_int8_gated,
+            w2_scales_gated,
+            w13_weights_int8_square,
+            w13_scales_square,
+            w2_weights_int8_square,
+            w2_scales_square,
+            hidden_states,
+            topk_indices,
+            topk_weights_routing,
+        )
+
+    @staticmethod
+    def hypothesis_params_group_matmul_itr(
+        dtype_list=supported_dtypes_def,
+        num_experts_Range=GROUP_MATMUL_NUM_EXPERTS,
+        m_Range=GROUP_MATMUL_M_VALUES,
+        k_list=GROUP_MATMUL_K_VALUES,
+        n_Range=GROUP_MATMUL_N_VALUES,
+        d_list=GROUP_MATMUL_D_VALUES,
+        k_out_list=GROUP_MATMUL_K_OUT_VALUES,
+        topk_list=GROUP_MATMUL_TOPK_VALUES,
+        num_tokens_list=GROUP_MATMUL_NUM_TOKENS_VALUES,
+        time_out=None,
+        tensor_seed=0,
+    ):
+        skip_reason = None
+        if not dtype_list:
+            skip_reason = "dtype_list is empty"
+
+        def hypothesis_params_group_matmul_itr_impl(function):
+            if skip_reason:
+                print(
+                    f"Skipping test - {function.__name__}: {skip_reason}"
+                )
+                return unittest.skipIf(True, skip_reason)(function)
+
+            @settings(
+                deadline=(
+                    GroupMatmulTestCase.time_out
+                    if time_out is None
+                    else time_out
+                ),
+                max_examples=GroupMatmulTestCase.max_example_per_test,
+                verbosity=Verbosity.quiet,
+                database=None,
+            )
+            @given(
+                val=GroupMatmulTestCase.tensor_group_matmul_strategy(
+                    dtype_list=dtype_list,
+                    num_experts_Range=num_experts_Range,
+                    m_Range=m_Range,
+                    k_list=k_list,
+                    n_Range=n_Range,
+                    d_list=d_list,
+                    k_out_list=k_out_list,
+                    topk_list=topk_list,
+                    num_tokens_list=num_tokens_list,
+                    tensor_seed=tensor_seed,
+                )
+            )
+            def wrapper(obj, val, *args, **kwargs):
+                try:
+                    if not hasattr(obj, "getData") or not isinstance(
+                        obj.getData(), Test_Data
+                    ):
+                        raise RuntimeError(
+                            "hypothesis_params_group_matmul_itr called with "
+                            "invalid object"
+                        )
+
+                    (
+                        hypStr,
+                        tensor_seed_val,
+                        dtype,
+                        num_experts,
+                        M,
+                        K,
+                        N,
+                        D,
+                        K_out,
+                        topk,
+                        num_tokens,
+                        *_tensor_payload,
+                    ) = val
+
+                    # Hypothesis example is fully reproducible from the
+                    # `tensor_seed` printed in hypStr / the failure decorator.
+                    torch.manual_seed(tensor_seed_val)
+                    if torch.cuda.is_available():
+                        torch.cuda.manual_seed_all(tensor_seed_val)
+                    np.random.seed(tensor_seed_val)
+                    random.seed(tensor_seed_val)
+
+                    obj.createDataFromVal(val)
+
+                    test_args = {
+                        "dtype": dtype,
+                        "num_experts": num_experts,
+                        "M": M,
+                        "K": K,
+                        "N": N,
+                        "D": D,
+                        "K_out": K_out,
+                        "topk": topk,
+                        "num_tokens": num_tokens,
+                    }
+
+                    required_args = (
+                        inspect.signature(function).parameters.keys()
+                    )
+
+                    function(
+                        obj,
+                        *args,
+                        **{
+                            k: v
+                            for k, v in test_args.items()
+                            if k in required_args
+                        },
+                        **kwargs,
+                    )
+                except Exception as e:
+                    if not isinstance(e, unittest.SkipTest):
+                        decName = (
+                            "GroupMatmulTestCase"
+                            ".hypothesis_params_group_matmul_itr"
+                        )
+                        pklReplayFunction = (
+                            "GroupMatmulTestCase.replay_from_pickle"
+                        )
+                        obj.handleException(
+                            obj,
+                            str(e),
+                            hypStr,
+                            function.__name__,
+                            decName,
+                            pklReplayFunction,
+                            val,
+                            test_args,
+                        )
+                    raise
+                return
+
+            return wrapper
+
+        return hypothesis_params_group_matmul_itr_impl
 
 
 class ConvTestCase(Zentorch_TestCase):

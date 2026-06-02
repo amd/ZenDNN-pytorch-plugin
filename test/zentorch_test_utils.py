@@ -134,6 +134,18 @@ WOQ_INT4_GROUP_SIZE_OPT = [128, 256]
 WOQ_INT4_IN_FEATURES_MULT_OPT = [256, 512, 1024]
 WOQ_INT4_BIAS_OPT = [True, False]
 
+# group_matmul vars
+GROUP_MATMUL_NUM_EXPERTS = Range(2, 8)
+GROUP_MATMUL_M_VALUES = Range(2, 16)
+GROUP_MATMUL_K_VALUES = [1, 2, 3, 4, 5, 6, 7, 8]
+GROUP_MATMUL_N_VALUES = Range(1, 8)
+GROUP_MATMUL_D_VALUES = [16, 32]
+GROUP_MATMUL_K_OUT_VALUES = [32, 64]
+GROUP_MATMUL_TOPK_VALUES = [2, 4]
+GROUP_MATMUL_NUM_TOKENS_VALUES = [8, 16]
+GROUP_MATMUL_INT8_K_VALUES = [4, 8]
+GROUP_MATMUL_INT8_GATED_K_VALUES = [8, 16]
+
 MM_ADD_1D_M_RANGE = Range(148, 148)
 MM_ADD_1D_K_RANGE = Range(384, 384)
 MM_ADD_1D_N_RANGE = Range(54, 54)
@@ -792,6 +804,76 @@ class Test_Data(metaclass=Singleton):
         self.emb_input = emb_input
         self.offsets = offsets
         self.mlp_inputs = mlp_inputs
+
+    # Create data for group_matmul tests
+    def create_data_group_matmul(
+        self,
+        dtype,
+        num_experts,
+        M,
+        K,
+        N,
+        D,
+        K_out,
+        topk,
+        num_tokens,
+        inputs,
+        w13_bias_none,
+        w13_weights,
+        w13_weights_int8,
+        w13_scales,
+        w13_int8_raw,
+        w13_weights_gated,
+        w13_bias_gated,
+        w2_weights_gated,
+        w2_bias_gated,
+        w13_weights_int8_gated,
+        w13_scales_gated,
+        w2_weights_int8_gated,
+        w2_scales_gated,
+        w13_weights_int8_square,
+        w13_scales_square,
+        w2_weights_int8_square,
+        w2_scales_square,
+        hidden_states,
+        topk_indices,
+        topk_weights_routing,
+    ):
+        self.num_experts = num_experts
+        self.M = M
+        self.K = K
+        self.N = N
+        self.D = D
+        self.K_out = K_out
+        self.topk = topk
+        self.num_tokens = num_tokens
+        # Inputs + primary-shape floating w13
+        self.inputs = inputs
+        self.w13_bias_none = w13_bias_none
+        self.w13_weights = w13_weights
+        # Primary-shape int8 w13 + scales
+        self.w13_weights_int8 = w13_weights_int8
+        self.w13_scales = w13_scales
+        # Raw int8 w13 (negative test)
+        self.w13_int8_raw = w13_int8_raw
+        # Gated-shape floating weights / biases
+        self.w13_weights_gated = w13_weights_gated
+        self.w13_bias_gated = w13_bias_gated
+        self.w2_weights_gated = w2_weights_gated
+        self.w2_bias_gated = w2_bias_gated
+        # Gated-shape int8 weights + scales
+        self.w13_weights_int8_gated = w13_weights_int8_gated
+        self.w13_scales_gated = w13_scales_gated
+        self.w2_weights_int8_gated = w2_weights_int8_gated
+        self.w2_scales_gated = w2_scales_gated
+        self.w13_weights_int8_square = w13_weights_int8_square
+        self.w13_scales_square = w13_scales_square
+        self.w2_weights_int8_square = w2_weights_int8_square
+        self.w2_scales_square = w2_scales_square
+        # MoE routing tensors
+        self.hidden_states = hidden_states
+        self.topk_indices = topk_indices
+        self.topk_weights_routing = topk_weights_routing
 
     # Create data for mm tests
     # Ensure data creation for this cateogry tests in this function
