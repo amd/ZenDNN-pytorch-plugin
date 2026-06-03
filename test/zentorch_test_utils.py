@@ -1015,6 +1015,7 @@ class Test_Data(metaclass=Singleton):
         woq_mul_input,
         woq_add_input,
         woq_add_input_2,
+        input_dim=2,
     ):
         """Store test data for WOQ tests (per-channel and per-group).
 
@@ -1024,6 +1025,9 @@ class Test_Data(metaclass=Singleton):
         Args:
             dtype: Data type string (e.g., "bfloat16", "float32").
             group_size: Group size for per-group quantization, or None for per-channel.
+            input_dim: Rank of ``woq_input`` (and matching binary inputs). Defaults to
+                2 for backward compatibility with strategies that only produce 2-D
+                activations.
         """
         # Store dimensions and parameters
         self.batch = batch
@@ -1032,6 +1036,7 @@ class Test_Data(metaclass=Singleton):
         self.with_bias = with_bias
         self.dtype = dtype
         self.group_size = group_size
+        self.input_dim = input_dim
 
         # Store all pre-created tensors
         self.woq_input = woq_input
@@ -1041,7 +1046,5 @@ class Test_Data(metaclass=Singleton):
         self.woq_add_input = woq_add_input
         self.woq_add_input_2 = woq_add_input_2
 
-    # TODO ZENAI-1522
-    # Change str_type -> str_type.lower()
     def get_torch_type(self, str_type):
         return self.dtypes[str_type.lower()]

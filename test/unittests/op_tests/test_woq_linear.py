@@ -18,7 +18,9 @@ from unittest_utils import (  # noqa: 402
     in_features_opt,
     out_features_opt,
     woq_bias_opt,
+    input_dim_opt,
     DataTypes,
+    Range,
 )
 
 
@@ -61,13 +63,15 @@ class Test_WOQLinear(WOQTestCase):
     #     in_features_opt_list=in_features_opt,
     #     out_features_opt_list=out_features_opt,
     #     bias_opt_list=woq_bias_opt,
+    #     input_dim_opt_list=input_dim_opt,
     # )
     @WOQTestCase.hypothesis_params_woq_itr(
         dtype_opt_list=woq_dtypes,
         batch_opt_list=[24],
         in_features_opt_list=[64],
         out_features_opt_list=[48],
-        bias_opt_list=woq_bias_opt
+        bias_opt_list=woq_bias_opt,
+        input_dim_opt_list=input_dim_opt,
     )
     @torch.inference_mode()
     def test_woq_linear_accuracy(self):
@@ -119,10 +123,10 @@ class Test_WOQLinear(WOQTestCase):
 
     def _assert_woq_fused_output_sanity(self, result, op_name):
         """Assert fused WOQ op output has correct shape, dtype, and finite values."""
-        batch = self.data.batch
-        out_features = self.data.out_features
+        # Derive expected shape from input shape plus out_features as trailing dim
+        expected_shape = self.data.woq_input.shape[:-1] + (self.data.out_features,)
         woq_dtype = DataTypes.get_torch_type(self.data.dtype)
-        self.assertEqual(result.shape, (batch, out_features), f"{op_name}: wrong output shape")
+        self.assertEqual(result.shape, expected_shape, f"{op_name}: wrong output shape")
         self.assertEqual(result.dtype, woq_dtype, f"{op_name}: wrong output dtype")
         self.assertTrue(torch.isfinite(result).all(), f"{op_name}: output contains inf/nan")
 
@@ -137,14 +141,16 @@ class Test_WOQLinear(WOQTestCase):
     #     batch_opt_list=batch_opt,
     #     in_features_opt_list=in_features_opt,
     #     out_features_opt_list=out_features_opt,
-    #     bias_opt_list=woq_bias_opt
+    #     bias_opt_list=woq_bias_opt,
+    #     input_dim_opt_list=input_dim_opt,
     # )
     @WOQTestCase.hypothesis_params_woq_itr(
         dtype_opt_list=woq_dtypes,
         batch_opt_list=[24],
         in_features_opt_list=[64],
         out_features_opt_list=[48],
-        bias_opt_list=[False]
+        bias_opt_list=[False],
+        input_dim_opt_list=input_dim_opt,
     )
     @torch.inference_mode()
     def test_woq_linear_gelu_tanh_accuracy(self):
@@ -170,13 +176,15 @@ class Test_WOQLinear(WOQTestCase):
     #     in_features_opt_list=in_features_opt,
     #     out_features_opt_list=out_features_opt,
     #     bias_opt_list=woq_bias_opt,
+    #     input_dim_opt_list=input_dim_opt,
     # )
     @WOQTestCase.hypothesis_params_woq_itr(
         dtype_opt_list=woq_dtypes,
         batch_opt_list=[24],
         in_features_opt_list=[64],
         out_features_opt_list=[48],
-        bias_opt_list=[False]
+        bias_opt_list=[False],
+        input_dim_opt_list=input_dim_opt,
     )
     @torch.inference_mode()
     def test_woq_linear_gelu_erf_accuracy(self):
@@ -201,14 +209,18 @@ class Test_WOQLinear(WOQTestCase):
     #     in_features_opt_list=in_features_opt,
     #     out_features_opt_list=out_features_opt,
     #     bias_opt_list=woq_bias_opt,
+    #     input_dim_opt_list=input_dim_opt,
     # )
 
     @WOQTestCase.hypothesis_params_woq_itr(
         dtype_opt_list=woq_dtypes,
-        batch_opt_list=[24],
+        batch_opt_list=[2, 3],
         in_features_opt_list=[64],
         out_features_opt_list=[48],
-        bias_opt_list=[False]
+        bias_opt_list=[False],
+        input_dim_opt_list=input_dim_opt,
+        pRange=Range(1, 3),
+        qRange=Range(1, 3),
     )
     @torch.inference_mode()
     def test_woq_linear_mul_add_accuracy(self):
@@ -236,13 +248,17 @@ class Test_WOQLinear(WOQTestCase):
     #     in_features_opt_list=in_features_opt,
     #     out_features_opt_list=out_features_opt,
     #     bias_opt_list=woq_bias_opt,
+    #     input_dim_opt_list=input_dim_opt,
     # )
     @WOQTestCase.hypothesis_params_woq_itr(
         dtype_opt_list=woq_dtypes,
-        batch_opt_list=[24],
+        batch_opt_list=[2, 3, 4],
         in_features_opt_list=[64],
         out_features_opt_list=[48],
-        bias_opt_list=[False]
+        bias_opt_list=[False],
+        input_dim_opt_list=input_dim_opt,
+        pRange=Range(1, 3),
+        qRange=Range(1, 3),
     )
     @torch.inference_mode()
     def test_woq_linear_add_add_accuracy(self):

@@ -190,17 +190,9 @@ zentorch_woq_linear_unary(const at::Tensor &input, const at::Tensor &weight,
   auto input_2d_view =
       get_contiguous_view(input).view(get_2d_size_for_tensor(input));
   // `result` tensor's dtype will be same as input dtype.
-
-  // Performing this calculation here to avoid calling
-  // get_matmul_and_linear_output_sizes and
-  // get_matmul_and_linear_output_strides, since we know that the tensors will
-  // always be 2D and calculations are trivial.
-  const auto output_sz =
-      std::vector<int64_t>({input_2d_view.size(0), weight.size(1)});
-  const auto output_strides = std::vector<int64_t>({weight.size(1), 1});
-
-  at::Tensor result =
-      at::detail::empty_strided_cpu(output_sz, output_strides, input.options());
+  at::Tensor result = create_linear_and_matmul_output_tensor(input, weight);
+  // `result` is viewed as 2d for matmul computation.
+  auto result_2d = result.view(get_2d_size_for_tensor(result));
 
   c10::MaybeOwned<at::Tensor> bias_maybe_owned =
       at::borrow_from_optional_tensor(bias);
@@ -212,9 +204,9 @@ zentorch_woq_linear_unary(const at::Tensor &input, const at::Tensor &weight,
   std::vector<at::Tensor> post_op_buffers = {};
   std::vector<int64_t> post_op_ids = {fuse};
 
-  zentorch_woq_linear_impl(input_2d_view, weight, bias_t, result, weight_scales,
-                           weight_zero_points_t, post_op_ids, post_op_buffers,
-                           zentorch_op_name);
+  zentorch_woq_linear_impl(input_2d_view, weight, bias_t, result_2d,
+                           weight_scales, weight_zero_points_t, post_op_ids,
+                           post_op_buffers, zentorch_op_name);
 
   return result;
 }
@@ -235,15 +227,9 @@ inline at::Tensor zentorch_woq_linear_unary_binary(
   auto binary_input_2d_view = get_contiguous_view(binary_input)
                                   .view(get_2d_size_for_tensor(binary_input));
   // `result` tensor's dtype will be same as input dtype.
-
-  // Result must be matmul output shape [M, N]; binary_input is broadcast in the
-  // post-op.
-  const auto output_sz =
-      std::vector<int64_t>({input_2d_view.size(0), weight.size(1)});
-  const auto output_strides = std::vector<int64_t>({weight.size(1), 1});
-
-  at::Tensor result =
-      at::detail::empty_strided_cpu(output_sz, output_strides, input.options());
+  at::Tensor result = create_linear_and_matmul_output_tensor(input, weight);
+  // `result` is viewed as 2d for matmul computation.
+  auto result_2d = result.view(get_2d_size_for_tensor(result));
 
   c10::MaybeOwned<at::Tensor> bias_maybe_owned =
       at::borrow_from_optional_tensor(bias);
@@ -258,9 +244,9 @@ inline at::Tensor zentorch_woq_linear_unary_binary(
   LOG(INFO) << "Calling  zentorch_woq_linear_impl from " << __FUNCTION__
             << "!\n";
 
-  zentorch_woq_linear_impl(input_2d_view, weight, bias_t, result, weight_scales,
-                           weight_zero_points_t, post_op_ids, post_op_buffers,
-                           zentorch_op_name);
+  zentorch_woq_linear_impl(input_2d_view, weight, bias_t, result_2d,
+                           weight_scales, weight_zero_points_t, post_op_ids,
+                           post_op_buffers, zentorch_op_name);
   return result;
 }
 
@@ -281,18 +267,10 @@ inline at::Tensor zentorch_woq_linear_binary_binary(
                                    .view(get_2d_size_for_tensor(binary1_input));
   auto binary2_input_2d_view = get_contiguous_view(binary2_input)
                                    .view(get_2d_size_for_tensor(binary2_input));
-
-  // Performing this calculation here to avoid calling
-  // get_matmul_and_linear_output_sizes and
-  // get_matmul_and_linear_output_strides, since we know that the tensors will
-  // always be 2D and calculations are trivial.
-  const auto output_sz =
-      std::vector<int64_t>({input_2d_view.size(0), weight.size(1)});
-  const auto output_strides = std::vector<int64_t>({weight.size(1), 1});
-
-  at::Tensor result =
-      at::detail::empty_strided_cpu(output_sz, output_strides, input.options());
-
+  // `result` tensor's dtype will be same as input dtype.
+  at::Tensor result = create_linear_and_matmul_output_tensor(input, weight);
+  // `result` is viewed as 2d for matmul computation.
+  auto result_2d = result.view(get_2d_size_for_tensor(result));
   c10::MaybeOwned<at::Tensor> bias_maybe_owned =
       at::borrow_from_optional_tensor(bias);
   const at::Tensor &bias_t = *bias_maybe_owned;
@@ -307,9 +285,9 @@ inline at::Tensor zentorch_woq_linear_binary_binary(
   LOG(INFO) << "Calling  zentorch_woq_linear_impl from " << __FUNCTION__
             << "!\n";
 
-  zentorch_woq_linear_impl(input_2d_view, weight, bias_t, result, weight_scales,
-                           weight_zero_points_t, post_op_ids, post_op_buffers,
-                           zentorch_op_name);
+  zentorch_woq_linear_impl(input_2d_view, weight, bias_t, result_2d,
+                           weight_scales, weight_zero_points_t, post_op_ids,
+                           post_op_buffers, zentorch_op_name);
   return result;
 }
 

@@ -20,6 +20,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 
 from zentorch_test_utils import (  # noqa: 402 # noqa: F401
     BaseZentorchTestCase,
+    Range,
     Test_Data,
     run_tests,
     zentorch,
@@ -120,6 +121,8 @@ from zentorch_test_utils import (  # noqa: 402 # noqa: F401
     MM_INPUT_SCALER_RANGE,
     # woq variables
     woq_dtypes,
+    WOQ_X_RANGE,
+    WOQ_Y_RANGE,
     # woq int4 opaque tensor variables
     WOQ_INT4_BATCH_RANGE,
     WOQ_INT4_OUT_FEATURES_OPT,
@@ -2226,6 +2229,7 @@ class WOQTestCase(Zentorch_TestCase):
         woq_mul_input,
         woq_add_input,
         woq_add_input_2,
+        input_dim=2,
     ):
         self.data.create_data_woq(
             batch=batch,
@@ -2240,6 +2244,7 @@ class WOQTestCase(Zentorch_TestCase):
             woq_mul_input=woq_mul_input,
             woq_add_input=woq_add_input,
             woq_add_input_2=woq_add_input_2,
+            input_dim=input_dim,
         )
 
     def createDataFromVal(self, val):
@@ -2252,6 +2257,7 @@ class WOQTestCase(Zentorch_TestCase):
             with_bias,
             dtype,
             group_size,
+            input_dim,
             woq_input,
             woq_weight,
             woq_bias,
@@ -2273,7 +2279,30 @@ class WOQTestCase(Zentorch_TestCase):
             woq_mul_input=woq_mul_input,
             woq_add_input=woq_add_input,
             woq_add_input_2=woq_add_input_2,
+            input_dim=input_dim,
         )
+
+    @staticmethod
+    def _woq_input_shape_for_dim(batch, in_features, input_dim, p=1, q=1):
+        """Return an n-D input shape with ``in_features`` as the trailing dim.
+
+        Mirrors ``x_for_qlinear`` in ``tensor_qlinear_strategy`` (which builds
+        ``(m, k)`` / ``(m, p, k)`` / ``(m, p, q, k)``) — extra dims ``p`` and
+        ``q`` are independent of ``batch``, so no divisibility constraint is
+        required. ``p`` and ``q`` are ignored when ``input_dim`` does not need
+        them.
+
+            2-D = (batch, K)
+            3-D = (batch, p, K)
+            4-D = (batch, p, q, K)
+        """
+        if input_dim == 2:
+            return (batch, in_features)
+        if input_dim == 3:
+            return (batch, p, in_features)
+        if input_dim == 4:
+            return (batch, p, q, in_features)
+        raise ValueError(f"Unsupported input_dim: {input_dim}")
 
     @staticmethod
     @st.composite
@@ -2285,6 +2314,9 @@ class WOQTestCase(Zentorch_TestCase):
         bias_opt_list,
         dtype_opt_list=woq_dtypes,
         group_size_opt_list=woq_group_size_def,
+        input_dim_opt_list=INPUT_DIM_OPT_DEF,
+        pRange=WOQ_X_RANGE,
+        qRange=WOQ_Y_RANGE,
         tensor_seed=0,
     ):
         """Unified strategy for WOQ tests (per-channel and per-group).
@@ -2296,6 +2328,17 @@ class WOQTestCase(Zentorch_TestCase):
             dtype_opt_list: List of dtype strings to test. Defaults to woq_dtype.
             group_size_opt_list: List of group sizes for per-group quantization.
                                  Defaults to woq_group_size_def ([16]). Pass [None] for per-channel.
+            input_dim_opt_list: Ranks of ``woq_input`` (and the matching binary
+                                inputs) to exercise. Defaults to ``INPUT_DIM_OPT_DEF``
+                                (``[2]``) so existing callers keep producing 2-D
+                                activations. Pass ``input_dim_opt`` (``[2, 3, 4]``)
+                                to also cover rank-3/rank-4 inputs as seen in e.g.
+                                vLLM's Whisper encoder.
+            pRange/qRange: Integer ranges for the extra leading dims used when
+                           ``input_dim >= 3``/``input_dim == 4`` respectively.
+                           Mirrors ``pRange``/``qRange`` in
+                           ``tensor_qlinear_strategy`` so input shapes are
+                           ``(batch, K)`` / ``(batch, p, K)`` / ``(batch, p, q, K)``.
         """
         hypStr = ""
         if not tensor_seed:
@@ -2322,12 +2365,28 @@ class WOQTestCase(Zentorch_TestCase):
         if group_size is not None:
             hypStr += f"group_size_opt_list=[{group_size}], "
 
+        # Draw input rank. Extra leading dims (p, q) are sampled independently
+        # from ``batch`` — same convention as ``tensor_qlinear_strategy``
+        input_dim = draw(st.sampled_from(input_dim_opt_list))
+        hypStr += f"input_dim_opt_list=[{input_dim}], "
+        p = draw(st.integers(pRange.get_min(), pRange.get_max())) if input_dim >= 3 else 1
+        q = draw(st.integers(qRange.get_min(), qRange.get_max())) if input_dim == 4 else 1
+        if input_dim >= 3:
+            hypStr += f"pRange=Range({p}, {p}), "
+        if input_dim == 4:
+            hypStr += f"qRange=Range({q}, {q}), "
+
         # Create all tensors using seeded generator
         # This is the ONLY place where random tensors are created
         generator = torch.Generator()
         generator.manual_seed(tensor_seed)
 
-        woq_input = torch.randn(batch, in_features, dtype=dtype, generator=generator)
+        input_shape = WOQTestCase._woq_input_shape_for_dim(
+            batch, in_features, input_dim, p=p, q=q
+        )
+        output_shape = input_shape[:-1] + (out_features,)
+
+        woq_input = torch.randn(*input_shape, dtype=dtype, generator=generator)
         woq_weight = torch.randn(out_features, in_features, dtype=dtype, generator=generator)
         woq_bias = (
             torch.randn(out_features, dtype=dtype, generator=generator)
@@ -2335,10 +2394,11 @@ class WOQTestCase(Zentorch_TestCase):
             else None
         )
 
-        # For binary fusion tests (mul_add, add_add)
-        woq_mul_input = torch.randn(batch, out_features, dtype=dtype, generator=generator)
-        woq_add_input = torch.randn(batch, out_features, dtype=dtype, generator=generator)
-        woq_add_input_2 = torch.randn(batch, out_features, dtype=dtype, generator=generator)
+        # For binary fusion tests (mul_add, add_add); built at the WOQ-linear
+        # output shape so they broadcast cleanly against ``zentorch_result``.
+        woq_mul_input = torch.randn(*output_shape, dtype=dtype, generator=generator)
+        woq_add_input = torch.randn(*output_shape, dtype=dtype, generator=generator)
+        woq_add_input_2 = torch.randn(*output_shape, dtype=dtype, generator=generator)
 
         return (
             hypStr,
@@ -2349,6 +2409,7 @@ class WOQTestCase(Zentorch_TestCase):
             with_bias,
             dtype_str,
             group_size,
+            input_dim,
             woq_input,
             woq_weight,
             woq_bias,
@@ -2365,6 +2426,9 @@ class WOQTestCase(Zentorch_TestCase):
         bias_opt_list,
         dtype_opt_list=woq_dtypes,
         group_size_opt_list=woq_group_size_def,
+        input_dim_opt_list=INPUT_DIM_OPT_DEF,
+        pRange=WOQ_X_RANGE,
+        qRange=WOQ_Y_RANGE,
         tensor_seed=0,
         time_out=None,
     ):
@@ -2384,6 +2448,9 @@ class WOQTestCase(Zentorch_TestCase):
                     bias_opt_list=bias_opt_list,
                     dtype_opt_list=dtype_opt_list,
                     group_size_opt_list=group_size_opt_list,
+                    input_dim_opt_list=input_dim_opt_list,
+                    pRange=pRange,
+                    qRange=qRange,
                     tensor_seed=tensor_seed,
                 )
             )

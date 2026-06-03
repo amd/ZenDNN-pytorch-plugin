@@ -893,7 +893,14 @@ def meta_zentorch_woq_linear_mul_add(
     bias=None,
     zentorch_op_name="zentorch::zentorch_woq_linear_mul_add",
 ):
-    return add_input.new_empty(add_input.size(), dtype=add_input.dtype)
+    return meta_zentorch_woq_linear(
+        input,
+        weight,
+        weight_scales,
+        weight_zero_points,
+        bias,
+        zentorch_op_name,
+    )
 
 
 @register_meta("zentorch_woq_linear_add_add")
@@ -907,7 +914,14 @@ def meta_zentorch_woq_linear_add_add(
     bias=None,
     zentorch_op_name="zentorch::zentorch_woq_linear_add_add",
 ):
-    return add_input.new_empty(add_input.size(), dtype=add_input.dtype)
+    return meta_zentorch_woq_linear(
+        input,
+        weight,
+        weight_scales,
+        weight_zero_points,
+        bias,
+        zentorch_op_name,
+    )
 
 
 @register_meta("zentorch_dynamic_qlinear")
