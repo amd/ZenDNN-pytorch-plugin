@@ -67,6 +67,22 @@ target_link_libraries(zentorch PUBLIC
                         zendnnl::zendnnl_archive
 )
 
+# -----------------------------------------------------------------------------
+# High-level modules/framework may have overlapping dependencies like oneDNN,
+# libxsmm, fbgemm, aocl-dlp, etc with ZenDNN. With two global copies in one
+# process, the dynamic linker collapses them to a single definition. This can
+# cause linking issues.
+# For example, an object created through framework's dependency can be destroyed
+# by the ZenDNN's incompatible dependency.
+# To solve this in a wholistic way, we are not exposing all the symbols of the
+# dependencies.
+# --exclude-libs,ALL marks every symbol pulled from static archives as LOCAL
+# in this .so's dynamic symbol table.
+# -----------------------------------------------------------------------------
+target_link_options(zentorch PRIVATE
+                        "LINKER:--exclude-libs,ALL"
+)
+
 message(STATUS "zentorch PROJECT_NAME, ${PROJECT_NAME}")
 add_custom_command(
     TARGET zentorch  POST_BUILD
