@@ -44,7 +44,9 @@ def _register_int8_tensor_handlers(Int8Tensor) -> None:
         elif len(original_shape) == len(size):
             assert all(
                 x == y or y == -1 for x, y in zip(original_shape, size, strict=True)
-            ), f"Only support viewing with match dimensions or -1, got: {original_shape}, {size}"
+            ) and size.count(-1) <= 1, (
+                f"Only support viewing with match dimensions or -1, got: {original_shape}, {size}"
+            )
             block_size = list(self.block_size)
         else:
             raise NotImplementedError(

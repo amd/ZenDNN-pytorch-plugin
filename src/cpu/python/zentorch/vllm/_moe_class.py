@@ -37,7 +37,6 @@ def _register_torchao_moe_patches(torchao_mod) -> None:
         UnquantizedLinearMethod,
     )
     from vllm.model_executor.utils import set_weight_attrs
-    from vllm.platforms import current_platform
 
     TorchAOConfig = torchao_mod.TorchAOConfig
     _get_weight_attrs = torchao_mod._get_weight_attrs
@@ -57,23 +56,28 @@ def _register_torchao_moe_patches(torchao_mod) -> None:
 
         module_fqn = prefix
         if isinstance(self.torchao_config, ModuleFqnToConfig):
+            _FQN_CONFIG_MISSING = (
+                object()
+            )  # Sentinel for dict.get(): None is a valid config value (skip quant).
             module_fqn_to_config = self.torchao_config.module_fqn_to_config
-            c = None
-            if module_fqn in module_fqn_to_config:
+            c = module_fqn_to_config.get(module_fqn, _FQN_CONFIG_MISSING)
+            if c is not _FQN_CONFIG_MISSING:
                 assert not module_fqn.startswith("re:"), (
                     "module fqn should not start with"
                     "`re:`, which is used for specifying regex"
                 )
-                c = module_fqn_to_config[module_fqn]
             else:
+                c = None
+                regex_matched = False
                 for maybe_module_fqn_pattern in module_fqn_to_config:
                     if not maybe_module_fqn_pattern.startswith("re:"):
                         continue
-                    elif re.fullmatch(maybe_module_fqn_pattern[3:], module_fqn):
-                        c = module_fqn_to_config[maybe_module_fqn_pattern]
+                    if re.fullmatch(maybe_module_fqn_pattern[3:], module_fqn):
+                        c = module_fqn_to_config.get(maybe_module_fqn_pattern)
+                        regex_matched = True
                         break
-                else:
-                    c = module_fqn_to_config.get("_default", None)
+                if not regex_matched:
+                    c = module_fqn_to_config.get("_default")
             if c is not None:
                 return TorchAOConfig(
                     c, self.skip_modules, self.is_checkpoint_torchao_serialized
@@ -83,27 +87,20 @@ def _register_torchao_moe_patches(torchao_mod) -> None:
         return self
 
     def _patched_get_quant_method(self, layer, prefix):
-        if not isinstance(layer, (FusedMoE, LinearBase)):
+        if isinstance(layer, FusedMoE):
+            resolved = self._resolve_torchao_config_for_prefix(prefix)
+            if resolved is None:
+                # Layer is explicitly skipped (e.g. via `modules_to_not_convert`
+                # / `skip_modules`); keep it unquantized end-to-end.
+                return UnquantizedFusedMoEMethod(layer.moe_config)
+            return torchao_mod.TorchAOFusedMoEMethod(resolved, layer.moe_config)
+
+        if not isinstance(layer, LinearBase):
             return None
 
         resolved = self._resolve_torchao_config_for_prefix(prefix)
         if resolved is None:
-            if isinstance(layer, FusedMoE):
-                # Layer is explicitly skipped (e.g. via `modules_to_not_convert`
-                # / `skip_modules`); keep it unquantized end-to-end.
-                return UnquantizedFusedMoEMethod(layer.moe_config)
             return UnquantizedLinearMethod()
-
-        if isinstance(layer, FusedMoE):
-            if not current_platform.is_cpu():
-                logger.warning(
-                    "TorchAO MoE: non-CPU execution is not supported for torchao "
-                    "expert weights; using UnquantizedFusedMoEMethod (loads may "
-                    "fail for torchao-serialized checkpoints)."
-                )
-                return UnquantizedFusedMoEMethod(layer.moe_config)
-            return torchao_mod.TorchAOFusedMoEMethod(resolved, layer.moe_config)
-
         return torchao_mod.TorchAOLinearMethod(resolved)
 
     class TorchAOFusedMoEMethod(UnquantizedFusedMoEMethod):

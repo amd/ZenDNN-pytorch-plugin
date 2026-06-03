@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 
 from packaging import version as pkg_version
 
-from zentorch.vllm.core import (
+from zentorch.vllm._core import (
     _VERSION_MAP,
     VLLM_MAX_VERSION,
     VLLM_MIN_VERSION,

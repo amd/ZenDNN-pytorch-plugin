@@ -71,7 +71,7 @@ The plugin leverages AMD EPYC specific intrinsics and optimizations to accelerat
 
 ## Key Components
 
-**ZenCPUPlatform** (`platform.py`)
+**ZenCPUPlatform** (`_platform.py`)
 - Extends vLLM's `CpuPlatform`
 - Sets `device_name = "cpu"` and `device_type = "cpu"`
 - Configures `CompilationLevel.DYNAMO_ONCE`/`CompilationMode.DYNAMO_TRACE_ONCE` with inductor backend

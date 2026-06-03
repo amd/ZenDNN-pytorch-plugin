@@ -29,7 +29,7 @@ import torch
 
 from zentorch._logging import get_logger
 from zentorch._utils import counters
-from zentorch.vllm.core import (
+from zentorch.vllm._core import (
     vllm_version,
     vllm_version_range,
     manager,
@@ -53,10 +53,10 @@ from zentorch.vllm.core import (
 
 # Re-exported at module scope so tests can mock the Int8Tensor dispatch impl
 # (see TorchAOPatch.apply); the import has no torchao dependency itself.
-from zentorch.vllm.torchao_int8_patch import (  # noqa: E402, F401
+from zentorch.vllm._torchao_int8_patch import (  # noqa: E402, F401
     _apply_torchao_int8_tensor_patch_impl,
 )
-from zentorch.vllm.moe_class import (  # noqa: E402, F401
+from zentorch.vllm._moe_class import (  # noqa: E402, F401
     _apply_torchao_moe_patch_impl,
 )
 
@@ -227,7 +227,7 @@ class TorchAOPatch:
         if importlib.util.find_spec("torchao") is None:
             logger.info("[zentorch] TorchAO not installed, skipping TorchAO patch")
             return False
-        from .torchao_int4_opaque_patch import (
+        from ._torchao_int4_opaque_patch import (
             _register_int4_opaque_tensor_config,
             _register_int4_slice_op,
         )
@@ -1154,4 +1154,4 @@ def register() -> Optional[str]:
 
         logger.info("[zentorch] Applied patches: %s", manager.applied)
 
-    return "zentorch.vllm.platform.ZenCPUPlatform"
+    return "zentorch.vllm._platform.ZenCPUPlatform"
