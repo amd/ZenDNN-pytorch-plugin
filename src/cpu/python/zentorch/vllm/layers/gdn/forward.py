@@ -13,10 +13,8 @@ from torch._inductor.lowering import make_fallback
 from torch.library import Library
 
 from vllm.forward_context import get_forward_context
-from vllm.model_executor.layers.mamba.gdn_linear_attn import (
-    GDNAttentionMetadata,
-)
 from vllm.model_executor.layers.mamba.mamba_utils import is_conv_state_dim_first
+from vllm.v1.attention.backends.gdn_attn import GDNAttentionMetadata
 
 NULL_BLOCK_ID: int = 0
 PAD_SLOT_ID: int = -1

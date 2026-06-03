@@ -9,12 +9,16 @@
 from __future__ import annotations
 
 import contextlib
+import importlib
 import importlib.util
 import sys
 import types
 from typing import Any
 
+from packaging import version as pkg_version
+
 from zentorch._logging import get_logger
+from zentorch.vllm._core import _base_version, get_vllm_version
 
 logger = get_logger(__name__)
 
@@ -27,7 +31,53 @@ __all__ = [
 ]
 
 
-_TRIGGER_MODULE = "vllm.model_executor.layers.mamba.gdn_linear_attn"
+# vLLM 0.22 restructured GatedDeltaNet: the module moved under ``mamba.gdn``
+# and the concrete class was renamed ``QwenGatedDeltaNetAttention``. Support
+# both layouts additively (newest first) so 0.21 behavior is unchanged.
+_GDN_CANDIDATES = (
+    (
+        "vllm.model_executor.layers.mamba.gdn.qwen_gdn_linear_attn",
+        "QwenGatedDeltaNetAttention",
+    ),
+    (
+        "vllm.model_executor.layers.mamba.gdn_linear_attn",
+        "GatedDeltaNetAttention",
+    ),
+)
+
+_resolved_target: tuple[str, str] | None = None
+
+
+def _resolve_gdn_target() -> tuple[str, str]:
+    """Return the ``(module_name, class_name)`` for the running vLLM version.
+
+    Gated on the vLLM version string (no eager submodule imports, which keeps
+    plugin registration side-effect free): vLLM >= 0.22.0 uses the
+    restructured ``mamba.gdn.qwen_gdn_linear_attn`` / ``QwenGatedDeltaNetAttention``
+    layout; older versions use the legacy ``mamba.gdn_linear_attn`` /
+    ``GatedDeltaNetAttention`` layout. Cached after first resolution.
+    """
+    global _resolved_target
+    if _resolved_target is not None:
+        return _resolved_target
+
+    ver = get_vllm_version()
+    use_new_layout = False
+    if ver is not None:
+        try:
+            use_new_layout = pkg_version.parse(_base_version(ver)) >= pkg_version.parse(
+                "0.22.0"
+            )
+        except Exception:
+            use_new_layout = False
+
+    _resolved_target = _GDN_CANDIDATES[0] if use_new_layout else _GDN_CANDIDATES[1]
+    return _resolved_target
+
+
+def _trigger_module() -> str:
+    return _resolve_gdn_target()[0]
+
 
 _DEFERRED_HOOK_INSTALLED = False
 
@@ -46,7 +96,7 @@ class _GatedDeltaNetImportHook:
     """Defer applying the GDN patch until ``gdn_linear_attn`` loads."""
 
     def find_spec(self, fullname, path, target=None):
-        if fullname != _TRIGGER_MODULE:
+        if fullname != _trigger_module():
             return None
         if self in sys.meta_path:
             sys.meta_path.remove(self)
@@ -64,7 +114,7 @@ class _GatedDeltaNetImportHook:
             except Exception:
                 logger.warning(
                     "[zentorch] GatedDeltaNet patch failed after %s loaded",
-                    _TRIGGER_MODULE,
+                    _trigger_module(),
                     exc_info=True,
                 )
 
@@ -79,7 +129,7 @@ def apply_deferred() -> bool:
     if _DEFERRED_HOOK_INSTALLED:
         return True
 
-    if _TRIGGER_MODULE in sys.modules:
+    if _trigger_module() in sys.modules:
         try:
             apply()
         except Exception:
@@ -118,18 +168,17 @@ def apply() -> None:
 
 def _do_apply() -> None:
     from . import forward as _gdn_forward
-    from vllm.model_executor.layers.mamba.gdn_linear_attn import (
-        GatedDeltaNetAttention,
-    )
 
-    target = GatedDeltaNetAttention
+    mod_name, cls_name = _resolve_gdn_target()
+    module = importlib.import_module(mod_name)
+    target = getattr(module, cls_name)
     name = "forward_cpu"
     key = (_target_dotted_name(target), name)
     PATCHES[key] = getattr(target, name, None)
     _TARGETS[key] = target
     setattr(target, name, _gdn_forward.forward_cpu_zen)
     logger.info(
-        "[zentorch] Installed GatedDeltaNetAttention.forward_cpu -> forward_cpu_zen"
+        "[zentorch] Installed %s.forward_cpu -> forward_cpu_zen", cls_name
     )
 
 

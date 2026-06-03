@@ -49,6 +49,7 @@ from zentorch.vllm._core import (
     VLLM_V20_1,
     VLLM_V20_2,
     VLLM_V21,
+    VLLM_V22,
 )
 
 # Re-exported at module scope so tests can mock the Int8Tensor dispatch impl
@@ -320,6 +321,7 @@ class CompilationConfigReprPatch:
     VLLM_V20_1,
     VLLM_V20_2,
     VLLM_V21,
+    VLLM_V22,
 )
 class CPUProfilerPatch:
     """Stub: Actual patching happens in platform.py check_and_update_config.
@@ -1051,9 +1053,15 @@ class CPURunnerShutdownPatch:
 # GatedDeltaNet (Qwen3.5 / Qwen3-Next) CPU forward override (vLLM PR #41025).
 
 
-@vllm_version("0.21.0")
+@vllm_version(VLLM_V21, VLLM_V22)
 class GatedDeltaNetPatch:
-    """Override ``GatedDeltaNetAttention.forward_cpu`` with ``forward_cpu_zen``."""
+    """Override ``GatedDeltaNetAttention.forward_cpu`` with ``forward_cpu_zen``.
+
+    Additive across versions: on 0.21 the target is
+    ``mamba.gdn_linear_attn.GatedDeltaNetAttention``; on 0.22 the module/class
+    moved to ``mamba.gdn.qwen_gdn_linear_attn.QwenGatedDeltaNetAttention``
+    (resolved in ``layers.gdn.patch``).
+    """
 
     @classmethod
     def apply(cls) -> bool:
