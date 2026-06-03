@@ -214,10 +214,36 @@ zentorch_fused_moe()
         w2_bias=w2_bias_slices,
         w13_scales=w13_scale_slices,             # int8 w13 scales (or empty)
         w2_scales=w2_scale_slices,               # int8 w2 scales (or empty)
-        src_scales={},                           # dynamic quant (no static src scales)
-        ...)
+        zentorch_op_name=zentorch_op_name)
         # Backend runs W13 -> gated_act -> W2 -> weighted_reduce in one call
 ```
+
+### 6.6 Optional two-pass split (`ZENTORCH_TWO_PASS`)
+
+The single-call path above runs W13 → gated activation → W2 → weighted-reduce inside one
+`group_matmul_direct` call. The op splits the chain into two backend calls when the `ZENTORCH_TWO_PASS` 
+environment variable is set:
+
+```
+ZENTORCH_TWO_PASS=1
+  ├─ Call 1: W13 + gated activation only
+  │     gemm_outputs = per-expert [M_e, N] buffers (kernel writes the gated
+  │                    result into the first I = N/2 columns)
+  │     w2_weights   = {}      moe_output = None      row_ptrs = None
+  │     → produces the activated intermediate, no W2, no reduce
+  │
+  └─ Call 2: W2 + MoE weighted-reduce only
+        inputs       = first I columns of Call 1's output, made contiguous
+        w13_weights  = w2 slices (W2 is handed in as the only matmul)
+        gemm_outputs = grouped_inputs (so the pre-built row_ptrs still target
+                       the correct W2 destination rows)
+        activation   = "none"   moe_output = output   row_ptrs = row_ptrs
+        → down projection + router-weighted reduce into output
+```
+
+When `ZENTORCH_TWO_PASS` is unset (the default), the
+single-call fused path in 6.5 is used. This split path is exercised by
+`test_int8_w13_and_w2_two_pass` when run with `ZENTORCH_TWO_PASS=1`.
 
 ## 7. Complexity
 
@@ -235,16 +261,23 @@ E_a (number of active experts) is bounded by `min(E, T·K)` and in practice sits
 
 Tests for `zentorch_fused_moe` live in `test/unittests/op_tests/test_group_matmul.py` alongside the `zentorch_group_matmul.out` tests, within the `Test_GroupMatmul` class.
 
-### 8.1 Parameterization strategy
+### 8.1 Hypothesis strategy
 
-Tests use `@parameterized.expand(product(...))` with dimension configs from `GROUP_MATMUL_CONFIGS` and `supported_dtypes`.
+Tests are **Hypothesis-based**, decorated with
+`@GroupMatmulTestCase.hypothesis_params_group_matmul_itr(...)` (the same composite strategy
+`tensor_group_matmul_strategy` described in
+[zentorch_group_matmul.md §7.1](./zentorch_group_matmul.md)). Each example draws randomized
+dims plus a reproducible `tensor_seed`; dtype comes from `dtype_list=supported_dtypes`
+(`"float32"`, plus `"bfloat16"` when BF16 is supported). The int8 tests override `k_list` to satisfy their shape
+constraints.
 
 ### 8.2 Test matrix for `zentorch_fused_moe`
 
-| Test | Weights | Post-ops | dtype | Parameterized |
-|------|---------|----------|-------|---------------|
-| `test_fused_moe_pipeline` (Output 2) | bf16/f32 | Full pipeline (silu activation + w2 + MoE reduce) | f32 + bf16 | `supported_dtypes` × num_experts × K × D × topk × num_tokens |
-| `test_int8_w13_and_w2` (sub-test 3) | int8 w13 + int8 w2 | No activation + MoE reduce via `zentorch_fused_moe` | f32 only | `["float32"]` × num_experts × K × topk × num_tokens |
+| Test | Weights | Post-ops | Notes |
+|------|---------|----------|-------|
+| `test_fused_moe_pipeline` (Output 2) | bf16/f32 | Full pipeline (silu activation + w2 + MoE reduce) | Single-call fused path |
+| `test_int8_w13_and_w2_single_pass` (sub-test 3) | int8 w13 + int8 w2 | No activation + MoE reduce | `k_list = [4, 8]`, `K == K_out == N` |
+| `test_int8_w13_and_w2_two_pass` | int8 w13 + int8 w2 | silu activation + w2 + MoE reduce | `k_list = [8, 16]`, `K == K_out`; exercises the `ZENTORCH_TWO_PASS` split path when run with `ZENTORCH_TWO_PASS=1`|
 
 `test_fused_moe_pipeline` verifies two output paths per config: (1) low-level `zentorch_group_matmul.out` with inline MoE weighted-reduce, and (2) high-level `zentorch_fused_moe` (token grouping + full pipeline in a single op call). Both are compared against the same reference.
 

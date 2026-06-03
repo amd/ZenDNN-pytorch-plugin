@@ -152,44 +152,63 @@ Hardcoded defaults for Op1:
 
 ## 7. Test Plan
 
-Tests live in `test/unittests/op_tests/test_group_matmul.py`. The class `Test_GroupMatmul` extends `Zentorch_TestCase`.
+Tests live in `test/unittests/op_tests/test_group_matmul.py`. The class `Test_GroupMatmul` extends `GroupMatmulTestCase`.
 
-### 7.1 Parameterization strategy
+### 7.1 Hypothesis strategy
 
-Tests use `@parameterized.expand(product(...))` with dimension configs from `GROUP_MATMUL_CONFIGS`:
-```python
-GROUP_MATMUL_CONFIGS = {
-    "num_experts": [4], "M": [8], "K": [64], "N": [32],
-    "D": [16, 32], "K_out": [32, 64], "topk": [2], "num_tokens": [8],
-}
-```
+Tests are **Hypothesis-based** decorated with
+`@GroupMatmulTestCase.hypothesis_params_group_matmul_itr(...)` (defined in
+`test/unittests/unittest_utils.py`), which wraps the composite strategy
+`tensor_group_matmul_strategy`. For every generated example the strategy draws a random
+dtype plus a full set of dimensions and records a `tensor_seed`; the per-example seed is
+applied via `torch.manual_seed(tensor_seed_val)` (and numpy/random) so any failing example
+is fully reproducible from the seed printed in the failure decorator.
 
-All tests use `torch.manual_seed(42)` for determinism. Dtype is parameterized via `supported_dtypes` (`["float32", "bfloat16"]`).
+Dimensions are drawn from the constants in `zentorch_test_utils.py`:
+
+| Dimension | Source constant |
+|-----------|-----------------|
+| `num_experts` | `GROUP_MATMUL_NUM_EXPERTS` |
+| `M` | `GROUP_MATMUL_M_VALUES` |
+| `K` | `GROUP_MATMUL_K_VALUES` |
+| `N` | `GROUP_MATMUL_N_VALUES` |
+| `D` | `GROUP_MATMUL_D_VALUES` |
+| `K_out` | `GROUP_MATMUL_K_OUT_VALUES`|
+| `topk` | `GROUP_MATMUL_TOPK_VALUES`|
+| `num_tokens` | `GROUP_MATMUL_NUM_TOKENS_VALUES`|
+
+`K` is drawn with `st.sampled_from(k_list)`; the int8 tests override `k_list` with
+`GROUP_MATMUL_INT8_K_VALUES = [4, 8]` or `GROUP_MATMUL_INT8_GATED_K_VALUES = [8, 16]` to satisfy
+their tighter shape constraints. Dtype is supplied via `dtype_list=supported_dtypes`
+(`"float32"`, plus `"bfloat16"` when BF16 is supported). `GroupMatmulTestCase` sets `max_example_per_test = 5` and
+`time_out = 10000` ms — fewer examples and a longer deadline than the default because each
+example builds full per-expert w13/w2 weight, bias, and scale tensors.
 
 
 ### 7.2 Test matrix for `zentorch_group_matmul.out`
 
-| Test | Post-ops | dtype | Parameterized |
-|------|----------|-------|---------------|
-| `test_plain_gemm` | None (bare GEMM) | f32 + bf16 | dtypes × num_experts × M × K × N |
-| `test_moe_weighted_reduce` | MoE weighted-reduce | f32 + bf16 | dtypes × num_experts × K × N × topk × num_tokens |
-| `test_gated_activations` | Gated activation (silu, gelu, swigluoai) | f32 + bf16 | dtypes × num_experts × M × K × D |
-| `test_int8_w13` | Dynamic int8 w13 (bare GEMM) | f32 + bf16 | dtypes × num_experts × M × K × N |
-| `test_int8_w13_and_w2` | Dynamic int8 w13 + w2, five sub-tests (see below) | f32 only | `["float32"]` × num_experts × K × topk × num_tokens |
-| `test_unsupported_activation` | Invalid activation strings | f32 + bf16 | dtypes |
-| `test_int8_missing_scales` | int8 weights with None scales (negative) | f32 | Not parameterized. Requires `ZENTORCH_ENABLE_CHECKS=1` set before process start (`@unittest.skipUnless`) |
-| `test_empty_gemm_outputs_fused_w2` | Fused w2 with gemm_outputs=[] | f32 + bf16 | dtypes × num_experts × M × K × D × K_out |
-| `test_fused_moe_pipeline` | Full pipeline: w13 → act → w2 → MoE reduce | f32 + bf16 | dtypes × num_experts × K × D × topk × num_tokens |
+| Test | Post-ops | Notes |
+|------|----------|-------|
+| `test_plain_gemm` | None (bare GEMM) | Parallel expert GEMMs only |
+| `test_moe_weighted_reduce` | MoE weighted-reduce | GEMM + per-token reduce |
+| `test_gated_activations` | Gated activation (silu, gelu, swigluoai) | Loops over all activations per example |
+| `test_int8_w13` | Dynamic int8 w13 (bare GEMM) | `k_list = [4, 8]`; needs AVX512 + bf16 |
+| `test_int8_w13_and_w2_single_pass` | Dynamic int8 w13 + w2, 3 sub-tests (see below) | `k_list = [4, 8]`, `K == K_out == N` |
+| `test_int8_w13_and_w2_two_pass` | int8 w13 + silu + w2 + MoE reduce via `zentorch_fused_moe` | `k_list = [8, 16]`, `K == K_out`; exercises the `ZENTORCH_TWO_PASS` split path when run with `ZENTORCH_TWO_PASS=1`|
+| `test_unsupported_activation` | Invalid activation strings | Expects `RuntimeError` |
+| `test_int8_missing_scales` | int8 weights with None scales (negative) | Requires `ZENTORCH_ENABLE_CHECKS=1` set before process start (`@unittest.skipUnless`); `k_list = [4, 8]` |
+| `test_empty_gemm_outputs_fused_w2` | Fused w2 with gemm_outputs=[] | Backend allocates dst internally |
+| `test_fused_moe_pipeline` | Full pipeline: w13 → act → w2 → MoE reduce | Verifies both `zentorch_group_matmul.out` and `zentorch_fused_moe` paths |
 
-#### `test_int8_w13_and_w2` sub-tests
+#### `test_int8_w13_and_w2_single_pass` sub-tests
 
 | Sub-test | API | Post-ops | Detail |
 |----------|-----|----------|--------|
-| 1 | `zentorch_group_matmul.out` | No activation, no MoE reduce | Per-expert int8 w13 + int8 w2 outputs. Kernel writes w2 output back into inputs. |
-| 2 | `zentorch_group_matmul.out` | No activation, with MoE weighted reduce | Uses `row_ptrs_into_inputs` for fused w2 buffer reuse |
+| 1 | `zentorch_group_matmul.out` | No activation, no MoE reduce | Per-expert int8 w13 + int8 w2. Kernel writes w2 output back into inputs. |
+| 2 | `zentorch_group_matmul.out` | silu activation + MoE weighted reduce | Uses `row_ptrs` into the input buffers for fused w2 buffer reuse |
 | 3 | `zentorch_fused_moe` | No activation + MoE weighted reduce | High-level fused_moe op with int8 weights + scales |
 
-All sub-tests use `K == K_out == N` (buffer reuse constraint). Parameterized with `["float32"]` only.
+All sub-tests use `K == K_out == N` (buffer reuse constraint).
 
 
 ### 7.3 Known limitations
