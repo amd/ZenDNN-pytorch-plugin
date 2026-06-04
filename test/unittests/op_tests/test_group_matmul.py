@@ -18,7 +18,6 @@ from unittest_utils import (  # noqa: E402
     run_tests,
     supported_dtypes,
     update_supported_dtypes,
-    zentorch,
 )
 
 supported_dtypes = update_supported_dtypes(supported_dtypes)
@@ -165,9 +164,6 @@ class Test_GroupMatmul(GroupMatmulTestCase):
     @torch.inference_mode()
     def test_plain_gemm(self, dtype):
         """Plain parallel GEMM."""
-        if not zentorch._C.is_avx512_supported():
-            self.skipTest("AVX512 not supported")
-
         torch_dtype = self.data.get_torch_type(dtype)
         num_experts = self.data.num_experts
         M = self.data.M
@@ -204,9 +200,6 @@ class Test_GroupMatmul(GroupMatmulTestCase):
     @torch.inference_mode()
     def test_moe_weighted_reduce(self, dtype):
         """GEMM + MoE weighted-reduce."""
-        if not zentorch._C.is_avx512_supported():
-            self.skipTest("AVX512 not supported")
-
         torch_dtype = self.data.get_torch_type(dtype)
         num_experts = self.data.num_experts
         K = self.data.K
@@ -257,9 +250,6 @@ class Test_GroupMatmul(GroupMatmulTestCase):
     @torch.inference_mode()
     def test_gated_activations(self, dtype):
         """GEMM + gated activation across activation types."""
-        if not zentorch._C.is_avx512_supported():
-            self.skipTest("AVX512 not supported")
-
         torch_dtype = self.data.get_torch_type(dtype)
         num_experts = self.data.num_experts
         M = self.data.M
@@ -333,11 +323,6 @@ class Test_GroupMatmul(GroupMatmulTestCase):
     @torch.inference_mode()
     def test_int8_w13(self, dtype):
         """Dynamic int8: inputs x w13 int8 weights with per-channel scales."""
-        if not zentorch._C.is_avx512_supported():
-            self.skipTest("AVX512 not supported")
-        if not zentorch._C.is_bf16_supported():
-            self.skipTest("BF16 not supported")
-
         torch_dtype = self.data.get_torch_type(dtype)
         num_experts = self.data.num_experts
         M = self.data.M
@@ -389,11 +374,6 @@ class Test_GroupMatmul(GroupMatmulTestCase):
 
         Constraint: K == K_out == N for fused w2 buffer reuse.
         """
-        if not zentorch._C.is_avx512_supported():
-            self.skipTest("AVX512 not supported")
-        if not zentorch._C.is_bf16_supported():
-            self.skipTest("BF16 not supported")
-
         num_experts = self.data.num_experts
         K = self.data.K
         topk = self.data.topk
@@ -530,6 +510,8 @@ class Test_GroupMatmul(GroupMatmulTestCase):
         self.assertEqual(fused_moe_output.float(), ref_moe_fmoe,
                          **TOLERANCES["fused_bf16"])
 
+    @unittest.skipUnless(os.environ.get("ZENTORCH_TWO_PASS") == "1",
+                         "Set ZENTORCH_TWO_PASS=1 before running")
     @GroupMatmulTestCase.hypothesis_params_group_matmul_itr(
         dtype_list=supported_dtypes,
         k_list=GROUP_MATMUL_INT8_GATED_K_VALUES,
@@ -546,11 +528,6 @@ class Test_GroupMatmul(GroupMatmulTestCase):
 
         Constraint: K == K_out (W2 output dim).
         """
-        if not zentorch._C.is_avx512_supported():
-            self.skipTest("AVX512 not supported")
-        if not zentorch._C.is_bf16_supported():
-            self.skipTest("BF16 not supported")
-
         torch_dtype = self.data.get_torch_type(dtype)
         num_experts = self.data.num_experts
         K = self.data.K
@@ -710,11 +687,6 @@ class Test_GroupMatmul(GroupMatmulTestCase):
         results after the kernel completes).
         Constraint: K_out must equal K (buffer reuse).
         """
-        if not zentorch._C.is_avx512_supported():
-            self.skipTest("AVX512 not supported")
-        if not zentorch._C.is_bf16_supported():
-            self.skipTest("BF16 not supported")
-
         torch_dtype = self.data.get_torch_type(dtype)
         num_experts = self.data.num_experts
         K = self.data.K
