@@ -157,7 +157,7 @@ def get_tag_commit(base_dir, tag):
 
 # Define env values
 PACKAGE_NAME = "zentorch"
-_PLUGIN_PATCH = "1"
+_PLUGIN_PATCH = "2"
 _pt_ver = parse(torch_version)
 PACKAGE_VERSION = f"{_pt_ver.major}.{_pt_ver.minor}.{_pt_ver.micro}.{_PLUGIN_PATCH}"
 PT_VERSION = torch_version
