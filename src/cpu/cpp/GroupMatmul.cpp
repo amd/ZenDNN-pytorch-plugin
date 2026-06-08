@@ -273,7 +273,9 @@ validate_all_inputs(const std::vector<at::Tensor> &inputs,
 }
 
 // Maps activation string to LowOHA gated activation enum.
-// Supported: "none", "silu", "gelu", "swigluoai".
+// Supported: "none", "silu", "gelu", "gelu_tanh", "swigluoai".
+// "gelu" and "gelu_tanh" both use gelu_and_mul; fused kernels apply
+// tanh-approx GELU (matches vLLM MoEActivation.GELU_TANH / Gemma-4).
 static zendnnl::lowoha::matmul::grp_matmul_gated_act_t
 map_activation_to_gated_act(std::string_view activation) {
   using gated_act_t = zendnnl::lowoha::matmul::grp_matmul_gated_act_t;
@@ -281,7 +283,7 @@ map_activation_to_gated_act(std::string_view activation) {
     return gated_act_t::none;
   if (activation == "silu")
     return gated_act_t::silu_and_mul;
-  if (activation == "gelu")
+  if (activation == "gelu" || activation == "gelu_tanh")
     return gated_act_t::gelu_and_mul;
   if (activation == "swigluoai")
     return gated_act_t::swiglu_oai_mul;

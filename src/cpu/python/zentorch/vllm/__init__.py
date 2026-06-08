@@ -52,6 +52,9 @@ from zentorch.vllm._core import (
     VLLM_V22,
 )
 
+
+from zentorch._utils import _SUPPORTED_MOE_ACTIVATIONS
+
 # Re-exported at module scope so tests can mock the Int8Tensor dispatch impl
 # (see TorchAOPatch.apply); the import has no torchao dependency itself.
 from zentorch.vllm._torchao_int8_patch import (  # noqa: E402, F401
@@ -471,8 +474,6 @@ class RMSNormPatch:
 # itself trusts its inputs.
 
 _FUSED_MOE_HOOK_INSTALLED = False
-
-_SUPPORTED_MOE_ACTIVATIONS = ("silu", "gelu", "swigluoai")
 
 
 def _moe_forward_zentorch(

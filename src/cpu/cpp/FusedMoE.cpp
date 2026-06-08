@@ -421,7 +421,7 @@ build_token_expert_mapping(const at::Tensor &input, const at::Tensor &topk_id) {
 //   topk_weights   : 2D [T, K], f32, contiguous
 //   topk_id        : 2D [T, K], int32, contiguous, values in [0, E)
 //   skip_weighted  : bool; if true, requires K == 1
-//   act            : one of {"silu", "gelu", "swigluoai"}
+//   act            : one of {"silu", "gelu", "gelu_tanh", "swigluoai"}
 // ---------------------------------------------------------------------------
 
 void zentorch_fused_moe(

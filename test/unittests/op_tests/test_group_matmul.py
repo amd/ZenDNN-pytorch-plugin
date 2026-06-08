@@ -19,10 +19,11 @@ from unittest_utils import (  # noqa: E402
     supported_dtypes,
     update_supported_dtypes,
 )
+from zentorch._utils import (  # noqa: E402
+    _SUPPORTED_MOE_ACTIVATIONS as SUPPORTED_ACTIVATIONS,
+)
 
 supported_dtypes = update_supported_dtypes(supported_dtypes)
-
-SUPPORTED_ACTIVATIONS = ["silu", "gelu", "swigluoai"]
 
 # Tolerance per dtype
 TOLERANCES = {
@@ -133,10 +134,10 @@ class Test_GroupMatmul(GroupMatmulTestCase):
         """Gated activation: split → act(gate) * value. Input [M, 2*D] → [M, D].
 
         Matches cpp/GroupMatmul.cpp::map_activation_to_gated_act:
-        "none" / ""       → none
-        "silu"    → silu_and_mul
-        "gelu"    → gelu_and_mul
-        "swigluoai"  → swiglu_oai_mul
+          "none" / ""       → none
+          "silu"    → silu_and_mul
+          "gelu" / "gelu_tanh" → gelu_and_mul
+          "swigluoai"  → swiglu_oai_mul
         """
         self.assertEqual(
             tensor.shape[1] % 2,
@@ -148,7 +149,8 @@ class Test_GroupMatmul(GroupMatmulTestCase):
         value = tensor[:, half_dim:]
         if activation == "silu":
             return torch.nn.functional.silu(gate) * value
-        elif activation == "gelu":
+        elif activation in ("gelu", "gelu_tanh"):
+            # LowOHA gelu_and_mul uses gelu_erf (see group_matmul_act_avx512.hpp).
             return torch.nn.functional.gelu(gate) * value
         elif activation == "swigluoai":
             alpha, limit = 1.702, 7.0

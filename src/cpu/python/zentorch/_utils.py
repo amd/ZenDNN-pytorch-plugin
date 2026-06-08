@@ -25,6 +25,9 @@ counters = collections.defaultdict(collections.Counter)
 at_ops = torch.ops.aten
 
 
+_SUPPORTED_MOE_ACTIVATIONS = ("gelu", "gelu_tanh", "silu", "swigluoai")
+
+
 # When arg_index is none, it will check for node
 def get_tensor(fx_graph, node, arg_index=None):
     if arg_index is not None:

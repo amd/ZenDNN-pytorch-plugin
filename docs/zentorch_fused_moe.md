@@ -56,7 +56,7 @@ torch.ops.zentorch.zentorch_fused_moe(
     topk_weights,   # Tensor, [T, K], f32, contiguous
     topk_id,        # Tensor, [T, K], int32, contiguous, values in [0, E)
     skip_weighted,  # bool; if true, requires K == 1 (router weight pre-applied by caller)
-    act,            # str: 'silu' | 'gelu' | 'swigluoai'
+    act,            # str: 'silu' | 'gelu' | 'gelu_tanh' | 'swigluoai'
     w13_scales=None, # Optional[Tensor], [E, N] or [E, G, N] or None (required for int8 w13)
     w2_scales=None, # Optional[Tensor], [E, K_out] or [E, G, K_out] or None (required for int8 w2)
     *, zentorch_op_name='zentorch::zentorch_fused_moe'
@@ -74,7 +74,7 @@ torch.ops.zentorch.zentorch_fused_moe(
 | `topk_weights` | Tensor (f32) | `[T, K]` router weights used by the weighted-reduce post-op. |
 | `topk_id` | Tensor (int32) | `[T, K]` expert ids, values in `[0, E)`. |
 | `skip_weighted` | bool | If `true`, the caller has already multiplied `input` by the (K=1) router weight, so the reduce post-op is fed an all-ones weight vector. |
-| `act` | str | Gated activation applied between W13 and W2. One of `'silu'`, `'gelu'`, `'swigluoai'`. Maps to `silu_and_mul`, `gelu_and_mul`, `swiglu_oai_mul` enums internally. |
+| `act` | str | Gated activation applied between W13 and W2. One of `'silu'`, `'gelu'`, `'gelu_tanh'`, `'swigluoai'`. Maps to `silu_and_mul`, `gelu_and_mul`, `swiglu_oai_mul` enums internally (`gelu_tanh` aliases `gelu_and_mul`). |
 | `w13_bias` | Tensor? (bf16/f32) | `[E, 2*I]` or `None`. Default `None`. |
 | `w2_bias` | Tensor? (bf16/f32) | `[E, H]` or `None`. Default `None`. |
 | `w13_scales` | Tensor? (f32) | Per-expert quantization scales for int8 `w13`. Shape `[E, N]` (per-channel) or `[E, G, N]` (per-group). Default `None` (for bf16/f32). |
@@ -96,7 +96,7 @@ torch.ops.zentorch.zentorch_fused_moe(
 | `topk_weights` | 2D `[T, K]`, `torch.float32`, contiguous |
 | `topk_id` | 2D `[T, K]`, `torch.int32`, contiguous, values in `[0, E)` |
 | `skip_weighted` | If `true`, requires `K == 1` |
-| `act` | One of `'silu'`, `'gelu'`, `'swigluoai'` |
+| `act` | One of `'silu'`, `'gelu'`, `'gelu_tanh'`, `'swigluoai'` |
 
 Validation lives in the Python patch (`_moe_forward_zentorch` / patch install in `src/cpu/python/zentorch/vllm/__init__.py`); the C++ op assumes the contract holds.
 
@@ -298,7 +298,8 @@ The C++ `map_activation_to_gated_act` function and the vLLM Python layer (`_SUPP
 | Input string | Enum | Description |
 |--------------|------|-------------|
 | `"silu"` | `grp_matmul_gated_act_t::silu_and_mul` | SiLU(gate) × up |
-| `"gelu"` | `grp_matmul_gated_act_t::gelu_and_mul` | GELU(gate) × up |
+| `"gelu"` | `grp_matmul_gated_act_t::gelu_and_mul` | GELU(gate) × up (tanh-approx in fused kernels) |
+| `"gelu_tanh"` | `grp_matmul_gated_act_t::gelu_and_mul` | Same as `"gelu"`; vLLM / Gemma-4 MoE name |
 | `"swigluoai"` | `grp_matmul_gated_act_t::swiglu_oai_mul` | SwigluOAI variant |
 
 The vLLM forward path normalizes `MoEActivation` enums to their `.value` string before passing to the C++ op.

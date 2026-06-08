@@ -26,7 +26,7 @@ In MoE models (Mixtral, DeepSeek, etc.), a router assigns each token to its top-
 
 `zentorch_group_matmul.out` addresses this by:
 - **Batching all expert GEMMs** into a single `group_matmul_direct` call
-- **Gated activation fusion** (`activation`): fuses SiLU/GELU/SwigluOAI activation (strings `"silu"`, `"gelu"`, `"swigluoai"`) with the gate+up projection, avoiding a separate activation kernel and memory round-trip
+- **Gated activation fusion** (`activation`): fuses SiLU/GELU/SwigluOAI activation (strings `"silu"`, `"gelu"`, `"gelu_tanh"`, `"swigluoai"`) with the gate+up projection, avoiding a separate activation kernel and memory round-trip
 - **Fused down projection** (`w2_weights`, `w2_bias`): chains the down projection GEMM into the same call, eliminating a second kernel launch between the activated intermediate and the down projection. ZenDNN manages the output buffers internally by reusing the input buffers
 - **MoE weighted-reduce fusion** (`moe_output`, `topk_weights`, `row_ptrs`): blends expert outputs into per-token results using router weights, avoiding a separate reduce kernel and an extra read over all expert output buffers
 - **Out variant pattern**: the caller controls output memory allocation and can reuse buffers across inference steps
@@ -44,7 +44,7 @@ torch.ops.zentorch.zentorch_group_matmul.out(
     moe_output,             # Optional[Tensor], [num_tokens, hidden_dim] (MoE reduce result)
     topk_weights,           # Optional[Tensor], [num_tokens, topk] routing weights (f32)
     row_ptrs,               # Optional[Tensor], [num_tokens * topk]
-    activation,             # str: 'none', 'silu', 'gelu', 'swigluoai'
+    activation,             # str: 'none', 'silu', 'gelu', 'gelu_tanh', 'swigluoai'
     w13_bias,               # List[Optional[Tensor]], one [N] or None per expert
     w2_bias,                # List[Optional[Tensor]], one [K_out] or None per expert ([] when unused)
     w13_scales,      # List[Optional[Tensor]], per-expert scales ([] for fp32/bf16, required for int8)
@@ -68,8 +68,7 @@ torch.ops.zentorch.zentorch_group_matmul.out(
 | `moe_output` | `Optional[Tensor]` (bf16/f32) | Pre-allocated `[num_tokens, hidden_dim]` for weighted-reduce result. |
 | `topk_weights` | `Optional[Tensor]` (f32) | Routing weights `[num_tokens, topk]`. |
 | `row_ptrs` | `Optional[Tensor]` (int64) | Pre-built pointer table `[num_tokens * topk]` into the final expert output buffers. When fused w2 is active, must point into the input buffers (ZenDNN reuses them for w2 output). |
-| `activation` | `str` | `'none'`, `'silu'`, `'gelu'`, or `'swigluoai'`. Maps to `silu_and_mul`, `gelu_and_mul`, `swiglu_oai_mul` enums internally. Gated activations require `N = 2*D` (even). |
-| `w13_bias` | `List[Optional[Tensor]]` | Op1 bias, one `[N]` or `None` per expert. |
+ | `activation` | `str` | `'none'`, `'silu'`, `'gelu'`, `'gelu_tanh'`, or `'swigluoai'`. Maps to `silu_and_mul`, `gelu_and_mul`, `swiglu_oai_mul` enums internally (`gelu_tanh` aliases `gelu_and_mul`; `gelu`/`gelu_tanh` use tanh-approx GELU in fused kernels). Gated activations require `N = 2*D` (even). || `w13_bias` | `List[Optional[Tensor]]` | Op1 bias, one `[N]` or `None` per expert. |
 | `w2_bias` | `List[Optional[Tensor]]` | Down projection bias, one `[K_out]` or `None` per expert. Pass `[]` when unused. |
 | `w13_scales` | `List[Optional[Tensor]]` (f32/bf16) | Per-expert quantization scales for dynamic int8 w13. Shape `[N]` (per-channel, normalized to `{1,N}`) or `{G, N}` (per-group). Pass `[]` for fp32/bf16 weights. |
 | `w2_scales` | `List[Optional[Tensor]]` (f32/bf16) | Per-expert quantization scales for dynamic int8 w2 weights. Shape `[K_out]` (per-channel) or `{G, K_out}` (per-group). Pass `[]` for fp32/bf16 w2 weights. |
@@ -102,7 +101,7 @@ torch.ops.zentorch.zentorch_group_matmul.out(
 ```
 zentorch_group_matmul_out_impl()
   ├─ Parse activation string → gated_act enum, compute use_gated_act
-  │     Supported: "none", "silu", "gelu", "swigluoai"
+  │     Supported: "none", "silu", "gelu", "gelu_tanh", "swigluoai"
   │     (mapped to silu_and_mul, gelu_and_mul, swiglu_oai_mul enums)
   ├─ validate_all_inputs() [gated by EnvReader::getEnvVariableAsInt("ZENTORCH_ENABLE_CHECKS")]:
   │     ├─ validate_dtypes_and_shapes (inputs, w13_weights, w13_bias, w13_scales)
