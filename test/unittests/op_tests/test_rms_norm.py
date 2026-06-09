@@ -18,6 +18,7 @@ from unittest_utils import (  # noqa: 402
     run_tests,
     zentorch,
     freeze_opt,
+    supported_dtypes,
 )
 
 
@@ -29,14 +30,15 @@ class Test_RMS_Norm(Zentorch_TestCase):
         self.batch_sizes = [2]
         self.hidden_sizes = [64]
 
-    @parameterized.expand(freeze_opt)
-    def test_rms_norm(self, freeze_opt):
+    @parameterized.expand(product(freeze_opt, supported_dtypes))
+    def test_rms_norm(self, freeze_opt, dtype):
+        dtype = getattr(torch, dtype)
         for batch_size, hidden_size in product(self.batch_sizes, self.hidden_sizes):
-            input = torch.randn(batch_size, hidden_size, dtype=torch.bfloat16)
-            weight = torch.randn(hidden_size, dtype=torch.bfloat16)
+            input = torch.randn(batch_size, hidden_size, dtype=dtype)
+            weight = torch.randn(hidden_size, dtype=dtype)
 
             # reference RMSNorm
-            rms_norm = nn.RMSNorm(hidden_size, eps=self.epsilon).bfloat16()
+            rms_norm = nn.RMSNorm(hidden_size, eps=self.epsilon).to(dtype)
             rms_norm.weight = nn.Parameter(weight)
             ref_output = rms_norm(input)
 
@@ -53,14 +55,15 @@ class Test_RMS_Norm(Zentorch_TestCase):
                 f"hidden_size={hidden_size}",
             )
 
-    @parameterized.expand(freeze_opt)
-    def test_add_rms_norm(self, freeze_opt):
+    @parameterized.expand(product(freeze_opt, supported_dtypes))
+    def test_add_rms_norm(self, freeze_opt, dtype):
+        dtype = getattr(torch, dtype)
         for batch_size, hidden_size in product(self.batch_sizes, self.hidden_sizes):
-            input = torch.randn(batch_size, hidden_size, dtype=torch.bfloat16)
-            weight = torch.randn(hidden_size, dtype=torch.bfloat16)
-            residual = torch.randn(batch_size, hidden_size, dtype=torch.bfloat16)
+            input = torch.randn(batch_size, hidden_size, dtype=dtype)
+            weight = torch.randn(hidden_size, dtype=dtype)
+            residual = torch.randn(batch_size, hidden_size, dtype=dtype)
 
-            rms_norm = nn.RMSNorm(hidden_size, eps=self.epsilon).bfloat16()
+            rms_norm = nn.RMSNorm(hidden_size, eps=self.epsilon).to(dtype)
             rms_norm.weight = nn.Parameter(weight)
             ref_residual = input + residual
             ref_output = rms_norm(ref_residual)

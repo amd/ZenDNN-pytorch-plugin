@@ -42,8 +42,6 @@ at::Tensor zentorch_gdn_rms_norm_gated(const at::Tensor &x,
                  " z=", z.scalar_type());
   ZENTORCH_CHECK(at::isFloatingType(weight.scalar_type()),
                  "weight must be floating-point; got ", weight.scalar_type());
-  ZENTORCH_CHECK(x.scalar_type() != c10::ScalarType::Half,
-                 "fp16 not supported; use fp32 or bf16");
 
   const bool is_silu = (activation == "silu" || activation == "swish");
   const bool is_sigmoid = (activation == "sigmoid");
