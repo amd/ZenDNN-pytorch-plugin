@@ -2,37 +2,56 @@
 
 When the user asks to rebuild or build zentorch from source, follow this skill.
 
----
-
-## Step 0: Check for existing agent_env
-
-Check if the `agent_env` conda environment exists:
+**Agent action:** Run this first (foreground, 600000ms timeout):
 
 ```bash
-conda env list | grep -w agent_env
+.claude/scripts/agent.sh build
 ```
 
-If `agent_env` exists, ask the user:
-- Continue with the existing `agent_env` environment?
-- Or create a new environment? (if so, follow `create-env.md` skill first)
+If the script succeeds, stop — do not run manual steps below. The script prints
+version and config string on completion.
 
-If the user chooses to continue with existing `agent_env`, proceed to Step 1.
-If no `agent_env` exists, follow the `create-env.md` skill first to create it.
+**Authoritative reference:** [README.md §2.2 From Source](../../README.md#22-from-source)
+
+---
+
+## Quick path (preferred)
+
+With an activated Python environment:
+
+```bash
+.claude/scripts/agent.sh build
+```
+
+Run in foreground with a long timeout (600000ms).
+
+---
+
+## Manual fallback
+
+## Step 0: Confirm active Python environment
+
+Ask the user which environment to use. Do **not** lock to a specific name.
+
+```bash
+echo "${VIRTUAL_ENV:-${CONDA_DEFAULT_ENV:-none}}"
+```
+
+If nothing is active, follow `create-env.md` first (refer to README.md §2.2.2.1
+for environment creation).
 
 ---
 
 ## Step 1: Auto-detect developer vs end user
 
-Run this command from the repo root:
-
 ```bash
 git remote get-url origin
 ```
 
-| Origin URL contains        | Role      | Build path to follow        |
-|----------------------------|-----------|-----------------------------|
-| `AMD-Zenai`               | Developer | **Developer build** (below) |
-| `amd/ZenDNN-pytorch-plugin` | End user  | **End-user build** (below)  |
+| Origin URL contains           | Role      | Build path        |
+|-------------------------------|-----------|-------------------|
+| `AMD-Zenai`                   | Developer | Local ZenDNN      |
+| `amd/ZenDNN-pytorch-plugin`   | End user  | Auto-fetch ZenDNN |
 
 If the remote doesn't match either pattern, ask the user which path to follow.
 
@@ -40,77 +59,62 @@ If the remote doesn't match either pattern, ask the user which path to follow.
 
 ## Developer build (internal repo + local ZenDNN)
 
-Developers use a local ZenDNN checkout as a sibling directory. The cmake build
-copies it into `third_party/` instead of fetching from GitHub.
-
-### 1. Uninstall existing zentorch (if continuing with existing env)
-
-If using an existing `agent_env`, uninstall zentorch first:
+### 1. Uninstall existing zentorch
 
 ```bash
-conda run -n agent_env pip uninstall zentorch -y
+pip uninstall zentorch -y
 ```
 
 ### 2. Pull latest code
 
-Update both ZenDNN_PyTorch_Plugin and ZenDNN to latest:
-
 ```bash
 git pull
-```
-
-Check whether `../ZenDNN` exists:
-
-```bash
-ls ../ZenDNN
-```
-
-If it does NOT exist, clone it:
-
-```bash
-git clone https://github.com/amd/ZenDNN.git ../ZenDNN
-```
-
-If it exists, pull latest:
-
-```bash
+ls ../ZenDNN || git clone https://github.com/amd/ZenDNN.git ../ZenDNN
 cd ../ZenDNN && git pull && cd -
 ```
 
 ### 3. Build with local ZenDNN
 
 ```bash
-conda run -n agent_env bash -c "export ZENTORCH_USE_LOCAL_ZENDNN=1 && python setup.py bdist_wheel"
+export ZENTORCH_USE_LOCAL_ZENDNN=1
+python setup.py bdist_wheel
 ```
 
 > For RHEL/Fedora/AlmaLinux/CentOS, also set: `export ZENDNNL_MANYLINUX_BUILD=1`
 
-**IMPORTANT**: Run this in foreground (NOT in background) with a long timeout (600000ms).
+**IMPORTANT**: Run in foreground (NOT in background) with a long timeout (600000ms).
 
 ### 4. Install the wheel
 
 ```bash
-conda run -n agent_env pip install dist/zentorch-*.whl
+pip install dist/zentorch-*.whl
 ```
 
-### 4a. Reinstall PyTorch CPU (if needed)
-
-The wheel installation may switch PyTorch from CPU to CUDA version. Reinstall CPU version:
+### 4a. Reinstall pinned PyTorch CPU (if needed)
 
 ```bash
-conda run -n agent_env pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu --force-reinstall --no-deps
+pip install torch==<pinned_version> --index-url https://download.pytorch.org/whl/cpu --force-reinstall --no-deps
 ```
+
+Use the version from `.claude/scripts/agent.sh install-pytorch` / current branch table
+in `setup-env.md`.
 
 ### 5. Verify
 
 ```bash
-conda run -n agent_env python -c "import zentorch; print(zentorch.__version__)"
+.claude/scripts/agent.sh verify
+```
+
+Prints both version and build config string:
+
+```bash
+python -c 'import zentorch; print(zentorch.__version__); print(*zentorch.__config__.split("\n"), sep="\n")'
 ```
 
 ### Build cleanup
 
 ```bash
-conda run -n agent_env python setup.py clean --all
+python setup.py clean --all
 ```
 
 ---
@@ -119,12 +123,10 @@ conda run -n agent_env python setup.py clean --all
 
 ZenDNN is fetched automatically by cmake — no local ZenDNN checkout needed.
 
-### 1. Uninstall existing zentorch (if continuing with existing env)
-
-If using an existing `agent_env`, uninstall zentorch first:
+### 1. Uninstall existing zentorch
 
 ```bash
-conda run -n agent_env pip uninstall zentorch -y
+pip uninstall zentorch -y
 ```
 
 ### 2. Pull latest code
@@ -136,31 +138,29 @@ git pull
 ### 3. Build
 
 ```bash
-conda run -n agent_env python setup.py bdist_wheel
+python setup.py bdist_wheel
 ```
 
 > For RHEL/Fedora/AlmaLinux/CentOS, set first: `export ZENDNNL_MANYLINUX_BUILD=1`
 
-**IMPORTANT**: Run this in foreground (NOT in background) with a long timeout (600000ms).
+**IMPORTANT**: Run in foreground (NOT in background) with a long timeout (600000ms).
 
 ### 4. Install the wheel
 
 ```bash
-conda run -n agent_env pip install dist/zentorch-*.whl
+pip install dist/zentorch-*.whl
 ```
 
-### 4a. Reinstall PyTorch CPU (if needed)
-
-The wheel installation may switch PyTorch from CPU to CUDA version. Reinstall CPU version:
+### 4a. Reinstall pinned PyTorch CPU (if needed)
 
 ```bash
-conda run -n agent_env pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu --force-reinstall --no-deps
+pip install torch==<pinned_version> --index-url https://download.pytorch.org/whl/cpu --force-reinstall --no-deps
 ```
 
 ### 5. Verify
 
 ```bash
-conda run -n agent_env python -c "import zentorch; print(zentorch.__version__)"
+.claude/scripts/agent.sh verify
 ```
 
 ---
@@ -169,10 +169,10 @@ conda run -n agent_env python -c "import zentorch; print(zentorch.__version__)"
 
 ### GLIBCXX version error
 
-If you see `ImportError: libstdc++.so.6: version 'GLIBCXX_x.y.zz' not found`:
+See README.md §2.1 notes. Typical fix:
 
 ```bash
-export LD_PRELOAD=$(conda info --base)/envs/agent_env/lib/libstdc++.so.6:$LD_PRELOAD
+export LD_PRELOAD=<path_to_env>/lib/libstdc++.so.6:$LD_PRELOAD
 ```
 
 ### Debug build

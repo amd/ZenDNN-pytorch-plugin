@@ -2,6 +2,33 @@
 
 When the user asks to run tests, follow this skill.
 
+**Agent action:** Run the mapped command (adjust scope as needed):
+
+```bash
+.claude/scripts/agent.sh test              # unit tests (default)
+.claude/scripts/agent.sh test all
+.claude/scripts/agent.sh test llm
+.claude/scripts/agent.sh test pre_trained
+.claude/scripts/agent.sh test <path/to/test_file.py>
+```
+
+Use manual commands below only if the script fails or a filter (`-k`, `-p`) is
+needed that the script does not support.
+
+---
+
+## Quick path (preferred)
+
+With an activated Python environment:
+
+```bash
+.claude/scripts/agent.sh test              # unit tests (default)
+.claude/scripts/agent.sh test all          # all tests
+.claude/scripts/agent.sh test llm          # LLM tests
+.claude/scripts/agent.sh test pre_trained  # pre-trained model tests
+.claude/scripts/agent.sh test test/unittests/op_tests/test_bmm.py  # single file
+```
+
 ---
 
 ## 1. Install test dependencies (if not already installed)

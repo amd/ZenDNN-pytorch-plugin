@@ -1,90 +1,91 @@
-# Skill: Create conda environment for zentorch
+# Skill: Prepare Python environment for zentorch
 
-When the user asks to create a conda environment for zentorch development, follow this skill.
+When the user asks to create or prepare a Python environment for zentorch
+development, follow this skill.
+
+**Agent action:** After confirming an active environment (Step 1), run:
+
+```bash
+.claude/scripts/agent.sh install-pytorch
+```
+
+Use manual steps below only if the script fails.
+
+**Authoritative reference:** [README.md §2.2.2.1](../../README.md#22221-create-conda-environment-for-the-build)
+for environment creation and Python version guidance.
 
 ---
 
-## Step 1: Check if environment already exists
+## Step 1: Confirm an active Python environment
 
-Ask the user for the desired environment name (default: `agent_env`).
-
-Check if the environment already exists:
+Do **not** assume a fixed environment name. Ask the user which environment they
+want to use, or confirm the currently active one:
 
 ```bash
-conda env list | grep -w <env_name>
+echo "${VIRTUAL_ENV:-${CONDA_DEFAULT_ENV:-none}}"
 ```
 
-If the environment exists, ask the user:
-- Continue with the existing environment?
-- Or provide a new name for a fresh environment?
-
-If the user chooses to continue with existing, skip to Step 4 (Verify).
+If no environment is active, direct the user to README.md §2.2.2.1 to create
+and activate a dedicated Python environment (venv, virtualenv, or other tool of
+their choice). Do not use the base environment.
 
 ---
 
-## Step 2: Create the conda environment
+## Step 2: Install pinned PyTorch (CPU)
 
-Create a new conda environment with Python 3.10 (recommended for PyTorch 2.10/2.11):
+Detect the expected PyTorch version from the current branch and repo role, then
+install the pinned CPU build. **Do not install the latest PyTorch.**
+
+Preferred — run the script:
 
 ```bash
-conda create -n <env_name> python=3.10 -y
+.claude/scripts/agent.sh install-pytorch
+```
+
+Manual equivalent:
+
+```bash
+git branch --show-current
+git remote get-url origin
+```
+
+| Role       | Origin contains               | Branch  | Primary PyTorch | Alternate   |
+|------------|-------------------------------|---------|-----------------|-------------|
+| Developer  | `AMD-Zenai`                   | `main`  | 2.11.0          | 2.10.0      |
+| Developer  | `AMD-Zenai`                   | `r5.2`  | 2.10.0          | 2.9.1       |
+| End user   | `amd/ZenDNN-pytorch-plugin`   | `main`/`master` | 2.11.0  | 2.10.0      |
+| End user   | `amd/ZenDNN-pytorch-plugin`   | `r5.2`  | 2.10.0          | 2.9.1       |
+
+```bash
+pip install torch==<version> --index-url https://download.pytorch.org/whl/cpu
+```
+
+> Use Python 3.10 by default (see README). If you need a different Python
+> version, choose one supported by the PyTorch version for your branch and
+> verify against the [PyTorch Release Compatibility Matrix](https://github.com/pytorch/pytorch/blob/main/RELEASE.md#release-compatibility-matrix).
+
+---
+
+## Step 3: Verify PyTorch
+
+```bash
+python -c "import torch; print(f'PyTorch {torch.__version__}')"
 ```
 
 ---
 
-## Step 3: Install PyTorch (CPU version)
+## Step 4: Install build dependencies (optional)
 
-Activate the environment and install the latest PyTorch CPU:
-
-```bash
-conda run -n <env_name> pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
-```
-
-This installs the latest stable PyTorch CPU version (currently supports 2.10.0 and 2.11.0).
-
----
-
-## Step 4: Verify installation
-
-Verify PyTorch is installed correctly:
+If planning to build zentorch immediately:
 
 ```bash
-conda run -n <env_name> python -c "import torch; print(f'PyTorch {torch.__version__}')"
+pip install -r requirements.txt
 ```
 
 ---
 
-## Step 5: Install build dependencies (optional)
+## Step 5: Next steps
 
-If planning to build zentorch immediately, install build dependencies:
-
-```bash
-conda run -n <env_name> pip install cmake ninja setuptools wheel
-```
-
----
-
-## Step 6: Next steps
-
-The environment is ready. To use it:
-
-**Activate the environment:**
-```bash
-conda activate <env_name>
-```
-
-**Build zentorch:**
-Follow the `build-from-source.md` skill.
-
-**Run tests:**
-Follow the `run-tests.md` skill.
-
----
-
-## Environment deletion (if needed)
-
-To delete an environment:
-
-```bash
-conda env remove -n <env_name>
-```
+- **Full setup:** follow `setup-env.md` or run `.claude/scripts/agent.sh setup`
+- **Build only:** follow `build-from-source.md` or run `.claude/scripts/agent.sh build`
+- **Run tests:** follow `run-tests.md` or run `.claude/scripts/agent.sh test`

@@ -9,6 +9,27 @@
 
 For routine operations (building, installing, running tests, reading files, etc.), proceed directly without requesting permission.
 
+**Script-first workflows**: When a task matches a skill in `.claude/skills/`, read
+that skill file first, then run the mapped `agent.sh` command before any manual
+steps. Only fall back to manual commands if the script fails or the user asks
+for a manual path.
+
+| User intent | Skill file | Run first |
+|-------------|------------|-----------|
+| Prepare Python env / install PyTorch | `create-env.md` | `agent.sh install-pytorch` |
+| Fresh setup and build | `setup-env.md` | `agent.sh setup` |
+| Rebuild from source | `build-from-source.md` | `agent.sh build` |
+| Verify install | any build skill | `agent.sh verify` |
+| Run tests | `run-tests.md` | `agent.sh test [scope]` |
+| Lint code | `lint.md` | `agent.sh lint python`, `cpp`, or `shell` |
+
+Scripts assume an activated Python environment (see
+[README.md §2.2.2.1](README.md#22221-create-conda-environment-for-the-build)).
+
+**Environment setup**: Do not prescribe conda commands in skills or scripts.
+Refer to README.md for authoritative environment creation, PyTorch version
+pinning, and build instructions.
+
 ## Project overview
 
 zentorch is a PyTorch C++ extension that accelerates inference on AMD EPYC CPUs.
@@ -26,6 +47,8 @@ src/cpu/cpp/              # C++ operator bindings and integration code
 src/cpu/python/zentorch/  # Python package (backend, llm, vllm plugin)
 test/                     # All tests (unittests, llm_tests, pre_trained_model_tests)
 scripts/                  # Environment setup helpers
+.claude/scripts/          # agent.sh workflow entry point + common.sh helpers
+.claude/skills/           # Step-by-step agent skill guides
 benchmark/                # Benchmark configs (BERT, DLRM-v2, etc.)
 third_party/              # Auto-populated at build time (ZenDNN)
 ```
@@ -42,6 +65,8 @@ third_party/              # Auto-populated at build time (ZenDNN)
 - **main** — latest development (supports PyTorch 2.11.0 and 2.10.0)
 - **r5.2** — stable release (supports PyTorch 2.10.0 and 2.9.1)
 - **master** (public repo) — weekly development releases
+
+See README.md for the authoritative PyTorch/Python compatibility matrix.
 
 ## Build system
 
@@ -85,6 +110,8 @@ Install test deps: `python test/install_requirements.py`
 | By name pattern   | `python -m unittest discover -s ./test/unittests -k "woq"` |
 | By file pattern   | `python -m unittest discover -s ./test/unittests -p "test_mm*"` |
 
+Or use `.claude/scripts/agent.sh test [scope]`.
+
 ## Coding conventions
 
 - C++17 standard, compiled with `-Wall -Werror`
@@ -92,20 +119,33 @@ Install test deps: `python test/install_requirements.py`
 - Ops are registered via `TORCH_LIBRARY` / `TORCH_LIBRARY_IMPL` macros in `Bindings.cpp`
 - Linting: `.flake8` config in repo root; `linter/py_cpp_linter.sh` for CI checks
 
+## Scripts
+
+`.claude/scripts/agent.sh` — single entry point (helpers in `common.sh`):
+
+| Command | Purpose |
+|---------|---------|
+| `agent.sh install-pytorch [--force]` | Install/validate pinned PyTorch CPU |
+| `agent.sh setup` | Full fresh setup: deps, build, install, verify |
+| `agent.sh build` | Rebuild zentorch from source |
+| `agent.sh verify` | Print zentorch version and build config |
+| `agent.sh test [scope]` | Run tests with required env vars |
+| `agent.sh lint python` | flake8 Python lint |
+| `agent.sh lint cpp` | clang-format C++ check |
+| `agent.sh lint shell` | shellcheck on `.sh` files |
+
 ## Skills
 
 See `.claude/skills/` for step-by-step guides:
-- `create-env.md` — Create a conda environment for zentorch development. Default
-  environment name is `agent_env`. Installs PyTorch, torchvision, and torchaudio.
-  Use this when creating a new conda environment.
+- `create-env.md` — Prepare a Python environment with pinned PyTorch CPU.
+  Refers to README for environment creation. User chooses their own env name.
+- `setup-env.md` — Full fresh setup: validate PyTorch, install deps, build and
+  install zentorch. Validates/reinstalls PyTorch even when reusing an env.
 - `build-from-source.md` — Build/rebuild zentorch from source.
-  - First checks if `agent_env` exists and asks user to continue with existing or create new
-  - If continuing with existing env: uninstalls zentorch, pulls latest code (git pull)
-  - For developers: also pulls latest ZenDNN code
   - Auto-detects developer vs end-user by inspecting `git remote get-url origin`:
     - `AMD-Zenai` in origin → **developer** path (local ZenDNN + `ZENTORCH_USE_LOCAL_ZENDNN=1`)
     - `amd/ZenDNN-pytorch-plugin` in origin → **end-user** path (cmake auto-fetches ZenDNN)
-- `setup-env.md` — Full fresh setup: create conda env, install PyTorch (CPU),
-  install deps, build and install zentorch. Start here for first-time setup.
+  - Verify step prints both `__version__` and `__config__`.
 - `run-tests.md` — Test dependency setup, env vars, and commands for running
   unit tests, LLM tests, pre-trained model tests, or filtered subsets
+- `lint.md` — flake8 (Python), clang-format (C++), and shellcheck (shell scripts)

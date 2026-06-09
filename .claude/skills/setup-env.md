@@ -1,169 +1,188 @@
 # Skill: Set up environment and build zentorch
 
 When the user asks to set up the environment, get started, or do a fresh setup
-and build, follow this skill. It creates a conda environment, installs PyTorch
-(CPU), and builds zentorch from source end-to-end.
+and build, follow this skill.
+
+**Agent action:** Run this first (foreground, 600000ms timeout):
+
+```bash
+.claude/scripts/agent.sh setup
+```
+
+If the script succeeds, stop — do not run manual steps below. Use manual steps
+only if the script fails or the user requests a step-by-step manual setup.
+
+**Authoritative reference:** [README.md §2 Installation](../../README.md#2-installation)
+for environment creation, PyTorch versions, and build steps.
 
 ---
 
-## Step 0: Auto-detect developer vs end user
+## Quick path (preferred)
 
-Run this command from the repo root:
+If the user already has an activated Python environment:
+
+```bash
+.claude/scripts/agent.sh setup
+```
+
+Run in foreground with a long timeout (600000ms). The script validates PyTorch,
+installs dependencies, builds, and verifies zentorch (version + config string).
+
+---
+
+## Manual fallback
+
+## Step 0: Auto-detect developer vs end user
 
 ```bash
 git remote get-url origin
 ```
 
-| Origin URL contains        | Role      |
-|----------------------------|-----------|
-| `AMD-Zenai`               | Developer |
-| `amd/ZenDNN-pytorch-plugin` | End user  |
+| Origin URL contains           | Role      |
+|-------------------------------|-----------|
+| `AMD-Zenai`                   | Developer |
+| `amd/ZenDNN-pytorch-plugin`   | End user  |
 
 If the remote doesn't match either pattern, ask the user which role applies.
 
 ---
 
-## Step 1: Check for existing agent_env
+## Step 1: Confirm active Python environment
 
-Check if the `agent_env` conda environment exists:
-
-```bash
-conda env list | grep -w agent_env
-```
-
-**If `agent_env` exists**, ask the user:
-- Continue with the existing `agent_env` environment?
-- Or delete and recreate it fresh?
-
-If the user chooses to continue with existing `agent_env`:
-1. Uninstall any existing zentorch:
-   ```bash
-   conda run -n agent_env pip uninstall zentorch -y
-   ```
-2. Skip to Step 3 (Install build dependencies).
-
-If the user chooses to recreate, delete the old one first:
-```bash
-conda env remove -n agent_env -y
-```
-
-**If `agent_env` does not exist**, create it:
+Ask the user which environment to use. Do **not** assume a fixed environment
+name. Check what is currently active:
 
 ```bash
-conda create -n agent_env python=3.10 -y
+echo "${VIRTUAL_ENV:-${CONDA_DEFAULT_ENV:-none}}"
 ```
 
-> Python 3.10 – 3.13 are supported. No experimental versions (3.13T/3.14/3.14T).
+If nothing is active, direct the user to README.md §2.2.2.1 to create and
+activate a dedicated environment before continuing.
 
 ---
 
-## Step 2: Install PyTorch (CPU)
+## Step 2: Validate or reinstall PyTorch (CPU)
 
-Detect the current branch to pick the right PyTorch version:
+**Always run this step**, including when reusing an existing environment. An
+environment previously used on a different branch may have an incompatible
+PyTorch version.
+
+Preferred:
 
 ```bash
-git branch --show-current
+.claude/scripts/agent.sh install-pytorch
 ```
 
-**Developer (internal repo):**
+This installs or validates the pinned PyTorch version for the current branch.
+Use `--force` to reinstall unconditionally:
 
-| Branch  | Command                                                                                        |
-|---------|------------------------------------------------------------------------------------------------|
-| `main`  | `conda run -n agent_env pip install torch==2.11.0 --index-url https://download.pytorch.org/whl/cpu` |
-| `r5.2`  | `conda run -n agent_env pip install torch==2.10.0 --index-url https://download.pytorch.org/whl/cpu` |
+```bash
+.claude/scripts/agent.sh install-pytorch --force
+```
 
-**End user (public repo):**
+| Role       | Branch          | Primary PyTorch | Alternate |
+|------------|-----------------|-----------------|-----------|
+| Developer  | `main`          | 2.11.0          | 2.10.0    |
+| Developer  | `r5.2`          | 2.10.0          | 2.9.1     |
+| End user   | `main`/`master` | 2.11.0          | 2.10.0    |
+| End user   | `r5.2`          | 2.10.0          | 2.9.1     |
 
-| Branch   | Command                                                                                        |
-|----------|------------------------------------------------------------------------------------------------|
-| `master` | `conda run -n agent_env pip install torch==2.11.0 --index-url https://download.pytorch.org/whl/cpu` |
-| `r5.2`   | `conda run -n agent_env pip install torch==2.10.0 --index-url https://download.pytorch.org/whl/cpu` |
+> Use Python 3.10 by default (see README). Choose a Python version supported by
+> your branch's PyTorch release per the [PyTorch Release Compatibility Matrix](https://github.com/pytorch/pytorch/blob/main/RELEASE.md#release-compatibility-matrix).
 
 ---
 
-## Step 3: Install build dependencies
+## Step 3: Uninstall existing zentorch
 
 ```bash
-conda run -n agent_env pip install -r requirements.txt
+pip uninstall zentorch -y
 ```
 
 ---
 
-## Step 4: Developer only — ensure local ZenDNN
-
-Skip this step for end users.
-
-Check whether `../ZenDNN` exists relative to the repo root:
+## Step 4: Install build dependencies
 
 ```bash
-ls ../ZenDNN
+pip install -r requirements.txt
 ```
 
-If it does NOT exist, clone it:
+---
+
+## Step 5: Developer only — ensure local ZenDNN
+
+Skip for end users.
 
 ```bash
-git clone https://github.com/amd/ZenDNN.git ../ZenDNN
+ls ../ZenDNN || git clone https://github.com/amd/ZenDNN.git ../ZenDNN
 ```
 
 Expected layout:
 
 ```
 <parent_dir>/
-  ZenDNN/                      # ZenDNN checked out here
-  ZenDNN_PyTorch_Plugin/       # this repo
+  ZenDNN/
+  ZenDNN_PyTorch_Plugin/   # this repo
 ```
 
 ---
 
-## Step 5: Build zentorch
+## Step 6: Build zentorch
 
 **Developer:**
 
 ```bash
-conda run -n agent_env bash -c "export ZENTORCH_USE_LOCAL_ZENDNN=1 && python setup.py bdist_wheel"
+export ZENTORCH_USE_LOCAL_ZENDNN=1
+python setup.py bdist_wheel
 ```
 
 **End user:**
 
 ```bash
-conda run -n agent_env python setup.py bdist_wheel
+python setup.py bdist_wheel
 ```
 
 > For RHEL/Fedora/AlmaLinux/CentOS, also set: `export ZENDNNL_MANYLINUX_BUILD=1`
 
-**IMPORTANT**: Run the build command in foreground (NOT in background) with a long timeout (600000ms).
+**IMPORTANT**: Run the build in foreground (NOT in background) with a long
+timeout (600000ms).
 
 ---
 
-## Step 6: Install the wheel
+## Step 7: Install the wheel
 
 ```bash
-conda run -n agent_env pip install dist/zentorch-*.whl
+pip install dist/zentorch-*.whl
 ```
 
-### Step 6a: Reinstall PyTorch CPU (if needed)
+### Step 7a: Reinstall pinned PyTorch CPU (if needed)
 
-The wheel installation may switch PyTorch from CPU to CUDA version. Reinstall CPU version:
+The wheel may switch PyTorch to a CUDA build. Reinstall the pinned CPU version:
 
 ```bash
-conda run -n agent_env pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu --force-reinstall --no-deps
+pip install torch==<pinned_version> --index-url https://download.pytorch.org/whl/cpu --force-reinstall --no-deps
 ```
+
+Use the same `<pinned_version>` from Step 2.
 
 ---
 
-## Step 7: Verify
+## Step 8: Verify
 
 ```bash
-conda run -n agent_env python -c "import zentorch; print(zentorch.__version__)"
+.claude/scripts/agent.sh verify
 ```
 
-If this prints the version without errors, setup is complete.
+Or manually:
+
+```bash
+python -c 'import zentorch; print(zentorch.__version__); print(*zentorch.__config__.split("\n"), sep="\n")'
+```
 
 ---
 
 ## What's next
 
-- To run tests, follow the `run-tests.md` skill.
-- To rebuild after code changes, follow the `build-from-source.md` skill
-  (the conda env and PyTorch are already in place).
-- To clean the build: `conda run -n agent_env python setup.py clean --all`
+- To run tests: `.claude/scripts/agent.sh test` or follow `run-tests.md`
+- To rebuild after code changes: `.claude/scripts/agent.sh build` or
+  follow `build-from-source.md`
+- To clean the build: `python setup.py clean --all`
