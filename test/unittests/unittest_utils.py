@@ -115,8 +115,12 @@ from zentorch_test_utils import (  # noqa: 402 # noqa: F401
     # emb vars
     EMB_R_RANGE,
     EMB_W_RANGE,
+    QUANT_EMB_W_RANGE,
     EMB_D_RANGE,
+    QUANT_EMB_D_RANGE,
+    QUANT_EMB_NUM_RANGE,
     EMB_MLP_OPT,
+    EMB_NUM_OF_BAGS,
     # mm vars
     MM_INPUT_SCALER_RANGE,
     # woq variables
@@ -3306,6 +3310,258 @@ class SDPATestCase(Zentorch_TestCase):
                     if not isinstance(e, unittest.SkipTest):
                         decName = "SDPATestCase.hypothesis_params_sdpa_itr"
                         pklReplayFunction = "SDPATestCase.replay_from_pickle"
+                        obj.handleException(
+                            obj,
+                            str(e),
+                            hypStr,
+                            function.__name__,
+                            decName,
+                            pklReplayFunction,
+                            val,
+                            test_args,
+                        )
+                    raise  # Re-raise the exception after printing
+                return
+
+            return wrapper
+
+        return hypothesis_params_itr_impl
+
+
+class QuantEmbTestCase(Zentorch_TestCase):
+    time_out = 10000
+    max_example_per_test = 20
+
+    def getData(self):
+        return self.data
+
+    def createData(
+        self,
+        dtype,
+        num_embeddings,
+        embedding_dim,
+        num_bags,
+        indices_size,
+        weight,
+        indices,
+        offsets,
+        scales,
+        zero_points,
+        packed_weight,
+        cat_input,
+    ):
+        self.data.create_data_quant_emb(
+            dtype=dtype,
+            num_embeddings=num_embeddings,
+            embedding_dim=embedding_dim,
+            num_bags=num_bags,
+            indices_size=indices_size,
+            weight=weight,
+            indices=indices,
+            offsets=offsets,
+            scales=scales,
+            zero_points=zero_points,
+            packed_weight=packed_weight,
+            cat_input=cat_input,
+        )
+
+    def createDataFromVal(self, val):
+        (
+            hypStr,
+            tensor_seed,
+            dtype,
+            num_embeddings,
+            embedding_dim,
+            num_bags,
+            indices_size,
+            include_last_offset,
+            weight,
+            indices,
+            offsets,
+            scales,
+            zero_points,
+            packed_weight,
+            cat_input,
+        ) = val
+        self.createData(
+            dtype=dtype,
+            num_embeddings=num_embeddings,
+            embedding_dim=embedding_dim,
+            num_bags=num_bags,
+            indices_size=indices_size,
+            weight=weight,
+            indices=indices,
+            offsets=offsets,
+            scales=scales,
+            zero_points=zero_points,
+            packed_weight=packed_weight,
+            cat_input=cat_input,
+        )
+
+    @seed(seed=SEED)
+    @staticmethod
+    @st.composite
+    def tensor_quant_emb_strategy(
+        draw,
+        dtype_list=supported_dtypes_def,
+        num_embeddings_range=QUANT_EMB_NUM_RANGE,
+        embedding_dim_range=QUANT_EMB_D_RANGE,
+        num_bags_range=EMB_NUM_OF_BAGS,
+        indices_size_range=QUANT_EMB_W_RANGE,
+        include_last_offset_opt_list=INCLUDE_LAST_OFFSET_OPT_DEF,
+        tensor_seed=0,
+    ):
+        hypStr = ""
+        if not tensor_seed:
+            tensor_seed = getRandomSeed()
+        hypStr += f"tensor_seed={tensor_seed}, "
+        generator = torch.Generator()
+        generator.manual_seed(tensor_seed)
+
+        dtype = draw(st.sampled_from(dtype_list))
+        hypStr += f"dtype_list=[{dtype!r}], "
+
+        num_embeddings = draw(st.integers(num_embeddings_range.get_min(), num_embeddings_range.get_max()))
+        hypStr += f"num_embeddings_range=Range({num_embeddings},{num_embeddings}), "
+
+        embedding_dim = draw(st.sampled_from(embedding_dim_range))
+        hypStr += f"embedding_dim_range=[{embedding_dim}], "
+
+        num_bags = draw(st.integers(num_bags_range.get_min(), num_bags_range.get_max()))
+        hypStr += f"num_bags_range=Range({num_bags},{num_bags}), "
+
+        indices_size = draw(st.integers(indices_size_range.get_min(), indices_size_range.get_max()))
+        hypStr += f"indices_size_range=Range({indices_size},{indices_size}), "
+
+        include_last_offset = draw(st.sampled_from(include_last_offset_opt_list))
+        hypStr += f"include_last_offset_opt_list=[{include_last_offset}] "
+
+        # Generate weight matrix (quantized to int4 range: 0-14)
+        weight = torch.randint(low=0, high=15, size=(num_embeddings, embedding_dim), dtype=torch.int32, generator=generator)
+
+        # Generate indices
+        indices = torch.randint(0, num_embeddings, (indices_size,), dtype=torch.long, generator=generator)
+
+        # Generate offsets based on num_bags
+        if include_last_offset:
+            offsets = torch.cat([
+                torch.tensor([0], dtype=torch.long),
+                torch.sort(torch.randint(1, indices_size, (num_bags - 1,), dtype=torch.long, generator=generator))[0],
+                torch.tensor([indices_size], dtype=torch.long)
+            ])
+        else:
+            offsets = torch.cat([
+                torch.tensor([0], dtype=torch.long),
+                torch.sort(torch.randint(1, indices_size, (num_bags - 1,), dtype=torch.long, generator=generator))[0]
+            ])
+
+        # Generate scales and zero_points for quantization
+        scales = torch.rand(weight.size(0), 1, generator=generator).round(decimals=2)
+        zero_points = torch.randint(low=0, high=16, size=(weight.size(0),), dtype=torch.int32, generator=generator)
+
+        # Pack the weight (using AWQ int4 packing)
+        # This will be done in the test itself, but we'll store None here
+        packed_weight = None
+
+        torch_type = DataTypes.get_torch_type(dtype)
+        cat_input = torch.randn(num_bags, embedding_dim // 2, generator=generator).to(torch_type)
+
+        return (
+            hypStr,
+            tensor_seed,
+            dtype,
+            num_embeddings,
+            embedding_dim,
+            num_bags,
+            indices_size,
+            include_last_offset,
+            weight,
+            indices,
+            offsets,
+            scales,
+            zero_points,
+            packed_weight,
+            cat_input,
+        )
+
+    @staticmethod
+    def hypothesis_params_quant_emb_itr(
+        dtype_list=supported_dtypes_def,
+        num_embeddings_range=QUANT_EMB_NUM_RANGE,
+        embedding_dim_range=QUANT_EMB_D_RANGE,
+        num_bags_range=EMB_NUM_OF_BAGS,
+        indices_size_range=QUANT_EMB_W_RANGE,
+        include_last_offset_opt_list=INCLUDE_LAST_OFFSET_OPT_DEF,
+        tensor_seed=0,
+    ):
+        skip_reason = None
+        if not dtype_list:
+            skip_reason = "dtype_list is empty"
+
+        def hypothesis_params_itr_impl(function):
+            if skip_reason:
+                print(f"Skipping test - {function.__name__}: {skip_reason}")
+                return unittest.skipIf(True, skip_reason)(function)
+
+            @settings(
+                deadline=QuantEmbTestCase.time_out,
+                max_examples=QuantEmbTestCase.max_example_per_test,
+                verbosity=Verbosity.quiet,
+            )
+            @given(
+                val=QuantEmbTestCase.tensor_quant_emb_strategy(
+                    dtype_list=dtype_list,
+                    num_embeddings_range=num_embeddings_range,
+                    embedding_dim_range=embedding_dim_range,
+                    num_bags_range=num_bags_range,
+                    indices_size_range=indices_size_range,
+                    include_last_offset_opt_list=include_last_offset_opt_list,
+                    tensor_seed=tensor_seed,
+                )
+            )
+            def wrapper(obj, val, *args, **kwargs):
+                try:
+                    if not hasattr(obj, "getData") or not isinstance(
+                        obj.getData(), Test_Data
+                    ):
+                        raise RuntimeError(
+                            "hypothesis_params_quant_emb_itr called with invalid object"
+                        )
+
+                    (
+                        hypStr,
+                        tensor_seed,
+                        dtype,
+                        num_embeddings,
+                        embedding_dim,
+                        num_bags,
+                        indices_size,
+                        include_last_offset,
+                        *_,
+                    ) = val
+
+                    obj.createDataFromVal(val)
+
+                    # Prepare the arguments to pass to the test function
+                    test_args = {
+                        "dtype": dtype,
+                        "include_last_offset": include_last_offset,
+                    }
+
+                    # Get the required argument names for the test function
+                    required_args = inspect.signature(function).parameters.keys()
+
+                    # Call the test function with the appropriate arguments
+                    function(
+                        obj,
+                        *args,
+                        **{k: v for k, v in test_args.items() if k in required_args},
+                        **kwargs,
+                    )
+                except Exception as e:
+                    if not isinstance(e, unittest.SkipTest):
+                        decName = "QuantEmbTestCase.hypothesis_params_quant_emb_itr"
+                        pklReplayFunction = "QuantEmbTestCase.replay_from_pickle"
                         obj.handleException(
                             obj,
                             str(e),

@@ -7,37 +7,36 @@ import unittest
 import torch
 import sys
 from pathlib import Path
-from parameterized import parameterized
 
 sys.path.append(str(Path(__file__).parent.parent))
 from unittest_utils import (  # noqa: 402
-    Zentorch_TestCase,
+    QuantEmbTestCase,
     has_zentorch,
-    reset_dynamo,
     run_tests,
     supported_dtypes,
     update_supported_dtypes,
     zentorch,
+    include_last_offset_opt,
 )
 supported_dtypes = update_supported_dtypes(supported_dtypes)
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
-class Test_WOQ_Embedding_Bag(Zentorch_TestCase):
-    @parameterized.expand(supported_dtypes)
+class Test_WOQ_Embedding_Bag(QuantEmbTestCase):
+    @QuantEmbTestCase.hypothesis_params_quant_emb_itr(
+        dtype_list=supported_dtypes,
+        include_last_offset_opt_list=include_last_offset_opt,
+    )
     @torch.inference_mode()
-    def test_quant_embedding_bag(self, dtype):
+    def test_quant_embedding_bag(self, dtype, include_last_offset):
         torch_type = self.data.get_torch_type(dtype)
-        weight = torch.randint(low=0, high=15, size=(4, 16), dtype=torch_type)
-        indices = torch.tensor([1, 2, 3], dtype=torch.long)
-        offsets = torch.tensor([0, 2], dtype=torch.long)
-        scales = torch.rand(weight.size(0), 1).round(decimals=2)
-        zero_points = torch.randint(low=0, high=15, size=(weight.size(0),), dtype=torch.int32)
+        weight = self.data.weight
+        indices = self.data.indices
+        offsets = self.data.offsets
+        scales = self.data.scales
+        zero_points = self.data.zero_points
+
         zero_points_expanded = zero_points.unsqueeze(1).expand(weight.shape)
-        # 1   2    3    4   5   6      7  8
-        # will be packed as
-        # 8     7   6    5    4    3    2    1
-        # 1000 0111 0110 0101 0100 0011 0010 0001
 
         from op_tests._pack import create_pack_method
 
@@ -48,7 +47,8 @@ class Test_WOQ_Embedding_Bag(Zentorch_TestCase):
         dequant_weight = (weight - zero_points_expanded) * scales
 
         ref_result = torch.nn.functional.embedding_bag(
-            indices, dequant_weight, offsets, mode="sum"
+            indices, dequant_weight, offsets, mode="sum",
+            include_last_offset=include_last_offset
         ).to(torch_type)
 
         zentorch_packed_weights = zentorch._C.zentorch_get_packed_embedding_weight(
@@ -64,7 +64,7 @@ class Test_WOQ_Embedding_Bag(Zentorch_TestCase):
             0,  # mode
             False,  # sparse
             None,  # per_sample_weights
-            0,  # include_last_offset
+            include_last_offset,  # include_last_offset
             -1,  # padding_idx
         )
 
@@ -75,20 +75,20 @@ class Test_WOQ_Embedding_Bag(Zentorch_TestCase):
         else:  # float32
             self.assertEqual(ref_result, op_result, atol=0.01, rtol=0.01)
 
-    @parameterized.expand(supported_dtypes)
+    @QuantEmbTestCase.hypothesis_params_quant_emb_itr(
+        dtype_list=supported_dtypes,
+        include_last_offset_opt_list=include_last_offset_opt,
+    )
     @torch.inference_mode()
-    def test_quant_embedding_bag_out(self, dtype):
+    def test_quant_embedding_bag_out(self, dtype, include_last_offset):
         torch_type = self.data.get_torch_type(dtype)
-        weight = torch.randint(low=0, high=15, size=(4, 16), dtype=torch_type)
-        indices = torch.tensor([1, 2, 3], dtype=torch.long)
-        offsets = torch.tensor([0, 2], dtype=torch.long)
-        scales = torch.rand(weight.size(0), 1).round(decimals=2)
-        zero_points = torch.randint(low=0, high=15, size=(weight.size(0),), dtype=torch.int32)
+        weight = self.data.weight
+        indices = self.data.indices
+        offsets = self.data.offsets
+        scales = self.data.scales
+        zero_points = self.data.zero_points
+
         zero_points_expanded = zero_points.unsqueeze(1).expand(weight.shape)
-        # 1   2    3    4   5   6      7  8
-        # will be packed as
-        # 8     7   6    5    4    3    2    1
-        # 1000 0111 0110 0101 0100 0011 0010 0001
 
         from op_tests._pack import create_pack_method
 
@@ -99,7 +99,8 @@ class Test_WOQ_Embedding_Bag(Zentorch_TestCase):
         dequant_weight = (weight - zero_points_expanded) * scales
 
         ref_result = torch.nn.functional.embedding_bag(
-            indices, dequant_weight, offsets, mode="sum"
+            indices, dequant_weight, offsets, mode="sum",
+            include_last_offset=include_last_offset
         ).to(torch_type)
 
         zentorch_packed_weights = zentorch._C.zentorch_get_packed_embedding_weight(
@@ -131,7 +132,7 @@ class Test_WOQ_Embedding_Bag(Zentorch_TestCase):
             0,  # mode
             False,  # sparse
             None,  # per_sample_weights
-            0,  # include_last_offset
+            include_last_offset,  # include_last_offset
             -1,  # padding_idx
         )
 
@@ -146,7 +147,7 @@ class Test_WOQ_Embedding_Bag(Zentorch_TestCase):
             0,  # mode
             False,  # sparse
             None,  # per_sample_weights
-            0,  # include_last_offset
+            include_last_offset,  # include_last_offset
             -1,  # padding_idx
         )
 

@@ -113,8 +113,19 @@ CONV_DILATION2 = [[2, 2]]
 
 EMB_R_RANGE = Range(11, 20)
 EMB_W_RANGE = Range(1, 15)
+# indices_size for quantized-embedding tests must be >= 2 so that
+# torch.randint(1, indices_size, ...) used in offset generation is valid
+# (requires high > low, i.e. indices_size > 1).
+QUANT_EMB_W_RANGE = Range(2, 15)
+QUANT_EMB_NUM_RANGE = Range(11, 20)
 EMB_D_RANGE = Range(2, 512)
+# embedding_dim values for quantized-embedding tests; must be multiples of 8
+# because the int4 AWQ packer packs 8 values per 32-bit word (shape[1] // 8).
+# Values < 8 produce an empty packed tensor; non-multiples silently drop tail
+# columns, making the packed-weight path inconsistent with the reference.
+QUANT_EMB_D_RANGE = [8, 16, 32]
 EMB_MLP_OPT = [2]
+EMB_NUM_OF_BAGS = Range(1, 3)
 
 MM_INPUT_SCALER_RANGE = Range(100, 100)
 
@@ -875,8 +886,36 @@ class Test_Data(metaclass=Singleton):
         self.topk_indices = topk_indices
         self.topk_weights_routing = topk_weights_routing
 
+    # Create data for quantized embedding tests
+    def create_data_quant_emb(
+        self,
+        dtype,
+        num_embeddings,
+        embedding_dim,
+        num_bags,
+        indices_size,
+        weight,
+        indices,
+        offsets,
+        scales,
+        zero_points,
+        packed_weight,
+        cat_input,
+    ):
+        self.num_embeddings = num_embeddings
+        self.embedding_dim = embedding_dim
+        self.num_bags = num_bags
+        self.indices_size = indices_size
+        self.weight = weight
+        self.indices = indices
+        self.offsets = offsets
+        self.scales = scales
+        self.zero_points = zero_points
+        self.packed_weight = packed_weight
+        self.cat_input = cat_input
+
     # Create data for mm tests
-    # Ensure data creation for this cateogry tests in this function
+    # Ensure data creation for this category tests in this function
     def create_data_mm(
         self,
         dtype,

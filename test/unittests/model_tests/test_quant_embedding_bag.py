@@ -8,11 +8,10 @@ import torch
 from torch import nn
 import sys
 from pathlib import Path
-from parameterized import parameterized
 
 sys.path.append(str(Path(__file__).parent.parent))
 from unittest_utils import (  # noqa: 402
-    Zentorch_TestCase,
+    QuantEmbTestCase,
     has_zentorch,
     zentorch,
     run_tests,
@@ -20,6 +19,7 @@ from unittest_utils import (  # noqa: 402
     supported_dtypes,
     update_supported_dtypes,
     reset_dynamo,
+    Range
 )
 
 supported_dtypes = update_supported_dtypes(supported_dtypes)
@@ -94,20 +94,28 @@ class Custom_Model_Quant_Embedding_Group_Out(nn.Module):
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
-class Test_WOQ_Embedding_Bag_Group(Zentorch_TestCase):
+class Test_WOQ_Embedding_Bag_Group(QuantEmbTestCase):
 
-    @parameterized.expand(supported_dtypes)
+    # TODO: Test fails while generalizing the test - tracked in ZENAI-3863.
+    # Revert to hypothesis-generated values once the issue is resolved.
+    @QuantEmbTestCase.hypothesis_params_quant_emb_itr(
+        dtype_list=supported_dtypes,
+        include_last_offset_opt_list=[True],
+        num_embeddings_range=Range(4, 4),
+        embedding_dim_range=[16],
+    )
     @torch.inference_mode()
-    def test_quant_embedding_bag_group(self, dtype):
+    def test_quant_embedding_bag_group(self, dtype, include_last_offset):
         torch_type = self.data.get_torch_type(dtype)
-        weight = torch.randint(low=0, high=15, size=(4, 16), dtype=torch_type)
+        weight = self.data.weight
+        # TODO: Use hypothesis-generated indices and offsets once ZENAI-3863 is resolved.
+        # indices = self.data.indices
+        # offsets = self.data.offsets
         indices = torch.tensor([0, 2, 3], dtype=torch.long)
         offsets = torch.tensor([0, 1, 2], dtype=torch.long)
-        # TODO Check with zendnn for decimal place rounding
-        scales = torch.rand(weight.size(0), 1).round(decimals=2)
-        zero_points = torch.randint(
-            low=0, high=15, size=(weight.size(0),), dtype=torch.int32
-        )
+        scales = self.data.scales
+        zero_points = self.data.zero_points
+
         zero_points_expanded = zero_points.unsqueeze(1).expand(weight.shape)
         dequant_weight = (weight - zero_points_expanded) * scales
         dequant_weight = dequant_weight.to(torch_type)
@@ -123,6 +131,8 @@ class Test_WOQ_Embedding_Bag_Group(Zentorch_TestCase):
             packed_weight, scales, zero_points
         )
 
+        # TODO: Use hypothesis-generated cat_input once ZENAI-3863 is resolved.
+        # cat_input = self.data.cat_input
         cat_input = torch.randn(2, 8).type(torch_type)
 
         eb1 = torch.nn.functional.embedding_bag(
@@ -130,14 +140,14 @@ class Test_WOQ_Embedding_Bag_Group(Zentorch_TestCase):
             dequant_weight,
             offsets,
             mode="sum",
-            include_last_offset=True,
+            include_last_offset=include_last_offset,
         )
         eb2 = torch.nn.functional.embedding_bag(
             indices,
             dequant_weight,
             offsets,
             mode="sum",
-            include_last_offset=True,
+            include_last_offset=include_last_offset,
         )
         ref_result = torch.cat([eb1, eb2, cat_input], dim=1)
 
@@ -155,18 +165,26 @@ class Test_WOQ_Embedding_Bag_Group(Zentorch_TestCase):
         else:  # float32
             self.assertEqual(ref_result, model_result, atol=0.01, rtol=0.01)
 
-    @parameterized.expand(supported_dtypes)
+    # TODO: Test fails while generalizing the test - tracked in ZENAI-3863.
+    # Revert to hypothesis-generated values once the issue is resolved.
+    @QuantEmbTestCase.hypothesis_params_quant_emb_itr(
+        dtype_list=supported_dtypes,
+        include_last_offset_opt_list=[True],
+        num_embeddings_range=Range(4, 4),
+        embedding_dim_range=[16],
+    )
     @torch.inference_mode()
-    def test_quant_embedding_bag_group_out(self, dtype):
+    def test_quant_embedding_bag_group_out(self, dtype, include_last_offset):
         torch_type = self.data.get_torch_type(dtype)
-        weight = torch.randint(low=0, high=15, size=(4, 16), dtype=torch_type)
+        weight = self.data.weight
+        # TODO: Use hypothesis-generated indices and offsets once ZENAI-3863 is resolved.
+        # indices = self.data.indices
+        # offsets = self.data.offsets
         indices = torch.tensor([0, 2, 3], dtype=torch.long)
         offsets = torch.tensor([0, 1, 2], dtype=torch.long)
-        # TODO Check with zendnn for decimal place rounding
-        scales = torch.rand(weight.size(0), 1).round(decimals=2)
-        zero_points = torch.randint(
-            low=0, high=15, size=(weight.size(0),), dtype=torch.int32
-        )
+        scales = self.data.scales
+        zero_points = self.data.zero_points
+
         zero_points_expanded = zero_points.unsqueeze(1).expand(weight.shape)
         dequant_weight = (weight - zero_points_expanded) * scales
         dequant_weight = dequant_weight.to(torch_type)
@@ -187,14 +205,14 @@ class Test_WOQ_Embedding_Bag_Group(Zentorch_TestCase):
             dequant_weight,
             offsets,
             mode="sum",
-            include_last_offset=True,
+            include_last_offset=include_last_offset,
         )
         eb2 = torch.nn.functional.embedding_bag(
             indices,
             dequant_weight,
             offsets,
             mode="sum",
-            include_last_offset=True,
+            include_last_offset=include_last_offset,
         )
         ref_result = torch.cat([eb1, eb2], dim=1)
 
