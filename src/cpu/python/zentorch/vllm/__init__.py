@@ -1136,6 +1136,20 @@ def register() -> Optional[str]:
         )
         return None
 
+    # Master hardware gate: every zentorch vLLM optimization (eager linear /
+    # embedding routing via is_zen_cpu(), the optimize_pass graph rewrite, and
+    # the general_plugins patches such as RMSNorm / FusedMoE / GDN) requires
+    # AVX-512. Without it, do not activate the OOT platform or apply any
+    # patches: returning None makes vLLM fall back to the stock CpuPlatform
+    from zentorch._C import is_avx512_supported
+
+    if not is_avx512_supported():
+        logger.warning(
+            "[zentorch] AVX-512 not detected; zentorch optimizations are "
+            "disabled. Falling back to the stock vLLM CPU platform."
+        )
+        return None
+
     if not _INITIALIZED:
         _INITIALIZED = True
 

@@ -84,6 +84,11 @@ def optimize(fx_graph):
     with zentorch implementation of respective ops and fusion
     few ops
     """
+    if not zentorch._C.is_avx512_supported():
+        logger.warning(
+            "ZenTorch optimization is only available on CPUs with AVX-512 support."
+        )
+        return fx_graph
 
     logger.info("Optimizing the fx_graph with zentorch ops.")
 
