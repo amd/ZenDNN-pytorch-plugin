@@ -7,13 +7,13 @@
 Unit tests for zentorch.vllm plugin.
 
 Tests verify:
-- Runtime compatibility checks for supported versions (0.20.0 - 0.22.0)
+- Runtime compatibility checks for supported versions (0.20.0 - 0.22.1)
 - Version parsing logic
 - Patch registration and application
 - Individual patch functionality (oneDNN disable, CompilationConfig repr, etc.)
 - Platform configuration
 
-Runtime-supported vLLM versions: 0.20.0, 0.20.1, 0.20.2, 0.21.0, 0.22.0
+Runtime-supported vLLM versions: 0.20.0, 0.20.1, 0.20.2, 0.21.0, 0.22.0, 0.22.1
 Retained legacy version map: 0.15.0, 0.15.1, 0.16.0, 0.17.0, 0.17.1, 0.18.0,
 0.18.1, 0.19.0, 0.19.1
 """
@@ -94,6 +94,7 @@ class TestVersionParsing(unittest.TestCase):
             "0.20.2",
             "0.21.0",
             "0.22.0",
+            "0.22.1",
         ]
         for ver in expected_versions:
             self.assertIn(ver, _VERSION_MAP, f"{ver} should be in VERSION_MAP")
@@ -152,6 +153,9 @@ class TestVersionParsing(unittest.TestCase):
         self.assertEqual(_VERSION_MAP.get(_base_version("0.22.0")), "v22")
         self.assertEqual(_VERSION_MAP.get(_base_version("0.22.0+cpu")), "v22")
         self.assertEqual(_VERSION_MAP.get(_base_version("0.22.0rc1+cpu")), "v22")
+        self.assertEqual(_VERSION_MAP.get(_base_version("0.22.1")), "v22")
+        self.assertEqual(_VERSION_MAP.get(_base_version("0.22.1+cpu")), "v22")
+        self.assertEqual(_VERSION_MAP.get(_base_version("0.22.1rc1+cpu")), "v22")
 
     def test_version_family_detection_unsupported(self):
         """VERSION_MAP should return None for unsupported versions."""
@@ -171,7 +175,7 @@ class TestVersionParsing(unittest.TestCase):
             "0.19.2",
             "0.20.3",
             "0.21.1",
-            "0.22.1",
+            "0.22.2",
             "1.0.0",
         ]
         for ver in unsupported:
@@ -527,7 +531,10 @@ class TestPlatformProfilerPatchVersionRange(unittest.TestCase):
             ("0.22.0", True),
             ("0.22.0+cpu", True),
             ("0.22.0rc1+cpu", True),
-            ("0.22.1", False),
+            ("0.22.1", True),
+            ("0.22.1+cpu", True),
+            ("0.22.1rc1+cpu", True),
+            ("0.22.2", False),
         ]
 
         for version_str, expected in cases:
@@ -819,7 +826,7 @@ class TestCPURunnerShutdownPatch(unittest.TestCase):
 
 
 class TestGatedDeltaNetPatch(unittest.TestCase):
-    """GatedDeltaNetPatch must be registered and gated to v0.21.0 + v0.22.0."""
+    """GatedDeltaNetPatch must be registered and gated to v0.21.0 + v0.22.0 + v0.22.1."""
 
     @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
     @unittest.skipUnless(IS_PYTHON_3_10_OR_ABOVE, "vLLM 0.11+ requires Python 3.10+")
@@ -832,12 +839,12 @@ class TestGatedDeltaNetPatch(unittest.TestCase):
 
     def test_patch_targets_v21_and_v22(self):
         from zentorch.vllm import GatedDeltaNetPatch
-        from zentorch.vllm._core import VLLM_V21, VLLM_V22
+        from zentorch.vllm._core import VLLM_V21, VLLM_V22, VLLM_V22_1
 
         self.assertTrue(hasattr(GatedDeltaNetPatch, "_target_versions"))
         self.assertEqual(
             GatedDeltaNetPatch._target_versions,
-            {VLLM_V21, VLLM_V22},
+            {VLLM_V21, VLLM_V22, VLLM_V22_1},
         )
 
 

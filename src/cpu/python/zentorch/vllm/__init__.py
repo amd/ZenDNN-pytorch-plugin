@@ -50,6 +50,7 @@ from zentorch.vllm._core import (
     VLLM_V20_2,
     VLLM_V21,
     VLLM_V22,
+    VLLM_V22_1,
 )
 
 
@@ -325,6 +326,7 @@ class CompilationConfigReprPatch:
     VLLM_V20_2,
     VLLM_V21,
     VLLM_V22,
+    VLLM_V22_1,
 )
 class CPUProfilerPatch:
     """Stub: Actual patching happens in platform.py check_and_update_config.
@@ -1048,7 +1050,7 @@ class CPURunnerShutdownPatch:
 # GatedDeltaNet (Qwen3.5 / Qwen3-Next) CPU forward override (vLLM PR #41025).
 
 
-@vllm_version(VLLM_V21, VLLM_V22)
+@vllm_version(VLLM_V21, VLLM_V22, VLLM_V22_1)
 class GatedDeltaNetPatch:
     """Override ``GatedDeltaNetAttention.forward_cpu`` with ``forward_cpu_zen``.
 
