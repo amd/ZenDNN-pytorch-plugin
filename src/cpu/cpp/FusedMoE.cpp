@@ -122,13 +122,13 @@ inline size_t round_up_to(size_t bytes, size_t alignment) {
 //   the cache build keeps the one-time fill cheaper.
 //
 // Lifetime / safety:
-//   - The cache stores `at::Tensor` (strong) handles, so the underlying
-//     `TensorImpl` is kept alive for the process. For inference workloads
-//     where model weights live until shutdown this is benign (~1 MB total
-//     for 48 layers × 128 experts × {w13, w2, biases, scales}).
-//   - `TensorImpl*` can in principle be reused if a tensor is freed and a
-//     new one allocated at the same address. Holding a strong ref prevents
-//     that for the cached tensors themselves, eliminating the aliasing risk.
+//   - Each entry holds a strong ref to the *base* tensor (`Entry::base`), not
+//     just the view slices. This pins the keyed `TensorImpl` so its address
+//     can't be freed and recycled into a different tensor (which would return
+//     stale slices). View slices alone don't suffice: they keep the storage
+//     alive but not the base `TensorImpl`.
+//   - For long-lived model weights this is benign. Callers that pass a fresh
+//     weight tensor every call grow the map by one (process-lifetime) entry.
 //   - Not thread-safe across concurrent `zentorch_fused_moe` calls. Matches
 //     existing assumptions of this op (single inference stream per process).
 // ---------------------------------------------------------------------------
@@ -136,25 +136,67 @@ class ExpertSliceCache {
 public:
   // Returns the per-expert views for `tensor`. On first encounter, builds
   // them with one `select(0, e)` per expert; subsequent calls are an
-  // unordered_map lookup.
+  // unordered_map lookup. A hit is always the same tensor: `Entry::base`
+  // pins the keyed TensorImpl so its address cannot be recycled to a
+  // different tensor while the entry lives, so no identity re-check is
+  // needed.
   const std::vector<at::Tensor> &get(const at::Tensor &tensor) {
     const auto *impl = tensor.unsafeGetTensorImpl();
     auto it = entries_.find(impl);
     if (it != entries_.end()) {
-      return it->second;
+      return it->second.slices;
     }
+    auto emplaced = entries_.emplace(impl, build_entry(tensor));
+    return emplaced.first->second.slices;
+  }
+
+  // Drop all cached entries (and the strong tensor refs they hold).
+  void clear() { entries_.clear(); }
+
+private:
+  struct Entry {
+    // Strong ref to the keyed tensor: pins its TensorImpl so the map key
+    // cannot be recycled to a different tensor while this entry exists.
+    at::Tensor base;
+    std::vector<at::Tensor> slices;
+  };
+
+  static Entry build_entry(const at::Tensor &tensor) {
     const int64_t E = tensor.size(0);
     std::vector<at::Tensor> slices;
     slices.reserve(E);
     for (int64_t e = 0; e < E; ++e) {
       slices.emplace_back(tensor.select(0, e));
     }
-    return entries_.emplace(impl, std::move(slices)).first->second;
+    return Entry{tensor, std::move(slices)};
   }
 
-private:
-  std::unordered_map<const c10::TensorImpl *, std::vector<at::Tensor>> entries_;
+  std::unordered_map<const c10::TensorImpl *, Entry> entries_;
 };
+
+// Singleton owning every FusedMoE per-expert view cache, so they can be
+// flushed together via zentorch_flush_moe_weight_cache. Single inference
+// stream per process (this op's existing assumption), so no locking.
+struct MoEWeightCaches {
+  ExpertSliceCache w13, w2, w13_bias, w2_bias, w13_scales, w2_scales;
+
+  static MoEWeightCaches &instance() {
+    static MoEWeightCaches inst;
+    return inst;
+  }
+
+  void flush() {
+    w13.clear();
+    w2.clear();
+    w13_bias.clear();
+    w2_bias.clear();
+    w13_scales.clear();
+    w2_scales.clear();
+  }
+};
+
+// Free-function entry point for the flush op (defined below).
+void flush_moe_weight_cache_impl() { MoEWeightCaches::instance().flush(); }
 
 } // namespace
 
@@ -493,25 +535,21 @@ void zentorch_fused_moe(
   // TensorImpl*, so the 48 MoE layers in models like Qwen3-30B-A3B each get
   // their own entry and do not evict each other. After the first decode
   // step, every lookup below is an unordered_map hit (no `select` calls).
-  // Caches are function-local statics: zero churn while the process runs,
-  // released at process shutdown along with the model weights.
-  static ExpertSliceCache w13_cache;
-  static ExpertSliceCache w2_cache;
-  static ExpertSliceCache w13_bias_cache;
-  static ExpertSliceCache w2_bias_cache;
-  static ExpertSliceCache w13_scales_cache;
-  static ExpertSliceCache w2_scales_cache;
+  // Caches live in a process-lifetime singleton: zero churn while the process
+  // runs, released at shutdown along with the model weights. Tests can drop
+  // all of them between cases via zentorch_flush_moe_weight_cache.
+  MoEWeightCaches &caches = MoEWeightCaches::instance();
 
-  const auto &w13_all_slices = w13_cache.get(w13);
-  const auto &w2_all_slices = w2_cache.get(w2);
+  const auto &w13_all_slices = caches.w13.get(w13);
+  const auto &w2_all_slices = caches.w2.get(w2);
   const std::vector<at::Tensor> *w13_bias_all_slices =
-      has_w13_bias ? &w13_bias_cache.get(*w13_bias) : nullptr;
+      has_w13_bias ? &caches.w13_bias.get(*w13_bias) : nullptr;
   const std::vector<at::Tensor> *w2_bias_all_slices =
-      has_w2_bias ? &w2_bias_cache.get(*w2_bias) : nullptr;
+      has_w2_bias ? &caches.w2_bias.get(*w2_bias) : nullptr;
   const std::vector<at::Tensor> *w13_scales_all_slices =
-      has_w13_scales ? &w13_scales_cache.get(*w13_scales) : nullptr;
+      has_w13_scales ? &caches.w13_scales.get(*w13_scales) : nullptr;
   const std::vector<at::Tensor> *w2_scales_all_slices =
-      has_w2_scales ? &w2_scales_cache.get(*w2_scales) : nullptr;
+      has_w2_scales ? &caches.w2_scales.get(*w2_scales) : nullptr;
 
   // Pass 2a: active experts in active_idx order (positions [0, E_a)).
   std::vector<bool> is_active(E, false);
@@ -682,6 +720,10 @@ void zentorch_fused_moe(
 // Op registration
 // ---------------------------------------------------------------------------
 
+// Drops all FusedMoE per-expert view caches (ExpertSliceCache). Primarily a
+// test hook so each case starts with no cross-call view-cache state.
+void zentorch_flush_moe_weight_cache() { flush_moe_weight_cache_impl(); }
+
 TORCH_LIBRARY_FRAGMENT(zentorch, m) {
   m.def("zentorch_fused_moe(Tensor(a!) output, Tensor input, "
         "Tensor w13, Tensor w2, "
@@ -690,6 +732,10 @@ TORCH_LIBRARY_FRAGMENT(zentorch, m) {
         "bool skip_weighted, str act, "
         "Tensor? w13_scales=None, Tensor? w2_scales=None, "
         "*, str zentorch_op_name='zentorch::zentorch_fused_moe') -> ()");
+  // No tensor args -> register the implementation directly (backend-agnostic)
+  // rather than under the CPU key, which has no tensor to infer dispatch from.
+  m.def("zentorch_flush_moe_weight_cache() -> ()",
+        &zentorch::zentorch_flush_moe_weight_cache);
 }
 
 TORCH_LIBRARY_IMPL(zentorch, CPU, m) {

@@ -37,6 +37,12 @@ TOLERANCES = {
 class Test_GroupMatmul(GroupMatmulTestCase):
     """Hypothesis-based tests for zentorch_group_matmul.out."""
 
+    def setUp(self):
+        super().setUp()
+        # Drop FusedMoE's per-expert view caches so each case starts clean
+        # and never reuses slices keyed on a TensorImpl* from a prior test.
+        torch.ops.zentorch.zentorch_flush_moe_weight_cache()
+
     # ------------------------------------------------------------------
     # Reference helpers
     # ------------------------------------------------------------------
@@ -385,7 +391,8 @@ class Test_GroupMatmul(GroupMatmulTestCase):
         K_out = K
         activation = "none"
 
-        def dynamic_quant_matmul(src, w_int8, w_scales, bias=None):
+        def dynamic_quant_matmul(src, w_int8, w_scales, bias=None,
+                                 out_dtype=None):
             src_fp = src.float()
             src_scale = src_fp.abs().amax(dim=1).clamp(min=1e-12) / 127.0
             src_q = (src_fp / src_scale.unsqueeze(1)).round().clamp(-128, 127)
@@ -393,6 +400,12 @@ class Test_GroupMatmul(GroupMatmulTestCase):
             result = acc * (src_scale.unsqueeze(1) * w_scales.unsqueeze(0))
             if bias is not None:
                 result = result + bias.float()
+            # Round to the kernel's intermediate dtype: it writes each GEMM
+            # result to a working-dtype (bf16/f32) buffer before the next op
+            # re-reads it. A full-fp32 reference would differ by ~1 int8 LSB
+            # near a quant boundary.
+            if out_dtype is not None:
+                result = result.to(out_dtype).float()
             return result
 
         # --- Sub-test 1: group_matmul, no activation, no MoE reduce ---
@@ -413,9 +426,10 @@ class Test_GroupMatmul(GroupMatmulTestCase):
 
         ref = []
         for i in range(num_experts):
-            r = dynamic_quant_matmul(inputs[i], w13_int8[i], w13_scales[i])
+            r = dynamic_quant_matmul(inputs[i], w13_int8[i], w13_scales[i],
+                                     out_dtype=torch_dtype)
             r = dynamic_quant_matmul(r, w2_int8[i], w2_scales[i],
-                                     bias=w2_bias[i])
+                                     bias=w2_bias[i], out_dtype=torch_dtype)
             ref.append(r)
 
         torch.ops.zentorch.zentorch_group_matmul.out(
@@ -455,10 +469,14 @@ class Test_GroupMatmul(GroupMatmulTestCase):
         ref_act_moe = []
         for i in range(num_experts):
             r = dynamic_quant_matmul(inputs_act_moe[i], w13_act_int8[i],
-                                     w13_act_scales[i], bias=w13_act_bias[i])
+                                     w13_act_scales[i], bias=w13_act_bias[i],
+                                     out_dtype=torch_dtype)
             r = self._apply_gated_activation(r, "silu")
+            # Kernel stores the activation output back into the working-dtype
+            # Op1 buffer before Op2 re-quantizes it; round to match.
+            r = r.to(torch_dtype).float()
             r = dynamic_quant_matmul(r, w2_act_int8[i], w2_act_scales[i],
-                                     bias=w2_act_bias[i])
+                                     bias=w2_act_bias[i], out_dtype=torch_dtype)
             ref_act_moe.append(r)
         ref_moe_act = self._reference_weighted_reduce(
             ref_act_moe, topk_weights_t, topk_indices, num_tokens, topk)
@@ -482,9 +500,10 @@ class Test_GroupMatmul(GroupMatmulTestCase):
 
         ref_fmoe = []
         for i in range(num_experts):
-            r = dynamic_quant_matmul(inputs_fmoe[i], w13_int8[i], w13_scales[i])
+            r = dynamic_quant_matmul(inputs_fmoe[i], w13_int8[i], w13_scales[i],
+                                     out_dtype=torch_dtype)
             r = dynamic_quant_matmul(r, w2_int8[i], w2_scales[i],
-                                     bias=w2_bias[i])
+                                     bias=w2_bias[i], out_dtype=torch_dtype)
             ref_fmoe.append(r)
         ref_moe_fmoe = self._reference_weighted_reduce(
             ref_fmoe, topk_weights_t, topk_indices, num_tokens, topk)
@@ -538,7 +557,8 @@ class Test_GroupMatmul(GroupMatmulTestCase):
         activation = "silu"
         K_out = K
 
-        def dynamic_quant_matmul(src, w_int8, w_scales, bias=None):
+        def dynamic_quant_matmul(src, w_int8, w_scales, bias=None,
+                                 out_dtype=None):
             src_fp = src.float()
             src_scale = src_fp.abs().amax(dim=1).clamp(min=1e-12) / 127.0
             src_q = (src_fp / src_scale.unsqueeze(1)).round().clamp(-128, 127)
@@ -546,6 +566,12 @@ class Test_GroupMatmul(GroupMatmulTestCase):
             result = acc * (src_scale.unsqueeze(1) * w_scales.unsqueeze(0))
             if bias is not None:
                 result = result + bias.float()
+            # Round to the kernel's intermediate dtype: it writes each GEMM
+            # result to a working-dtype (bf16/f32) buffer before the next op
+            # re-reads it. A full-fp32 reference would differ by ~1 int8 LSB
+            # near a quant boundary.
+            if out_dtype is not None:
+                result = result.to(out_dtype).float()
             return result
 
         def apply_gated_activation(x, act):
