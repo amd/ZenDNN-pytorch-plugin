@@ -17,6 +17,9 @@ from unittest_utils import (  # noqa: 402
     zentorch,
     run_tests,
     reset_dynamo,
+    freeze_opt,
+    cpp_wrapper_opt,
+    test_with_freeze_opt_and_cpp_wrapper,
 )
 
 
@@ -106,9 +109,12 @@ class Model(torch.nn.Module):
 class Test_Qlinear_Mul_Add_Model(QLinearTestCase):
     @torch.inference_mode()
     @QLinearTestCase.hypothesis_params_qlinear_itr(
-        dtype_list=["float32", "bfloat16"], time_out=30000
+        dtype_list=["float32", "bfloat16"],
+        freeze_list=freeze_opt,
+        cpp_wrapper_opt_list=cpp_wrapper_opt,
+        time_out=30000
     )
-    def test_qlinear_mul_add_model(self, dtype):
+    def test_qlinear_mul_add_model(self, dtype, freeze_opt, cpp_wrapper):
         # Define position combinations for mul/add operands
         MUL_ADD_POSITIONS = {
             "mul_arg_first_add_arg_first": {"mul_arg_pos": 0, "add_arg_pos": 0},
@@ -152,7 +158,12 @@ class Test_Qlinear_Mul_Add_Model(QLinearTestCase):
             reset_dynamo()
             zentorch_qmodel = torch.compile(zentorch_qmodel, backend="zentorch")
 
-            zentorch_output = zentorch_qmodel(inputs, cat_output, add_tensor)
+            zentorch_output = test_with_freeze_opt_and_cpp_wrapper(
+                zentorch_qmodel,
+                (inputs, cat_output, add_tensor),
+                freeze_opt,
+                cpp_wrapper,
+            )
 
             # TODO: Remove this once we have a proper fix for bfloat16 performance issue.
             # Hence doing the fusion only when the dtype is float32.

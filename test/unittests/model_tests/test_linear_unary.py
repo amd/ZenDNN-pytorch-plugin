@@ -20,7 +20,8 @@ from unittest_utils import (  # noqa: 402
     update_supported_dtypes,
     zentorch,
     freeze_opt,
-    test_with_freeze_opt,
+    cpp_wrapper_opt,
+    test_with_freeze_opt_and_cpp_wrapper,
     counters,
 )
 
@@ -97,7 +98,7 @@ class Custom_Deep_Linear_Activation_Model(nn.Module):
 class Test_Linear_Unary_Model(AddmmTestCase):
 
     def _run_activation(
-        self, key, dtype, freeze_flag, model=None, input_tensor=None, expected_count=1
+        self, key, dtype, freeze_flag, cpp_wrapper=False, model=None, input_tensor=None, expected_count=1
     ):
         case = LINEAR_ACTIVATIONS[key]
         if model is None:
@@ -119,27 +120,16 @@ class Test_Linear_Unary_Model(AddmmTestCase):
         compiled_graph = torch.compile(model, backend="zentorch")
         counters.clear()
         self.assertEqual(counters["zentorch"][case["counter"]], 0)
-        compiled_output = test_with_freeze_opt(
+        compiled_output = test_with_freeze_opt_and_cpp_wrapper(
             compiled_graph,
             (input_tensor,),
             freeze_flag,
+            cpp_wrapper,
         )
         self.assertEqual(counters["zentorch"][case["counter"]], expected_count)
         self.assertEqual(native_output, compiled_output, atol=1e-3, rtol=1e-5)
-        # also compute for cpp_wrapper is freeze_flag is True
-        # TODO: modify the test_with_freeze_opt to support cpp_wrapper (big change), and add other tests
-        if freeze_flag:
-            torch._inductor.config.cpp_wrapper = True
-            native_output_cpp_wrapper = compiled_graph_copy(input_tensor)
-            compiled_output_cpp_wrapper = test_with_freeze_opt(
-                compiled_graph,
-                (input_tensor,),
-                freeze_flag,
-            )
-            self.assertEqual(native_output_cpp_wrapper, compiled_output_cpp_wrapper)
-            torch._inductor.config.cpp_wrapper = False
 
-    def _run_deep_linear_activation(self, key, dtype, freeze_flag):
+    def _run_deep_linear_activation(self, key, dtype, freeze_flag, cpp_wrapper=False):
         model = Custom_Deep_Linear_Activation_Model(
             self.data.k,
             dtype=self.data.get_torch_type(dtype),
@@ -148,59 +138,67 @@ class Test_Linear_Unary_Model(AddmmTestCase):
             key,
             dtype,
             freeze_flag,
+            cpp_wrapper,
             model=model,
             input_tensor=self.data.x,
             expected_count=6,
         )
 
     @AddmmTestCase.hypothesis_params_addmm_itr(
-        dtype_list=supported_dtypes, freeze_list=freeze_opt
+        dtype_list=supported_dtypes, freeze_list=freeze_opt,
+        cpp_wrapper_opt_list=cpp_wrapper_opt
     )
     @torch.inference_mode()
-    def test_linear_relu_model(self, dtype, freeze_opt):
-        self._run_activation("relu", dtype, freeze_opt)
+    def test_linear_relu_model(self, dtype, freeze_opt, cpp_wrapper):
+        self._run_activation("relu", dtype, freeze_opt, cpp_wrapper)
 
     @AddmmTestCase.hypothesis_params_addmm_itr(
-        dtype_list=supported_dtypes, freeze_list=freeze_opt
+        dtype_list=supported_dtypes, freeze_list=freeze_opt,
+        cpp_wrapper_opt_list=cpp_wrapper_opt
     )
     @torch.inference_mode()
-    def test_linear_gelu_tanh_model(self, dtype, freeze_opt):
-        self._run_activation("gelu_tanh", dtype, freeze_opt)
+    def test_linear_gelu_tanh_model(self, dtype, freeze_opt, cpp_wrapper):
+        self._run_activation("gelu_tanh", dtype, freeze_opt, cpp_wrapper)
 
     @AddmmTestCase.hypothesis_params_addmm_itr(
-        dtype_list=supported_dtypes, freeze_list=freeze_opt
+        dtype_list=supported_dtypes, freeze_list=freeze_opt,
+        cpp_wrapper_opt_list=cpp_wrapper_opt
     )
     @torch.inference_mode()
-    def test_linear_gelu_erf_model(self, dtype, freeze_opt):
-        self._run_activation("gelu_erf", dtype, freeze_opt)
+    def test_linear_gelu_erf_model(self, dtype, freeze_opt, cpp_wrapper):
+        self._run_activation("gelu_erf", dtype, freeze_opt, cpp_wrapper)
 
     @AddmmTestCase.hypothesis_params_addmm_itr(
-        dtype_list=supported_dtypes, freeze_list=freeze_opt
+        dtype_list=supported_dtypes, freeze_list=freeze_opt,
+        cpp_wrapper_opt_list=cpp_wrapper_opt
     )
     @torch.inference_mode()
-    def test_linear_silu_model(self, dtype, freeze_opt):
-        self._run_activation("silu", dtype, freeze_opt)
+    def test_linear_silu_model(self, dtype, freeze_opt, cpp_wrapper):
+        self._run_activation("silu", dtype, freeze_opt, cpp_wrapper)
 
     @AddmmTestCase.hypothesis_params_addmm_itr(
-        dtype_list=supported_dtypes, freeze_list=freeze_opt
+        dtype_list=supported_dtypes, freeze_list=freeze_opt,
+        cpp_wrapper_opt_list=cpp_wrapper_opt
     )
     @torch.inference_mode()
-    def test_linear_sigmoid_model(self, dtype, freeze_opt):
-        self._run_activation("sigmoid", dtype, freeze_opt)
+    def test_linear_sigmoid_model(self, dtype, freeze_opt, cpp_wrapper):
+        self._run_activation("sigmoid", dtype, freeze_opt, cpp_wrapper)
 
     @AddmmTestCase.hypothesis_params_addmm_itr(
-        dtype_list=supported_dtypes, freeze_list=freeze_opt
+        dtype_list=supported_dtypes, freeze_list=freeze_opt,
+        cpp_wrapper_opt_list=cpp_wrapper_opt
     )
     @torch.inference_mode()
-    def test_linear_tanh_model(self, dtype, freeze_opt):
-        self._run_activation("tanh", dtype, freeze_opt)
+    def test_linear_tanh_model(self, dtype, freeze_opt, cpp_wrapper):
+        self._run_activation("tanh", dtype, freeze_opt, cpp_wrapper)
 
     @AddmmTestCase.hypothesis_params_addmm_itr(
-        dtype_list=supported_dtypes, freeze_list=freeze_opt
+        dtype_list=supported_dtypes, freeze_list=freeze_opt,
+        cpp_wrapper_opt_list=cpp_wrapper_opt
     )
     @torch.inference_mode()
-    def test_deep_linear_relu_sigmoid_model(self, dtype, freeze_opt):
-        self._run_deep_linear_activation("relu", dtype, freeze_opt)
+    def test_deep_linear_relu_sigmoid_model(self, dtype, freeze_opt, cpp_wrapper):
+        self._run_deep_linear_activation("relu", dtype, freeze_opt, cpp_wrapper)
 
 
 if __name__ == "__main__":

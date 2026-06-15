@@ -21,7 +21,8 @@ from unittest_utils import (  # noqa: 402
     update_supported_dtypes,
     zentorch,
     freeze_opt,
-    test_with_freeze_opt,
+    cpp_wrapper_opt,
+    test_with_freeze_opt_and_cpp_wrapper,
     counters,
 )
 
@@ -60,10 +61,11 @@ class Test_Linear_Model_AMP(AddmmTestCase):
         super().tearDown()
 
     @AddmmTestCase.hypothesis_params_addmm_itr(
-        dtype_list=["float32"], freeze_list=freeze_opt
+        dtype_list=["float32"], freeze_list=freeze_opt,
+        cpp_wrapper_opt_list=cpp_wrapper_opt
     )
     @torch.inference_mode()
-    def test_linear_model_nd_pattern_with_autocast(self, dtype, freeze_list=freeze_opt):
+    def test_linear_model_nd_pattern_with_autocast(self, dtype, freeze_opt, cpp_wrapper):
         model = Custom_Linear_Placeholder_Model(self.data.k, torch.float32)
         input_3d = torch.randn(4, 8, self.data.k, dtype=torch.float32)
 
@@ -76,8 +78,8 @@ class Test_Linear_Model_AMP(AddmmTestCase):
         # Compile inside autocast context so FX graph includes convert_element_type operations
         with torch.autocast(device_type="cpu", dtype=torch.bfloat16):
             native_output = native_model(input_3d)
-            compiled_output = test_with_freeze_opt(
-                compiled_graph, (input_3d,), freeze_opt
+            compiled_output = test_with_freeze_opt_and_cpp_wrapper(
+                compiled_graph, (input_3d,), freeze_opt, cpp_wrapper
             )
 
         self.assertEqual(counters["zentorch"]["zentorch_linear"], 3)

@@ -29,6 +29,8 @@ supported_dtypes = ["float32"]
 supported_dtypes_def = []
 qlinear_dtypes = []
 freeze_opt = [True, False]
+cpp_wrapper_opt = [True, False]
+cpp_wrapper_def_opt = [False]
 
 woq_group_size_def = [16]  # Per-channel tests should explicitly pass [None]
 freeze_def_opt = [False]
@@ -301,13 +303,31 @@ def update_supported_dtypes(supported_dtypes, op_name=None):
     return supported_dtypes
 
 
-# Method to hadle test with freezeing enable
+# Method to handle test with freezing enable
 # and parameterized based on freezing option
 def test_with_freeze_opt(compiled_graph, inputs, freeze_opt):
     if not isinstance(inputs, (tuple, list)):
         inputs = (inputs,)
     config.freezing = freeze_opt
     return compiled_graph(*inputs)
+
+
+# Method to handle test with freezing and cpp_wrapper enabled,
+# parameterized based on both freezing and cpp_wrapper options
+def test_with_freeze_opt_and_cpp_wrapper(
+    compiled_graph, inputs, freeze_opt, cpp_wrapper=False
+):
+    if not isinstance(inputs, (tuple, list)):
+        inputs = (inputs,)
+    prev_freezing = config.freezing
+    prev_cpp_wrapper = config.cpp_wrapper
+    try:
+        config.freezing = freeze_opt
+        config.cpp_wrapper = cpp_wrapper
+        return compiled_graph(*inputs)
+    finally:
+        config.cpp_wrapper = prev_cpp_wrapper
+        config.freezing = prev_freezing
 
 
 # Singleton class definition

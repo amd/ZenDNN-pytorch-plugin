@@ -19,7 +19,10 @@ from unittest_utils import (  # noqa: 402
     supported_dtypes,
     update_supported_dtypes,
     reset_dynamo,
-    Range
+    Range,
+    test_with_freeze_opt_and_cpp_wrapper,
+    freeze_opt,
+    cpp_wrapper_opt,
 )
 
 supported_dtypes = update_supported_dtypes(supported_dtypes)
@@ -103,9 +106,11 @@ class Test_WOQ_Embedding_Bag_Group(QuantEmbTestCase):
         include_last_offset_opt_list=[True],
         num_embeddings_range=Range(4, 4),
         embedding_dim_range=[16],
+        freeze_list=freeze_opt,
+        cpp_wrapper_opt_list=cpp_wrapper_opt,
     )
     @torch.inference_mode()
-    def test_quant_embedding_bag_group(self, dtype, include_last_offset):
+    def test_quant_embedding_bag_group(self, dtype, include_last_offset, freeze_opt, cpp_wrapper):
         torch_type = self.data.get_torch_type(dtype)
         weight = self.data.weight
         # TODO: Use hypothesis-generated indices and offsets once ZENAI-3863 is resolved.
@@ -153,9 +158,12 @@ class Test_WOQ_Embedding_Bag_Group(QuantEmbTestCase):
 
         reset_dynamo()
         model = Custom_Model_Quant_Embedding_Group()
-        model = torch.compile(model, backend="zentorch")
-        model_result = model(
-            zentorch_packed_weights, indices, offsets, cat_input, torch_type
+        compiled_model = torch.compile(model, backend="zentorch")
+        model_result = test_with_freeze_opt_and_cpp_wrapper(
+            compiled_model,
+            (zentorch_packed_weights, indices, offsets, cat_input, torch_type),
+            freeze_opt,
+            cpp_wrapper,
         )
 
         # TODO:
@@ -172,9 +180,11 @@ class Test_WOQ_Embedding_Bag_Group(QuantEmbTestCase):
         include_last_offset_opt_list=[True],
         num_embeddings_range=Range(4, 4),
         embedding_dim_range=[16],
+        freeze_list=freeze_opt,
+        cpp_wrapper_opt_list=cpp_wrapper_opt,
     )
     @torch.inference_mode()
-    def test_quant_embedding_bag_group_out(self, dtype, include_last_offset):
+    def test_quant_embedding_bag_group_out(self, dtype, include_last_offset, freeze_opt, cpp_wrapper):
         torch_type = self.data.get_torch_type(dtype)
         weight = self.data.weight
         # TODO: Use hypothesis-generated indices and offsets once ZENAI-3863 is resolved.
@@ -219,8 +229,13 @@ class Test_WOQ_Embedding_Bag_Group(QuantEmbTestCase):
         reset_dynamo()
         model = Custom_Model_Quant_Embedding_Group_Out()
         counters.clear()
-        model = torch.compile(model, backend="zentorch")
-        model_result = model(zentorch_packed_weights, indices, offsets, torch_type)
+        compiled_model = torch.compile(model, backend="zentorch")
+        model_result = test_with_freeze_opt_and_cpp_wrapper(
+            compiled_model,
+            (zentorch_packed_weights, indices, offsets, torch_type),
+            freeze_opt,
+            cpp_wrapper,
+        )
 
         self.assertEqual(counters["zentorch"]["out_variant"], 2)
         # TODO:
@@ -229,47 +244,6 @@ class Test_WOQ_Embedding_Bag_Group(QuantEmbTestCase):
             self.assertEqual(ref_result, model_result, atol=0.04, rtol=0.04)
         else:  # float32
             self.assertEqual(ref_result, model_result, atol=0.01, rtol=0.01)
-
-
-@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
-class Test_WOQ_Embedding_Bag_Group_CppWrapper(Test_WOQ_Embedding_Bag_Group):
-    """Re-runs the Test_WOQ_Embedding_Bag_Group cases with freezing +
-    cpp_wrapper enabled, exercising the AOTI shim + lowering codegen path
-    for both `.default` and `.out` variants of the horizontally-fused quant
-    embedding-bag group op (plus the `aot_inductor.custom_ops_to_c_shims`
-    cache-key handling registered by zentorch's `_lowerings.py`).
-
-    * `.out` parameterizations exercise
-      `aoti_torch_cpu_zentorch_horizontal_quant_embedding_bag_group_out`
-      via `_ZentorchHorizontalQuantEmbBagGroupOut`, whose codegen override
-      drops the spurious `&out_handle` Inductor would otherwise append for
-      tensor-returning shims (since this overload returns `()`).
-    * `.default` parameterizations exercise
-      `aoti_torch_cpu_zentorch_horizontal_quant_embedding_bag_group` via
-      `_ZentorchHorizontalQuantEmbBagGroupDefault`, whose codegen override
-      replaces Inductor's standard `&handle_0, ..., &handle_{N-1}`
-      multi-output pattern with `(handle_array, N)` to match the shim's
-      fixed `(AtenTensorHandle* ret0_handles, int64_t ret0_len_)` signature
-      (the only way to express a variable-length `Tensor[]` return in a
-      single shim signature).
-    """
-
-    # TODO: convert to hypothesis-style parameterized tests so we exercise
-    # the cpp_wrapper path across more (dtype, num_bags, indices_size,
-    # padding_idx, include_last_offset) combos like the rest of the
-    # quant embedding-bag unit tests.
-
-    def setUp(self):
-        super().setUp()
-        self._prev_freezing = torch._inductor.config.freezing
-        self._prev_cpp_wrapper = torch._inductor.config.cpp_wrapper
-        torch._inductor.config.freezing = True
-        torch._inductor.config.cpp_wrapper = True
-
-    def tearDown(self):
-        torch._inductor.config.cpp_wrapper = self._prev_cpp_wrapper
-        torch._inductor.config.freezing = self._prev_freezing
-        super().tearDown()
 
 
 if __name__ == "__main__":

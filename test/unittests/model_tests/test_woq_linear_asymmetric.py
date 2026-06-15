@@ -17,6 +17,9 @@ from unittest_utils import (  # noqa: 402
     counters,
     WOQTestCase,
     woq_dtypes,
+    freeze_opt,
+    cpp_wrapper_opt,
+    test_with_freeze_opt_and_cpp_wrapper,
     WOQ_INT4_BATCH_RANGE,
     WOQ_INT4_IN_FEATURES_MULT_OPT,
     WOQ_INT4_OUT_FEATURES_OPT,
@@ -103,13 +106,17 @@ class Test_WOQ_Linear_Asymmetric(WOQTestCase):
     (aten._weight_int4pack_mm_for_cpu) is matched and replaced
     by zentorch_woq_linear."""
 
-    def _assert_woq_pattern_replaced(self, model, x, pattern_description):
+    def _assert_woq_pattern_replaced(
+        self, model, x, pattern_description, freeze_opt=False, cpp_wrapper=False
+    ):
         eager_out = model(x)
         reset_dynamo()
         compiled = torch.compile(model, backend="zentorch")
         counters.clear()
         self.assertEqual(counters["zentorch"]["zentorch_woq_linear"], 0)
-        compiled_out = compiled(x)
+        compiled_out = test_with_freeze_opt_and_cpp_wrapper(
+            compiled, x, freeze_opt, cpp_wrapper
+        )
         self.assertEqual(
             counters["zentorch"]["zentorch_woq_linear"],
             1,
@@ -134,12 +141,12 @@ class Test_WOQ_Linear_Asymmetric(WOQTestCase):
         out_features_opt_list=WOQ_INT4_OUT_FEATURES_OPT,
         group_size_opt_list=WOQ_INT4_GROUP_SIZE_OPT,
         bias_opt_list=[False],
+        freeze_list=freeze_opt,
+        cpp_wrapper_opt_list=cpp_wrapper_opt,
         time_out=30000
     )
     @torch.inference_mode()
-    def test_woq_linear_asymmetric_int4_opaque(
-        self,
-    ):
+    def test_woq_linear_asymmetric_int4_opaque(self, freeze_opt, cpp_wrapper):
         model = WOQ_Linear_Asymmetric_Model(
             self.data.woq_weight, self.data.group_size
         ).eval()
@@ -149,6 +156,8 @@ class Test_WOQ_Linear_Asymmetric(WOQTestCase):
             x,
             f"Asymmetric WOQ Int4OpaqueTensor "
             f"(N={self.data.woq_weight.shape[0]}, K={self.data.woq_weight.shape[1]}, gs={self.data.group_size})",
+            freeze_opt=freeze_opt,
+            cpp_wrapper=cpp_wrapper,
         )
 
 

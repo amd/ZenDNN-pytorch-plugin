@@ -20,7 +20,8 @@ from unittest_utils import (  # noqa: 402
     update_supported_dtypes,
     zentorch,
     freeze_opt,
-    test_with_freeze_opt,
+    cpp_wrapper_opt,
+    test_with_freeze_opt_and_cpp_wrapper,
     counters,
 )
 
@@ -92,7 +93,8 @@ class LinearBinaryBinaryModel(nn.Module):
 class Test_Linear_Binary_Binary_Model(AddmmTestCase):
 
     def _run_binary_binary_post_op(
-        self, key: str, bias_flag: bool, dtype: str, freeze_flag: bool
+        self, key: str, bias_flag: bool, dtype: str, freeze_flag: bool,
+        cpp_wrapper: bool = False
     ) -> None:
         if dtype == "bfloat16":
             self.skip_if_bfloat16_unsupported_hardware()
@@ -122,10 +124,11 @@ class Test_Linear_Binary_Binary_Model(AddmmTestCase):
         counters.clear()
         counter_key = LINEAR_BINARY_BINARY_OPS[key]["counter"]
         self.assertEqual(counters["zentorch"][counter_key], 0)
-        compiled_output = test_with_freeze_opt(
+        compiled_output = test_with_freeze_opt_and_cpp_wrapper(
             compiled_graph,
             (self.data.input, binary_tensor1, binary_tensor2),
             freeze_flag,
+            cpp_wrapper,
         )
         self.assertEqual(counters["zentorch"][counter_key], 1)
         if freeze_flag:
@@ -136,22 +139,24 @@ class Test_Linear_Binary_Binary_Model(AddmmTestCase):
         self.assertEqual(native_output, compiled_output, **tolerance)
 
     @AddmmTestCase.hypothesis_params_addmm_itr(
-        dtype_list=supported_dtypes, freeze_list=freeze_opt
+        dtype_list=supported_dtypes, freeze_list=freeze_opt,
+        cpp_wrapper_opt_list=cpp_wrapper_opt
     )
     @torch.inference_mode()
-    def test_linear_add_add_model(self, dtype, freeze_opt):
+    def test_linear_add_add_model(self, dtype, freeze_opt, cpp_wrapper):
         for bias_name, bias_flag in LINEAR_BIAS_CASES.items():
             with self.subTest(bias=bias_name):
-                self._run_binary_binary_post_op("add_add", bias_flag, dtype, freeze_opt)
+                self._run_binary_binary_post_op("add_add", bias_flag, dtype, freeze_opt, cpp_wrapper)
 
     @AddmmTestCase.hypothesis_params_addmm_itr(
-        dtype_list=supported_dtypes, freeze_list=freeze_opt
+        dtype_list=supported_dtypes, freeze_list=freeze_opt,
+        cpp_wrapper_opt_list=cpp_wrapper_opt
     )
     @torch.inference_mode()
-    def test_linear_mul_add_model(self, dtype, freeze_opt):
+    def test_linear_mul_add_model(self, dtype, freeze_opt, cpp_wrapper):
         for bias_name, bias_flag in LINEAR_BIAS_CASES.items():
             with self.subTest(bias=bias_name):
-                self._run_binary_binary_post_op("mul_add", bias_flag, dtype, freeze_opt)
+                self._run_binary_binary_post_op("mul_add", bias_flag, dtype, freeze_opt, cpp_wrapper)
 
 
 if __name__ == "__main__":

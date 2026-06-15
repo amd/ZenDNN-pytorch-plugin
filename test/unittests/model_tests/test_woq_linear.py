@@ -20,6 +20,9 @@ from unittest_utils import (  # noqa: 402
     batch_opt,
     in_features_opt,
     out_features_opt,
+    freeze_opt,
+    cpp_wrapper_opt,
+    test_with_freeze_opt_and_cpp_wrapper,
 )
 
 
@@ -130,14 +133,23 @@ class Test_WOQ_Linear(WOQTestCase):
     mm and addmm) are matched and replaced by zentorch_woq_linear."""
 
     def _assert_woq_pattern_replaced(
-        self, model, x, pattern_description, rtol=1e-2, atol=1e-2
+        self,
+        model,
+        x,
+        pattern_description,
+        freeze_opt=False,
+        cpp_wrapper=False,
+        rtol=1e-2,
+        atol=1e-2,
     ):
         eager_out = model(x)
         reset_dynamo()
         compiled = torch.compile(model, backend="zentorch")
         counters.clear()
         self.assertEqual(counters["zentorch"]["zentorch_woq_linear"], 0)
-        compiled_out = compiled(x)
+        compiled_out = test_with_freeze_opt_and_cpp_wrapper(
+            compiled, x, freeze_opt, cpp_wrapper
+        )
         self.assertEqual(
             counters["zentorch"]["zentorch_woq_linear"],
             1,
@@ -155,14 +167,19 @@ class Test_WOQ_Linear(WOQTestCase):
         in_features_opt_list=in_features_opt,
         out_features_opt_list=out_features_opt,
         bias_opt_list=[False],
+        freeze_list=freeze_opt,
+        cpp_wrapper_opt_list=cpp_wrapper_opt,
     )
     @torch.inference_mode()
-    def test_woq_linear_per_channel_mm_no_bias(self):
+    def test_woq_linear_per_channel_mm_no_bias(self, freeze_opt, cpp_wrapper):
         model = WOQ_Linear_Model(
             self.data.out_features, self.data.in_features, group_size=None, bias=self.data.with_bias
         ).eval()
         x = self.data.woq_input
-        self._assert_woq_pattern_replaced(model, x, "WOQ per-channel mm")
+        self._assert_woq_pattern_replaced(
+            model, x, "WOQ per-channel mm",
+            freeze_opt=freeze_opt, cpp_wrapper=cpp_wrapper
+        )
 
     @WOQTestCase.hypothesis_params_woq_itr(
         dtype_opt_list=woq_dtypes,
@@ -170,15 +187,20 @@ class Test_WOQ_Linear(WOQTestCase):
         in_features_opt_list=in_features_opt,
         out_features_opt_list=out_features_opt,
         bias_opt_list=[True],
+        freeze_list=freeze_opt,
+        cpp_wrapper_opt_list=cpp_wrapper_opt,
         time_out=20000
     )
     @torch.inference_mode()
-    def test_woq_linear_per_channel_addmm_with_bias(self):
+    def test_woq_linear_per_channel_addmm_with_bias(self, freeze_opt, cpp_wrapper):
         model = WOQ_Linear_Model(
             self.data.out_features, self.data.in_features, group_size=None, bias=self.data.with_bias
         ).eval()
         x = self.data.woq_input
-        self._assert_woq_pattern_replaced(model, x, "WOQ per-channel addmm")
+        self._assert_woq_pattern_replaced(
+            model, x, "WOQ per-channel addmm",
+            freeze_opt=freeze_opt, cpp_wrapper=cpp_wrapper
+        )
 
     @WOQTestCase.hypothesis_params_woq_itr(
         dtype_opt_list=woq_dtypes,
@@ -187,17 +209,22 @@ class Test_WOQ_Linear(WOQTestCase):
         out_features_opt_list=out_features_opt,
         bias_opt_list=[False],
         group_size_opt_list=[16, 32],
+        freeze_list=freeze_opt,
+        cpp_wrapper_opt_list=cpp_wrapper_opt,
     )
     @torch.inference_mode()
     @unittest.skip(
         "Per-group WOQ compiled vs eager numerical match pending backend verification"
     )
-    def test_woq_linear_per_group_mm_no_bias(self):
+    def test_woq_linear_per_group_mm_no_bias(self, freeze_opt, cpp_wrapper):
         model = WOQ_Linear_Model(
             self.data.out_features, self.data.in_features, group_size=self.data.group_size, bias=self.data.with_bias
         ).eval()
         x = self.data.woq_input
-        self._assert_woq_pattern_replaced(model, x, "WOQ per-group mm")
+        self._assert_woq_pattern_replaced(
+            model, x, "WOQ per-group mm",
+            freeze_opt=freeze_opt, cpp_wrapper=cpp_wrapper
+        )
 
     @WOQTestCase.hypothesis_params_woq_itr(
         dtype_opt_list=woq_dtypes,
@@ -206,40 +233,22 @@ class Test_WOQ_Linear(WOQTestCase):
         out_features_opt_list=out_features_opt,
         bias_opt_list=[True],
         group_size_opt_list=[16, 32],
+        freeze_list=freeze_opt,
+        cpp_wrapper_opt_list=cpp_wrapper_opt,
     )
     @torch.inference_mode()
     @unittest.skip(
         "Per-group WOQ compiled vs eager numerical match pending backend verification"
     )
-    def test_woq_linear_per_group_addmm_with_bias(self):
+    def test_woq_linear_per_group_addmm_with_bias(self, freeze_opt, cpp_wrapper):
         model = WOQ_Linear_Model(
             self.data.out_features, self.data.in_features, group_size=self.data.group_size, bias=self.data.with_bias
         ).eval()
         x = self.data.woq_input
-        self._assert_woq_pattern_replaced(model, x, "WOQ per-group addmm")
-
-
-@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
-class Test_WOQ_Linear_CppWrapper(Test_WOQ_Linear):
-    """Re-runs the Test_WOQ_Linear cases with freezing + cpp_wrapper enabled,
-    exercising the AOTI shim + lowering codegen path for WOQ ops.
-    """
-
-    # TODO: convert to hypothesis-style parameterized tests so we exercise the
-    # cpp_wrapper path across more (dtype, shape, group_size, post-op) combos
-    # like the rest of the WOQ unit tests.
-
-    def setUp(self):
-        super().setUp()
-        self._prev_freezing = torch._inductor.config.freezing
-        self._prev_cpp_wrapper = torch._inductor.config.cpp_wrapper
-        torch._inductor.config.freezing = True
-        torch._inductor.config.cpp_wrapper = True
-
-    def tearDown(self):
-        torch._inductor.config.cpp_wrapper = self._prev_cpp_wrapper
-        torch._inductor.config.freezing = self._prev_freezing
-        super().tearDown()
+        self._assert_woq_pattern_replaced(
+            model, x, "WOQ per-group addmm",
+            freeze_opt=freeze_opt, cpp_wrapper=cpp_wrapper
+        )
 
 
 if __name__ == "__main__":

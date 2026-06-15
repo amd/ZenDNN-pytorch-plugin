@@ -23,6 +23,9 @@ from unittest_utils import (  # noqa: E402
     counters,
     DataTypes,
     woq_dtypes,
+    freeze_opt,
+    cpp_wrapper_opt,
+    test_with_freeze_opt_and_cpp_wrapper,
 )
 from woq_test_utils import WOQ_Linear_Model  # noqa: E402
 
@@ -83,13 +86,17 @@ class WOQ_Linear_Mul_Add_Model(nn.Module):
 class Test_WOQ_Linear_Binary_Binary_Fusion(WOQTestCase):
     """Test that WOQ linear + binary-binary patterns are fused."""
 
-    def _assert_fusion_replaced(self, model, x, counter_key, pattern_description):
+    def _assert_fusion_replaced(
+        self, model, x, counter_key, pattern_description, freeze_opt=False, cpp_wrapper=False
+    ):
         eager_out = model(x)
         reset_dynamo()
         compiled = torch.compile(model, backend="zentorch")
         counters.clear()
         self.assertEqual(counters["zentorch"].get(counter_key, 0), 0)
-        compiled_out = compiled(x)
+        compiled_out = test_with_freeze_opt_and_cpp_wrapper(
+            compiled, x, freeze_opt, cpp_wrapper
+        )
         self.assertEqual(
             counters["zentorch"][counter_key],
             1,
@@ -109,16 +116,23 @@ class Test_WOQ_Linear_Binary_Binary_Fusion(WOQTestCase):
     #     in_features_opt_list=in_features_opt,
     #     out_features_opt_list=out_features_opt,
     #     bias_opt_list=woq_bias_opt,
+    #     freeze_list=freeze_opt,
+    #     cpp_wrapper_opt_list=cpp_wrapper_opt,
     # )
+    # TODO: Pass freeze_opt for freeze_list instead of only [False].
+    #       Test fails when freeze_opt is True.
+    #       Bug has been reported Jira ID: ZENAI-3867
     @WOQTestCase.hypothesis_params_woq_itr(
         dtype_opt_list=woq_dtypes,
         batch_opt_list=[4],
         in_features_opt_list=[64],
         out_features_opt_list=[48],
-        bias_opt_list=[True]
+        bias_opt_list=[True],
+        freeze_list=[False],
+        cpp_wrapper_opt_list=cpp_wrapper_opt,
     )
     @torch.inference_mode()
-    def test_woq_linear_add_add(self):
+    def test_woq_linear_add_add(self, freeze_opt, cpp_wrapper):
         woq_dtype = DataTypes.get_torch_type(self.data.dtype)
         model = WOQ_Linear_Add_Add_Model(self.data.out_features, self.data.in_features, woq_dtype).eval()
         x = self.data.woq_input
@@ -127,6 +141,8 @@ class Test_WOQ_Linear_Binary_Binary_Fusion(WOQTestCase):
             x,
             "zentorch_woq_linear_add_add",
             "WOQ linear + add + add",
+            freeze_opt=freeze_opt,
+            cpp_wrapper=cpp_wrapper,
         )
 
     # Test Fails while generalising test
@@ -143,10 +159,12 @@ class Test_WOQ_Linear_Binary_Binary_Fusion(WOQTestCase):
         batch_opt_list=[4],
         in_features_opt_list=[64],
         out_features_opt_list=[48],
-        bias_opt_list=[True]
+        bias_opt_list=[True],
+        freeze_list=freeze_opt,
+        cpp_wrapper_opt_list=cpp_wrapper_opt,
     )
     @torch.inference_mode()
-    def test_woq_linear_mul_add(self):
+    def test_woq_linear_mul_add(self, freeze_opt, cpp_wrapper):
         woq_dtype = DataTypes.get_torch_type(self.data.dtype)
         model = WOQ_Linear_Mul_Add_Model(self.data.out_features, self.data.in_features, woq_dtype).eval()
         x = self.data.woq_input
@@ -155,6 +173,8 @@ class Test_WOQ_Linear_Binary_Binary_Fusion(WOQTestCase):
             x,
             "zentorch_woq_linear_mul_add",
             "WOQ linear + mul + add",
+            freeze_opt=freeze_opt,
+            cpp_wrapper=cpp_wrapper,
         )
 
 

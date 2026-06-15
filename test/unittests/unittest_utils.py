@@ -40,6 +40,9 @@ from zentorch_test_utils import (  # noqa: 402 # noqa: F401
     freeze_opt,
     freeze_def_opt,
     test_with_freeze_opt,
+    test_with_freeze_opt_and_cpp_wrapper,
+    cpp_wrapper_opt,
+    cpp_wrapper_def_opt,
     mode_opt,
     MODE_OPT_DEF,
     include_last_offset_opt,
@@ -378,6 +381,7 @@ class AddmmTestCase(Zentorch_TestCase):
             tensor_seed,
             dtype,
             freeze,
+            cpp_wrapper,
             b,
             m,
             k,
@@ -514,6 +518,7 @@ class AddmmTestCase(Zentorch_TestCase):
         draw,
         dtype_list=supported_dtypes_def,
         freeze_list=freeze_def_opt,
+        cpp_wrapper_opt_list=cpp_wrapper_def_opt,
         bRange=B_RANGE,
         mRange=M_RANGE,
         kRange=K_RANGE,
@@ -535,6 +540,8 @@ class AddmmTestCase(Zentorch_TestCase):
         hypStr += f"dtype_list=[{dtype!r}], "
         freeze = draw(st.sampled_from(freeze_list))
         hypStr += f"freeze_list=[{freeze}], "
+        cpp_wrapper = draw(st.sampled_from(cpp_wrapper_opt_list))
+        hypStr += f"cpp_wrapper_opt_list=[{cpp_wrapper}], "
         b = draw(st.integers(bRange.get_min(), bRange.get_max()))
         hypStr += f"bRange=Range({b},{b}), "
         m = draw(st.integers(mRange.get_min(), mRange.get_max()))
@@ -637,6 +644,7 @@ class AddmmTestCase(Zentorch_TestCase):
             tensor_seed,
             dtype,
             freeze,
+            cpp_wrapper,
             b,
             m,
             k,
@@ -662,6 +670,7 @@ class AddmmTestCase(Zentorch_TestCase):
     def hypothesis_params_addmm_itr(
         dtype_list=supported_dtypes_def,
         freeze_list=freeze_def_opt,
+        cpp_wrapper_opt_list=cpp_wrapper_def_opt,
         bRange=B_RANGE,
         mRange=M_RANGE,
         kRange=K_RANGE,
@@ -699,6 +708,7 @@ class AddmmTestCase(Zentorch_TestCase):
                 val=AddmmTestCase.tensor_addmm_strategy(
                     dtype_list=dtype_list,
                     freeze_list=freeze_list,
+                    cpp_wrapper_opt_list=cpp_wrapper_opt_list,
                     bRange=bRange,
                     mRange=mRange,
                     kRange=kRange,
@@ -708,11 +718,11 @@ class AddmmTestCase(Zentorch_TestCase):
                     matrix_dim_3_Range=matrix_dim_3_Range,
                     matrix_dim_4_Range=matrix_dim_4_Range,
                     tensor_seed=tensor_seed,
-                )
+                ),
             )
             def wrapper(obj, val, *args, **kwargs):
                 try:
-                    hypStr, tensor_seed, dtype, freeze, *_ = val
+                    hypStr, tensor_seed, dtype, freeze, cpp_wrapper, *_ = val
 
                     if not hasattr(obj, "getData") or not isinstance(
                         obj.getData(), Test_Data
@@ -726,6 +736,7 @@ class AddmmTestCase(Zentorch_TestCase):
                     test_args = {
                         "dtype": dtype,
                         "freeze_opt": freeze,
+                        "cpp_wrapper": cpp_wrapper,
                     }
 
                     required_args = inspect.signature(function).parameters.keys()
@@ -1057,6 +1068,7 @@ class GroupMatmulTestCase(Zentorch_TestCase):
             hypStr,
             tensor_seed,
             dtype,
+            cpp_wrapper,
             num_experts,
             M,
             K,
@@ -1126,6 +1138,7 @@ class GroupMatmulTestCase(Zentorch_TestCase):
     def tensor_group_matmul_strategy(
         draw,
         dtype_list=supported_dtypes_def,
+        cpp_wrapper_opt_list=cpp_wrapper_def_opt,
         num_experts_Range=GROUP_MATMUL_NUM_EXPERTS,
         m_Range=GROUP_MATMUL_M_VALUES,
         k_list=GROUP_MATMUL_K_VALUES,
@@ -1145,6 +1158,8 @@ class GroupMatmulTestCase(Zentorch_TestCase):
 
         dtype = draw(st.sampled_from(dtype_list))
         hypStr += f"dtype_list=[{dtype!r}], "
+        cpp_wrapper = draw(st.sampled_from(cpp_wrapper_opt_list))
+        hypStr += f"cpp_wrapper_opt_list=[{cpp_wrapper}], "
         num_experts = draw(
             st.integers(num_experts_Range.get_min(), num_experts_Range.get_max())
         )
@@ -1283,6 +1298,7 @@ class GroupMatmulTestCase(Zentorch_TestCase):
             hypStr,
             tensor_seed,
             dtype,
+            cpp_wrapper,
             num_experts,
             M,
             K,
@@ -1325,6 +1341,7 @@ class GroupMatmulTestCase(Zentorch_TestCase):
         k_out_list=GROUP_MATMUL_K_OUT_VALUES,
         topk_list=GROUP_MATMUL_TOPK_VALUES,
         num_tokens_list=GROUP_MATMUL_NUM_TOKENS_VALUES,
+        cpp_wrapper_opt_list=cpp_wrapper_def_opt,
         time_out=None,
         tensor_seed=0,
     ):
@@ -1352,6 +1369,7 @@ class GroupMatmulTestCase(Zentorch_TestCase):
             @given(
                 val=GroupMatmulTestCase.tensor_group_matmul_strategy(
                     dtype_list=dtype_list,
+                    cpp_wrapper_opt_list=cpp_wrapper_opt_list,
                     num_experts_Range=num_experts_Range,
                     m_Range=m_Range,
                     k_list=k_list,
@@ -1361,7 +1379,7 @@ class GroupMatmulTestCase(Zentorch_TestCase):
                     topk_list=topk_list,
                     num_tokens_list=num_tokens_list,
                     tensor_seed=tensor_seed,
-                )
+                ),
             )
             def wrapper(obj, val, *args, **kwargs):
                 try:
@@ -1377,6 +1395,7 @@ class GroupMatmulTestCase(Zentorch_TestCase):
                         hypStr,
                         tensor_seed_val,
                         dtype,
+                        cpp_wrapper,
                         num_experts,
                         M,
                         K,
@@ -1408,6 +1427,7 @@ class GroupMatmulTestCase(Zentorch_TestCase):
                         "K_out": K_out,
                         "topk": topk,
                         "num_tokens": num_tokens,
+                        "cpp_wrapper": cpp_wrapper,
                     }
 
                     required_args = (
@@ -1492,6 +1512,7 @@ class ConvTestCase(Zentorch_TestCase):
             tensor_seed,
             dtype,
             freeze,
+            cpp_wrapper,
             stride,
             padding,
             conv_input,
@@ -1524,6 +1545,7 @@ class ConvTestCase(Zentorch_TestCase):
         draw,
         dtype_list=supported_dtypes_def,
         freeze_list=freeze_def_opt,
+        cpp_wrapper_opt_list=cpp_wrapper_def_opt,
         stride_list=conv_stride_def,
         padding_list=conv_padding_def,
         conv_bs_Range=CONV_BS_RANGE,
@@ -1547,6 +1569,8 @@ class ConvTestCase(Zentorch_TestCase):
         hypStr += f"dtype_list=[{dtype!r}], "
         freeze = draw(st.sampled_from(freeze_list))
         hypStr += f"freeze_list=[{freeze}], "
+        cpp_wrapper = draw(st.sampled_from(cpp_wrapper_opt_list))
+        hypStr += f"cpp_wrapper_opt_list=[{cpp_wrapper}], "
         stride = draw(st.sampled_from(stride_list))
         hypStr += f"stride_list=[{stride}], "
         padding = draw(st.sampled_from(padding_list))
@@ -1600,6 +1624,7 @@ class ConvTestCase(Zentorch_TestCase):
             tensor_seed,
             dtype,
             freeze,
+            cpp_wrapper,
             stride,
             padding,
             conv_input,
@@ -1616,6 +1641,7 @@ class ConvTestCase(Zentorch_TestCase):
     def hypothesis_params_conv_itr(
         dtype_list=supported_dtypes_def,
         freeze_list=freeze_def_opt,
+        cpp_wrapper_opt_list=cpp_wrapper_def_opt,
         stride_list=conv_stride_def,
         padding_list=conv_padding_def,
         conv_bs_Range=CONV_BS_RANGE,
@@ -1646,6 +1672,7 @@ class ConvTestCase(Zentorch_TestCase):
                 val=ConvTestCase.tensor_conv_strategy(
                     dtype_list=dtype_list,
                     freeze_list=freeze_list,
+                    cpp_wrapper_opt_list=cpp_wrapper_opt_list,
                     stride_list=stride_list,
                     padding_list=padding_list,
                     conv_bs_Range=conv_bs_Range,
@@ -1657,11 +1684,11 @@ class ConvTestCase(Zentorch_TestCase):
                     conv_kw_Range=conv_kw_Range,
                     conv_dilation2_list=conv_dilation2_list,
                     tensor_seed=tensor_seed,
-                )
+                ),
             )
             def wrapper(obj, val, *args, **kwargs):
                 try:
-                    hypStr, tensor_seed, dtype, freeze, stride, padding, *_ = val
+                    hypStr, tensor_seed, dtype, freeze, cpp_wrapper, stride, padding, *_ = val
 
                     if not hasattr(obj, "getData") or not isinstance(
                         obj.getData(), Test_Data
@@ -1676,6 +1703,7 @@ class ConvTestCase(Zentorch_TestCase):
                         "freeze_opt": freeze,
                         "stride": stride,
                         "padding": padding,
+                        "cpp_wrapper": cpp_wrapper,
                     }
 
                     required_args = inspect.signature(function).parameters.keys()
@@ -1735,6 +1763,7 @@ class EmbTestCase(Zentorch_TestCase):
             tensor_seed,
             dtype,
             freeze,
+            cpp_wrapper,
             mode,
             include_last_offset,
             sparse,
@@ -1765,6 +1794,7 @@ class EmbTestCase(Zentorch_TestCase):
         draw,
         dtype_list=supported_dtypes_def,
         freeze_list=freeze_def_opt,
+        cpp_wrapper_opt_list=cpp_wrapper_def_opt,
         emb_rRange=EMB_R_RANGE,
         emb_wRange=EMB_W_RANGE,
         emb_dRange=EMB_D_RANGE,
@@ -1785,6 +1815,8 @@ class EmbTestCase(Zentorch_TestCase):
         hypStr += f"dtype_list=[{dtype!r}], "
         freeze = draw(st.sampled_from(freeze_list))
         hypStr += f"freeze_list=[{freeze}], "
+        cpp_wrapper = draw(st.sampled_from(cpp_wrapper_opt_list))
+        hypStr += f"cpp_wrapper_opt_list=[{cpp_wrapper}], "
         R = draw(st.integers(emb_rRange.get_min(), emb_rRange.get_max()))
         hypStr += f"emb_rRange=Range({R},{R}), "
         W = draw(st.integers(emb_wRange.get_min(), emb_wRange.get_max()))
@@ -1816,6 +1848,7 @@ class EmbTestCase(Zentorch_TestCase):
             tensor_seed,
             dtype,
             freeze,
+            cpp_wrapper,
             mode,
             include_last_offset,
             sparse,
@@ -1833,6 +1866,7 @@ class EmbTestCase(Zentorch_TestCase):
     def hypothesis_params_emb_itr(
         dtype_list=supported_dtypes_def,
         freeze_list=freeze_def_opt,
+        cpp_wrapper_opt_list=cpp_wrapper_def_opt,
         emb_rRange=EMB_R_RANGE,
         emb_wRange=EMB_W_RANGE,
         emb_dRange=EMB_D_RANGE,
@@ -1861,6 +1895,7 @@ class EmbTestCase(Zentorch_TestCase):
                 val=EmbTestCase.tensor_emb_strategy(
                     dtype_list=dtype_list,
                     freeze_list=freeze_list,
+                    cpp_wrapper_opt_list=cpp_wrapper_opt_list,
                     emb_rRange=emb_rRange,
                     emb_wRange=emb_wRange,
                     emb_dRange=emb_dRange,
@@ -1870,7 +1905,7 @@ class EmbTestCase(Zentorch_TestCase):
                     sparse_opt_list=sparse_opt_list,
                     scale_grad_opt_list=scale_grad_opt_list,
                     tensor_seed=tensor_seed,
-                )
+                ),
             )
             def wrapper(obj, val, *args, **kwargs):
                 try:
@@ -1886,6 +1921,7 @@ class EmbTestCase(Zentorch_TestCase):
                         tensor_seed,
                         dtype,
                         freeze,
+                        cpp_wrapper,
                         mode,
                         include_last_offset,
                         sparse,
@@ -1903,6 +1939,7 @@ class EmbTestCase(Zentorch_TestCase):
                         "include_last_offset": include_last_offset,
                         "sprs_opt": sparse,
                         "scale_opt": scale_grad,
+                        "cpp_wrapper": cpp_wrapper,
                     }
 
                     # Get the required argument names for the test function
@@ -1994,6 +2031,7 @@ class MMTestCase(Zentorch_TestCase):
             tensor_seed,
             dtype,
             freeze,
+            cpp_wrapper,
             b,
             m,
             k,
@@ -2043,6 +2081,7 @@ class MMTestCase(Zentorch_TestCase):
         draw,
         dtype_list=supported_dtypes_def,
         freeze_list=freeze_def_opt,
+        cpp_wrapper_opt_list=cpp_wrapper_def_opt,
         bRange=B_RANGE,
         mRange=M_RANGE,
         kRange=K_RANGE,
@@ -2061,6 +2100,8 @@ class MMTestCase(Zentorch_TestCase):
         hypStr += f"dtype_list=[{dtype!r}], "
         freeze = draw(st.sampled_from(freeze_list))
         hypStr += f"freeze_list=[{freeze}], "
+        cpp_wrapper = draw(st.sampled_from(cpp_wrapper_opt_list))
+        hypStr += f"cpp_wrapper_opt_list=[{cpp_wrapper}], "
         b = draw(st.integers(bRange.get_min(), bRange.get_max()))
         hypStr += f"bRange=Range({b},{b}), "
         m = draw(st.integers(mRange.get_min(), mRange.get_max()))
@@ -2107,6 +2148,7 @@ class MMTestCase(Zentorch_TestCase):
             tensor_seed,
             dtype,
             freeze,
+            cpp_wrapper,
             b,
             m,
             k,
@@ -2131,6 +2173,7 @@ class MMTestCase(Zentorch_TestCase):
     def hypothesis_params_mm_itr(
         dtype_list=supported_dtypes_def,
         freeze_list=freeze_def_opt,
+        cpp_wrapper_opt_list=cpp_wrapper_def_opt,
         bRange=B_RANGE,
         mRange=M_RANGE,
         kRange=K_RANGE,
@@ -2156,17 +2199,18 @@ class MMTestCase(Zentorch_TestCase):
                 val=MMTestCase.tensor_mm_strategy(
                     dtype_list=dtype_list,
                     freeze_list=freeze_list,
+                    cpp_wrapper_opt_list=cpp_wrapper_opt_list,
                     bRange=bRange,
                     mRange=mRange,
                     kRange=kRange,
                     nRange=nRange,
                     mm_input_scaler_Range=mm_input_scaler_Range,
                     tensor_seed=tensor_seed,
-                )
+                ),
             )
             def wrapper(obj, val, *args, **kwargs):
                 try:
-                    hypStr, updated_tensor_seed, dtype, freeze, *_ = val
+                    hypStr, updated_tensor_seed, dtype, freeze, cpp_wrapper, *_ = val
 
                     if not hasattr(obj, "getData") or not isinstance(
                         obj.getData(), Test_Data
@@ -2180,6 +2224,7 @@ class MMTestCase(Zentorch_TestCase):
                     test_args = {
                         "dtype": dtype,
                         "freeze_opt": freeze,
+                        "cpp_wrapper": cpp_wrapper,
                     }
 
                     required_args = inspect.signature(function).parameters.keys()
@@ -2262,6 +2307,8 @@ class WOQTestCase(Zentorch_TestCase):
             dtype,
             group_size,
             input_dim,
+            freeze,
+            cpp_wrapper,
             woq_input,
             woq_weight,
             woq_bias,
@@ -2319,6 +2366,8 @@ class WOQTestCase(Zentorch_TestCase):
         dtype_opt_list=woq_dtypes,
         group_size_opt_list=woq_group_size_def,
         input_dim_opt_list=INPUT_DIM_OPT_DEF,
+        freeze_list=freeze_def_opt,
+        cpp_wrapper_opt_list=cpp_wrapper_def_opt,
         pRange=WOQ_X_RANGE,
         qRange=WOQ_Y_RANGE,
         tensor_seed=0,
@@ -2373,6 +2422,10 @@ class WOQTestCase(Zentorch_TestCase):
         # from ``batch`` — same convention as ``tensor_qlinear_strategy``
         input_dim = draw(st.sampled_from(input_dim_opt_list))
         hypStr += f"input_dim_opt_list=[{input_dim}], "
+        freeze = draw(st.sampled_from(freeze_list))
+        hypStr += f"freeze_list=[{freeze}], "
+        cpp_wrapper = draw(st.sampled_from(cpp_wrapper_opt_list))
+        hypStr += f"cpp_wrapper_opt_list=[{cpp_wrapper}], "
         p = draw(st.integers(pRange.get_min(), pRange.get_max())) if input_dim >= 3 else 1
         q = draw(st.integers(qRange.get_min(), qRange.get_max())) if input_dim == 4 else 1
         if input_dim >= 3:
@@ -2414,6 +2467,8 @@ class WOQTestCase(Zentorch_TestCase):
             dtype_str,
             group_size,
             input_dim,
+            freeze,
+            cpp_wrapper,
             woq_input,
             woq_weight,
             woq_bias,
@@ -2431,6 +2486,8 @@ class WOQTestCase(Zentorch_TestCase):
         dtype_opt_list=woq_dtypes,
         group_size_opt_list=woq_group_size_def,
         input_dim_opt_list=INPUT_DIM_OPT_DEF,
+        freeze_list=freeze_def_opt,
+        cpp_wrapper_opt_list=cpp_wrapper_def_opt,
         pRange=WOQ_X_RANGE,
         qRange=WOQ_Y_RANGE,
         tensor_seed=0,
@@ -2438,6 +2495,7 @@ class WOQTestCase(Zentorch_TestCase):
     ):
         """Unified hypothesis iterator for WOQ tests (per-channel and per-group).
         """
+
         def hypothesis_params_woq_itr_impl(function):
             @settings(
                 deadline=WOQTestCase.time_out if time_out is None else time_out,
@@ -2453,25 +2511,42 @@ class WOQTestCase(Zentorch_TestCase):
                     dtype_opt_list=dtype_opt_list,
                     group_size_opt_list=group_size_opt_list,
                     input_dim_opt_list=input_dim_opt_list,
+                    freeze_list=freeze_list,
+                    cpp_wrapper_opt_list=cpp_wrapper_opt_list,
                     pRange=pRange,
                     qRange=qRange,
                     tensor_seed=tensor_seed,
-                )
+                ),
             )
             def wrapper(obj, val, *args, **kwargs):
                 try:
-                    hypStr, _, _, _, _, _, dtype, *_ = val
+                    hypStr, _, _, _, _, _, dtype, _, _, freeze, cpp_wrapper, *_ = val
 
                     obj.createDataFromVal(val)
 
-                    # Call the test function (no parameters needed - uses self.data)
-                    function(obj, *args, **kwargs)
+                    test_args = {
+                        "dtype": dtype,
+                        "freeze_opt": freeze,
+                        "cpp_wrapper": cpp_wrapper,
+                    }
+
+                    required_args = inspect.signature(function).parameters.keys()
+
+                    # Call the test function with the appropriate arguments
+                    function(
+                        obj,
+                        *args,
+                        **{k: v for k, v in test_args.items() if k in required_args},
+                        **kwargs,
+                    )
                 except Exception as e:
                     if not isinstance(e, unittest.SkipTest):
                         decName = "WOQTestCase.hypothesis_params_woq_itr"
                         pklReplayFunction = "WOQTestCase.replay_from_pickle"
                         test_args = {
                             "dtype": dtype,
+                            "freeze_opt": freeze,
+                            "cpp_wrapper": cpp_wrapper,
                         }
                         obj.handleException(
                             obj,
@@ -2570,6 +2645,7 @@ class QLinearTestCase(Zentorch_TestCase):
             tensor_seed,
             dtype,
             freeze,
+            cpp_wrapper,
             b,
             m,
             p,
@@ -2656,6 +2732,7 @@ class QLinearTestCase(Zentorch_TestCase):
         qlinear_eltwise_opt_list=QLINEAR_ELTWISE_OPT_DEF,
         dtype_list=qlinear_dtypes,
         freeze_list=freeze_def_opt,
+        cpp_wrapper_opt_list=cpp_wrapper_def_opt,
         bRange=B_RANGE,
         mRange=M_RANGE,
         pRange=P_RANGE,
@@ -2690,6 +2767,8 @@ class QLinearTestCase(Zentorch_TestCase):
         hypStr += f"dtype_list=[{dtype!r}], "
         freeze = draw(st.sampled_from(freeze_list))
         hypStr += f"freeze_list=[{freeze}], "
+        cpp_wrapper = draw(st.sampled_from(cpp_wrapper_opt_list))
+        hypStr += f"cpp_wrapper_opt_list=[{cpp_wrapper}], "
         b = draw(st.integers(bRange.get_min(), bRange.get_max()))
         hypStr += f"bRange=Range({b}, {b}), "
         m = draw(st.integers(mRange.get_min(), mRange.get_max()))
@@ -2922,6 +3001,7 @@ class QLinearTestCase(Zentorch_TestCase):
             tensor_seed,
             dtype,
             freeze,
+            cpp_wrapper,
             b,
             m,
             p,
@@ -2973,6 +3053,7 @@ class QLinearTestCase(Zentorch_TestCase):
         dtype_list=qlinear_dtypes,
         qlinear_eltwise_opt_list=QLINEAR_ELTWISE_OPT_DEF,
         freeze_list=freeze_def_opt,
+        cpp_wrapper_opt_list=cpp_wrapper_def_opt,
         bRange=B_RANGE,
         mRange=M_RANGE,
         pRange=P_RANGE,
@@ -3020,6 +3101,7 @@ class QLinearTestCase(Zentorch_TestCase):
                     q_linear_output_dtype_opt_list=q_linear_output_dtype_opt_list,
                     dtype_list=dtype_list,
                     freeze_list=freeze_list,
+                    cpp_wrapper_opt_list=cpp_wrapper_opt_list,
                     qlinear_eltwise_opt_list=qlinear_eltwise_opt_list,
                     bRange=bRange,
                     mRange=mRange,
@@ -3031,7 +3113,7 @@ class QLinearTestCase(Zentorch_TestCase):
                     matrix_dim_2_Range=MATRIX_DIM_2_RANGE,
                     matrix_dim_3_Range=MATRIX_DIM_3_RANGE,
                     tensor_seed=tensor_seed,
-                )
+                ),
             )
             def wrapper(obj, val, *args, **kwargs):
                 try:
@@ -3040,6 +3122,7 @@ class QLinearTestCase(Zentorch_TestCase):
                         tensor_seed,
                         dtype,
                         freeze,
+                        cpp_wrapper,
                         b,
                         m,
                         p,
@@ -3077,6 +3160,7 @@ class QLinearTestCase(Zentorch_TestCase):
                         "output_dtype": q_linear_output_dtype,
                         "eltwise_op": q_linear_eltwise,
                         "freeze_opt": freeze,
+                        "cpp_wrapper": cpp_wrapper,
                     }
 
                     required_args = inspect.signature(function).parameters.keys()
@@ -3131,6 +3215,7 @@ class SDPATestCase(Zentorch_TestCase):
             hypStr,
             tensor_seed,
             dtype,
+            cpp_wrapper,
             seq_length,
             batch_size,
             mask,
@@ -3155,6 +3240,7 @@ class SDPATestCase(Zentorch_TestCase):
     def tensor_sdpa_strategy(
         draw,
         dtype_list=supported_dtypes_def,
+        cpp_wrapper_opt_list=cpp_wrapper_def_opt,
         seq_length_opt_list=SEQ_LENGTH_OPT_DEF,
         batch_size_opt_list=BATCH_SIZE_OPT_DEF,
         mask_opt_list=MASK_OPT_DEF,
@@ -3170,6 +3256,8 @@ class SDPATestCase(Zentorch_TestCase):
         generator.manual_seed(tensor_seed)
         dtype = draw(st.sampled_from(dtype_list))
         hypStr += f"dtype_list=[{dtype!r}], "
+        cpp_wrapper = draw(st.sampled_from(cpp_wrapper_opt_list))
+        hypStr += f"cpp_wrapper_opt_list=[{cpp_wrapper}], "
         seq_length = draw(st.sampled_from(seq_length_opt_list))
         hypStr += f"seq_length_opt_list=[{seq_length}], "
         batch_size = draw(st.sampled_from(batch_size_opt_list))
@@ -3216,6 +3304,7 @@ class SDPATestCase(Zentorch_TestCase):
             hypStr,
             tensor_seed,
             dtype,
+            cpp_wrapper,
             seq_length,
             batch_size,
             mask,
@@ -3230,6 +3319,7 @@ class SDPATestCase(Zentorch_TestCase):
     @staticmethod
     def hypothesis_params_sdpa_itr(
         dtype_list=supported_dtypes_def,
+        cpp_wrapper_opt_list=cpp_wrapper_def_opt,
         seq_length_opt_list=SEQ_LENGTH_OPT_DEF,
         batch_size_opt_list=BATCH_SIZE_OPT_DEF,
         mask_opt_list=MASK_OPT_DEF,
@@ -3254,13 +3344,14 @@ class SDPATestCase(Zentorch_TestCase):
             @given(
                 val=SDPATestCase.tensor_sdpa_strategy(
                     dtype_list=dtype_list,
+                    cpp_wrapper_opt_list=cpp_wrapper_opt_list,
                     seq_length_opt_list=seq_length_opt_list,
                     batch_size_opt_list=batch_size_opt_list,
                     mask_opt_list=mask_opt_list,
                     num_heads_opt_list=num_heads_opt_list,
                     head_dim_opt_list=head_dim_opt_list,
                     tensor_seed=tensor_seed,
-                )
+                ),
             )
             def wrapper(obj, val, *args, **kwargs):
                 try:
@@ -3275,6 +3366,7 @@ class SDPATestCase(Zentorch_TestCase):
                         hypStr,
                         tensor_seed,
                         dtype,
+                        cpp_wrapper,
                         seq_length,
                         batch_size,
                         mask,
@@ -3294,6 +3386,7 @@ class SDPATestCase(Zentorch_TestCase):
                         "dtype": dtype,
                         "mask_type": mask,
                         "head_dim": head_dim,
+                        "cpp_wrapper": cpp_wrapper,
                     }
 
                     # Get the required argument names for the test function
@@ -3370,6 +3463,8 @@ class QuantEmbTestCase(Zentorch_TestCase):
             hypStr,
             tensor_seed,
             dtype,
+            freeze,
+            cpp_wrapper,
             num_embeddings,
             embedding_dim,
             num_bags,
@@ -3404,6 +3499,8 @@ class QuantEmbTestCase(Zentorch_TestCase):
     def tensor_quant_emb_strategy(
         draw,
         dtype_list=supported_dtypes_def,
+        freeze_list=freeze_def_opt,
+        cpp_wrapper_opt_list=cpp_wrapper_def_opt,
         num_embeddings_range=QUANT_EMB_NUM_RANGE,
         embedding_dim_range=QUANT_EMB_D_RANGE,
         num_bags_range=EMB_NUM_OF_BAGS,
@@ -3420,6 +3517,10 @@ class QuantEmbTestCase(Zentorch_TestCase):
 
         dtype = draw(st.sampled_from(dtype_list))
         hypStr += f"dtype_list=[{dtype!r}], "
+        freeze = draw(st.sampled_from(freeze_list))
+        hypStr += f"freeze_list=[{freeze}], "
+        cpp_wrapper = draw(st.sampled_from(cpp_wrapper_opt_list))
+        hypStr += f"cpp_wrapper_opt_list=[{cpp_wrapper}], "
 
         num_embeddings = draw(st.integers(num_embeddings_range.get_min(), num_embeddings_range.get_max()))
         hypStr += f"num_embeddings_range=Range({num_embeddings},{num_embeddings}), "
@@ -3470,6 +3571,8 @@ class QuantEmbTestCase(Zentorch_TestCase):
             hypStr,
             tensor_seed,
             dtype,
+            freeze,
+            cpp_wrapper,
             num_embeddings,
             embedding_dim,
             num_bags,
@@ -3487,6 +3590,8 @@ class QuantEmbTestCase(Zentorch_TestCase):
     @staticmethod
     def hypothesis_params_quant_emb_itr(
         dtype_list=supported_dtypes_def,
+        freeze_list=freeze_def_opt,
+        cpp_wrapper_opt_list=cpp_wrapper_def_opt,
         num_embeddings_range=QUANT_EMB_NUM_RANGE,
         embedding_dim_range=QUANT_EMB_D_RANGE,
         num_bags_range=EMB_NUM_OF_BAGS,
@@ -3511,6 +3616,8 @@ class QuantEmbTestCase(Zentorch_TestCase):
             @given(
                 val=QuantEmbTestCase.tensor_quant_emb_strategy(
                     dtype_list=dtype_list,
+                    freeze_list=freeze_list,
+                    cpp_wrapper_opt_list=cpp_wrapper_opt_list,
                     num_embeddings_range=num_embeddings_range,
                     embedding_dim_range=embedding_dim_range,
                     num_bags_range=num_bags_range,
@@ -3532,6 +3639,8 @@ class QuantEmbTestCase(Zentorch_TestCase):
                         hypStr,
                         tensor_seed,
                         dtype,
+                        freeze,
+                        cpp_wrapper,
                         num_embeddings,
                         embedding_dim,
                         num_bags,
@@ -3545,6 +3654,8 @@ class QuantEmbTestCase(Zentorch_TestCase):
                     # Prepare the arguments to pass to the test function
                     test_args = {
                         "dtype": dtype,
+                        "freeze_opt": freeze,
+                        "cpp_wrapper": cpp_wrapper,
                         "include_last_offset": include_last_offset,
                     }
 

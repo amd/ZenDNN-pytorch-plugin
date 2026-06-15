@@ -26,6 +26,9 @@ from unittest_utils import (  # noqa: 402
     q_zero_points_dtype_opt,
     q_linear_dtype_opt,
     get_comp_zero_points,
+    freeze_opt,
+    cpp_wrapper_opt,
+    test_with_freeze_opt_and_cpp_wrapper,
 )
 
 
@@ -88,6 +91,8 @@ class Test_Qlinear_Mul_Add_Model(QLinearTestCase):
         q_zero_points_dtype_opt_list=q_zero_points_dtype_opt,
         q_linear_dtype_opt_list=q_linear_dtype_opt,
         q_linear_output_dtype_opt_list=["float32", "bfloat16"],
+        freeze_list=freeze_opt,
+        cpp_wrapper_opt_list=cpp_wrapper_opt,
     )
     @torch.inference_mode()
     def test_qlinear_mul_add_model(
@@ -100,6 +105,8 @@ class Test_Qlinear_Mul_Add_Model(QLinearTestCase):
         q_zero_points_dtype,
         input_dtype,
         output_dtype,
+        freeze_opt,
+        cpp_wrapper,
     ):
         self.skip_if_does_not_support_arg_combination_for_qlinear(
             bias_opt_idx, input_dtype, output_dtype
@@ -151,21 +158,26 @@ class Test_Qlinear_Mul_Add_Model(QLinearTestCase):
                 reset_dynamo()
                 zentorch_model = torch.compile(zentorch_model, backend="zentorch")
 
-                zentorch_output = zentorch_model(
-                    self.data.x_for_qlinear[input_dtype][input_dim],
-                    self.data.y_int8[q_weight_idx],
-                    self.data.bias_for_qlinear[bias_opt_idx],
-                    self.data.x_scales["per_tensor"],
-                    get_comp_zero_points(
-                        self.data.x_zero_points["per_tensor"][input_dtype][
-                            q_zero_points_dtype
-                        ]
+                zentorch_output = test_with_freeze_opt_and_cpp_wrapper(
+                    zentorch_model,
+                    (
+                        self.data.x_for_qlinear[input_dtype][input_dim],
+                        self.data.y_int8[q_weight_idx],
+                        self.data.bias_for_qlinear[bias_opt_idx],
+                        self.data.x_scales["per_tensor"],
+                        get_comp_zero_points(
+                            self.data.x_zero_points["per_tensor"][input_dtype][
+                                q_zero_points_dtype
+                            ]
+                        ),
+                        self.data.y_scales[q_granularity_val],
+                        get_comp_zero_points(self.data.y_zero_points[q_granularity_val]),
+                        self.data.binary_input[input_dim],
+                        self.data.binary_input[input_dim],
+                        torch_output_dtype,
                     ),
-                    self.data.y_scales[q_granularity_val],
-                    get_comp_zero_points(self.data.y_zero_points[q_granularity_val]),
-                    self.data.binary_input[input_dim],
-                    self.data.binary_input[input_dim],
-                    output_dtype=torch_output_dtype,
+                    freeze_opt,
+                    cpp_wrapper,
                 )
 
                 # TODO: Remove this once we have a proper fix for bfloat16 performance issue.

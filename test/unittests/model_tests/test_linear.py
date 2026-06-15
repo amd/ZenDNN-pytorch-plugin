@@ -19,7 +19,8 @@ from unittest_utils import (  # noqa: 402
     update_supported_dtypes,
     zentorch,
     freeze_opt,
-    test_with_freeze_opt,
+    cpp_wrapper_opt,
+    test_with_freeze_opt_and_cpp_wrapper,
     counters,
 )
 
@@ -46,10 +47,11 @@ class Custom_Model_Linear(nn.Module):
 class Test_Linear_Model(AddmmTestCase):
 
     @AddmmTestCase.hypothesis_params_addmm_itr(
-        dtype_list=supported_dtypes, freeze_list=freeze_opt
+        dtype_list=supported_dtypes, freeze_list=freeze_opt,
+        cpp_wrapper_opt_list=cpp_wrapper_opt
     )
     @torch.inference_mode()
-    def test_linear_model(self, dtype, freeze_opt):
+    def test_linear_model(self, dtype, freeze_opt, cpp_wrapper):
 
         model = Custom_Model_Linear(self.data.k, self.data.get_torch_type(dtype))
 
@@ -58,8 +60,8 @@ class Test_Linear_Model(AddmmTestCase):
         compiled_graph = torch.compile(model, backend="zentorch")
         counters.clear()
         self.assertEqual(counters["zentorch"]["zentorch_linear"], 0)
-        compiled_output = test_with_freeze_opt(
-            compiled_graph, (self.data.x), freeze_opt
+        compiled_output = test_with_freeze_opt_and_cpp_wrapper(
+            compiled_graph, (self.data.x), freeze_opt, cpp_wrapper
         )
         self.assertEqual(counters["zentorch"]["zentorch_linear"], 3)
         if freeze_opt:
