@@ -171,6 +171,10 @@ MM_ADD_3D_N_RANGE = Range(512, 512)
 MM_ADD_3D_P_RANGE = Range(4, 4)
 MM_ADD_3D_Q_RANGE = Range(64, 64)
 
+# rms_norm vars
+RMS_BATCH_SIZE_RANGE = Range(1, 8)
+RMS_HIDDEN_SIZE_RANGE = Range(16, 256)
+
 if has_zentorch and zentorch._C.is_bf16_supported():
     woq_dtypes.append("bfloat16")
 
@@ -1104,6 +1108,23 @@ class Test_Data(metaclass=Singleton):
         self.woq_mul_input = woq_mul_input
         self.woq_add_input = woq_add_input
         self.woq_add_input_2 = woq_add_input_2
+
+    # Create data for RMSNorm tests
+    # Keep RMSNorm test-data creation centralized in this helper
+    def create_data_rms_norm(
+        self,
+        dtype,
+        batch_size,
+        hidden_size,
+        rms_input,
+        rms_weight,
+        rms_residual,
+    ):
+        self.batch_size = batch_size
+        self.hidden_size = hidden_size
+        self.rms_input = rms_input
+        self.rms_weight = rms_weight
+        self.rms_residual = rms_residual
 
     def get_torch_type(self, str_type):
         return self.dtypes[str_type.lower()]

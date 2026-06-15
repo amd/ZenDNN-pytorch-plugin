@@ -159,6 +159,9 @@ from zentorch_test_utils import (  # noqa: 402 # noqa: F401
     MM_ADD_3D_N_RANGE,
     MM_ADD_3D_P_RANGE,
     MM_ADD_3D_Q_RANGE,
+    # rms_norm vars
+    RMS_BATCH_SIZE_RANGE,
+    RMS_HIDDEN_SIZE_RANGE,
 )
 
 path = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
@@ -3689,3 +3692,204 @@ class QuantEmbTestCase(Zentorch_TestCase):
             return wrapper
 
         return hypothesis_params_itr_impl
+
+
+class RmsNormTestCase(Zentorch_TestCase):
+    """Base class for RMS norm hypothesis-based tests.
+
+    Provides a composite strategy and decorator for generating randomized
+    (batch_size, hidden_size, dtype, freeze) combinations for testing
+    zentorch_rms_norm and zentorch_add_rms_norm_ ops.
+    """
+
+    time_out = 10000
+    max_example_per_test = 20
+
+    def getData(self):
+        return self.data
+
+    def createData(
+        self,
+        dtype,
+        batch_size,
+        hidden_size,
+        rms_input,
+        rms_weight,
+        rms_residual,
+    ):
+        self.data.create_data_rms_norm(
+            dtype=dtype,
+            batch_size=batch_size,
+            hidden_size=hidden_size,
+            rms_input=rms_input,
+            rms_weight=rms_weight,
+            rms_residual=rms_residual,
+        )
+
+    def createDataFromVal(self, val):
+        (
+            hypStr,
+            tensor_seed,
+            dtype,
+            freeze,
+            batch_size,
+            hidden_size,
+            rms_input,
+            rms_weight,
+            rms_residual,
+        ) = val
+        self.createData(
+            dtype=dtype,
+            batch_size=batch_size,
+            hidden_size=hidden_size,
+            rms_input=rms_input,
+            rms_weight=rms_weight,
+            rms_residual=rms_residual,
+        )
+
+    @seed(seed=SEED)
+    @staticmethod
+    # The @st.composite decorator is used to define custom Hypothesis strategies
+    # for generating complex test data structures.
+    @st.composite
+    def tensor_rms_norm_strategy(
+        draw,
+        dtype_list=supported_dtypes_def,
+        freeze_list=freeze_def_opt,
+        batch_size_Range=RMS_BATCH_SIZE_RANGE,
+        hidden_size_Range=RMS_HIDDEN_SIZE_RANGE,
+        tensor_seed=0,
+    ):
+        hypStr = ""
+        if not tensor_seed:
+            tensor_seed = getRandomSeed()
+        hypStr += f"tensor_seed={tensor_seed}, "
+        generator = torch.Generator()
+        generator.manual_seed(tensor_seed)
+
+        dtype = draw(st.sampled_from(dtype_list))
+        hypStr += f"dtype_list=[{dtype!r}], "
+        freeze = draw(st.sampled_from(freeze_list))
+        hypStr += f"freeze_list=[{freeze}], "
+        batch_size = draw(
+            st.integers(batch_size_Range.get_min(), batch_size_Range.get_max())
+        )
+        hypStr += f"batch_size_Range=Range({batch_size},{batch_size}), "
+        hidden_size = draw(
+            st.integers(hidden_size_Range.get_min(), hidden_size_Range.get_max())
+        )
+        hypStr += f"hidden_size_Range=Range({hidden_size},{hidden_size}), "
+
+        torch_type = DataTypes.get_torch_type(dtype)
+
+        # input tensor: (batch_size, hidden_size)
+        rms_input = torch.randn(batch_size, hidden_size, generator=generator).type(
+            torch_type
+        )
+        # weight tensor: (hidden_size,)
+        rms_weight = torch.randn(hidden_size, generator=generator).type(torch_type)
+        # residual tensor: (batch_size, hidden_size) — used by zentorch_add_rms_norm_
+        rms_residual = torch.randn(batch_size, hidden_size, generator=generator).type(
+            torch_type
+        )
+
+        return (
+            hypStr,
+            tensor_seed,
+            dtype,
+            freeze,
+            batch_size,
+            hidden_size,
+            rms_input,
+            rms_weight,
+            rms_residual,
+        )
+
+    @staticmethod
+    def hypothesis_params_rms_norm_itr(
+        dtype_list=supported_dtypes_def,
+        freeze_list=freeze_def_opt,
+        batch_size_Range=RMS_BATCH_SIZE_RANGE,
+        hidden_size_Range=RMS_HIDDEN_SIZE_RANGE,
+        time_out=None,
+        tensor_seed=0,
+    ):
+        skip_reason = None
+        if not dtype_list:
+            skip_reason = "dtype_list is empty"
+
+        def hypothesis_params_rms_norm_itr_impl(function):
+            if skip_reason:
+                print(f"Skipping test - {function.__name__}: {skip_reason}")
+                return unittest.skipIf(True, skip_reason)(function)
+
+            # The @settings() decorator configures Hypothesis test parameters.
+            @settings(
+                deadline=RmsNormTestCase.time_out if time_out is None else time_out,
+                max_examples=RmsNormTestCase.max_example_per_test,
+                verbosity=Verbosity.quiet,
+            )
+            # The @given() decorator generates test inputs using the strategy.
+            @given(
+                val=RmsNormTestCase.tensor_rms_norm_strategy(
+                    dtype_list=dtype_list,
+                    freeze_list=freeze_list,
+                    batch_size_Range=batch_size_Range,
+                    hidden_size_Range=hidden_size_Range,
+                    tensor_seed=tensor_seed,
+                )
+            )
+            def wrapper(obj, val, *args, **kwargs):
+                try:
+                    (
+                        hypStr,
+                        tensor_seed,
+                        dtype,
+                        freeze,
+                        batch_size,
+                        hidden_size,
+                        *_,
+                    ) = val
+
+                    if not hasattr(obj, "getData") or not isinstance(
+                        obj.getData(), Test_Data
+                    ):
+                        raise RuntimeError(
+                            "hypothesis_params_rms_norm_itr called with invalid object"
+                        )
+
+                    obj.createDataFromVal(val)
+
+                    test_args = {
+                        "dtype": dtype,
+                        "freeze_opt": freeze,
+                    }
+
+                    required_args = inspect.signature(function).parameters.keys()
+
+                    function(
+                        obj,
+                        *args,
+                        **{k: v for k, v in test_args.items() if k in required_args},
+                        **kwargs,
+                    )
+                except Exception as e:
+                    if not isinstance(e, unittest.SkipTest):
+                        decName = "RmsNormTestCase.hypothesis_params_rms_norm_itr"
+                        pklReplayFunction = "RmsNormTestCase.replay_from_pickle"
+                        obj.handleException(
+                            obj,
+                            str(e),
+                            hypStr,
+                            function.__name__,
+                            decName,
+                            pklReplayFunction,
+                            val,
+                            test_args,
+                        )
+                    raise  # Re-raise the exception after printing
+                return
+
+            return wrapper
+
+        return hypothesis_params_rms_norm_itr_impl
