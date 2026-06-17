@@ -132,9 +132,9 @@ at::Tensor zentorch_gdn_chunk_local_cumsum(const at::Tensor &g,
   } else if (g_dt == c10::ScalarType::BFloat16) {
     ZENTORCH_GDN_RUN(c10::BFloat16);
   } else if (g_dt == c10::ScalarType::Half) {
-    ZENTORCH_CHECK(false, "fp16 not supported; use fp32 or bf16");
+    ZENTORCH_GDN_RUN(c10::Half);
   } else {
-    ZENTORCH_CHECK(false, "g dtype must be fp32 or bf16; got ", g_dt);
+    ZENTORCH_CHECK(false, "g dtype must be fp32 or bf16 or fp16; got ", g_dt);
   }
 
 #undef ZENTORCH_GDN_RUN

@@ -48,8 +48,6 @@ std::tuple<at::Tensor, at::Tensor> zentorch_gdn_recompute_w_u_fwd(
 
   ZENTORCH_CHECK(at::isFloatingType(k.scalar_type()),
                  "k must be floating-point; got ", k.scalar_type());
-  ZENTORCH_CHECK(k.scalar_type() != c10::ScalarType::Half,
-                 "fp16 not supported; use fp32 or bf16");
   ZENTORCH_CHECK(v.scalar_type() == k.scalar_type(),
                  "v dtype must match k dtype");
   ZENTORCH_CHECK(at::isFloatingType(beta.scalar_type()),

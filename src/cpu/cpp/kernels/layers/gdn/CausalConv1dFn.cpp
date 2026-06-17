@@ -69,8 +69,6 @@ at::Tensor zentorch_gdn_causal_conv1d_fn(
 
   ZENTORCH_CHECK(at::isFloatingType(x.scalar_type()),
                  "x must be floating-point; got ", x.scalar_type());
-  ZENTORCH_CHECK(x.scalar_type() != c10::ScalarType::Half,
-                 "fp16 not supported; use fp32 or bf16");
 
   const bool is_silu = (activation == "silu" || activation == "swish");
   const bool is_none = activation.empty();

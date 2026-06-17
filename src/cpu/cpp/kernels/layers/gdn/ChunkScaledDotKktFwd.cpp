@@ -46,8 +46,6 @@ at::Tensor zentorch_gdn_chunk_scaled_dot_kkt_fwd(
 
   ZENTORCH_CHECK(at::isFloatingType(k.scalar_type()),
                  "k must be floating-point; got ", k.scalar_type());
-  ZENTORCH_CHECK(k.scalar_type() != c10::ScalarType::Half,
-                 "fp16 not supported; use fp32 or bf16");
   ZENTORCH_CHECK(at::isFloatingType(beta.scalar_type()),
                  "beta must be floating-point; got ", beta.scalar_type());
   ZENTORCH_CHECK(at::isFloatingType(g.scalar_type()),

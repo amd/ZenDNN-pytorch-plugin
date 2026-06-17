@@ -51,8 +51,6 @@ zentorch_gdn_fused_post_conv_prep(
   ZENTORCH_CHECK(at::isFloatingType(conv_output.scalar_type()),
                  "conv_output must be floating-point; got ",
                  conv_output.scalar_type());
-  ZENTORCH_CHECK(conv_output.scalar_type() != c10::ScalarType::Half,
-                 "fp16 not supported; use fp32 or bf16");
   ZENTORCH_CHECK(a.scalar_type() == conv_output.scalar_type() &&
                      b.scalar_type() == conv_output.scalar_type(),
                  "a/b must share dtype with conv_output");

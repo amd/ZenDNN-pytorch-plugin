@@ -28,7 +28,7 @@ from unittest_utils import (  # noqa: E402
 )
 
 
-DTYPES = [torch.float32, torch.bfloat16]
+DTYPES = [torch.float32, torch.bfloat16, torch.float16]
 SEQLENS_VARLEN = [[64], [65], [7], [64, 64], [70, 30, 100]]
 SEQLENS_QWEN = [[64], [128, 64], [200, 100, 50]]
 

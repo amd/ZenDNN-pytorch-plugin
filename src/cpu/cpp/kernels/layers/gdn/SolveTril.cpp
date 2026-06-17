@@ -34,8 +34,6 @@ at::Tensor zentorch_gdn_solve_tril(const at::Tensor &A,
 
   ZENTORCH_CHECK(at::isFloatingType(A.scalar_type()),
                  "A must be floating-point; got ", A.scalar_type());
-  ZENTORCH_CHECK(A.scalar_type() != c10::ScalarType::Half,
-                 "fp16 not supported; use fp32 or bf16");
 
   ZENTORCH_CHECK(cu_seqlens.dim() == 1 &&
                      cu_seqlens.scalar_type() == c10::ScalarType::Int,

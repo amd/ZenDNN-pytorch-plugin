@@ -37,7 +37,7 @@ from unittest_utils import (  # noqa: E402
 )
 
 
-DTYPES = [torch.float32, torch.bfloat16]
+DTYPES = [torch.float32, torch.bfloat16, torch.float16]
 SEQLENS_VARLEN = [
     [64],
     [128],
@@ -336,23 +336,35 @@ class Test_GDN_ChunkGatedDeltaRuleFwd(Zentorch_TestCase):
         self.assertEqual(fs_cpp, fs_oracle, atol=atol_fs, rtol=rtol,
                          msg="final_state mismatch")
 
-    def test_cpp_rejects_fp16(self) -> None:
+    def test_cpp_accepts_fp16(self) -> None:
         cpu = torch.device("cpu")
+        K_dim = V_dim = 8
         inputs = _build_inputs(
-            B=1, T=64, Hg=1, H=1, K_dim=8, V_dim=8,
+            B=1, T=64, Hg=1, H=1, K_dim=K_dim, V_dim=V_dim,
             dtype=torch.float16, device=cpu,
         )
         cu_seqlens = torch.tensor([0, 64], dtype=torch.int32, device=cpu)
         chunk_indices = torch.tensor([[0, 0]], dtype=torch.int32, device=cpu)
         chunk_offsets = torch.tensor([0, 1], dtype=torch.int32, device=cpu)
 
-        with self.assertRaisesRegex(RuntimeError, "fp16"):
-            torch.ops.zentorch.gdn_chunk_gated_delta_rule_fwd(
-                inputs["q"], inputs["k"], inputs["v"],
-                inputs["g"], inputs["beta"], 1.0 / (8 ** 0.5),
-                None, False, 64,
-                cu_seqlens, chunk_indices, chunk_offsets,
-            )
+        o_cpp, fs_cpp = torch.ops.zentorch.gdn_chunk_gated_delta_rule_fwd(
+            inputs["q"], inputs["k"], inputs["v"],
+            inputs["g"], inputs["beta"], 1.0 / (K_dim ** 0.5),
+            inputs["initial_state"], True, 64,
+            cu_seqlens, chunk_indices, chunk_offsets,
+        )
+        o_oracle, fs_oracle = chunk_gated_delta_rule_oracle(
+            **inputs,
+            cu_seqlens=cu_seqlens,
+            output_final_state=True,
+        )
+
+        self.assertEqual(o_cpp.dtype, torch.float16)
+        self.assertEqual(fs_cpp.dtype, torch.float32)
+        atol, rtol = _compute_tolerances(torch.float16, 64)
+        self.assertEqual(o_cpp, o_oracle, atol=atol, rtol=rtol, msg="o mismatch")
+        self.assertEqual(fs_cpp, fs_oracle, atol=atol, rtol=rtol,
+                         msg="final_state mismatch")
 
     def test_cpp_returns_zero_element_final_state_when_disabled(self) -> None:
         cpu = torch.device("cpu")

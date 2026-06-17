@@ -48,8 +48,6 @@ zentorch_gdn_chunk_gated_delta_rule_fwd_h(
 
   ZENTORCH_CHECK(at::isFloatingType(k.scalar_type()),
                  "k must be floating-point; got ", k.scalar_type());
-  ZENTORCH_CHECK(k.scalar_type() != c10::ScalarType::Half,
-                 "fp16 not supported; use fp32 or bf16");
   ZENTORCH_CHECK(u.scalar_type() == k.scalar_type() &&
                      w.scalar_type() == k.scalar_type(),
                  "u/w/k must share dtype");

@@ -13,6 +13,7 @@
 #include <ATen/ops/linalg_solve_triangular.h>
 #include <ATen/record_function.h>
 #include <c10/util/BFloat16.h>
+#include <c10/util/Half.h>
 #include <c10/util/Optional.h>
 #include <torch/all.h>
 
@@ -345,8 +346,6 @@ std::tuple<at::Tensor, at::Tensor> zentorch_gdn_chunk_gated_delta_rule_fwd(
 
   ZENTORCH_CHECK(at::isFloatingType(q.scalar_type()),
                  "q must be floating-point; got ", q.scalar_type());
-  ZENTORCH_CHECK(q.scalar_type() != c10::ScalarType::Half,
-                 "fp16 not supported; use fp32 or bf16");
   ZENTORCH_CHECK(k.scalar_type() == q.scalar_type() &&
                      v.scalar_type() == q.scalar_type(),
                  "q, k, v must share dtype");
@@ -424,8 +423,10 @@ std::tuple<at::Tensor, at::Tensor> zentorch_gdn_chunk_gated_delta_rule_fwd(
     run_g_cumsum<float>(g, cu_seqlens, chunk_indices, BT, g_cum, H);
   } else if (g_dt == c10::ScalarType::BFloat16) {
     run_g_cumsum<c10::BFloat16>(g, cu_seqlens, chunk_indices, BT, g_cum, H);
+  } else if (g_dt == c10::ScalarType::Half) {
+    run_g_cumsum<c10::Half>(g, cu_seqlens, chunk_indices, BT, g_cum, H);
   } else {
-    ZENTORCH_CHECK(false, "g dtype must be fp32 or bf16; got ", g_dt);
+    ZENTORCH_CHECK(false, "g dtype must be fp32 or bf16 or fp16; got ", g_dt);
   }
 
   at::Tensor k_f = k.to(c10::kFloat);

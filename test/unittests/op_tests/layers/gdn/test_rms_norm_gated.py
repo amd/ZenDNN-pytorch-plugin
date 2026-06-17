@@ -26,7 +26,7 @@ from unittest_utils import (  # noqa: E402
 )
 
 
-DTYPES = [torch.float32, torch.bfloat16]
+DTYPES = [torch.float32, torch.bfloat16, torch.float16]
 M_VALUES = [1, 7, 64, 257]
 N_VALUES = [32, 128]
 ACTIVATIONS = ["silu", "swish", "sigmoid"]

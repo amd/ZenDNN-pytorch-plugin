@@ -27,8 +27,8 @@ from unittest_utils import (  # noqa: E402
 )
 
 
-DTYPES = [torch.float32, torch.bfloat16]
-STATE_DTYPES = [torch.float32, torch.bfloat16]
+DTYPES = [torch.float32, torch.bfloat16, torch.float16]
+STATE_DTYPES = [torch.float32, torch.bfloat16, torch.float16]
 SHAPES_BHVKV = [
     ("1x1x1x4x4", 1, 1, 1, 4, 4),
     ("2x1x2x4x8", 2, 1, 2, 4, 8),
@@ -40,10 +40,13 @@ PARAM_DTYPE_CASES = [
     (torch.float32, torch.bfloat16),
     (torch.bfloat16, torch.bfloat16),
     (torch.bfloat16, torch.float32),
+    (torch.float16, torch.float16),
+    (torch.float32, torch.float16),
 ]
 LAYOUT_CASES = [
     ("bf16_x_bf16state", torch.bfloat16, torch.bfloat16),
     ("fp32_x_fp32state", torch.float32, torch.float32),
+    ("fp16_x_fp16state", torch.float16, torch.float16),
 ]
 QWEN_BATCHES = [1, 8]
 

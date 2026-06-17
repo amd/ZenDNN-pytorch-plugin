@@ -44,8 +44,6 @@ at::Tensor zentorch_gdn_chunk_fwd_o(const at::Tensor &q, const at::Tensor &k,
 
   ZENTORCH_CHECK(at::isFloatingType(q.scalar_type()),
                  "q must be floating-point; got ", q.scalar_type());
-  ZENTORCH_CHECK(q.scalar_type() != c10::ScalarType::Half,
-                 "fp16 not supported; use fp32 or bf16");
   ZENTORCH_CHECK(k.scalar_type() == q.scalar_type() &&
                      v.scalar_type() == q.scalar_type(),
                  "q/k/v must share dtype");

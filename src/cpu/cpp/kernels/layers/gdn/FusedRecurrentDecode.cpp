@@ -39,10 +39,18 @@ inline __m512 cvt_bf16_to_fp32_512(__m256i src) {
   return _mm512_castsi512_ps(_mm512_bslli_epi128(y, 2));
 }
 
+// fp16 -> fp32: hardware convert, exact (fp16 is a strict subset of fp32).
+inline __m512 cvt_fp16_to_fp32_512(__m256i src) { return _mm512_cvtph_ps(src); }
+
 // fp32 → bf16: truncate the low 16 bits of each fp32.
 inline __m256i trunc_fp32_to_bf16_512(__m512 src) {
   __m512i y = _mm512_bsrli_epi128(_mm512_castps_si512(src), 2);
   return _mm512_cvtepi32_epi16(y);
+}
+
+// fp32 -> fp16: hardware convert with round-to-nearest-even.
+inline __m256i trunc_fp32_to_fp16_512(__m512 src) {
+  return _mm512_cvtps_ph(src, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
 }
 
 template <typename T> inline float scalar_to_fp32(T x) {
@@ -59,6 +67,9 @@ template <> inline c10::BFloat16 fp32_to_scalar<c10::BFloat16>(float x) {
   std::memcpy(&r, &out, sizeof(r));
   return r;
 }
+template <> inline c10::Half fp32_to_scalar<c10::Half>(float x) {
+  return c10::Half(x);
+}
 
 template <typename T> inline __m512 load_fp32_v16(const T *src);
 template <> inline __m512 load_fp32_v16<float>(const float *src) {
@@ -67,6 +78,10 @@ template <> inline __m512 load_fp32_v16<float>(const float *src) {
 template <>
 inline __m512 load_fp32_v16<c10::BFloat16>(const c10::BFloat16 *src) {
   return cvt_bf16_to_fp32_512(
+      _mm256_loadu_si256(reinterpret_cast<const __m256i *>(src)));
+}
+template <> inline __m512 load_fp32_v16<c10::Half>(const c10::Half *src) {
+  return cvt_fp16_to_fp32_512(
       _mm256_loadu_si256(reinterpret_cast<const __m256i *>(src)));
 }
 
@@ -78,6 +93,10 @@ template <>
 inline void store_fp32_v16<c10::BFloat16>(c10::BFloat16 *dst, __m512 v) {
   _mm256_storeu_si256(reinterpret_cast<__m256i *>(dst),
                       trunc_fp32_to_bf16_512(v));
+}
+template <> inline void store_fp32_v16<c10::Half>(c10::Half *dst, __m512 v) {
+  _mm256_storeu_si256(reinterpret_cast<__m256i *>(dst),
+                      trunc_fp32_to_fp16_512(v));
 }
 
 // y = (a - y) * scale.
@@ -333,10 +352,10 @@ void dispatch_dtypes(const at::Tensor &mixed_qkv, const at::Tensor &a,
     } else if (state_dt == c10::ScalarType::BFloat16) {                        \
       ZENTORCH_GDN_RUN(model_t, c10::BFloat16);                                \
     } else if (state_dt == c10::ScalarType::Half) {                            \
-      ZENTORCH_CHECK(false,                                                    \
-                     "fp16 (initial_state) not supported; use fp32 or bf16");  \
+      ZENTORCH_GDN_RUN(model_t, c10::Half);                                    \
     } else {                                                                   \
-      ZENTORCH_CHECK(false, "initial_state dtype must be fp32 or bf16; got ",  \
+      ZENTORCH_CHECK(false,                                                    \
+                     "initial_state dtype must be fp32 or bf16 or fp16; got ", \
                      state_dt);                                                \
     }                                                                          \
   } while (0)
@@ -346,9 +365,9 @@ void dispatch_dtypes(const at::Tensor &mixed_qkv, const at::Tensor &a,
   } else if (model_dt == c10::ScalarType::BFloat16) {
     ZENTORCH_GDN_DISPATCH_STATE(c10::BFloat16);
   } else if (model_dt == c10::ScalarType::Half) {
-    ZENTORCH_CHECK(false, "fp16 not supported; use fp32 or bf16");
+    ZENTORCH_GDN_DISPATCH_STATE(c10::Half);
   } else {
-    ZENTORCH_CHECK(false, "mixed_qkv dtype must be fp32 or bf16; got ",
+    ZENTORCH_CHECK(false, "mixed_qkv dtype must be fp32 or bf16 or fp16; got ",
                    model_dt);
   }
 

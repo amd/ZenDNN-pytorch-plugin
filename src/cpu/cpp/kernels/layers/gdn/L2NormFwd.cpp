@@ -102,9 +102,9 @@ at::Tensor zentorch_gdn_l2norm_fwd(const at::Tensor &x, double eps,
   } else if (x_dt == c10::ScalarType::BFloat16) {
     ZENTORCH_GDN_RUN(c10::BFloat16);
   } else if (x_dt == c10::ScalarType::Half) {
-    ZENTORCH_CHECK(false, "fp16 not supported; use fp32 or bf16");
+    ZENTORCH_GDN_RUN(c10::Half);
   } else {
-    ZENTORCH_CHECK(false, "x dtype must be fp32 or bf16; got ", x_dt);
+    ZENTORCH_CHECK(false, "x dtype must be fp32 or bf16 or fp16; got ", x_dt);
   }
 
 #undef ZENTORCH_GDN_RUN

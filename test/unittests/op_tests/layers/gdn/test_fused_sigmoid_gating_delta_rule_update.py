@@ -33,8 +33,8 @@ from unittest_utils import (  # noqa: E402
 )
 
 
-DTYPES = [torch.float32, torch.bfloat16]
-STATE_DTYPES = [torch.float32, torch.bfloat16]
+DTYPES = [torch.float32, torch.bfloat16, torch.float16]
+STATE_DTYPES = [torch.float32, torch.bfloat16, torch.float16]
 GQA_SHAPES = [
     ("gqa2", 2, 4, 8, 8),
     ("gqa1", 4, 4, 8, 8),

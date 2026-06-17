@@ -29,7 +29,7 @@ from unittest_utils import (  # noqa: E402
 )
 
 
-DTYPES = [torch.float32, torch.bfloat16]
+DTYPES = [torch.float32, torch.bfloat16, torch.float16]
 APPLY_L2NORM = [True, False]
 OUTPUT_G_EXP = [False, True]
 QWEN_L_VALUES = [64, 257]
