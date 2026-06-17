@@ -45,14 +45,14 @@ Table of Contents
 
 ## 1.1. Overview
 
-__The pre-release for ZenDNN Plugin for PyTorch* (zentorch) [2.12.0.2]__
+__The latest  ZenDNN Plugin for PyTorch* (zentorch) [2.12.0.2] is here__
 
 The ZenDNN plugin for PyTorch is called zentorch.
 
 zentorch 2.12.0.2 plugin is the PyTorch plugin which comes with ZenDNN 6.0.0.
 This upgrade continues the focus on optimizing inference with Recommender Systems and Large Language Models on AMD EPYC™ CPUs. It includes AMD EPYC™ enhancements for bfloat16 performance, expanded support for cutting-edge models like Llama 3.2 and 3.3, Microsoft Phi, and more as well as support for a wide-variety of quantization configurations.
 The quantization support included 4-bit weight-only quantization, along with support for INT8 dynamic activation and INT8 weight quantization, and quantized support for the DLRM-v2 model with a mix of 8-bit and 4-bit quantization.
-This also includes support for running generative models with vLLM.
+This also includes support for running generative models with vLLM. This release introduces functional support for running LLMs using float16 precision with vLLM on 6th Gen AMD EPYC™ processors.
 
 Under the hood, ZenDNN’s enhanced AMD-specific optimizations operate at every level. In addition to highly optimized operator microkernels, these include comprehensive graph optimizations including pattern identification, graph reordering, and fusions.
 They also incorporate optimized embedding bag kernels and enhanced zenMatMul matrix splitting strategies which leverage the AMD EPYC™ microarchitecture to deliver enhanced throughput and latency.
@@ -125,20 +125,46 @@ pip uninstall zentorch
 ```bash
 pip install torch==2.12.0 --index-url https://download.pytorch.org/whl/cpu
 ```
-* Install latest stable zentorch v2.12.0.0
+* Install latest stable zentorch v2.12.0.2
 ```bash
-pip install zentorch==2.12.0.0
+pip install zentorch==2.12.0.2
 ```
 >**Notes:**
 >* Dependent packages 'numpy' and 'torch' will be installed by '_zentorch_' if not already present.
 >* If you get the error: ImportError: /lib64/libstdc++.so.6: version `GLIBCXX_.a.b.cc' not found, export LD_PRELOAD as: export LD_PRELOAD=<path_to_conda>/envs/<env_name>/lib/libstdc++.so.6:$LD_PRELOAD
+
+## 2.2. From Binaries
+
+* Create conda or python environment and activate it.
+* Uninstall any existing _zentorch_ installations.
+```bash
+pip uninstall zentorch
+```
+* Install PyTorch v2.12.0 or v2.11.0
+```bash
+pip install torch==2.12.0 --index-url https://download.pytorch.org/whl/cpu
+```
+* Install zentorch using the release package.
+
+> Download the package from AMD developer portal from [here](https://www.amd.com/en/developer/zendnn.html).
+
+> Run the following commands to unzip the package and install the binary.
+
+```bash
+unzip ZENTORCH_V2.12.0.2_Python_v3.10.zip
+cd ZENTORCH_V2.12.0.2_Python_v3.10
+pip install zentorch-2.12.0.2-cp310-cp310-manylinux_2_28_x86_64.whl
+```
+>**Notes:**
+>* Dependent packages 'numpy' and 'torch' will be installed by '_zentorch_' if not already present.
+>* If you get the error: ImportError: /lib64/libstdc++.so.6: version `GLIBCXX_.a.b.cc' not found (required by <path_to_conda>/envs/<env_name>/lib/python<py_version>/site-packages/zentorch-2.12.0.2-pyx.y-linux-x86_64.egg/zentorch/_C.cpython-xy-x86_64-linux-gnu.so), export LD_PRELOAD as: export LD_PRELOAD=<path_to_conda>/envs/<env_name>/lib/libstdc++.so.6:$LD_PRELOAD
 >* After installation, run the following script for recommended environment settings:
 >```bash
 >source scripts/zentorch_env_setup.sh
 >```
 >Refer to [zentorch_env_setup.sh](scripts/zentorch_env_setup.sh) for details.
 
-## 2.2. From Source
+## 2.3. From Source
 
 Run the following commands:
 ```bash
@@ -146,7 +172,7 @@ git clone https://github.com/amd/ZenDNN-pytorch-plugin.git
 cd ZenDNN-pytorch-plugin
 ```
 >**Notes:**
->* The repository defaults to the main branch. To build the rc3 for 2.12.0.2, checkout the tag v2.12.0.2_rc3: ```git checkout v2.12.0.2_rc3```
+>* The repository defaults to the main branch. To build the v2.12.0.2 release, checkout the branch v2.12.0.2: ```git checkout v2.12.0.2```
 >* ```export ZENDNNL_MANYLINUX_BUILD=1``` is needed for build from source for RHEL/FEDORA/Almalinux/CentOS OS families
 
 ### 2.2.1. Preparing third party repositories
@@ -277,110 +303,25 @@ zentorch supports quantized inference for large language models on AMD EPYC™ C
 - **Weight Only Quantization (WOQ):** INT4 quantized weights with both symmetric and asymmetric configurations, providing significant memory savings while maintaining model accuracy.
 - **Dynamic Quantization:** INT8 weights with INT8 dynamic activations, quantizing activations dynamically at runtime for minimal accuracy loss.
 
-Models can be quantized using TorchAO and HuggingFace Transformers.
+Models can be quantized using TorchAO, HuggingFace Transformers and LLM-Compressor.
 
 ### 4.5.1 Quantizing Models
 
-The general quantization workflow is the same for all supported methods. First, create a `quantization_config` (see method-specific configs below), then load, quantize, and save the model:
+Models quantized with **TorchAO** or **LLM-Compressor** for this release are published on the [Hugging Face Hub](https://huggingface.co/amd/collections?search=zentorch) under the **amd** collections. 
+Each model ID follows a consistent pattern: base model, quantization scheme, optional symmetric or asymmetric grouping, quantizer, and tool version. For example, `w4a16-asym-torchao-v0.17.0` denotes 4-bit weight-only quantization with asymmetric per-group weights, produced with TorchAO v0.17.0. 
+The checkpoints below cover the dynamic and weight-only formats supported in [section 4.5](#45-quantized-models):
 
-```python
-import torch
-from transformers import TorchAoConfig, AutoModelForCausalLM, AutoTokenizer
+- `amd/gpt-oss-20b-BF16-da8w8-torchao-v0.17.0` — **da8w8** dynamic quantization with TorchAO v0.17.0.
+- `amd/gpt-oss-20b-BF16-w8a8-llmcompressor-v0.10.0.2` — **w8a8** dynamic quantization with LLM-Compressor v0.10.0.2.
+- `amd/Llama-3.1-8B-Instruct-w4a16-asym-torchao-v0.17.0` — asymmetric per-group **w4a16** weight configuration with TorchAO v0.17.0.
+- `amd/Qwen2.5-VL-7B-Instruct-w4a16-tao-symgroup-torchao-v0.17.0` — symmetric per-group **w4a16** configuration with TorchAO v0.17.0.
+- `amd/Llama-3.1-8B-Instruct-w4a16-llmcompressor-v0.10.0.2` — asymmetric per-group **w4a16** configuration with LLM-Compressor v0.10.0.2.
 
-model_name = "meta-llama/Llama-3.2-1B-Instruct"
-output_dir = "./quantized_model"
-
-# Modules to skip during quantization (common to all methods)
-modules_to_skip = ["lm_head"]
-if model_name == "meta-llama/Llama-3.3-70B-Instruct":
-    modules_to_skip.extend(["model.layers.0", "model.layers.1", "model.layers.3"])
-elif model_name == "Qwen/Qwen2.5-VL-7B-Instruct":
-    modules_to_skip.extend(["visual"])
-
-quantization_config = TorchAoConfig(
-    ...,  # see method-specific configs below
-    modules_to_not_convert=modules_to_skip
-)
-
-quantized_model = AutoModelForCausalLM.from_pretrained(
-    model_name,
-    torch_dtype=torch.bfloat16,
-    device_map="cpu",
-    quantization_config=quantization_config,
-    trust_remote_code=True
-)
-
-quantized_model.save_pretrained(output_dir, safe_serialization=False)
-
-tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
-tokenizer.save_pretrained(output_dir)
-```
-
->**Notes:**
->* Ensure you have the required dependencies installed: `pip install transformers torchao==0.17.0`
->* zentorch currently only supports `torchao==0.17.0` for quantization.
->* Use `safe_serialization=False` when saving for compatibility with zentorch.
->* The `modules_to_not_convert` parameter specifies modules that should be skipped during quantization. The `lm_head` module is generally avoided, as it introduces a high accuracy deficit. Some models require additional modules to be skipped as mentioned above.
-
-#### 4.5.1.1 Weight Only Quantization (WOQ)
-
-**Symmetric per-group quantization:**
-
-```python
-from torchao.quantization.quant_api import IntxWeightOnlyConfig
-from torchao.quantization.quant_primitives import MappingType
-from torchao.quantization.granularity import PerGroup, PerAxis
-
-TorchAoConfig(
-    IntxWeightOnlyConfig(
-        weight_dtype=torch.int4,
-        mapping_type=MappingType.SYMMETRIC,
-        scale_dtype=torch.bfloat16,
-        granularity=PerGroup(128)
-    ),
-    modules_to_not_convert=modules_to_skip
-)
-```
-
->**Notes:**
->* The `MappingType.SYMMETRIC` option enables symmetric quantization which is recommended for optimal performance with zentorch.
->* The `scale_dtype=torch.bfloat16` ensures compatibility with AMD EPYC™ CPU optimizations.
->* The `granularity` can be per-group using `PerGroup(group_size)` or per-channel with `PerAxis(0)`.
-
-**Asymmetric per-group quantization:**
-
-```python
-from torchao.quantization.quant_api import Int4WeightOnlyOpaqueTensorConfig
-
-TorchAoConfig(
-    Int4WeightOnlyOpaqueTensorConfig(group_size=128),
-    modules_to_not_convert=modules_to_skip
-)
-```
-
->**Note:** The `Int4WeightOnlyOpaqueTensorConfig` only supports per-group quantization with group_size options limited to 128, 64 and 32.
-
-#### 4.5.1.2 Dynamic Quantization
-
-For INT8 dynamic activation with INT8 weight quantization:
-
-```python
-from torchao.quantization.quant_api import Int8DynamicActivationInt8WeightConfig
-from torchao.quantization.quant_primitives import MappingType
-
-TorchAoConfig(
-    Int8DynamicActivationInt8WeightConfig(
-        version=2, act_mapping_type=MappingType.SYMMETRIC
-    ),
-    modules_to_not_convert=modules_to_skip
-)
-```
-
->**Note:** The `MappingType.SYMMETRIC` option enables symmetric activation mapping which is recommended for optimal performance with zentorch.
+>**Note:** The quantization recipe and evaluation details for each published checkpoint are documented on its Hugging Face model card.
 
 ### 4.5.2 Running Quantized Models
 
-Quantized models can be run using vLLM with the zentorch backend. Refer to [section 4.6 vLLM Zentorch Plugin](#46-vllm-zentorch-plugin) for detailed instructions on running models with vLLM.
+Quantized models can be run using vLLM with the zentorch backend. Refer to [Quantization examples](./examples/quantization/README.md) for detailed instructions on running models with vLLM.
 
 >**Note:** When running quantized models, use the path to your quantized model directory (e.g., `./quantized_model`) as the model path instead of the original HuggingFace model name.
 

@@ -11,12 +11,12 @@ script_name=$(basename "${BASH_SOURCE[0]}")
 # Function to display help information
 display_help(){
     echo "Usage: Activate your working conda environment other than base"
-    echo "Usage: source $script_path/$script_name --framework zentorch --model llm/recsys/cnn/nlp --threads num_threads --precision bf16/fp32/woq/bf16_amp"
+    echo "Usage: source $script_path/$script_name --framework zentorch --model llm/recsys/cnn/nlp --threads num_threads --precision bf16/fp32/woq/bf16_amp/fp16"
     echo "Options:"
     echo " --framework, -f            Specify the framework ['zentorch']"
     echo " --model, -m                Specify the model ['llm', 'recsys', 'cnn', 'nlp'] (if not specified this option, by default set to llm)"
     echo " --threads, -t              Specify the num of threads. (if not specified this option, by default set to number of CPUs available on your system.)"
-    echo " --precision, -p            Specify the precision ['bf16_amp', 'bf16','fp32','woq'] (if not specified this option, by default set to bf16)"
+    echo " --precision, -p            Specify the precision ['bf16_amp', 'bf16','fp32','woq','fp16'] (if not specified this option, by default set to bf16)"
     echo " --help, -h                 Display this help message."
     return
 }
@@ -96,7 +96,7 @@ precision=$(echo "$precision" | tr '[:upper:]' '[:lower:]')
 if ! ( ( [[ "$model" = "cnn" ]] && { [ "$precision" = "fp32" ] || [ "$precision" = "bf16_amp" ] || [ "$precision" = "bf16" ]; } ) \
        || ( [[ "$model" = "nlp" ]] && { [ "$precision" = "fp32" ] || [ "$precision" = "bf16_amp" ] || [ "$precision" = "bf16" ]; } ) \
        || ( [[ "$model" = "recsys" ]] && { [ "$precision" = "fp32" ] || [ "$precision" = "bf16" ] || [ "$precision" = "bf16_amp" ]; } ) \
-       || ( [[ "$model" = "llm" ]] && { [ "$precision" = "bf16" ] || [ "$precision" = "woq" ] || [ "$precision" = "fp32" ] || [ "$precision" = "bf16_amp" ]; } ) ); then
+       || ( [[ "$model" = "llm" ]] && { [ "$precision" = "bf16" ] || [ "$precision" = "woq" ] || [ "$precision" = "fp32" ] || [ "$precision" = "bf16_amp" ] || [ "$precision" = "fp16" ]; } ) ); then
     echo "Invalid combination of model = $model and precision = $precision. Please choose a valid combination."
     display_help
     return
@@ -224,6 +224,8 @@ if [ "$framework" = "zentorch" ]; then
         elif [ "$precision" = "fp32" ]; then
             export ZENDNNL_MATMUL_ALGO=1
         elif [ "$precision" = "bf16_amp" ]; then
+            export ZENDNNL_MATMUL_ALGO=1
+        elif [ "$precision" = "fp16" ]; then
             export ZENDNNL_MATMUL_ALGO=1
         fi
     fi

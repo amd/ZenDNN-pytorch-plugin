@@ -11,10 +11,10 @@ script_name=$(basename "${BASH_SOURCE[0]}")
 # Function to display help information
 display_help(){
     echo "Usage: Activate your working conda environment other than base"
-    echo "Usage: source $script_path/$script_name --threads num_threads --precision bf16/fp32/int8"
+    echo "Usage: source $script_path/$script_name --threads num_threads --precision bf16/fp32/int8/fp16"
     echo "Options:"
     echo " --threads, -t              Specify the num of threads. (if not specified this option, by default set to number of CPUs available on your system.)"
-    echo " --precision, -p            Specify the precision ['bf16','fp32','int8'] (if not specified this option, by default set to combination of fp32, bf16, and int8)"
+    echo " --precision, -p            Specify the precision ['bf16','fp32','int8','fp16'] (if not specified this option, by default set to combination of fp32, bf16, and int8)"
     echo " --help, -h                 Display this help message."
     return
 }
@@ -125,6 +125,8 @@ if [ "$precision" = "fp32" ]; then
 elif [ "$precision" = "bf16" ]; then
    export ZENDNNL_MATMUL_ALGO=1
 elif [ "$precision" = "int8" ]; then
+   export ZENDNNL_MATMUL_ALGO=1
+elif [ "$precision" = "fp16" ]; then
    export ZENDNNL_MATMUL_ALGO=1
 elif [ "$precision" = "default" ]; then
    export ZENDNNL_MATMUL_ALGO=1
