@@ -32,10 +32,14 @@ The plugin uses vLLM's platform and general plugin entry points to:
 
 | Component | Version | Notes |
 |-----------|---------|-------|
-| vLLM | 0.18.0 - 0.22.1 | In-tree `ZenCpuPlatform` is available from 0.18.0 on supported AMD AVX512 systems; out-of-tree plugin runtime support starts at 0.20.0 |
-| Python | 3.10+ | |
-| PyTorch | 2.10.0 (vLLM 0.18.0-0.19.x) / 2.11.0 (vLLM 0.20.0-0.22.1) | Auto-installed by vLLM |
-| TorchAO | 0.16.0 (vLLM 0.18.0-0.19.x) / 0.17.0 (vLLM 0.20.0-0.22.1) | |
+| vLLM | 0.20.0 - 0.23.0 | In-tree `ZenCpuPlatform` is available from 0.18.0 on supported AMD AVX512 systems; out-of-tree plugin runtime support starts at 0.20.0 |
+| Python | 3.12 | |
+| PyTorch | 2.11.0 | Auto-installed by the supported vLLM CPU releases |
+| TorchAO | 0.17.0 (vLLM 0.20.0-0.23.0) | Required for TorchAO quantized model paths; the plugin skips TorchAO patches when the package is absent |
+
+> **Note:** vLLM version ranges in this README are shorthand for the supported
+> releases captured by the plugin's version map; unsupported patch releases are
+> still rejected by the runtime version check.
 
 ---
 
@@ -92,7 +96,7 @@ The plugin leverages AMD EPYC specific intrinsics and optimizations to accelerat
 
    **Using conda:**
    ```bash
-   conda create -n vllm-env python=3.10
+   conda create -n vllm-env python=3.12
    conda activate vllm-env
    ```
 
@@ -101,18 +105,17 @@ The plugin leverages AMD EPYC specific intrinsics and optimizations to accelerat
 
      > **Important:** Pre-built vLLM CPU binaries are available from [0.13.0](https://docs.vllm.ai/en/stable/getting_started/installation/cpu/#pre-built-wheels), so all currently supported versions can use the published CPU wheels.
 
-   - Supported versions: 0.18.0, 0.18.1, 0.19.0, 0.19.1, 0.20.0, 0.20.1, 0.20.2, 0.21.0, 0.22.0, 0.22.1. Check out the appropriate release tag before building.
+   - Supported versions: 0.20.0 - 0.23.0. Check out the appropriate release tag before building.
 
 3. **Install zentorch:**
 
    | vLLM version | PyTorch version (auto-installed by vLLM) | zentorch install method |
    |--------------|-----------------|------------------------|
-   | 0.18.0 - 0.19.1 | 2.10.0 | Install zentorch to enable the in-tree `ZenCpuPlatform` |
-   | 0.20.0 - 0.22.1 | 2.11.0 | PyPI or source |
+   | 0.20.0 - 0.23.0 | 2.11.0 | PyPI or source |
 
    > **Note:** The out-of-tree plugin is supported only with vLLM `0.20.0+` and, when present, takes precedence over the in-tree `ZenCpuPlatform` on supported AMD AVX512 systems. To use the in-tree platform instead, build and install zentorch with `ZENTORCH_VLLM_PLUGIN_BUILD=0`, which omits the out-of-tree vLLM plugin from the wheel.
 
-   - **From PyPI** (vLLM 0.18.0+):
+   - **From PyPI** (vLLM 0.20.0+):
      ```bash
      pip install zentorch
      ```
@@ -141,8 +144,6 @@ No code changes are required. Once installed, simply run your vLLM inference wor
 
 ```bash
 export TORCHINDUCTOR_FREEZING=1          # Only supported from vLLM version 0.12.0 onwards
-export VLLM_CPU_KVCACHE_SPACE=120         # GB for KV cache
-export VLLM_CPU_OMP_THREADS_BIND=0-127    # CPU cores to use
 export VLLM_USE_AOT_COMPILE=0            # Disable AOT compile - interferes with freezing
 export TORCHINDUCTOR_AUTOGRAD_CACHE=0    # Disable AOT compile - interferes with freezing
 ```
@@ -213,13 +214,13 @@ Replace `<VLLM_VER>`, `<ZT_VER>`, `<OS_TAG>`, and `<REL_TAG>` with the desired v
 **Ubuntu Example:**
 
 ```bash
-docker pull amdih/zendnn_zentorch:vllm_v0.17.0_zentorch_v5.2.0_ubuntu22.04_2026_ww11
+docker pull amdih/zendnn_zentorch:vllm_v0.23.0_zentorch_v2.11.0.2_ubuntu22.04_v2.11.0.2
 ```
 
 **RHEL Example:**
 
 ```bash
-docker pull amdih/zendnn_zentorch:vllm_v0.17.0_zentorch_v5.2.0_rhel9.5_2026_ww11
+docker pull amdih/zendnn_zentorch:vllm_v0.23.0_zentorch_v2.11.0.2_rhel9.5_v2.11.0.2
 ```
 
 ### Running the Container
@@ -227,7 +228,7 @@ docker pull amdih/zendnn_zentorch:vllm_v0.17.0_zentorch_v5.2.0_rhel9.5_2026_ww11
 ```bash
 docker run -d --name vllm_zentorch \
     -v /path/to/models:/models \
-    amdih/zendnn_zentorch:vllm_v0.17.0_zentorch_v5.2.0_ubuntu22.04_2026_ww11 \
+    amdih/zendnn_zentorch:vllm_v0.23.0_zentorch_v2.11.0.2_ubuntu22.04_v2.11.0.2 \
     tail -f /dev/null
 
 docker exec -it vllm_zentorch bash
@@ -244,7 +245,7 @@ Mount volumes (`-v`) for model files and any datasets you need inside the contai
 
 If you don't see "Platform plugin zentorch is activated":
 1. Verify zentorch is installed: `python -c "import zentorch"`
-2. Check vLLM version: `python -c "import vllm; print(vllm.__version__)"` (must be 0.18.0 - 0.22.1)
+2. Check vLLM version: `python -c "import vllm; print(vllm.__version__)"` (must be one of the supported versions listed above)
 3. On supported AMD AVX512 hardware, vLLM `0.18.0+` may activate the in-tree `ZenCpuPlatform` instead of logging "Platform plugin zentorch is activated".
 
 ### Stale Compilation Cache

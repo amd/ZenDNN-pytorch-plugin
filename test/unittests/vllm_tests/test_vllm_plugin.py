@@ -7,13 +7,13 @@
 Unit tests for zentorch.vllm plugin.
 
 Tests verify:
-- Runtime compatibility checks for supported versions (0.20.0 - 0.22.1)
+- Runtime compatibility checks for supported versions (0.20.0 - 0.23.0)
 - Version parsing logic
 - Patch registration and application
 - Individual patch functionality (oneDNN disable, CompilationConfig repr, etc.)
 - Platform configuration
 
-Runtime-supported vLLM versions: 0.20.0, 0.20.1, 0.20.2, 0.21.0, 0.22.0, 0.22.1
+Runtime-supported vLLM versions: 0.20.0, 0.20.1, 0.20.2, 0.21.0, 0.22.0, 0.22.1, 0.23.0
 Retained legacy version map: 0.15.0, 0.15.1, 0.16.0, 0.17.0, 0.17.1, 0.18.0,
 0.18.1, 0.19.0, 0.19.1
 """
@@ -95,6 +95,7 @@ class TestVersionParsing(unittest.TestCase):
             "0.21.0",
             "0.22.0",
             "0.22.1",
+            "0.23.0",
         ]
         for ver in expected_versions:
             self.assertIn(ver, _VERSION_MAP, f"{ver} should be in VERSION_MAP")
@@ -157,6 +158,11 @@ class TestVersionParsing(unittest.TestCase):
         self.assertEqual(_VERSION_MAP.get(_base_version("0.22.1+cpu")), "v22")
         self.assertEqual(_VERSION_MAP.get(_base_version("0.22.1rc1+cpu")), "v22")
 
+        # v23 family
+        self.assertEqual(_VERSION_MAP.get(_base_version("0.23.0")), "v23")
+        self.assertEqual(_VERSION_MAP.get(_base_version("0.23.0+cpu")), "v23")
+        self.assertEqual(_VERSION_MAP.get(_base_version("0.23.0rc2+cpu")), "v23")
+
     def test_version_family_detection_unsupported(self):
         """VERSION_MAP should return None for unsupported versions."""
         from zentorch.vllm._core import _base_version, _VERSION_MAP
@@ -176,6 +182,7 @@ class TestVersionParsing(unittest.TestCase):
             "0.20.3",
             "0.21.1",
             "0.22.2",
+            "0.23.1",
             "1.0.0",
         ]
         for ver in unsupported:
@@ -204,7 +211,8 @@ class TestVllmPluginVersionCheck(unittest.TestCase):
         if family is None:
             self.skipTest(f"Installed vLLM {vllm.__version__} is not supported")
 
-        result = register()
+        with mock.patch("zentorch._C.is_avx512_supported", return_value=True):
+            result = register()
         self.assertEqual(result, "zentorch.vllm._platform.ZenCPUPlatform")
 
     @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
@@ -241,6 +249,7 @@ class TestVllmPluginVersionCheck(unittest.TestCase):
                 mock.patch.object(
                     zv, "_install_pre_v18_dispatch_hooks"
                 ) as install_hooks,
+                mock.patch("zentorch._C.is_avx512_supported", return_value=True),
             ):
                 result = zv.register()
 
@@ -267,6 +276,7 @@ class TestVllmPluginVersionCheck(unittest.TestCase):
                 mock.patch.object(zv, "_register_patches") as register_patches,
                 mock.patch.object(zv.manager, "apply_all") as apply_all,
                 mock.patch.object(zv, "_install_pre_v18_dispatch_hooks") as install_hooks,
+                mock.patch("zentorch._C.is_avx512_supported", return_value=True),
             ):
                 result = zv.register()
 
@@ -293,6 +303,34 @@ class TestVllmPluginVersionCheck(unittest.TestCase):
                 mock.patch.object(zv, "_register_patches") as register_patches,
                 mock.patch.object(zv.manager, "apply_all") as apply_all,
                 mock.patch.object(zv, "_install_pre_v18_dispatch_hooks") as install_hooks,
+                mock.patch("zentorch._C.is_avx512_supported", return_value=True),
+            ):
+                result = zv.register()
+
+            self.assertEqual(result, "zentorch.vllm._platform.ZenCPUPlatform")
+            register_patches.assert_called_once_with()
+            apply_all.assert_called_once_with()
+            install_hooks.assert_not_called()
+
+    def test_register_accepts_v23_runtime(self):
+        """register() should accept vLLM 0.23.0 as a supported runtime version."""
+        spec, zv = _load_source_vllm_module()
+        fake_vllm = types.ModuleType("vllm")
+        fake_vllm.__version__ = "0.23.0"
+
+        with mock.patch.dict(sys.modules, {"zentorch.vllm": zv, "vllm": fake_vllm}):
+            spec.loader.exec_module(zv)
+            zv._INITIALIZED = False
+
+            with (
+                mock.patch.object(zv, "get_version_family", return_value="v23"),
+                mock.patch.object(zv, "_apply_faketensor_subclass_patch"),
+                mock.patch.object(zv, "_apply_fxgraphcache_pickle_patch"),
+                mock.patch.object(zv, "_apply_torchao_int8_tensor_patch_impl"),
+                mock.patch.object(zv, "_register_patches") as register_patches,
+                mock.patch.object(zv.manager, "apply_all") as apply_all,
+                mock.patch.object(zv, "_install_pre_v18_dispatch_hooks") as install_hooks,
+                mock.patch("zentorch._C.is_avx512_supported", return_value=True),
             ):
                 result = zv.register()
 
@@ -535,6 +573,10 @@ class TestPlatformProfilerPatchVersionRange(unittest.TestCase):
             ("0.22.1+cpu", True),
             ("0.22.1rc1+cpu", True),
             ("0.22.2", False),
+            ("0.23.0", True),
+            ("0.23.0+cpu", True),
+            ("0.23.0rc2+cpu", True),
+            ("0.23.1", False),
         ]
 
         for version_str, expected in cases:
@@ -826,7 +868,8 @@ class TestCPURunnerShutdownPatch(unittest.TestCase):
 
 
 class TestGatedDeltaNetPatch(unittest.TestCase):
-    """GatedDeltaNetPatch must be registered and gated to v0.21.0 + v0.22.0 + v0.22.1."""
+    """GatedDeltaNetPatch must be registered and gated to v0.21.0 + v0.22.0 + v0.22.1
+    + v0.23.0."""
 
     @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
     @unittest.skipUnless(IS_PYTHON_3_10_OR_ABOVE, "vLLM 0.11+ requires Python 3.10+")
@@ -839,12 +882,12 @@ class TestGatedDeltaNetPatch(unittest.TestCase):
 
     def test_patch_targets_v21_and_v22(self):
         from zentorch.vllm import GatedDeltaNetPatch
-        from zentorch.vllm._core import VLLM_V21, VLLM_V22, VLLM_V22_1
+        from zentorch.vllm._core import VLLM_V21, VLLM_V22, VLLM_V22_1, VLLM_V23
 
         self.assertTrue(hasattr(GatedDeltaNetPatch, "_target_versions"))
         self.assertEqual(
             GatedDeltaNetPatch._target_versions,
-            {VLLM_V21, VLLM_V22, VLLM_V22_1},
+            {VLLM_V21, VLLM_V22, VLLM_V22_1, VLLM_V23},
         )
 
 
