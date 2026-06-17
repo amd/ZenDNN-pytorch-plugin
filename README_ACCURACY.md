@@ -2,14 +2,14 @@
 
 ## Overview
 
-We have migrated from the custom LM Eval implementation (`ZenDNN_tools/LM_Evaluation`) to the open-source [EleutherAI LM Evaluation Harness](https://github.com/EleutherAI/lm-evaluation-harness/tree/v0.4.11).
+We have migrated from the custom LM Eval implementation (`ZenDNN_tools/LM_Evaluation`) to the open-source [EleutherAI LM Evaluation Harness](https://github.com/EleutherAI/lm-evaluation-harness/tree/v0.4.12).
 
-**Version:** [v0.4.11](https://github.com/EleutherAI/lm-evaluation-harness/releases/tag/v0.4.11) ([PyPI](https://pypi.org/project/lm-eval/0.4.11/))
+**Version:** [v0.4.12](https://github.com/EleutherAI/lm-evaluation-harness/releases/tag/v0.4.12) ([PyPI](https://pypi.org/project/lm-eval/0.4.12/))
 
 ## Installation
 
 ```bash
-pip install "lm-eval[vllm]==0.4.11" ray
+pip install "lm-eval[vllm]==0.4.12" ray
 ```
 
 ## Tasks
@@ -18,7 +18,7 @@ pip install "lm-eval[vllm]==0.4.11" ray
 
 ### 1. BBH CoT Few-Shot (Full)
 
-The full [BIG-Bench Hard (BBH)](https://github.com/EleutherAI/lm-evaluation-harness/tree/v0.4.11/lm_eval/tasks/bbh) Chain-of-Thought few-shot benchmark, consisting of 27 subtasks.
+The full [BIG-Bench Hard (BBH)](https://github.com/EleutherAI/lm-evaluation-harness/tree/v0.4.12/lm_eval/tasks/bbh) Chain-of-Thought few-shot benchmark, consisting of 27 subtasks.
 
 - **Few-shot:** 3
 - **Metric:** `exact_match` (mean, weighted by size)
@@ -52,7 +52,7 @@ lm_eval --model vllm \
 
 ### 2. GSM8K
 
-[Grade School Math 8K](https://github.com/EleutherAI/lm-evaluation-harness/tree/v0.4.11/lm_eval/tasks/gsm8k) — a dataset of 8.5K grade school math word problems for evaluating multi-step mathematical reasoning.
+[Grade School Math 8K](https://github.com/EleutherAI/lm-evaluation-harness/tree/v0.4.12/lm_eval/tasks/gsm8k) — a dataset of 8.5K grade school math word problems for evaluating multi-step mathematical reasoning.
 
 - **Few-shot:** 5
 - **Metric:** `exact_match` (flexible extract)
@@ -86,7 +86,7 @@ lm_eval --model vllm \
 
 ### 3. MMMU (Vision-Language)
 
-[MMMU](https://github.com/EleutherAI/lm-evaluation-harness/tree/v0.4.11/lm_eval/tasks/mmmu) — Massive Multi-discipline Multimodal Understanding benchmark. Uses the `vllm-vlm` model type for multimodal (text+image) tasks.
+[MMMU](https://github.com/EleutherAI/lm-evaluation-harness/tree/v0.4.12/lm_eval/tasks/mmmu) — Massive Multi-discipline Multimodal Understanding benchmark. Uses the `vllm-vlm` model type for multimodal (text+image) tasks.
 
 - **Task:** `mmmu_val_tech_and_engineering`
 - **Metric:** `exact_match`
@@ -116,7 +116,7 @@ lm_eval --model vllm-vlm \
 
 ### 4. ChartQA (Vision-Language)
 
-[ChartQA](https://github.com/EleutherAI/lm-evaluation-harness/tree/v0.4.11/lm_eval/tasks/chartqa) — Chart Question Answering benchmark for evaluating multimodal models on chart understanding. Uses the `vllm-vlm` model type.
+[ChartQA](https://github.com/EleutherAI/lm-evaluation-harness/tree/v0.4.12/lm_eval/tasks/chartqa) — Chart Question Answering benchmark for evaluating multimodal models on chart understanding. Uses the `vllm-vlm` model type.
 
 - **Metric:** `relaxed_overall`
 
@@ -151,8 +151,15 @@ Some models require patched `lm_eval` forks or additional sampling parameters. T
 |---|---|---|
 | `zai-org/chatglm3-6b` | Patched `lm_eval` | `pip install "lm-eval[vllm] @ git+https://github.com/ganeshr10/lm-evaluation-harness.git@fix-eos-token-decode-fallback" ray` — see [PR #3657](https://github.com/EleutherAI/lm-evaluation-harness/pull/3657) |
 | `microsoft/Phi-3.5-vision-instruct` | Patched `lm_eval` | `pip install "lm-eval[vllm] @ git+https://github.com/ganeshr10/lm-evaluation-harness.git@fix-phi3v-support" ray` — see [PR #3651](https://github.com/EleutherAI/lm-evaluation-harness/pull/3651) |
+| `RedHatAI/Phi-4-reasoning-vision-15B` | Patched `lm_eval` | `pip install "lm-eval[vllm] @ git+https://github.com/Dheepak214/lm-evaluation-harness.git@fix/vllm-vlm-phi4-mmmu" ray`<br><br>Additional argument: `convert_img_format=True` in `--model_args`; see [PR #3851](https://github.com/EleutherAI/lm-evaluation-harness/pull/3851) |
 | `OpenPipe/Qwen3-14B-Instruct` | `--gen_kwargs` | `temperature=0.6,top_p=0.95,top_k=20` |
 | `Qwen/Qwen3-30B-A3B` | `--gen_kwargs` | `temperature=0.6,top_p=0.95,top_k=20` |
+| `Qwen/Qwen3.5-4B` | `--model_args` + `--apply_chat_template` | `pretrained=Qwen/Qwen3.5-4B,dtype=bfloat16,max_model_len=4096,language_model_only=True,enable_thinking=False` |
+| `Qwen/Qwen3.5-9B` | `--model_args` + `--apply_chat_template` | `pretrained=Qwen/Qwen3.5-9B,dtype=bfloat16,max_model_len=4096,language_model_only=True,enable_thinking=False` |
+| `Qwen/Qwen3.6-35B-A3B` | `--model_args` + `--apply_chat_template` + `--gen_kwargs` | `pretrained=Qwen/Qwen3.6-35B-A3B,dtype=bfloat16,max_model_len=4096,language_model_only=True,enable_thinking=False` ; `max_gen_toks=2048,temperature=0.6,top_p=0.95,top_k=20` |
+| `RedHatAI/Qwen3.5-4B-quantized.w8a8` | `--model_args` + `--apply_chat_template` | `pretrained=RedHatAI/Qwen3.5-4B-quantized.w8a8,dtype=bfloat16,max_model_len=4096,language_model_only=True,enable_thinking=False` |
+| `RedHatAI/Qwen3.5-9B-quantized.w8a8` | `--model_args` + `--apply_chat_template` | `pretrained=RedHatAI/Qwen3.5-9B-quantized.w8a8,dtype=bfloat16,max_model_len=4096,language_model_only=True,enable_thinking=False` |
+
 
 Example (GSM8K with Qwen3-14B-Instruct):
 ```bash
@@ -178,12 +185,12 @@ The GSM8K and ChartQA tasks are inline with the accuracy benchmarks that vLLM us
 
 ## References
 
-- [LM Evaluation Harness (GitHub)](https://github.com/EleutherAI/lm-evaluation-harness/tree/v0.4.11)
-- [v0.4.11 Release](https://github.com/EleutherAI/lm-evaluation-harness/tree/v0.4.11)
-- [BBH CoT Few-Shot Task Config](https://github.com/EleutherAI/lm-evaluation-harness/blob/v0.4.11/lm_eval/tasks/bbh/cot_fewshot/_bbh_cot_fewshot.yaml)
-- [GSM8K Task Config](https://github.com/EleutherAI/lm-evaluation-harness/tree/v0.4.11/lm_eval/tasks/gsm8k)
-- [MMMU Task Config](https://github.com/EleutherAI/lm-evaluation-harness/tree/v0.4.11/lm_eval/tasks/mmmu)
-- [ChartQA Task Config](https://github.com/EleutherAI/lm-evaluation-harness/tree/v0.4.11/lm_eval/tasks/chartqa)
+- [LM Evaluation Harness (GitHub)](https://github.com/EleutherAI/lm-evaluation-harness/tree/v0.4.12)
+- [v0.4.12 Release](https://github.com/EleutherAI/lm-evaluation-harness/tree/v0.4.12)
+- [BBH CoT Few-Shot Task Config](https://github.com/EleutherAI/lm-evaluation-harness/blob/v0.4.12/lm_eval/tasks/bbh/cot_fewshot/_bbh_cot_fewshot.yaml)
+- [GSM8K Task Config](https://github.com/EleutherAI/lm-evaluation-harness/tree/v0.4.12/lm_eval/tasks/gsm8k)
+- [MMMU Task Config](https://github.com/EleutherAI/lm-evaluation-harness/tree/v0.4.12/lm_eval/tasks/mmmu)
+- [ChartQA Task Config](https://github.com/EleutherAI/lm-evaluation-harness/tree/v0.4.12/lm_eval/tasks/chartqa)
 - [vLLM GSM8K CI Script](https://github.com/vllm-project/vllm/blob/main/.buildkite/lm-eval-harness/run-lm-eval-gsm-vllm-baseline.sh)
 - [vLLM ChartQA CI Script](https://github.com/vllm-project/vllm/blob/main/.buildkite/lm-eval-harness/run-lm-eval-chartqa-vllm-vlm-baseline.sh)
 - [BBH Paper: Challenging BIG-Bench Tasks (arXiv:2210.09261)](https://arxiv.org/abs/2210.09261)
