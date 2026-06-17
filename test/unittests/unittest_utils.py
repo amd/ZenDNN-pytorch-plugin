@@ -98,6 +98,7 @@ from zentorch_test_utils import (  # noqa: 402 # noqa: F401
     M_RANGE,
     K_RANGE,
     N_RANGE,
+    DYNAMIC_QLINEAR_K_OPT,
     P_RANGE,
     Q_RANGE,
     MATRIX_DIM_1_RANGE,

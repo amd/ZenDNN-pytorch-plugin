@@ -10,15 +10,23 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
 from unittest_utils import (  # noqa: E402
-    Zentorch_TestCase,
+    QLinearTestCase,
+    Range,
     has_zentorch,
     zentorch,
     run_tests,
+    qlinear_dtypes,
+    input_dim_opt,
+    q_weight_list_opt,
+    bias_opt,
+    q_zero_points_dtype_opt,
+    q_linear_dtype_opt,
+    DYNAMIC_QLINEAR_K_OPT,
 )
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
-class Test_DynamicQLinear(Zentorch_TestCase):
+class Test_DynamicQLinear(QLinearTestCase):
     """Test zentorch_dynamic_qlinear with per-token source, per-channel weight scales."""
 
     def _qdq_src(self, src, dim=None):
@@ -27,37 +35,68 @@ class Test_DynamicQLinear(Zentorch_TestCase):
         scale = abs_max / 127.0
         return torch.clamp(torch.round(src / scale), -128, 127) * scale
 
-    def _quantize_weight_per_channel(self, weight_float):
-        """Quantize float weight [N, K] to per-channel symmetric qint8 via PyTorch."""
-        scales = weight_float.abs().amax(dim=1).clamp(min=1e-12) / 127.0
-        zero_points = torch.zeros(weight_float.size(0), dtype=torch.long)
-        return torch.quantize_per_channel(
-            weight_float, scales, zero_points, axis=0, dtype=torch.qint8
-        )
-
-    def _per_token_reference(self, input_2d, weight_q):
-        """Per-token: one scale per row of source. weight_q is a per-channel quantized [N, K]."""
-        dq_weight = weight_q.dequantize().t()
-        return torch.matmul(self._qdq_src(input_2d, dim=1), dq_weight)
-
+    @QLinearTestCase.hypothesis_params_qlinear_itr(
+        input_dim_opt_list=input_dim_opt,
+        q_weight_list_opt_list=q_weight_list_opt,
+        bias_opt_list=bias_opt,
+        # This test always uses y_scales["per_channel"], so constrain the drawn
+        # granularity to per_channel to match the operator contract being validated.
+        q_granularity_opt_list=["per_channel"],
+        q_zero_points_dtype_opt_list=q_zero_points_dtype_opt,
+        q_linear_dtype_opt_list=q_linear_dtype_opt,
+        dtype_list=qlinear_dtypes,
+        # Constrain K to [DYNAMIC_QLINEAR_K_OPT[0], DYNAMIC_QLINEAR_K_OPT[-1]] so
+        # that the drawn K is always truncatable to a valid multiple of 4.
+        kRange=Range(DYNAMIC_QLINEAR_K_OPT[0], DYNAMIC_QLINEAR_K_OPT[-1]),
+    )
     @torch.inference_mode()
-    def test_per_token_fp32(self):
-        """Per-token dynamic quantization, fp32 input."""
+    def test_per_token_fp32(self, input_dim, q_weight_idx, bias_opt_idx, **kwargs):
+        """Per-token dynamic quantization, fp32 input, using hypothesis-generated data.
+
+        K is truncated to the nearest lower multiple of 4 because the underlying
+        AOCL s8s8s32os32 kernel requires K % 4 == 0.
+        """
         if not zentorch._C.is_avx512_supported():
             self.skipTest("AVX512 not supported")
 
-        M, K, N = 16, 128, 64
-        input = torch.randn(M, K, dtype=torch.float32)
-        weight_float = torch.randn(N, K, dtype=torch.float32)
-        weight_q = self._quantize_weight_per_channel(weight_float)
-        weight_int8 = weight_q.int_repr()
-        weight_scales = weight_q.q_per_channel_scales().to(torch.float32).unsqueeze(0)
+        input_2d = self.data.x_for_qlinear["float32"][input_dim]
+        # y_int8[0]: shape [N, K], non-contiguous (created as [K, N] then .t())
+        # y_int8[1]: shape [N, K], contiguous
+        # Both variants are normalized by .contiguous() below, so either is safe.
+        weight_int8 = self.data.y_int8[q_weight_idx]  # [N, K]
 
-        ref = self._per_token_reference(
-            input.reshape(M, K).float(), weight_q
-        ).to(input.dtype)
+        # Align K to the nearest lower multiple of 4 (kernel requirement)
+        k_orig = input_2d.shape[-1]
+        k4 = (k_orig // 4) * 4
+        if k4 < 4:
+            self.skipTest(
+                f"K={k_orig} rounds down to {k4}, which is too small; skipping"
+            )
+        # Trim input and weight to k4; .contiguous() ensures correct memory layout.
+        input_2d = input_2d[..., :k4].contiguous()
+        weight_int8 = weight_int8[:, :k4].contiguous()
+
+        # per-channel scales shape [N]; dynamic_qlinear expects [1, N]
+        weight_scales = self.data.y_scales["per_channel"].unsqueeze(0)  # [1, N]
+        bias = self.data.bias_for_qlinear[bias_opt_idx]
+
+        # Reference: dequantize weight, apply per-token qdq to input, then add bias.
+        dq_weight = weight_int8.float() * self.data.y_scales["per_channel"].unsqueeze(1)
+        input_flat = input_2d.float().reshape(-1, k4)
+        ref = torch.matmul(self._qdq_src(input_flat, dim=1), dq_weight.t())
+        if bias is not None:
+            ref = ref + bias
+        # Reshape reference from [B*M, N] back to the expected output shape
+        # (..., N), preserving the input's batch/sequence dimensions.
+        out_shape = input_2d.shape[:-1] + (weight_int8.shape[0],)
+        ref = ref.reshape(out_shape)
+
+        # Warm-up: first call primes weight packing; only the second call's output is verified.
+        torch.ops.zentorch.zentorch_dynamic_qlinear(
+            input_2d, weight_int8, weight_scales, bias,
+        )
         out = torch.ops.zentorch.zentorch_dynamic_qlinear(
-            input, weight_int8, weight_scales, None,
+            input_2d, weight_int8, weight_scales, bias,
         )
 
         self.assertEqual(out.dtype, torch.float32)

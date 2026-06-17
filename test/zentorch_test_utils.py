@@ -97,6 +97,9 @@ M_RANGE = Range(2, 10)
 K_RANGE = Range(2, 10)
 N_RANGE = Range(2, 10)
 
+# K values for zentorch_dynamic_qlinear: must be multiples of 4 (kernel constraint).
+DYNAMIC_QLINEAR_K_OPT = [4, 8, 12, 16]
+
 P_RANGE = Range(1, 11)
 Q_RANGE = Range(1, 11)
 MATRIX_DIM_1_RANGE = Range(60, 60)
