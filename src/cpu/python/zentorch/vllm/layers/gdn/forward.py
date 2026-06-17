@@ -188,19 +188,22 @@ def _gdn_attention_core_cpu(
         g = g.unsqueeze(0)
         beta = beta.unsqueeze(0)
 
-        # Rebase chunk_indices / chunk_offsets onto the prefill-only slice;
-        # vLLM computes them against the full non-spec batch.
-        if num_decodes > 0:
-            prefill_chunk_offsets = (
-                attn_metadata.chunk_offsets[num_decodes:] - num_decodes
-            )
-            prefill_chunk_indices = (
-                attn_metadata.chunk_indices[num_decodes:].clone()
-            )
-            prefill_chunk_indices[:, 0] -= num_decodes
-        else:
-            prefill_chunk_indices = attn_metadata.chunk_indices
-            prefill_chunk_offsets = attn_metadata.chunk_offsets
+        # Recompute the FLA chunk metadata locally from the prefill-only
+        # cu_seqlens we derived above (prefill_query_start_loc), using the same
+        # FLA helpers vLLM uses. This makes the GDN path independent of how /
+        # whether vLLM rebases attn_metadata.chunk_indices/chunk_offsets across
+        # versions.
+        from vllm.model_executor.layers.fla.ops.index import (
+            prepare_chunk_indices,
+            prepare_chunk_offsets,
+        )
+
+        prefill_chunk_indices = prepare_chunk_indices(
+            prefill_query_start_loc, FLA_CHUNK_SIZE
+        )
+        prefill_chunk_offsets = prepare_chunk_offsets(
+            prefill_query_start_loc, FLA_CHUNK_SIZE
+        )
 
         initial_state = ssm_state[prefill_state_indices].contiguous()
         initial_state[~prefill_has_initial_state, ...] = 0
