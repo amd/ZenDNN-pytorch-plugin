@@ -541,83 +541,6 @@ zentorch_mm_mappings = {
 }
 
 
-# meta registration for RoPE
-@register_meta("zentorch_rope")
-def meta_zentorch_rope(
-    t_in,
-    t_emb_pos,
-    t_pos,
-    N,
-    H,
-    offset,
-    rotary_ndims,
-):
-    ndims = t_in.dim()
-    stride_s = t_in.stride(1)
-    batch = t_in.shape[0]
-    seq_len = t_in.shape[1]
-    concat_qkv = False
-    if ndims == 3 and stride_s > N * H:
-        concat_qkv = True
-        kv_head = (t_in.shape[2] - N * H) // (2 * H)
-    if not concat_qkv:
-        return (
-            t_in.new_empty(t_in.shape).contiguous(),
-            None,
-            None,
-        )
-    else:
-        return (
-            t_in.new_empty(batch, seq_len, N, H),
-            t_in.new_empty(batch, seq_len, kv_head, H),
-            t_in.new_empty(batch, seq_len, kv_head, H),
-        )
-
-
-@torch.library.register_fake("zentorch::zentorch_masked_multihead_self_attention")
-def meta_masked_multihead_self_attention(
-    query,
-    key,
-    value,
-    key_cache,
-    value_cache,
-    beam_idx,
-    seq_info,
-    scale_attn,
-    max_positions,
-    head_mask,
-    attention_mask,
-    add_causal_mask=None,
-):
-    attn_output = query.new_empty(
-        (query.shape[0], query.shape[2], query.shape[1], query.shape[3])
-    )
-
-    attn_output.as_strided_(
-        attn_output.shape,
-        (
-            query.shape[1] * query.shape[2] * query.shape[3],
-            query.shape[3],
-            query.shape[2] * query.shape[3],
-            1,
-        ),
-    )
-    attn_weights = None
-    ctx = torch._custom_ops.get_ctx()
-    # Key_cache_out shape is dependent on input data
-    # Hence needs to be dynamic
-    max_positions = ctx.new_dynamic_size()
-    key_cache_out = query.new_empty(
-        (max_positions, beam_idx.shape[1], key.shape[2], key.shape[3])
-    )
-    value_cache_out = query.new_empty(
-        (max_positions, beam_idx.shape[1], value.shape[2], value.shape[3])
-    )
-    num_to_keep = ctx.new_dynamic_size()
-    beam_idx_out = query.new_empty((num_to_keep, beam_idx.shape[1]))
-    return (attn_output, attn_weights, key_cache_out, value_cache_out, beam_idx_out)
-
-
 @register_meta("zentorch_add_rms_norm_")
 def meta_zentorch_add_rms_norm_(
     input,
@@ -1034,8 +957,6 @@ make_fallback(torch.ops.zentorch.zentorch_rms_norm)
 # (`_ZentorchHorizontalQuantEmbBagGroupDefault`) overrides codegen to emit
 # `(handle_array, N)` to the shim instead of Inductor's default
 # `&handle_0, ..., &handle_{N-1}`.
-make_fallback(torch.ops.zentorch.zentorch_rope)
-make_fallback(torch.ops.zentorch.zentorch_masked_multihead_self_attention)
 make_fallback(torch.ops.zentorch.zentorch_weight_prepack_for_linear)
 make_fallback(torch.ops.zentorch.zentorch_dynamic_qlinear)
 make_fallback(torch.ops.zentorch.zentorch_group_matmul.out)

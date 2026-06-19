@@ -4,7 +4,6 @@
 # ******************************************************************************
 
 import operator
-import sys
 import torch
 from torch._inductor.pattern_matcher import (
     PatternMatcherPass,
@@ -340,80 +339,6 @@ def replace_with_zentorch_ops(fx_graph):
                     [query, key, value, dropout_p, is_causal, attn_mask, scale],
                 )
 
-        # first we check if ipex has been imported anywhere in the code,
-        # then we register the corresponding graph patterns
-        if "intel_extension_for_pytorch" in sys.modules:
-            ipex_ops = torch.ops.torch_ipex
-            # rope replacement
-            rope_args = [Arg() for _ in range(7)]
-
-            @register_graph_pattern(
-                CallFunction(ipex_ops.rotary_position_embedding, *rope_args),
-                pass_dict=pass_pattern,
-                extra_check=functools.partial(is_valid_fp16, "zentorch_rope"),
-            )
-            def rope_replacement(match, *args):
-                def repl(*args):
-                    counters["zentorch"]["zentorch_rope"] += 1
-                    return zt_ops.zentorch_rope(*args)
-
-                match.replace_by_example(repl, [*args])
-
-            # mmha replacement
-            mmha_args = [Arg() for _ in range(12)]
-
-            @register_graph_pattern(
-                CallFunction(
-                    ipex_ops.masked_multihead_self_attention,
-                    *mmha_args,
-                ),
-                pass_dict=pass_pattern,
-                extra_check=functools.partial(is_valid_fp16, "zentorch_mmha"),
-            )
-            def mmha_replacement(match, *args):
-                def repl(*args):
-                    counters["zentorch"]["zentorch_mmha"] += 1
-                    return zt_ops.zentorch_masked_multihead_self_attention(
-                        *args,
-                    )
-
-                match.replace_by_example(repl, [*args])
-
-            # TODO: Re-enable the deepseek rope replacements when the models
-            # using these kernels are added to testing.
-            # # RoPE deepseek is only present in IPEX 2.6 or above
-            # if hasattr(ipex_ops, "rotary_position_embedding_deepseek"):
-            #     rope_deepseek_args = [Arg() for _ in range(9)]
-
-            #     @register_graph_pattern(
-            #         CallFunction(
-            #             ipex_ops.rotary_position_embedding_deepseek, *rope_deepseek_args
-            #         ),
-            #         pass_dict=pass_pattern,
-            #     )
-            #     def rope_deepseek_replacement(match, *args):
-            #         def repl(*args):
-            #             counters["zentorch"]["zentorch_rope_deepseek"] += 1
-            #             return zt_ops.zentorch_rope_deepseek(*args)
-
-            #         match.replace_by_example(repl, [*args])
-
-            # # RoPE deepseek_v2 is only present in IPEX 2.7 or above
-            # if hasattr(ipex_ops, "rotary_position_embedding_deepseek_v2"):
-            #     rope_deepseek_v2_args = [Arg() for _ in range(8)]
-
-            #     @register_graph_pattern(
-            #         CallFunction(
-            #             ipex_ops.rotary_position_embedding_deepseek_v2, *rope_deepseek_v2_args
-            #         ),
-            #         pass_dict=pass_pattern,
-            #     )
-            #     def rope_deepseek_v2_replacement(match, *args):
-            #         def repl(*args):
-            #             counters["zentorch"]["zentorch_rope_deepseek_v2"] += 1
-            #             return zt_ops.zentorch_rope_deepseek_v2(*args)
-
-            #         match.replace_by_example(repl, [*args])
         # fx_graph.owning module should return the GraphModule object that owns the graph
         assert fx_graph.owning_module is not None, "Graph has no owning module"
         GraphTransformObserver(fx_graph.owning_module, "pass_pattern").apply_graph_pass(

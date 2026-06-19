@@ -8,15 +8,6 @@
 
 namespace zentorch {
 
-std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor>
-masked_multihead_self_attention_kernel_impl_512(
-    at::Tensor &query, at::Tensor &key, at::Tensor &value,
-    at::Tensor &key_cache, at::Tensor &value_cache, at::Tensor &beam_idx,
-    at::Tensor seq_info, const double scale_attn, int64_t max_positions,
-    const c10::optional<at::Tensor> &head_mask /* optional */,
-    const c10::optional<at::Tensor> &attention_mask /* optional */,
-    c10::optional<bool> add_causal_mask /* optional */);
-
 template <typename input_type, typename attention_mask>
 void flash_attention_kernel_impl_512(
     const at::Tensor &output, const at::Tensor &logsumexp,
