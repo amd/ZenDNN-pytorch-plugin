@@ -189,6 +189,13 @@ AOTI_TORCH_EXPORT AOTITorchError aoti_torch_cpu_zentorch_woq_linear_add_add(
     AtenTensorHandle add_input_2, AtenTensorHandle *B,
     const char *zentorch_op_name, AtenTensorHandle *ret0);
 
+// Dynamic (per-token source) qlinear: input is quantized to s8 inside the
+// kernel; weight is pre-quantized s8 with per-channel weight_scales. bias is
+// the only optional tensor.
+AOTI_TORCH_EXPORT AOTITorchError aoti_torch_cpu_zentorch_dynamic_qlinear(
+    AtenTensorHandle X, AtenTensorHandle W, AtenTensorHandle weight_scales,
+    AtenTensorHandle *B, const char *zentorch_op_name, AtenTensorHandle *ret0);
+
 #ifdef __cplusplus
 } // extern "C"
 #endif

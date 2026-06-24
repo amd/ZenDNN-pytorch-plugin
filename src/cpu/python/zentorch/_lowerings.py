@@ -1741,3 +1741,106 @@ def zentorch_woq_linear_add_add_lowering(
             zentorch_op_name,
         )
     )
+
+
+# -----------------------------------------------------------------------------
+# Dynamic QLinear ExternKernel + lowering
+#
+# Schema (see src/cpu/cpp/DynamicQLinear.cpp):
+#   zentorch_dynamic_qlinear(Tensor input, Tensor weight, Tensor weight_scales,
+#                            Tensor? bias=None, *, str zentorch_op_name)
+#                            -> Tensor
+#
+# Weight is in original nn.Linear layout [N, K] (NOT a packed WOQ layout), so
+# out_features = weight.size(0). Required tensors (always present): input,
+# weight -> _num_required_tensors = 2. weight_scales is required by schema but
+# tracked via _optional_tensor_presence (always True) so _qlinear_codegen_args
+# interleaves the truly-optional bias into its correct schema slot. Routing
+# through this ExternKernelAlloc (with op_overload + cpp_kernel_name) makes
+# cpp_wrapper emit a direct `aoti_torch_cpu_zentorch_dynamic_qlinear` C-shim
+# call instead of the slow `custom_op_wrapper` Python fallback.
+# -----------------------------------------------------------------------------
+
+
+class zentorch_DynamicQlinear(ExternKernelAlloc):
+    _num_required_tensors = 2
+    _optional_tensor_presence = [True, True]
+    codegen_args = _qlinear_codegen_args
+
+    def __init__(
+        self, layout, inputs, constant_args=(), kwargs=None,
+    ) -> None:
+        self.device_type = get_device_type(inputs[0])
+        super().__init__(
+            layout, inputs, constant_args, kwargs,
+            op_overload=torch.ops.zentorch.zentorch_dynamic_qlinear.default,
+            cpp_kernel_name="aoti_torch_cpu_zentorch_dynamic_qlinear",
+        )
+
+    def codegen(self, wrapper):
+        wrapper.include_extra_header(_ZENTORCH_HEADER)
+        super().codegen(wrapper)
+
+    @classmethod
+    def create(cls, input, weight, weight_scales, bias, name):
+        # Pin contiguity at the IR level for every tensor the kernel reads
+        # through a raw data_ptr() with hardcoded leading dims. The kernel
+        # (DynamicQLinear.cpp) assumes contiguous storage for weight (ldb=K),
+        # weight_scales and bias and never calls .contiguous() on them -- only
+        # `input` is guarded inside the kernel. require_contiguous is a no-op
+        # when the buffer is already contiguous (the common case for a frozen
+        # [N, K] weight / per-channel scales / 1-D bias), so this only inserts
+        # a clone in the rare non-contiguous case. The weight keeps its logical
+        # [N, K] layout -- we pin storage contiguity, we do NOT transpose or
+        # repack it.
+        input = cls.require_contiguous(cls.realize_input(input))
+        weight = cls.require_contiguous(cls.realize_input(weight))
+        weight_scales = cls.require_contiguous(cls.realize_input(weight_scales))
+
+        *m, _ = input.get_size()
+        # weight is [N, K] (original nn.Linear layout); out_features = N
+        oc, _ic = weight.get_size()
+        output_size = list(m) + [oc]
+
+        inputs = [input, weight, weight_scales]
+        if bias is not None:
+            bias = cls.require_contiguous(cls.realize_input(bias))
+            inputs.append(bias)
+
+        device = input.get_device()
+        assert device is not None
+
+        packed = zentorch_DynamicQlinear(
+            layout=FixedLayout(
+                device=device, dtype=input.get_dtype(), size=output_size,
+            ),
+            inputs=inputs,
+            constant_args=(),
+            kwargs={"zentorch_op_name": name},
+        )
+        packed._optional_tensor_presence = [
+            True,            # weight_scales (required by schema, always present)
+            bias is not None,
+        ]
+        return packed
+
+    def apply_constraint(self):
+        pass
+
+
+@register_lowering(
+    torch.ops.zentorch.zentorch_dynamic_qlinear.default,
+    type_promotion_kind=None,
+)
+def zentorch_dynamic_qlinear_lowering(
+    input: TensorBox,
+    weight: TensorBox,
+    weight_scales: TensorBox,
+    bias: TensorBox = None,
+    zentorch_op_name="zentorch_dynamic_qlinear",
+):
+    return TensorBox.create(
+        zentorch_DynamicQlinear.create(
+            input, weight, weight_scales, bias, zentorch_op_name,
+        )
+    )

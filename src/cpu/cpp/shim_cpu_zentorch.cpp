@@ -3,6 +3,7 @@
  * All rights reserved.
  ******************************************************************************/
 #include "shim_cpu_zentorch.hpp"
+#include "DynamicQLinear.hpp"
 #include "Linear.hpp"
 #include "QLinear.hpp"
 #include "QuantEmbedBag.hpp"
@@ -490,6 +491,19 @@ AOTITorchError aoti_torch_cpu_zentorch_woq_linear_add_add(
         pointer_to_optional<at::Tensor>(weight_zero_points),
         *tensor_handle_to_tensor_pointer(add_input),
         *tensor_handle_to_tensor_pointer(add_input_2),
+        pointer_to_optional<at::Tensor>(B), zentorch_op_name);
+    *ret0 = new_tensor_handle(std::move(tmp_result));
+  });
+}
+
+AOTITorchError aoti_torch_cpu_zentorch_dynamic_qlinear(
+    AtenTensorHandle X, AtenTensorHandle W, AtenTensorHandle weight_scales,
+    AtenTensorHandle *B, const char *zentorch_op_name, AtenTensorHandle *ret0) {
+  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+    auto tmp_result = zentorch::zentorch_dynamic_qlinear(
+        *tensor_handle_to_tensor_pointer(X),
+        *tensor_handle_to_tensor_pointer(W),
+        *tensor_handle_to_tensor_pointer(weight_scales),
         pointer_to_optional<at::Tensor>(B), zentorch_op_name);
     *ret0 = new_tensor_handle(std::move(tmp_result));
   });

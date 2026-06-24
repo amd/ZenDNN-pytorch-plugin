@@ -3,6 +3,7 @@
  * All rights reserved.
  ******************************************************************************/
 
+#include "DynamicQLinear.hpp"
 #include "EnvReader.hpp"
 #include "MatmulUtils.hpp"
 #include "Memory.hpp"
@@ -162,8 +163,19 @@ at::Tensor zentorch_dynamic_qlinear(const at::Tensor &input,
 
   at::Tensor result_2d = result.view(get_2d_size_for_tensor(result));
 
-  zentorch_dynamic_qlinear_impl(input_2d, weight, bias_t, result_2d,
-                                weight_scales, zentorch_op_name);
+  // The impl reads weight / weight_scales / bias through raw data_ptr() with
+  // hardcoded leading dims (weight ldb = K), so they must be contiguous.
+  // at::Tensor::contiguous() is a no-op that shares storage when the tensor is
+  // already contiguous -- the common case for frozen [N, K] weights,
+  // per-channel scales and 1-D bias -- and only copies in the rare
+  // non-contiguous case. This guards the eager entry point; the Inductor
+  // lowering pins the same contiguity for the compiled / cpp_wrapper path.
+  const at::Tensor weight_c = weight.contiguous();
+  const at::Tensor weight_scales_c = weight_scales.contiguous();
+  const at::Tensor bias_c = bias_t.defined() ? bias_t.contiguous() : bias_t;
+
+  zentorch_dynamic_qlinear_impl(input_2d, weight_c, bias_c, result_2d,
+                                weight_scales_c, zentorch_op_name);
 
   return result;
 }

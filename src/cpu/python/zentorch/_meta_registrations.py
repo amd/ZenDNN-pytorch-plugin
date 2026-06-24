@@ -958,7 +958,10 @@ make_fallback(torch.ops.zentorch.zentorch_rms_norm)
 # `(handle_array, N)` to the shim instead of Inductor's default
 # `&handle_0, ..., &handle_{N-1}`.
 make_fallback(torch.ops.zentorch.zentorch_weight_prepack_for_linear)
-make_fallback(torch.ops.zentorch.zentorch_dynamic_qlinear)
+# zentorch_dynamic_qlinear is routed through a dedicated AOTI shim
+# (aoti_torch_cpu_zentorch_dynamic_qlinear) via register_lowering in
+# _lowerings.py, so it must NOT go through make_fallback (which would force
+# the slow custom_op_wrapper Python path under cpp_wrapper).
 make_fallback(torch.ops.zentorch.zentorch_group_matmul.out)
 make_fallback(torch.ops.zentorch.zentorch_fused_moe)
 make_fallback(torch.ops.zentorch.zentorch_woq_repack_weight)

@@ -100,7 +100,7 @@ class Test_DynamicQLinear(QLinearTestCase):
         )
 
         self.assertEqual(out.dtype, torch.float32)
-        torch.testing.assert_close(ref, out, atol=2e-2, rtol=2e-2)
+        self.assertEqual(ref, out, atol=1e-2, rtol=1e-2)
 
 
 if __name__ == "__main__":
