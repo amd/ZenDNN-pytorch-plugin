@@ -1,10 +1,10 @@
-__ZenDNN Plugin for PyTorch* (zentorch) - Weekly Release__
+__ZenDNN Plugin for PyTorch* (zentorch) {{ZENTORCH_VERSION}} - Weekly Release__
 
 The ZenDNN PyTorch plugin is called zentorch. Combined with PyTorch's torch.compile, zentorch transforms deep learning pipelines into finely-tuned, AMD-specific engines, delivering unparalleled efficiency and speed for large-scale inference workloads.
 
 This is a **weekly** release of zentorch, published as `zentorch-weekly` on PyPI.
 
-The zentorch plugin seamlessly works with PyTorch {{PYTORCH_VERSION}}, offering a high-performance experience for deep learning on AMD EPYC™ platforms.
+The zentorch plugin {{ZENTORCH_VERSION}} seamlessly works with PyTorch {{PYTORCH_VERSION}}, offering a high-performance experience for deep learning on AMD EPYC™ platforms.
 
 For stable (GA) releases, install the `zentorch` package instead.
 

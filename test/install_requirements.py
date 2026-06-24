@@ -81,6 +81,7 @@ if __name__ == "__main__":
         "2.10.0": "torchvision==0.25.0",
         "2.11.0": "torchvision==0.26.0",
         "2.12.0": "torchvision==0.27.0",
+        "2.12.1": "torchvision==0.27.1",
     }
 
     torchao_compatibility = {
@@ -89,11 +90,12 @@ if __name__ == "__main__":
         # version currently.
         "2.10.0": "torchao==0.16.0",
         "2.11.0": "torchao==0.17.0",
-        # torchao 0.16.0 is the version validated against torch 2.12 RC; its
-        # Python-only APIs (which zentorch uses) work with torch 2.12 even
-        # though the C++ ext was built against an older torch. Revisit once a
-        # newer torchao ships with explicit torch 2.12 support.
+        # torchao 0.17.0 is validated against the torch 2.12 line; its
+        # Python-only APIs (which zentorch uses) work with both torch 2.12.0
+        # and 2.12.1. Revisit once a newer torchao ships with explicit torch
+        # 2.12 support.
         "2.12.0": "torchao==0.17.0",
+        "2.12.1": "torchao==0.17.0",
     }
 
     if find_spec("torchao") is not None:
@@ -115,7 +117,7 @@ if __name__ == "__main__":
         else:
             print("Could not find the valid torchao version which is \
                 compatible with installed torch version. Supported Torch versions \
-                are 2.9.1, 2.10.0, 2.11.0, and 2.12.0")
+                are 2.9.1, 2.10.0, 2.11.0, 2.12.0, and 2.12.1")
             sys.exit(1)
 
     if find_spec("torchvision") is not None:
@@ -139,5 +141,5 @@ if __name__ == "__main__":
         else:
             print("Could not find the valid torchvision version which is \
                 compatible with installed torch version. Supported Torch versions \
-                are 2.6.0/2.7.0/2.8.0/2.9.0/2.9.1/2.10.0/2.11.0/2.12.0")
+                are 2.6.0/2.7.0/2.8.0/2.9.0/2.9.1/2.10.0/2.11.0/2.12.0/2.12.1")
             sys.exit(1)

@@ -22,9 +22,9 @@ if parse(torch_version) < parse("2.11.0"):
         "and retry the build."
     )
 
-if parse(torch_version) < parse("2.12"):
+if parse(torch_version) < parse("2.12.1"):
     warnings.warn(
-        "Consider upgrading to torch version 2.12 for improved performance.",
+        "Consider upgrading to torch version 2.12.1 for improved performance.",
         stacklevel=1,
     )
 
@@ -157,9 +157,28 @@ def get_tag_commit(base_dir, tag):
 
 # Define env values
 PACKAGE_NAME = "zentorch"
-_PLUGIN_PATCH = "2"
+# The 4th version component ("plugin patch") is tracked per torch base version
+# (major.minor.micro). zentorch supports only the latest (N) and previous
+# (N-1) torch lines, so this map stays small. A torch base that is not listed
+# defaults to 0, so a brand-new torch release automatically starts at
+# <torch>.0 without a code change. Only bump a value when cutting a follow-up
+# zentorch release for the same torch base.
+_PLUGIN_PATCH_BY_TORCH = {
+    "2.11.0": 2,
+    "2.12.0": 2,
+    "2.12.1": 0,
+}
+_DEFAULT_PLUGIN_PATCH = 0
 _pt_ver = parse(torch_version)
-PACKAGE_VERSION = f"{_pt_ver.major}.{_pt_ver.minor}.{_pt_ver.micro}.{_PLUGIN_PATCH}"
+_torch_base = f"{_pt_ver.major}.{_pt_ver.minor}.{_pt_ver.micro}"
+if _torch_base not in _PLUGIN_PATCH_BY_TORCH:
+    warnings.warn(
+        f"torch {_torch_base} is not registered in _PLUGIN_PATCH_BY_TORCH; "
+        f"defaulting the zentorch plugin patch to {_DEFAULT_PLUGIN_PATCH}.",
+        stacklevel=1,
+    )
+_plugin_patch = _PLUGIN_PATCH_BY_TORCH.get(_torch_base, _DEFAULT_PLUGIN_PATCH)
+PACKAGE_VERSION = f"{_torch_base}.{_plugin_patch}"
 PT_VERSION = torch_version
 
 _release_type_env = os.getenv("ZENTORCH_RELEASE_TYPE", "ga").lower()
@@ -243,6 +262,10 @@ long_description = ""
 with open(Path(project_root_dir, _desc_file), encoding="utf-8") as f:
     long_description = f.read()
 long_description = long_description.replace("{{PYTORCH_VERSION}}", PT_VERSION)
+# Weekly builds keep the .dev<date> suffix in the package metadata only, not in
+# the rendered description, so strip it for display purposes.
+_display_version = zentorch_build_version.split(".dev")[0]
+long_description = long_description.replace("{{ZENTORCH_VERSION}}", _display_version)
 
 _build_info_section = "\n## Build Information\n\n"
 _build_info_section += "| Field | Value |\n|---|---|\n"
