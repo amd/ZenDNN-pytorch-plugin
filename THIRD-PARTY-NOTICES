@@ -1,4 +1,4 @@
-Third-Party Notices  (ZenDNN v5.2.0 GA - PyTorch )
+Third-Party Notices Report (ZenDNN v6.0.0 GA-PyTorch)
 
 clang-format v-u (Apache-2.0)
 License Text (http://spdx.org/licenses/Apache-2.0)
@@ -248,16 +248,16 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 python-pillow-Pillow v- u (PIL)
 Copyright Statements
-Copyright Ã‚Â© 1997-2011 by Secret Labs AB
-Copyright Ã‚Â© 1995-2011 by Fredrik Lundh
+Copyright Â© 1997-2011 by Secret Labs AB
+Copyright Â© 1995-2011 by Fredrik Lundh
 Pillow is the friendly PIL fork. It is
-Copyright Ã‚Â© 2010-2024 by Jeffrey A. Clark (Alex) and contributors.
+Copyright Â© 2010-2024 by Jeffrey A. Clark (Alex) and contributors.
 License Text (http://www.pythonware.com/products/pil/license.htm)
 The Python Imaging Library (PIL) is
-    Copyright Ã‚Â© 1997-2011 by Secret Labs AB
-    Copyright Ã‚Â© 1995-2011 by Fredrik Lundh
+    Copyright Â© 1997-2011 by Secret Labs AB
+    Copyright Â© 1995-2011 by Fredrik Lundh
 Pillow is the friendly PIL fork. It is
-Copyright Ã‚Â© 2010-2024 by Jeffrey A. Clark (Alex) and contributors.
+Copyright Â© 2010-2024 by Jeffrey A. Clark (Alex) and contributors.
 Like PIL, Pillow is licensed under the open source HPND License:
 By obtaining, using, and/or copying this software and/or its associated documentation, you agree that you have read, understood, and will comply with the following terms and conditions:
 Permission to use, copy, modify and distribute this software and its documentation for any purpose and without fee is hereby granted, provided that the above copyright notice appears in all copies, and that both that copyright notice and this permission notice appear in supporting documentation, and that the name of Secret Labs AB or the author not be used in advertising or publicity pertaining to distribution of the software without specific, written prior permission.
