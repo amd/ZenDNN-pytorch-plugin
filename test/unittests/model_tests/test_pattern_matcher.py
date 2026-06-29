@@ -28,36 +28,6 @@ from unittest_utils import (  # noqa: 402
 )
 
 
-# mm silu pattern
-class Custom_Model_Addmm_Silu_Mul(torch.nn.Module):
-    def __init__(self):
-        super(Custom_Model_Addmm_Silu_Mul, self).__init__()
-
-    def forward(self, inp_0, inp_1, inp_2, bias_0):
-        view_0 = inp_0.view(inp_0.shape[0] * inp_0.shape[1], inp_0.shape[2])
-        mm_0 = torch.ops.zentorch.zentorch_addmm_silu.default(bias_0, view_0, inp_1)
-        view_1 = mm_0.view(inp_0.shape[0], inp_0.shape[1], inp_2.shape[-1])
-        view_2 = inp_2.view(inp_0.shape[0], inp_0.shape[1], inp_2.shape[-1])
-        mul_0 = torch.mul(view_1, view_2)
-        return mul_0
-
-
-# mm silu pattern
-class Custom_Model_Addmm_Alpha_Beta_Silu_Mul(torch.nn.Module):
-    def __init__(self):
-        super(Custom_Model_Addmm_Alpha_Beta_Silu_Mul, self).__init__()
-
-    def forward(self, inp_0, inp_1, inp_2, bias_0):
-        view_0 = inp_0.view(inp_0.shape[0] * inp_0.shape[1], inp_0.shape[2])
-        mm_0 = torch.ops.zentorch.zentorch_addmm_silu.default(
-            bias_0, view_0, inp_1, alpha=1.3, beta=-3.7
-        )
-        view_1 = mm_0.view(inp_0.shape[0], inp_0.shape[1], inp_2.shape[-1])
-        view_2 = inp_2.view(inp_0.shape[0], inp_0.shape[1], inp_2.shape[-1])
-        mul_0 = torch.mul(view_1, view_2)
-        return mul_0
-
-
 class Custom_Model_BMM1(nn.Module):
     def __init__(self):
         super(Custom_Model_BMM1, self).__init__()
@@ -127,51 +97,6 @@ class Custom_Model_MM_Silu(torch.nn.Module):
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 @unittest.skipIf(skip_test_pt_2_1, "Pattern matcher disabled for Torch < 2.2")
 class Test_Pattern_Matcher_Model(Zentorch_TestCase):
-    @parameterized.expand(
-        product(update_supported_dtypes(supported_dtypes, "zentorch_addmm"), freeze_opt)
-    )
-    @torch.inference_mode()
-    def test_addmm_silu_mul_pattern_model(self, dtype, freeze_opt):
-        reset_dynamo()
-        decomp_mm_silu_model = Custom_Model_Addmm_Silu_Mul()
-        model = decomp_mm_silu_model.to("cpu").eval()
-        compiled_model = torch.compile(model, backend="zentorch")
-        amp_enabled = True if dtype == "bfloat16" else False
-        new_dtype = self.data.get_torch_type(dtype)
-        inp_0 = torch.rand((2, 2, 11), dtype=new_dtype)
-        inp_1 = torch.rand((11, 53), dtype=new_dtype)
-        inp_2 = torch.rand((4, 53), dtype=new_dtype)
-        counters.clear()
-        self.assertEqual(counters["zentorch"]["pattern_matcher_addmm_silu_mul"], 0)
-        with torch.autocast(device_type="cpu", enabled=amp_enabled):
-            _ = test_with_freeze_opt(
-                compiled_model, (inp_0, inp_1, inp_2, inp_2), freeze_opt
-            )
-            # test for both dtypes, two separate tests will be run
-            self.assertEqual(counters["zentorch"]["pattern_matcher_addmm_silu_mul"], 1)
-
-    @parameterized.expand(
-        product(update_supported_dtypes(supported_dtypes, "zentorch_addmm"), freeze_opt)
-    )
-    @torch.inference_mode()
-    def test_addmm_alpha_beta_silu_mul_pattern_model(self, dtype, freeze_opt):
-        reset_dynamo()
-        decomp_mm_silu_model = Custom_Model_Addmm_Alpha_Beta_Silu_Mul()
-        model = decomp_mm_silu_model.to("cpu").eval()
-        compiled_model = torch.compile(model, backend="zentorch")
-        amp_enabled = True if dtype == "bfloat16" else False
-        new_dtype = self.data.get_torch_type(dtype)
-        inp_0 = torch.rand((2, 2, 11), dtype=new_dtype)
-        inp_1 = torch.rand((11, 53), dtype=new_dtype)
-        inp_2 = torch.rand((4, 53), dtype=new_dtype)
-        counters.clear()
-        self.assertEqual(counters["zentorch"]["pattern_matcher_addmm_silu_mul"], 0)
-        with torch.autocast(device_type="cpu", enabled=amp_enabled):
-            _ = test_with_freeze_opt(
-                compiled_model, (inp_0, inp_1, inp_2, inp_2), freeze_opt
-            )
-            self.assertEqual(counters["zentorch"]["pattern_matcher_addmm_silu_mul"], 1)
-
     @parameterized.expand(
         product(update_supported_dtypes(supported_dtypes, "zentorch_bmm"), freeze_opt)
     )

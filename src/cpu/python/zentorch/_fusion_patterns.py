@@ -44,36 +44,6 @@ def _mm_silu_mul_replacement(arg_0, arg_1, mul_1):
     return (out_0,)
 
 
-def _addmm_silu_mul_pattern(arg_0, arg_1, mul_1, bias_0, beta, alpha):
-    mm_0 = zt_ops.zentorch_addmm_silu.default(
-        bias_0, arg_0, arg_1, beta=beta, alpha=alpha
-    )
-    if mul_1.dim() != 2:
-        view_0 = at_ops.view.default(mm_0, mul_1.size())
-        mul_0 = at_ops.mul.Tensor(view_0, mul_1)
-    else:
-        mul_0 = at_ops.mul.Tensor(mm_0, mul_1)
-    return (mul_0,)
-
-
-def _addmm_silu_mul_replacement(arg_0, arg_1, mul_1, bias_0, beta, alpha):
-    counters["zentorch"]["pattern_matcher_addmm_silu_mul"] += 1
-    shape_0 = arg_0.size()
-    shape_1 = arg_1.size()
-    shape_2 = mul_1.size()
-    if mul_1.dim() != 2:
-        view_0 = at_ops.view.default(mul_1, [shape_0[0], shape_1[-1]])
-        mul_0 = zt_ops.zentorch_addmm_silu_mul.default(
-            bias_0, arg_0, arg_1, view_0, beta=beta, alpha=alpha
-        )
-        out_0 = at_ops.view.default(mul_0, shape_2)
-    else:
-        out_0 = zt_ops.zentorch_addmm_silu_mul.default(
-            bias_0, arg_0, arg_1, mul_1, beta=beta, alpha=alpha
-        )
-    return (out_0,)
-
-
 def _mm_add_pattern(arg_0, arg_1, add_1):
     mm = zt_ops.zentorch_mm(arg_0, arg_1)
     if add_1.dim() >= 3:  # [256, 32], [32, 512], [4, 64, 512]
@@ -248,12 +218,6 @@ def _get_pattern_with_replacement():
         torch.empty, (512, 128), device="cpu", requires_grad=True, dtype=torch.float
     )
 
-    # It doesn't allows same value for two kwargs hence the workaround
-    # to have two different values for beta and alpha
-    # kwargs in func sig is only valid torch 2.2 onwards
-    kwargs_beta_alpha = {"beta": 1.0, "alpha": -2.8}
-    # kwargs_group_size = {"group_size": -1}
-
     candidates = [
         (
             _mm_silu_mul_pattern,
@@ -267,20 +231,6 @@ def _get_pattern_with_replacement():
             _mm_silu_mul_replacement,
             [arg_1(), arg_2(), arg_4()],
             {},
-            _matmul_dtypes_check,
-        ),
-        (
-            _addmm_silu_mul_pattern,
-            _addmm_silu_mul_replacement,
-            [arg_1(), arg_2(), arg_3(), arg_4()],
-            kwargs_beta_alpha,
-            _matmul_dtypes_check,
-        ),
-        (
-            _addmm_silu_mul_pattern,
-            _addmm_silu_mul_replacement,
-            [arg_1(), arg_2(), arg_4(), arg_4()],
-            kwargs_beta_alpha,
             _matmul_dtypes_check,
         ),
         (

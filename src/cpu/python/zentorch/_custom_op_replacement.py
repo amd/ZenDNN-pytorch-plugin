@@ -266,26 +266,18 @@ def emb_ops_horizontal_fusion(fx_graph):
 def get_fuse_val(target):
     if target in (
         zt_ops.zentorch_mm_relu.default,
-        zt_ops.zentorch_addmm_relu.default,
-        zt_ops.zentorch_addmm_1dbias_relu.default,
     ):
         return 1
     elif target in (
         zt_ops.zentorch_mm_gelu_tanh.default,
-        zt_ops.zentorch_addmm_gelu_tanh.default,
-        zt_ops.zentorch_addmm_1dbias_gelu_tanh.default,
     ):
         return 2
     elif target in (
         zt_ops.zentorch_mm_gelu_erf.default,
-        zt_ops.zentorch_addmm_gelu_erf.default,
-        zt_ops.zentorch_addmm_1dbias_gelu_erf.default,
     ):
         return 3
     elif target in (
         zt_ops.zentorch_mm_silu.default,
-        zt_ops.zentorch_addmm_silu.default,
-        zt_ops.zentorch_addmm_1dbias_silu.default,
     ):
         return 4
     else:
@@ -302,10 +294,6 @@ horizontal_mlp_targets = {
     ],
     "addmm_1dbias": [
         zt_ops.zentorch_addmm_1dbias.default,
-        zt_ops.zentorch_addmm_1dbias_relu.default,
-        zt_ops.zentorch_addmm_1dbias_gelu_tanh.default,
-        zt_ops.zentorch_addmm_1dbias_gelu_erf.default,
-        zt_ops.zentorch_addmm_1dbias_silu.default,
     ],
 }
 
@@ -322,15 +310,7 @@ def get_group_attr(target):
 def vertical_mlp_fusion(fx_graph):
     vertical_mlp_candidates = {
         zt_ops.zentorch_addmm.default,
-        zt_ops.zentorch_addmm_relu.default,
-        zt_ops.zentorch_addmm_gelu_tanh.default,
-        zt_ops.zentorch_addmm_gelu_erf.default,
         zt_ops.zentorch_addmm_1dbias.default,
-        zt_ops.zentorch_addmm_silu.default,
-        zt_ops.zentorch_addmm_1dbias_relu.default,
-        zt_ops.zentorch_addmm_1dbias_gelu_tanh.default,
-        zt_ops.zentorch_addmm_1dbias_gelu_erf.default,
-        zt_ops.zentorch_addmm_1dbias_silu.default,
     }
 
     def return_next_addmm(users):

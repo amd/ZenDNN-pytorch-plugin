@@ -44,50 +44,6 @@ def meta_zentorch_addmm(
     return bias.new_empty((input.shape[0], weight.shape[-1]))
 
 
-@register_meta("zentorch_addmm_relu")
-def meta_zentorch_addmm_relu(
-    bias,
-    input,
-    weight,
-    alpha=1,
-    beta=1,
-):
-    return bias.new_empty((input.shape[0], weight.shape[-1]))
-
-
-@register_meta("zentorch_addmm_silu")
-def meta_zentorch_addmm_silu(
-    bias,
-    input,
-    weight,
-    alpha=1,
-    beta=1,
-):
-    return bias.new_empty((input.shape[0], weight.shape[-1]))
-
-
-@register_meta("zentorch_addmm_gelu_tanh")
-def meta_zentorch_addmm_gelu_tanh(
-    bias,
-    input,
-    weight,
-    alpha=1,
-    beta=1,
-):
-    return bias.new_empty((input.shape[0], weight.shape[-1]))
-
-
-@register_meta("zentorch_addmm_gelu_erf")
-def meta_zentorch_addmm_gelu_erf(
-    bias,
-    input,
-    weight,
-    alpha=1,
-    beta=1,
-):
-    return bias.new_empty((input.shape[0], weight.shape[-1]))
-
-
 @register_meta("zentorch_linear_unary")
 def meta_zentorch_linear_unary(
     input,
@@ -133,88 +89,6 @@ def meta_zendnn_linear_unary_binary(
 
 @register_meta("zentorch_addmm_1dbias")
 def meta_zentorch_addmm_1dbias(
-    bias,
-    input,
-    weight,
-    alpha=1,
-    beta=1,
-):
-    return input.new_empty((input.shape[0], weight.shape[-1]))
-
-
-@register_meta("zentorch_addmm_1dbias_add")
-def meta_zentorch_addmm_1dbias_add(
-    bias,
-    input,
-    weight,
-    add_input,
-    alpha=1,
-    beta=1,
-):
-    return add_input.new_empty(add_input.size())
-
-
-@register_meta("zentorch_addmm_1dbias_add_add")
-def meta_zentorch_addmm_1dbias_add_add(
-    bias,
-    input,
-    weight,
-    add1_input,
-    add2_input,
-    alpha=1,
-    beta=1,
-):
-    return add2_input.new_empty(add2_input.size())
-
-
-@register_meta("zentorch_addmm_1dbias_mul_add")
-def meta_zentorch_addmm_1dbias_mul_add(
-    bias,
-    input,
-    weight,
-    mul_input,
-    add_input,
-    alpha=1,
-    beta=1,
-):
-    return add_input.new_empty(add_input.size())
-
-
-@register_meta("zentorch_addmm_1dbias_relu")
-def meta_zentorch_addmm_1dbias_relu(
-    bias,
-    input,
-    weight,
-    alpha=1,
-    beta=1,
-):
-    return input.new_empty((input.shape[0], weight.shape[-1]))
-
-
-@register_meta("zentorch_addmm_1dbias_silu")
-def meta_zentorch_addmm_1dbias_silu(
-    bias,
-    input,
-    weight,
-    alpha=1,
-    beta=1,
-):
-    return input.new_empty((input.shape[0], weight.shape[-1]))
-
-
-@register_meta("zentorch_addmm_1dbias_gelu_tanh")
-def meta_zentorch_addmm_1dbias_gelu_tanh(
-    bias,
-    input,
-    weight,
-    alpha=1,
-    beta=1,
-):
-    return input.new_empty((input.shape[0], weight.shape[-1]))
-
-
-@register_meta("zentorch_addmm_1dbias_gelu_erf")
-def meta_zentorch_addmm_1dbias_gelu_erf(
     bias,
     input,
     weight,
@@ -318,18 +192,6 @@ if hasattr(torch.ops.zentorch, "zentorch_sdpa"):
 
 @register_meta("zentorch_mm_silu_mul")
 def meta_zentorch_mm_silu_mul(input, weight, mul_tensor):
-    return mul_tensor.new_empty(mul_tensor.size())
-
-
-@register_meta("zentorch_addmm_silu_mul")
-def meta_zentorch_addmm_silu_mul(bias, input, weight, mul_tensor, alpha=1, beta=1):
-    return mul_tensor.new_empty(mul_tensor.size())
-
-
-@register_meta("zentorch_addmm_1dbias_silu_mul")
-def meta_zentorch_addmm_1dbias_silu_mul(
-    bias, input, weight, mul_tensor, alpha=1, beta=1
-):
     return mul_tensor.new_empty(mul_tensor.size())
 
 
@@ -518,18 +380,10 @@ def meta_zentorch_horizontal_quant_embedding_bag_group_out(
 
 zentorch_addmm_mappings = {
     0: meta_zentorch_addmm,
-    1: meta_zentorch_addmm_relu,
-    2: meta_zentorch_addmm_gelu_tanh,
-    3: meta_zentorch_addmm_gelu_erf,
-    4: meta_zentorch_addmm_silu,
 }
 
 zentorch_addmm_1dbias_mappings = {
     0: meta_zentorch_addmm_1dbias,
-    1: meta_zentorch_addmm_1dbias_relu,
-    2: meta_zentorch_addmm_1dbias_gelu_tanh,
-    3: meta_zentorch_addmm_1dbias_gelu_erf,
-    4: meta_zentorch_addmm_1dbias_silu,
 }
 
 zentorch_mm_mappings = {
@@ -919,21 +773,8 @@ def meta_zentorch_woq_repack_from_int4pack(
 
 
 make_fallback(torch.ops.zentorch.zentorch_addmm)
-make_fallback(torch.ops.zentorch.zentorch_addmm_relu)
-make_fallback(torch.ops.zentorch.zentorch_addmm_silu)
-make_fallback(torch.ops.zentorch.zentorch_addmm_gelu_tanh)
-make_fallback(torch.ops.zentorch.zentorch_addmm_gelu_erf)
 make_fallback(torch.ops.zentorch.zentorch_addmm_1dbias)
-make_fallback(torch.ops.zentorch.zentorch_addmm_1dbias_relu)
-make_fallback(torch.ops.zentorch.zentorch_addmm_1dbias_silu)
-make_fallback(torch.ops.zentorch.zentorch_addmm_1dbias_gelu_tanh)
-make_fallback(torch.ops.zentorch.zentorch_addmm_1dbias_gelu_erf)
-make_fallback(torch.ops.zentorch.zentorch_addmm_1dbias_add)
-make_fallback(torch.ops.zentorch.zentorch_addmm_1dbias_add_add)
-make_fallback(torch.ops.zentorch.zentorch_addmm_1dbias_mul_add)
 make_fallback(torch.ops.zentorch.zentorch_mm_silu_mul)
-make_fallback(torch.ops.zentorch.zentorch_addmm_silu_mul)
-make_fallback(torch.ops.zentorch.zentorch_addmm_1dbias_silu_mul)
 make_fallback(torch.ops.zentorch.zentorch_embedding_bag)
 make_fallback(torch.ops.zentorch.zentorch_embedding)
 make_fallback(torch.ops.zentorch.zentorch_bmm)

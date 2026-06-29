@@ -230,66 +230,6 @@ class Test_Addmm_Op(MMTestCase):
         )
 
     @MMTestCase.hypothesis_params_mm_itr(dtype_list=supported_dtypes)
-    @unittest.skipIf(skip_test_pt_2_0, "Skipping test due to PT2.0 instability")
-    def test_addmm_relu_with_kw(self, dtype):
-
-        # TODO
-        # Tensor Generation and Tolerance Calculation will be aligned with ZenDNN library in future.
-
-        # addmm->relu
-        self.assertEqual(
-            torch._C._VariableFunctions.relu(
-                torch._C._VariableFunctions.addmm(
-                    self.data.input, self.data.x, self.data.y, beta=1.5, alpha=1.7
-                )
-            ),
-            torch.ops.zentorch.zentorch_addmm_relu(
-                self.data.input, self.data.x, self.data.y, beta=1.5, alpha=1.7
-            ),
-            atol=1e-2,
-            rtol=1e-2,
-        )
-
-        self.assertEqual(
-            torch._C._VariableFunctions.relu(
-                torch._C._VariableFunctions.addmm(
-                    self.data.input, self.data.x, self.data.y, alpha=1.7
-                )
-            ),
-            torch.ops.zentorch.zentorch_addmm_relu(
-                self.data.input, self.data.x, self.data.y, alpha=1.7
-            ),
-            atol=1e-2,
-            rtol=1e-2,
-        )
-
-        self.assertEqual(
-            torch._C._VariableFunctions.relu(
-                torch._C._VariableFunctions.addmm(
-                    self.data.input, self.data.x, self.data.y, beta=1.5
-                )
-            ),
-            torch.ops.zentorch.zentorch_addmm_relu(
-                self.data.input, self.data.x, self.data.y, beta=1.5
-            ),
-            atol=1e-2,
-            rtol=1e-2,
-        )
-
-        self.assertEqual(
-            torch._C._VariableFunctions.relu(
-                torch._C._VariableFunctions.addmm(
-                    self.data.input, self.data.x, self.data.y, beta=0.0
-                )
-            ),
-            torch.ops.zentorch.zentorch_addmm_relu(
-                self.data.input, self.data.x, self.data.y, beta=0.0
-            ),
-            atol=1e-2,
-            rtol=1e-2,
-        )
-
-    @MMTestCase.hypothesis_params_mm_itr(dtype_list=supported_dtypes)
     def test_addmm_with_zero_alpha(self, dtype):
 
         self.assertEqual(
@@ -299,25 +239,6 @@ class Test_Addmm_Op(MMTestCase):
             torch.ops.zentorch.zentorch_addmm(
                 self.data.input, self.data.x, self.data.y, alpha=0.0
             ),
-        )
-
-    @MMTestCase.hypothesis_params_mm_itr(dtype_list=supported_dtypes)
-    @unittest.skipIf(skip_test_pt_2_0, "Skipping test due to PT2.0 instability")
-    def test_addmm_relu_without_kw(self, dtype):
-        tol = 1e-2 if dtype == "float16" else 1e-5
-
-        # addmm->relu
-        self.assertEqual(
-            torch._C._VariableFunctions.relu(
-                torch._C._VariableFunctions.addmm(
-                    self.data.input, self.data.x, self.data.y
-                )
-            ),
-            torch.ops.zentorch.zentorch_addmm_relu(
-                self.data.input, self.data.x, self.data.y
-            ),
-            atol=tol,
-            rtol=1e-2,
         )
 
 
