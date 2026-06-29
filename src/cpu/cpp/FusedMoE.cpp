@@ -3,6 +3,7 @@
  * All rights reserved.
  ******************************************************************************/
 
+#include "FusedMoE.hpp"
 #include "EnvReader.hpp"
 #include "GroupMatmul.hpp"
 #include "Utils.hpp"

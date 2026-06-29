@@ -804,7 +804,11 @@ make_fallback(torch.ops.zentorch.zentorch_weight_prepack_for_linear)
 # _lowerings.py, so it must NOT go through make_fallback (which would force
 # the slow custom_op_wrapper Python path under cpp_wrapper).
 make_fallback(torch.ops.zentorch.zentorch_group_matmul.out)
-make_fallback(torch.ops.zentorch.zentorch_fused_moe)
+# zentorch_fused_moe is routed through a dedicated AOTI shim
+# (aoti_torch_cpu_zentorch_fused_moe) via register_lowering in _lowerings.py,
+# so it must NOT go through make_fallback (which would force the slow
+# custom_op_wrapper Python path under cpp_wrapper). Its @register_meta above
+# (returning None, since `output` is mutated in place) is still required.
 make_fallback(torch.ops.zentorch.zentorch_woq_repack_weight)
 make_fallback(
     torch.ops.zentorch.zentorch_woq_repack_from_int4pack

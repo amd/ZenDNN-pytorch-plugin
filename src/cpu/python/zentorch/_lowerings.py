@@ -1136,6 +1136,28 @@ class _ZentorchEmbBagFallbackOutBase(_ZentorchEmbBagFallbackBase):
         self.codegen_unbacked_symbol_defs(wrapper)
 
 
+# `_ZentorchEmbBagFallbackOutBase` implements the generic "route a
+# void-returning, output-mutating op to a hand-written AOTI shim" behavior;
+# it has no embedding-bag-specific logic. Alias it under a neutral name so
+# non-embedding ops (e.g. fused MoE) can reuse it without a misleading base.
+_ZentorchVoidShimFallbackOutBase = _ZentorchEmbBagFallbackOutBase
+
+
+class _ZentorchFusedMoe(_ZentorchVoidShimFallbackOutBase):
+    """Lowering for `zentorch_fused_moe` (void return; mutates `output`).
+
+    Routed to the `aoti_torch_cpu_zentorch_fused_moe` C-shim so cpp_wrapper
+    emits a direct call instead of the slow `custom_op_wrapper` Python path.
+    The op's interleaved tensor / optional-tensor / bool / str args are
+    codegened in schema order by the FallbackKernel base, and the `output`
+    `Tensor(a!)` mutation is tracked by FallbackKernel.create. Because the op
+    returns `()`, the base's codegen omits the `&out_handle` that
+    `generate_c_shim_extern_kernel_alloc` would otherwise append.
+    """
+
+    _zen_shim_name = "aoti_torch_cpu_zentorch_fused_moe"
+
+
 class _ZentorchQuantEmbBag(_ZentorchEmbBagFallbackBase):
     _zen_shim_name = "aoti_torch_cpu_zentorch_quant_embedding_bag"
 
@@ -1287,6 +1309,16 @@ register_lowering(
     _shim_routed_handler(
         torch.ops.zentorch.zentorch_horizontal_quant_embedding_bag_group.default,
         _ZentorchHorizontalQuantEmbBagGroupDefault,
+    )
+)
+
+register_lowering(
+    torch.ops.zentorch.zentorch_fused_moe.default,
+    type_promotion_kind=None,
+)(
+    _shim_routed_handler(
+        torch.ops.zentorch.zentorch_fused_moe.default,
+        _ZentorchFusedMoe,
     )
 )
 

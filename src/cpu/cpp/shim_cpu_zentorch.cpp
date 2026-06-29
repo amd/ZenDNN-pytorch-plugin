@@ -4,6 +4,7 @@
  ******************************************************************************/
 #include "shim_cpu_zentorch.hpp"
 #include "DynamicQLinear.hpp"
+#include "FusedMoE.hpp"
 #include "Linear.hpp"
 #include "QLinear.hpp"
 #include "QuantEmbedBag.hpp"
@@ -506,6 +507,30 @@ AOTITorchError aoti_torch_cpu_zentorch_dynamic_qlinear(
         *tensor_handle_to_tensor_pointer(weight_scales),
         pointer_to_optional<at::Tensor>(B), zentorch_op_name);
     *ret0 = new_tensor_handle(std::move(tmp_result));
+  });
+}
+
+// Void-returning, output-mutating op: `output` (Tensor(a!)) is written in
+// place, no return handle. `act` and `zentorch_op_name` arrive as const char*
+// (std::string_view / std::string construct from them implicitly).
+AOTITorchError aoti_torch_cpu_zentorch_fused_moe(
+    AtenTensorHandle output, AtenTensorHandle input, AtenTensorHandle w13,
+    AtenTensorHandle w2, AtenTensorHandle *w13_bias, AtenTensorHandle *w2_bias,
+    AtenTensorHandle topk_weights, AtenTensorHandle topk_id, bool skip_weighted,
+    const char *act, AtenTensorHandle *w13_scales, AtenTensorHandle *w2_scales,
+    const char *zentorch_op_name) {
+  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+    zentorch::zentorch_fused_moe(
+        *tensor_handle_to_tensor_pointer(output),
+        *tensor_handle_to_tensor_pointer(input),
+        *tensor_handle_to_tensor_pointer(w13),
+        *tensor_handle_to_tensor_pointer(w2),
+        pointer_to_optional<at::Tensor>(w13_bias),
+        pointer_to_optional<at::Tensor>(w2_bias),
+        *tensor_handle_to_tensor_pointer(topk_weights),
+        *tensor_handle_to_tensor_pointer(topk_id), skip_weighted, act,
+        pointer_to_optional<at::Tensor>(w13_scales),
+        pointer_to_optional<at::Tensor>(w2_scales), zentorch_op_name);
   });
 }
 
