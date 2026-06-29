@@ -48,8 +48,9 @@ add_dependencies(CPUkernels zendnnl::zendnnl_archive)
 add_dependencies(zentorch CPUkernels zendnnl::zendnnl_archive)
 
 
-# Enable C++17
-target_compile_features(zentorch PUBLIC cxx_std_17)
+# Enable C++20 (PyTorch >= 2.13 headers, e.g. c10/core/AutogradState.h, use
+# C++20 features such as default member initializers for bit-fields).
+target_compile_features(zentorch PUBLIC cxx_std_20)
 
 set_target_properties(zentorch PROPERTIES
                       LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/lib/)
