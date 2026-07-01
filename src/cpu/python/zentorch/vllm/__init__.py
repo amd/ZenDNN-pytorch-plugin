@@ -1060,10 +1060,24 @@ class GatedDeltaNetPatch:
     ``mamba.gdn_linear_attn.GatedDeltaNetAttention``; on 0.22 the module/class
     moved to ``mamba.gdn.qwen_gdn_linear_attn.QwenGatedDeltaNetAttention``
     (resolved in ``layers.gdn.patch``).
+
+    **Disabled by default.** On vLLM 0.23 the in-tree fused CPU GDN kernels are
+    on par with the zentorch replacement, so we skip the override and let the
+    native ``forward_cpu`` run (keeps the rest of the zentorch platform active).
+    Set ``ZENTORCH_GDN=1`` to re-enable the zentorch GDN kernels (active perf
+    work / benchmarking) We are disabling the patch across all versions
+    currently instead of selectively applying for some versions for maintenance
+    purposes.
     """
 
     @classmethod
     def apply(cls) -> bool:
+        if os.environ.get("ZENTORCH_GDN", "0") != "1":
+            logger.debug(
+                "[zentorch] GatedDeltaNet replacement disabled; using native "
+                "CPU GDN (set ZENTORCH_GDN=1 to enable the zentorch kernels)"
+            )
+            return False
         # Import the leaf patch module directly (not via vllm.layers) so the
         # deferred import hook is installed before any vLLM mamba submodule
         # is touched. forward.py (which transitively imports gdn_linear_attn)
