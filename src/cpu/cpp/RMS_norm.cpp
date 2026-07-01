@@ -3,15 +3,20 @@
  * All rights reserved.
  ******************************************************************************/
 
+#include "RMS_norm.hpp"
 #include "MatmulUtils.hpp"
 #include "Ops.hpp"
-#include <ATen/record_function.h>
 
 using namespace zendnnl::interface;
 using namespace zendnnl::lowoha::normalization;
 
 namespace zentorch {
 
+// `input` is a mutable ref because this impl is shared with the in-place
+// add path (`zentorch_add_rms_norm_`), which writes the normalized result
+// back through `input.data_ptr()`. The non-mutating `zentorch_rms_norm`
+// caller passes a cheap non-const alias of `input` (it only reads it in the
+// result path).
 void zentorch_rms_norm_impl(at::Tensor &input, const at::Tensor &weight,
                             const c10::optional<at::Tensor> &result,
                             const c10::optional<at::Tensor> &residual,
@@ -48,12 +53,16 @@ void zentorch_add_rms_norm_(at::Tensor &input, const at::Tensor &weight,
                          zentorch_op_name);
 }
 
-at::Tensor zentorch_rms_norm(at::Tensor &input, const at::Tensor &weight,
+at::Tensor zentorch_rms_norm(const at::Tensor &input, const at::Tensor &weight,
                              const double epsilon,
                              std::string zentorch_op_name) {
   at::Tensor result = at::detail::empty_strided_cpu(
       input.sizes(), input.strides(), input.options());
-  zentorch_rms_norm_impl(input, weight, result, c10::nullopt, epsilon,
+  // The shared impl takes a mutable `input` for its in-place add path; here
+  // (result path) it only reads `input`. Use a cheap non-const alias (shares
+  // the same TensorImpl -- no data copy) instead of casting away constness.
+  at::Tensor input_mut = input;
+  zentorch_rms_norm_impl(input_mut, weight, result, c10::nullopt, epsilon,
                          zentorch_op_name);
   return result;
 }

@@ -1158,6 +1158,31 @@ class _ZentorchFusedMoe(_ZentorchVoidShimFallbackOutBase):
     _zen_shim_name = "aoti_torch_cpu_zentorch_fused_moe"
 
 
+class _ZentorchRmsNorm(_ZentorchEmbBagFallbackBase):
+    """Lowering for `zentorch_rms_norm` (returns a normalized output Tensor).
+
+    Routed to the `aoti_torch_cpu_zentorch_rms_norm` C-shim so cpp_wrapper
+    emits a direct call instead of the slow `custom_op_wrapper` Python path.
+    The `float` epsilon and `str` op-name args are codegened in schema order
+    by the FallbackKernel base.
+    """
+
+    _zen_shim_name = "aoti_torch_cpu_zentorch_rms_norm"
+
+
+class _ZentorchAddRmsNorm(_ZentorchVoidShimFallbackOutBase):
+    """Lowering for `zentorch_add_rms_norm_` (void return; mutates `input`
+    `Tensor(a!)` and `residual` `Tensor(b!)` in place).
+
+    Routed to the `aoti_torch_cpu_zentorch_add_rms_norm_` C-shim. Both mutated
+    args are tracked by FallbackKernel.create from the schema's alias info, and
+    because the op returns `()` the base's codegen omits the `&out_handle` that
+    `generate_c_shim_extern_kernel_alloc` would otherwise append.
+    """
+
+    _zen_shim_name = "aoti_torch_cpu_zentorch_add_rms_norm_"
+
+
 class _ZentorchQuantEmbBag(_ZentorchEmbBagFallbackBase):
     _zen_shim_name = "aoti_torch_cpu_zentorch_quant_embedding_bag"
 
@@ -1319,6 +1344,26 @@ register_lowering(
     _shim_routed_handler(
         torch.ops.zentorch.zentorch_fused_moe.default,
         _ZentorchFusedMoe,
+    )
+)
+
+register_lowering(
+    torch.ops.zentorch.zentorch_rms_norm.default,
+    type_promotion_kind=None,
+)(
+    _shim_routed_handler(
+        torch.ops.zentorch.zentorch_rms_norm.default,
+        _ZentorchRmsNorm,
+    )
+)
+
+register_lowering(
+    torch.ops.zentorch.zentorch_add_rms_norm_.default,
+    type_promotion_kind=None,
+)(
+    _shim_routed_handler(
+        torch.ops.zentorch.zentorch_add_rms_norm_.default,
+        _ZentorchAddRmsNorm,
     )
 )
 

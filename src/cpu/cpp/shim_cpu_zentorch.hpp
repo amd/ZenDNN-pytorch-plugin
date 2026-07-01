@@ -209,6 +209,23 @@ AOTI_TORCH_EXPORT AOTITorchError aoti_torch_cpu_zentorch_fused_moe(
     const char *act, AtenTensorHandle *w13_scales, AtenTensorHandle *w2_scales,
     const char *zentorch_op_name);
 
+// ============================================================================
+// RMS norm. `zentorch_rms_norm` returns a normalized output tensor.
+// `zentorch_add_rms_norm_` is void-returning and mutates two args in place:
+// `input` (Tensor(a!)) and `residual` (Tensor(b!)). Both carry a `float`
+// epsilon and a `str` op-name -- the `str` is not StableIValue-representable,
+// so without these shims cpp_wrapper falls back to the slow
+// `custom_op_wrapper` Python path.
+// ============================================================================
+
+AOTI_TORCH_EXPORT AOTITorchError aoti_torch_cpu_zentorch_rms_norm(
+    AtenTensorHandle input, AtenTensorHandle weight, double epsilon,
+    const char *zentorch_op_name, AtenTensorHandle *ret0);
+
+AOTI_TORCH_EXPORT AOTITorchError aoti_torch_cpu_zentorch_add_rms_norm_(
+    AtenTensorHandle input, AtenTensorHandle weight, AtenTensorHandle residual,
+    double epsilon, const char *zentorch_op_name);
+
 #ifdef __cplusplus
 } // extern "C"
 #endif

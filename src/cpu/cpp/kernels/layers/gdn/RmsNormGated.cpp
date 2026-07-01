@@ -3,6 +3,7 @@
  * All rights reserved.
  ******************************************************************************/
 
+#include "../../../RMS_norm.hpp"
 #include "../../../Utils.hpp"
 
 #include <ATen/ops/sigmoid.h>
@@ -13,11 +14,6 @@
 #include <string>
 
 namespace zentorch {
-
-// Defined in `RMS_norm.cpp`; both end up in libzentorch.so.
-at::Tensor zentorch_rms_norm(at::Tensor &input, const at::Tensor &weight,
-                             const double epsilon,
-                             std::string zentorch_op_name);
 
 at::Tensor zentorch_gdn_rms_norm_gated(const at::Tensor &x,
                                        const at::Tensor &weight,

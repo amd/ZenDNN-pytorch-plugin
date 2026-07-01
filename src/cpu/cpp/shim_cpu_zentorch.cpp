@@ -8,6 +8,7 @@
 #include "Linear.hpp"
 #include "QLinear.hpp"
 #include "QuantEmbedBag.hpp"
+#include "RMS_norm.hpp"
 #include "Utils.hpp"
 #include "WOQ_Linear.hpp"
 #include <ATen/ops/native_layer_norm.h>
@@ -531,6 +532,35 @@ AOTITorchError aoti_torch_cpu_zentorch_fused_moe(
         *tensor_handle_to_tensor_pointer(topk_id), skip_weighted, act,
         pointer_to_optional<at::Tensor>(w13_scales),
         pointer_to_optional<at::Tensor>(w2_scales), zentorch_op_name);
+  });
+}
+
+// RMS norm: tensor-returning. `epsilon` arrives as a C++ double literal from
+// the schema `float` arg; `zentorch_op_name` as const char* (std::string
+// constructs from it implicitly).
+AOTITorchError aoti_torch_cpu_zentorch_rms_norm(AtenTensorHandle input,
+                                                AtenTensorHandle weight,
+                                                double epsilon,
+                                                const char *zentorch_op_name,
+                                                AtenTensorHandle *ret0) {
+  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+    auto tmp_result = zentorch::zentorch_rms_norm(
+        *tensor_handle_to_tensor_pointer(input),
+        *tensor_handle_to_tensor_pointer(weight), epsilon, zentorch_op_name);
+    *ret0 = new_tensor_handle(std::move(tmp_result));
+  });
+}
+
+// Void-returning, output-mutating op: `input` (Tensor(a!)) and `residual`
+// (Tensor(b!)) are written in place, no return handle.
+AOTITorchError aoti_torch_cpu_zentorch_add_rms_norm_(
+    AtenTensorHandle input, AtenTensorHandle weight, AtenTensorHandle residual,
+    double epsilon, const char *zentorch_op_name) {
+  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+    zentorch::zentorch_add_rms_norm_(*tensor_handle_to_tensor_pointer(input),
+                                     *tensor_handle_to_tensor_pointer(weight),
+                                     *tensor_handle_to_tensor_pointer(residual),
+                                     epsilon, zentorch_op_name);
   });
 }
 
