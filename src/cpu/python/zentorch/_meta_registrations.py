@@ -776,7 +776,6 @@ make_fallback(torch.ops.zentorch.zentorch_addmm)
 make_fallback(torch.ops.zentorch.zentorch_addmm_1dbias)
 make_fallback(torch.ops.zentorch.zentorch_mm_silu_mul)
 make_fallback(torch.ops.zentorch.zentorch_embedding_bag)
-make_fallback(torch.ops.zentorch.zentorch_embedding)
 make_fallback(torch.ops.zentorch.zentorch_bmm)
 make_fallback(torch.ops.zentorch.zentorch_bmm.out)
 make_fallback(torch.ops.zentorch.zentorch_baddbmm)
@@ -787,18 +786,11 @@ make_fallback(torch.ops.zentorch.zentorch_mm_gelu_tanh)
 make_fallback(torch.ops.zentorch.zentorch_mm_gelu_erf)
 make_fallback(torch.ops.zentorch.zentorch_horizontal_embedding_bag_group)
 make_fallback(torch.ops.zentorch.zentorch_horizontal_embedding_group)
-# `zentorch_rms_norm`, `zentorch_add_rms_norm_`, (`zentorch_quant_embedding_bag.{default,out}`,
+# `zentorch_rms_norm`, `zentorch_add_rms_norm_`, (`zentorch_quant_embedding_bag.{default,out}`, `zentorch_embedding`,
 # `zentorch_horizontal_quant_embedding_bag_group.{default,out}`), zentorch_dynamic_qlinear and zentorch_fused_moe
 # are routed through dedicated AOTI shims via `register_lowering` in `_lowerings.py` (so cpp_wrapper emits a
 # direct `aoti_torch_cpu_zentorch_*` C-shim call instead of the slow
 # `custom_op_wrapper` Python path); they must NOT go through `make_fallback`.
-# For zentorch_quant_embedding_bag and zentorch_horizontal_quant_embedding_bag_group,
-# the `.default` group overload returns `Tensor[]` (variable-length); its lowering
-# (`_ZentorchHorizontalQuantEmbBagGroupDefault`) overrides codegen to emit
-# `(handle_array, N)` to the shim instead of Inductor's default
-# `&handle_0, ..., &handle_{N-1}`.
-# For zentorch_fused_moe, its @register_meta above
-# (returning None, since `output` is mutated in place) is still required.
 make_fallback(torch.ops.zentorch.zentorch_weight_prepack_for_linear)
 make_fallback(torch.ops.zentorch.zentorch_group_matmul.out)
 make_fallback(torch.ops.zentorch.zentorch_woq_repack_weight)

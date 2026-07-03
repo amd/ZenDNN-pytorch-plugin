@@ -1880,6 +1880,7 @@ class EmbTestCase(Zentorch_TestCase):
         sparse_opt_list=SPARSE_OPT_DEF,
         scale_grad_opt_list=SCALE_GRAD_OPT_DEF,
         tensor_seed=0,
+        time_out=None,
     ):
         skip_reason = None
         if not dtype_list:
@@ -1891,7 +1892,7 @@ class EmbTestCase(Zentorch_TestCase):
                 return unittest.skipIf(True, skip_reason)(function)
 
             @settings(
-                deadline=EmbTestCase.time_out,
+                deadline=EmbTestCase.time_out if time_out is None else time_out,
                 max_examples=EmbTestCase.max_example_per_test,
                 verbosity=Verbosity.quiet,
             )

@@ -4,6 +4,7 @@
  ******************************************************************************/
 #include "shim_cpu_zentorch.hpp"
 #include "DynamicQLinear.hpp"
+#include "Embedding.hpp"
 #include "FusedMoE.hpp"
 #include "Linear.hpp"
 #include "QLinear.hpp"
@@ -547,6 +548,22 @@ AOTITorchError aoti_torch_cpu_zentorch_rms_norm(AtenTensorHandle input,
     auto tmp_result = zentorch::zentorch_rms_norm(
         *tensor_handle_to_tensor_pointer(input),
         *tensor_handle_to_tensor_pointer(weight), epsilon, zentorch_op_name);
+    *ret0 = new_tensor_handle(std::move(tmp_result));
+  });
+}
+
+// Embedding lookup: tensor-returning. `padding_idx` arrives as int64_t, the
+// two flags as bool, and `zentorch_op_name` as const char* (std::string
+// constructs from it implicitly).
+AOTITorchError aoti_torch_cpu_zentorch_embedding(
+    AtenTensorHandle weight, AtenTensorHandle indices, int64_t padding_idx,
+    bool scale_grad_by_freq, bool sparse, const char *zentorch_op_name,
+    AtenTensorHandle *ret0) {
+  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+    auto tmp_result = zentorch::zentorch_embedding(
+        *tensor_handle_to_tensor_pointer(weight),
+        *tensor_handle_to_tensor_pointer(indices), padding_idx,
+        scale_grad_by_freq, sparse, zentorch_op_name);
     *ret0 = new_tensor_handle(std::move(tmp_result));
   });
 }

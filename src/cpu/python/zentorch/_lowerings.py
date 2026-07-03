@@ -1183,6 +1183,24 @@ class _ZentorchAddRmsNorm(_ZentorchVoidShimFallbackOutBase):
     _zen_shim_name = "aoti_torch_cpu_zentorch_add_rms_norm_"
 
 
+class _ZentorchEmbedding(_ZentorchEmbBagFallbackBase):
+    """Lowering for `zentorch_embedding` (returns the gathered output Tensor).
+
+    Routed to the `aoti_torch_cpu_zentorch_embedding` C-shim so cpp_wrapper
+    emits a direct call instead of the slow `custom_op_wrapper` Python path.
+    The `int` padding_idx, two `bool`s and the `str` op-name are codegened in
+    schema order by the FallbackKernel base; there are no optional tensors.
+    """
+
+    _zen_shim_name = "aoti_torch_cpu_zentorch_embedding"
+
+
+# For zentorch_quant_embedding_bag and zentorch_horizontal_quant_embedding_bag_group,
+# the `.default` group overload returns `Tensor[]` (variable-length); its lowering
+# (`_ZentorchHorizontalQuantEmbBagGroupDefault`) overrides codegen to emit
+# `(handle_array, N)` to the shim instead of Inductor's default
+# `&handle_0, ..., &handle_{N-1}`.
+
 class _ZentorchQuantEmbBag(_ZentorchEmbBagFallbackBase):
     _zen_shim_name = "aoti_torch_cpu_zentorch_quant_embedding_bag"
 
@@ -1364,6 +1382,16 @@ register_lowering(
     _shim_routed_handler(
         torch.ops.zentorch.zentorch_add_rms_norm_.default,
         _ZentorchAddRmsNorm,
+    )
+)
+
+register_lowering(
+    torch.ops.zentorch.zentorch_embedding.default,
+    type_promotion_kind=None,
+)(
+    _shim_routed_handler(
+        torch.ops.zentorch.zentorch_embedding.default,
+        _ZentorchEmbedding,
     )
 )
 

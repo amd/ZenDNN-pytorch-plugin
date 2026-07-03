@@ -226,6 +226,18 @@ AOTI_TORCH_EXPORT AOTITorchError aoti_torch_cpu_zentorch_add_rms_norm_(
     AtenTensorHandle input, AtenTensorHandle weight, AtenTensorHandle residual,
     double epsilon, const char *zentorch_op_name);
 
+// ============================================================================
+// Embedding lookup (`zentorch_embedding`). Returns a Tensor; carries `int`,
+// two `bool`s and a `str` arg. The `str` op-name is not StableIValue-
+// representable, so without this shim cpp_wrapper falls back to the slow
+// `custom_op_wrapper` Python path.
+// ============================================================================
+
+AOTI_TORCH_EXPORT AOTITorchError aoti_torch_cpu_zentorch_embedding(
+    AtenTensorHandle weight, AtenTensorHandle indices, int64_t padding_idx,
+    bool scale_grad_by_freq, bool sparse, const char *zentorch_op_name,
+    AtenTensorHandle *ret0);
+
 #ifdef __cplusplus
 } // extern "C"
 #endif

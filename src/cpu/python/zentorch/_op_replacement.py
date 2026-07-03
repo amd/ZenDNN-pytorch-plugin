@@ -39,6 +39,8 @@ def is_embedding_op_replacable(match):
     # - Must use strided (dense) layout (not sparse_coo, sparse_csr, mkldnn, etc.)
 
     # Any other constraints for the tensors will be explicitly mentioned
+    # args[0]/args[1] are always weight/indices, regardless of how many trailing
+    # optional args (padding_idx / scale_grad_by_freq / sparse) are present.
 
     # checks for the argument "weight"
     # Extract the weight tensor node (first argument to embedding)
@@ -70,8 +72,27 @@ def is_embedding_op_replacable(match):
         logger.debug("Cannot replace aten embedding with zentorch embedding.")
         return False
 
-    # Return True only if both weight and indices satisfy all constraints
-    return match.args[1].meta["val"].ndim == 1
+    # All constraints (weight device/layout, indices device/layout/1-D) are
+    # already captured in combined_checks above.
+    return True
+
+
+# aten.embedding -> zentorch_embedding.
+#
+# The pattern matcher requires the pattern's positional arg count to match the
+# node exactly (see _TargetArgsExpr._match). dynamo omits trailing DEFAULT args
+# and emits any non-default padding_idx / scale_grad_by_freq / sparse
+# POSITIONALLY, so aten.embedding appears with 2..5 positional args:
+#     embedding(weight, indices)                                    # all default
+#     embedding(weight, indices, padding_idx)
+#     embedding(weight, indices, padding_idx, scale_grad_by_freq)
+#     embedding(weight, indices, padding_idx, scale_grad_by_freq, sparse)
+# So we register one pattern per arity (mirroring the two-registration idiom
+# used for sdpa below). The 2-arg KeywordArg pattern additionally covers the
+# case where the optional args arrive as kwargs (normalize_function fills the
+# rest from schema defaults). zentorch_embedding shares aten.embedding's
+# positional arg order and defaults (padding_idx=-1, scale_grad_by_freq=False,
+# sparse=False), so the omitted trailing args fall back to matching values.
 
 
 @register_graph_pattern(
@@ -87,6 +108,66 @@ def is_embedding_op_replacable(match):
     extra_check=is_embedding_op_replacable,
 )
 def embedding_replacement(
+    match, weight, indices, padding_idx, scale_grad_by_freq, sparse
+):
+    def repl(weight, indices, padding_idx, scale_grad_by_freq, sparse):
+        counters["zentorch"]["zentorch_embedding"] += 1
+        return zt_ops.zentorch_embedding(
+            weight,
+            indices,
+            padding_idx=padding_idx,
+            scale_grad_by_freq=scale_grad_by_freq,
+            sparse=sparse,
+        )
+
+    match.replace_by_example(
+        repl, [weight, indices, padding_idx, scale_grad_by_freq, sparse]
+    )
+
+
+@register_graph_pattern(
+    CallFunction(at_ops.embedding, Arg(), Arg(), Arg()),
+    pass_dict=pass_pattern,
+    extra_check=is_embedding_op_replacable,
+)
+def embedding_replacement_padding_idx(match, weight, indices, padding_idx):
+    def repl(weight, indices, padding_idx):
+        counters["zentorch"]["zentorch_embedding"] += 1
+        return zt_ops.zentorch_embedding(
+            weight, indices, padding_idx=padding_idx
+        )
+
+    match.replace_by_example(repl, [weight, indices, padding_idx])
+
+
+@register_graph_pattern(
+    CallFunction(at_ops.embedding, Arg(), Arg(), Arg(), Arg()),
+    pass_dict=pass_pattern,
+    extra_check=is_embedding_op_replacable,
+)
+def embedding_replacement_scale_grad(
+    match, weight, indices, padding_idx, scale_grad_by_freq
+):
+    def repl(weight, indices, padding_idx, scale_grad_by_freq):
+        counters["zentorch"]["zentorch_embedding"] += 1
+        return zt_ops.zentorch_embedding(
+            weight,
+            indices,
+            padding_idx=padding_idx,
+            scale_grad_by_freq=scale_grad_by_freq,
+        )
+
+    match.replace_by_example(
+        repl, [weight, indices, padding_idx, scale_grad_by_freq]
+    )
+
+
+@register_graph_pattern(
+    CallFunction(at_ops.embedding, Arg(), Arg(), Arg(), Arg(), Arg()),
+    pass_dict=pass_pattern,
+    extra_check=is_embedding_op_replacable,
+)
+def embedding_replacement_sparse(
     match, weight, indices, padding_idx, scale_grad_by_freq, sparse
 ):
     def repl(weight, indices, padding_idx, scale_grad_by_freq, sparse):

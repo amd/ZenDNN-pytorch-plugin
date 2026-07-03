@@ -3,6 +3,7 @@
  * All rights reserved.
  ******************************************************************************/
 
+#include "Embedding.hpp"
 #include "EmbeddingUtils.hpp"
 #include "EnvReader.hpp"
 
