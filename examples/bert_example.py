@@ -13,7 +13,7 @@ print("\n" + "=" * 10 + " BERT Example Execution Started " + "=" * 10 + "\n")
 
 # Load the IMDB dataset
 print("Loading IMDB dataset")
-dataset = load_dataset("imdb", split="test")
+dataset = load_dataset("stanfordnlp/imdb", split="test")
 print("Sample text from dataset:", dataset[0]['text'])
 
 # Load the tokenizer
