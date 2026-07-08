@@ -22,9 +22,9 @@ if parse(torch_version) < parse("2.11.0"):
         "and retry the build."
     )
 
-if parse(torch_version) < parse("2.12.1"):
+if parse(torch_version) < parse("2.13.0"):
     warnings.warn(
-        "Consider upgrading to torch version 2.12.1 for improved performance.",
+        "Consider upgrading to torch version 2.13.0 for improved performance.",
         stacklevel=1,
     )
 
@@ -158,15 +158,16 @@ def get_tag_commit(base_dir, tag):
 # Define env values
 PACKAGE_NAME = "zentorch"
 # The 4th version component ("plugin patch") is tracked per torch base version
-# (major.minor.micro). zentorch supports only the latest (N) and previous
-# (N-1) torch lines, so this map stays small. A torch base that is not listed
+# (major.minor.micro). zentorch supports the latest (N), previous (N-1), and
+# N-2 torch lines, so this map stays small. A torch base that is not listed
 # defaults to 0, so a brand-new torch release automatically starts at
 # <torch>.0 without a code change. Only bump a value when cutting a follow-up
 # zentorch release for the same torch base.
 _PLUGIN_PATCH_BY_TORCH = {
-    "2.11.0": 3,
-    "2.12.0": 3,
-    "2.12.1": 1,
+    "2.11.0": 2,
+    "2.12.0": 2,
+    "2.12.1": 0,
+    "2.13.0": 0,
 }
 _DEFAULT_PLUGIN_PATCH = 0
 _pt_ver = parse(torch_version)
