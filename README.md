@@ -121,13 +121,25 @@ _zentorch_ supports PyTorch v2.12.0 and v2.11.0. Install the zentorch version ma
 ```bash
 pip uninstall zentorch
 ```
-* Install PyTorch v2.12.0
+* Install PyTorch
+
+For PyTorch 2.12.0
 ```bash
 pip install torch==2.12.0 --index-url https://download.pytorch.org/whl/cpu
 ```
-* Install latest stable zentorch v2.12.0.2
+For PyTorch 2.11.0
+```bash
+pip install torch==2.11.0 --index-url https://download.pytorch.org/whl/cpu
+```
+* Install zentorch
+
+For wheel built with PyTorch 2.12.0
 ```bash
 pip install zentorch==2.12.0.2
+```
+For wheel built with PyTorch 2.11.0
+```bash
+pip install zentorch==2.11.0.2
 ```
 >**Notes:**
 >* Dependent packages 'numpy' and 'torch' will be installed by '_zentorch_' if not already present.
@@ -140,9 +152,15 @@ pip install zentorch==2.12.0.2
 ```bash
 pip uninstall zentorch
 ```
-* Install PyTorch v2.12.0 or v2.11.0
+* Install PyTorch
+
+For PyTorch 2.12.0
 ```bash
 pip install torch==2.12.0 --index-url https://download.pytorch.org/whl/cpu
+```
+For PyTorch 2.11.0
+```bash
+pip install torch==2.11.0 --index-url https://download.pytorch.org/whl/cpu
 ```
 * Install zentorch using the release package.
 
@@ -150,14 +168,21 @@ pip install torch==2.12.0 --index-url https://download.pytorch.org/whl/cpu
 
 > Run the following commands to unzip the package and install the binary.
 
+For package built with PyTorch 2.12.0
 ```bash
-unzip ZENTORCH_V2.12.0.2_Python_v3.10.zip
-cd ZENTORCH_V2.12.0.2_Python_v3.10
+unzip ZENTORCH_v2.12.0.2_Python_v3.10.zip
+cd ZENTORCH_v2.12.0.2_Python_v3.10
 pip install zentorch-2.12.0.2-cp310-cp310-manylinux_2_28_x86_64.whl
+```
+For package built with PyTorch 2.11.0
+```bash
+unzip ZENTORCH_v2.11.0.2_Python_v3.10.zip
+cd ZENTORCH_v2.11.0.2_Python_v3.10
+pip install zentorch-2.11.0.2-cp310-cp310-manylinux_2_28_x86_64.whl
 ```
 >**Notes:**
 >* Dependent packages 'numpy' and 'torch' will be installed by '_zentorch_' if not already present.
->* If you get the error: ImportError: /lib64/libstdc++.so.6: version `GLIBCXX_.a.b.cc' not found (required by <path_to_conda>/envs/<env_name>/lib/python<py_version>/site-packages/zentorch-2.12.0.2-pyx.y-linux-x86_64.egg/zentorch/_C.cpython-xy-x86_64-linux-gnu.so), export LD_PRELOAD as: export LD_PRELOAD=<path_to_conda>/envs/<env_name>/lib/libstdc++.so.6:$LD_PRELOAD
+>* If you get the error: ImportError: /lib64/libstdc++.so.6: version `GLIBCXX_.a.b.cc' not found (required by <path_to_conda>/envs/<env_name>/lib/python<py_version>/site-packages/zentorch-<zentorch-version>-pyx.y-linux-x86_64.egg/zentorch/_C.cpython-xy-x86_64-linux-gnu.so), export LD_PRELOAD as: export LD_PRELOAD=<path_to_conda>/envs/<env_name>/lib/libstdc++.so.6:$LD_PRELOAD
 >* After installation, run the following script for recommended environment settings:
 >```bash
 >source scripts/zentorch_env_setup.sh
@@ -211,8 +236,13 @@ python setup.py bdist_wheel
 >**Note:** The wheel file will be generated in dist folder in ZenDNN-pytorch-plugin directory
 
 #### 2.2.2.5. To install the wheel file of _zentorch_
+For wheel built with PyTorch 2.12.0
 ```bash
 pip install dist/zentorch-2.12.0.2-cp310-cp310-linux_x86_64.whl
+```
+For wheel built with PyTorch 2.11.0
+```bash
+pip install dist/zentorch-2.11.0.2-cp310-cp310-linux_x86_64.whl
 ```
 >**Note:** After installation, run the following script for recommended environment settings:
 >```bash
