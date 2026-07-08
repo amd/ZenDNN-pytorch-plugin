@@ -1294,6 +1294,187 @@ class GatedDeltaNetPatch:
 
 
 # ---------------------------------------------------------------------------
+# CPU KV-cache block zeroing backport (vLLM 0.23-0.24)
+# ---------------------------------------------------------------------------
+#
+# vLLM's scheduler emits `new_block_ids_to_zero`, and the base runner's
+# `_update_states` (inherited by CPUModelRunner from GPUModelRunner) calls
+# `self._zero_block_ids(...)` to wipe freshly (re)allocated KV-cache blocks.
+# The GPU runner zeroes device memory; the released CPU runner (vLLM 0.23-0.24)
+# does not correctly zero the blocks, so recycled/uninitialized KV slots can
+# retain stale NaN/Inf.
+#
+# This is NOT optional on CPU: masking sets the softmax weight of
+# invalid/padding positions to 0, but the P*V numerator still computes
+# `0 * V`. If a recycled slot holds NaN/Inf, `0 * NaN = NaN` poisons the
+# attention output -- observed as broad bf16 accuracy collapse that worsens
+# with smaller VLLM_CPU_KVCACHE_SPACE.
+#
+# The plugin supports only the two most recent vLLM releases (N and N-1), so
+# this backport is scoped to 0.23 and 0.24 (see the @vllm_version decorator on
+# CpuZeroBlockIdsPatch). The native CPU fix should potentially land in vLLM
+# 0.25; drop a version from the decorator once its release ships the fix.
+
+_CPU_ZERO_BLOCK_IDS_HOOK_INSTALLED = False
+
+
+def _zentorch_cpu_zero_block_ids(self, block_ids) -> None:
+    # The base version of this function is present in vLLM mainline here:
+    # /vllm/vllm/v1/worker/cpu_model_runner.py.
+    # It was added to vLLM as part of PR #46202
+    # https://github.com/vllm-project/vllm/commit/1aad1258157b9327a1510f3889b6983d6f10004e
+
+    """CPU-correct replacement for CPUModelRunner._zero_block_ids.
+
+    Self-contained (depends only on the runner's kv_cache_config and
+    static_forward_context) so it can be monkey-patched onto any released
+    CPUModelRunner in the supported range.
+    """
+    if not block_ids:
+        return
+
+    from vllm.v1.kv_cache_interface import FullAttentionSpec
+
+    # Collect the FullAttention KV-cache buffers (block dim == 0 for the CPU
+    # backend: [num_blocks, num_kv_heads, block_size, 2*head_size]). This walk
+    # is repeated on every call, matching upstream vLLM.
+    #
+    # POSSIBLE OPTIMIZATION (currently DISABLED): the buffer set is fixed for
+    # the runner's lifetime -- the buffers are allocated once in
+    # initialize_kv_cache, and only the block *rows* we zero (`block_ids`)
+    # change per call. So this discovery walk returns the same list every time
+    # and could be memoized on `self`, saving the per-step group/layer/
+    # isinstance/data_ptr traversal on the hot path. We keep it disabled for
+    # now to (a) avoid writing a new attribute onto CPUModelRunner, a class
+    # zentorch does not own, and (b) keep this backport behaviorally identical
+    # to upstream and easy to reason about. To re-enable, guard the walk with:
+    #
+    #   caches = getattr(self, "_zentorch_attn_kv_caches_to_zero", None)
+    #   if caches is None:
+    #       ... build `caches` via the loop below ...
+    #       if caches:  # only memoize once buffers are actually allocated
+    #           self._zentorch_attn_kv_caches_to_zero = caches
+    #
+    caches = []
+    seen_ptrs: set[int] = set()
+    static_fwd_ctx = self.compilation_config.static_forward_context
+    for group in self.kv_cache_config.kv_cache_groups:
+        if not isinstance(group.kv_cache_spec, FullAttentionSpec):
+            continue
+        for layer_name in group.layer_names:
+            layer = static_fwd_ctx.get(layer_name)
+            kv = getattr(layer, "kv_cache", None)
+            # Defensive: kv may be a single tensor, a list/tuple of
+            # tensors, None (layer missing), or contain non-tensors.
+            # Dedup by data_ptr AFTER confirming each element is a
+            # tensor (list/None have no .data_ptr()).
+            kv_tensors = kv if isinstance(kv, (list, tuple)) else (kv,)
+            for t in kv_tensors:
+                if not isinstance(t, torch.Tensor):
+                    continue
+                ptr = t.data_ptr()
+                if ptr in seen_ptrs:
+                    continue
+                seen_ptrs.add(ptr)
+                caches.append(t)
+
+    if not caches:
+        return
+
+    idx = torch.as_tensor(block_ids, dtype=torch.long)
+    for kv in caches:
+        kv.index_fill_(0, idx, 0)
+
+
+def _do_patch_cpu_zero_block_ids() -> bool:
+    """Override CPUModelRunner._zero_block_ids with the zentorch backport."""
+    try:
+        from vllm.v1.worker.cpu_model_runner import CPUModelRunner
+    except ImportError:
+        return False
+
+    # Idempotency marker lives on our own replacement function (not as a new
+    # data-field on CPUModelRunner, which zentorch does not own): once patched,
+    # CPUModelRunner._zero_block_ids *is* our function, so we can detect it via
+    # identity. Mirrors CompilationConfigReprPatch's `_zentorch_patched` scheme.
+    if CPUModelRunner._zero_block_ids is _zentorch_cpu_zero_block_ids:
+        return True
+
+    CPUModelRunner._zero_block_ids = _zentorch_cpu_zero_block_ids
+    logger.info(
+        "[zentorch] Patched CPUModelRunner._zero_block_ids "
+        "(KV-cache block zeroing backport, vLLM 0.23-0.24)"
+    )
+    return True
+
+
+class _CpuModelRunnerImportHook:
+    """Post-import hook: patch CPUModelRunner after its module loads."""
+
+    _TARGET_MODULE = "vllm.v1.worker.cpu_model_runner"
+
+    def find_spec(self, fullname, path, target=None):
+        if fullname != self._TARGET_MODULE:
+            return None
+        if self in sys.meta_path:
+            sys.meta_path.remove(self)
+
+        spec = importlib.util.find_spec(fullname)
+        if spec is None or spec.loader is None:
+            return None
+
+        original_exec = spec.loader.exec_module
+
+        def _exec_then_patch(module):
+            original_exec(module)
+            _do_patch_cpu_zero_block_ids()
+
+        spec.loader.exec_module = _exec_then_patch
+        return spec
+
+
+@vllm_version(
+    VLLM_V23,
+    VLLM_V24,
+)
+class CpuZeroBlockIdsPatch:
+    """Backport CPU KV-cache block zeroing (_zero_block_ids) for vLLM 0.23-0.24.
+
+    Released vLLM 0.23-0.24 ship a CPUModelRunner whose _zero_block_ids does
+    not correctly wipe freshly (re)allocated KV-cache blocks, letting stale
+    NaN/Inf in recycled slots poison attention (`0 * NaN = NaN`) and collapse
+    bf16 accuracy. The base GPUModelRunner._update_states already calls
+    _zero_block_ids(scheduler_output.new_block_ids_to_zero), so overriding the
+    method on CPUModelRunner is sufficient.
+
+    The plugin supports only the two most recent vLLM releases (N and N-1), so
+    this patch is gated to 0.23 and 0.24 via the @vllm_version decorator above.
+    The native fix should potentially land in vLLM 0.25; drop a version from the
+    decorator once its release ships the fix natively.
+    """
+
+    @classmethod
+    def apply(cls) -> bool:
+        """Install the patch now if the runner module is already imported,
+        else defer it via an import hook (avoids force-importing the CPU
+        worker stack at plugin-registration time)."""
+        global _CPU_ZERO_BLOCK_IDS_HOOK_INSTALLED
+
+        if _CPU_ZERO_BLOCK_IDS_HOOK_INSTALLED:
+            return True
+
+        if _CpuModelRunnerImportHook._TARGET_MODULE in sys.modules:
+            result = _do_patch_cpu_zero_block_ids()
+        else:
+            sys.meta_path.insert(0, _CpuModelRunnerImportHook())
+            logger.debug("[zentorch] Installed CPUModelRunner import hook")
+            result = True
+
+        _CPU_ZERO_BLOCK_IDS_HOOK_INSTALLED = True
+        return result
+
+
+# ---------------------------------------------------------------------------
 # Registration
 # ---------------------------------------------------------------------------
 
@@ -1321,6 +1502,7 @@ def _register_patches():
     manager.register("FusedMoE", FusedMoEPatch)
     manager.register("GptOssMoEWeightRemap", GptOssMoEWeightRemapPatch)
     manager.register("GatedDeltaNet", GatedDeltaNetPatch)
+    manager.register("CpuZeroBlockIds", CpuZeroBlockIdsPatch)
 
     _REGISTERED = True
 

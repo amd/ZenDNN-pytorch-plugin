@@ -1080,6 +1080,239 @@ class TestGatedDeltaNetPatch(unittest.TestCase):
         )
 
 
+class TestCpuZeroBlockIdsPatch(unittest.TestCase):
+    """CpuZeroBlockIdsPatch must be registered, gated to v0.23-v0.24, and must
+    only patch CPUModelRunner._zero_block_ids once its module is imported.
+
+    These tests load an isolated copy of ``zentorch.vllm`` from source and drive
+    the two code paths of ``CpuZeroBlockIdsPatch.apply()`` directly, so they do
+    not depend on a real ``vllm.v1.worker.cpu_model_runner`` being importable.
+    """
+
+    _TARGET = "vllm.v1.worker.cpu_model_runner"
+
+    def _fresh_module(self):
+        """Return an isolated, executed ``zentorch.vllm`` source module."""
+        spec, zv = _load_source_vllm_module()
+        with mock.patch.dict(sys.modules, {"zentorch.vllm": zv}):
+            spec.loader.exec_module(zv)
+        zv._CPU_ZERO_BLOCK_IDS_HOOK_INSTALLED = False
+        return zv
+
+    @staticmethod
+    def _make_fake_runner_module():
+        """A stand-in ``vllm.v1.worker.cpu_model_runner`` with a CPUModelRunner."""
+        module = types.ModuleType(TestCpuZeroBlockIdsPatch._TARGET)
+
+        class CPUModelRunner:
+            def _zero_block_ids(self, block_ids):
+                raise AssertionError("original _zero_block_ids should be replaced")
+
+        module.CPUModelRunner = CPUModelRunner
+        return module
+
+    @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
+    @unittest.skipUnless(IS_PYTHON_3_10_OR_ABOVE, "vLLM 0.11+ requires Python 3.10+")
+    def test_patch_is_registered(self):
+        """CpuZeroBlockIds should be registered with the manager."""
+        from zentorch.vllm import register
+        from zentorch.vllm._core import manager
+
+        register()
+        self.assertIn("CpuZeroBlockIds", manager.patches)
+
+    def test_patch_targets_v23_and_v24(self):
+        """The @vllm_version decorator should target only v0.23 and v0.24
+        (the two most recent supported releases, N and N-1)."""
+        from zentorch.vllm import CpuZeroBlockIdsPatch
+        from zentorch.vllm._core import (
+            VLLM_V23,
+            VLLM_V24,
+        )
+
+        self.assertTrue(hasattr(CpuZeroBlockIdsPatch, "_target_versions"))
+        self.assertEqual(
+            CpuZeroBlockIdsPatch._target_versions,
+            {
+                VLLM_V23,
+                VLLM_V24,
+            },
+        )
+
+    def test_deferred_path_installs_hook_without_patching(self):
+        """When the runner module is absent, apply() must install a meta-path
+        finder and must NOT patch CPUModelRunner (the deferred/cold path)."""
+        zv = self._fresh_module()
+        from zentorch.vllm import _core as zv_core
+
+        added_finders = []
+        original_meta_path = list(sys.meta_path)
+        try:
+            with (
+                mock.patch.dict(sys.modules, {self._TARGET: None}, clear=False),
+                mock.patch.object(
+                    zv_core, "get_vllm_version", return_value="0.24.0"
+                ),
+                mock.patch.object(
+                    zv, "_do_patch_cpu_zero_block_ids"
+                ) as do_patch,
+            ):
+                # Ensure the target module is genuinely absent.
+                sys.modules.pop(self._TARGET, None)
+
+                result = zv.CpuZeroBlockIdsPatch.apply()
+
+                self.assertTrue(result)
+                do_patch.assert_not_called()
+                added_finders = [
+                    f
+                    for f in sys.meta_path
+                    if isinstance(f, zv._CpuModelRunnerImportHook)
+                ]
+                self.assertEqual(
+                    len(added_finders),
+                    1,
+                    "exactly one CPUModelRunner import hook should be armed",
+                )
+                self.assertTrue(zv._CPU_ZERO_BLOCK_IDS_HOOK_INSTALLED)
+        finally:
+            sys.meta_path[:] = original_meta_path
+
+    def test_eager_path_patches_immediately(self):
+        """When the runner module is already imported, apply() must patch it
+        right away instead of arming the import hook (the eager/hot path)."""
+        zv = self._fresh_module()
+        from zentorch.vllm import _core as zv_core
+
+        fake_module = self._make_fake_runner_module()
+        original_meta_path = list(sys.meta_path)
+        try:
+            with (
+                mock.patch.dict(sys.modules, {self._TARGET: fake_module}),
+                mock.patch.object(
+                    zv_core, "get_vllm_version", return_value="0.24.0"
+                ),
+            ):
+                result = zv.CpuZeroBlockIdsPatch.apply()
+
+            self.assertTrue(result)
+            self.assertIs(
+                fake_module.CPUModelRunner._zero_block_ids,
+                zv._zentorch_cpu_zero_block_ids,
+                "_zero_block_ids should be swapped for the zentorch backport",
+            )
+            armed = [
+                f
+                for f in sys.meta_path
+                if isinstance(f, zv._CpuModelRunnerImportHook)
+            ]
+            self.assertEqual(
+                armed, [], "no import hook should be armed on the eager path"
+            )
+        finally:
+            sys.meta_path[:] = original_meta_path
+
+    def test_do_patch_swaps_and_is_idempotent(self):
+        """_do_patch_cpu_zero_block_ids must swap the method and be idempotent."""
+        zv = self._fresh_module()
+        fake_module = self._make_fake_runner_module()
+
+        with mock.patch.dict(sys.modules, {self._TARGET: fake_module}):
+            first = zv._do_patch_cpu_zero_block_ids()
+            self.assertTrue(first)
+            self.assertIs(
+                fake_module.CPUModelRunner._zero_block_ids,
+                zv._zentorch_cpu_zero_block_ids,
+            )
+
+            # Second call is a no-op that still reports success (identity check).
+            second = zv._do_patch_cpu_zero_block_ids()
+            self.assertTrue(second)
+            self.assertIs(
+                fake_module.CPUModelRunner._zero_block_ids,
+                zv._zentorch_cpu_zero_block_ids,
+            )
+
+    def test_do_patch_is_safe_noop_when_module_unimportable(self):
+        """If the runner module cannot be imported, _do_patch must return False
+        rather than raising (GPU-only / partial installs)."""
+        import builtins
+
+        zv = self._fresh_module()
+        real_import = builtins.__import__
+
+        def fake_import(name, *args, **kwargs):
+            if name == self._TARGET:
+                raise ImportError("simulated missing CPU worker module")
+            return real_import(name, *args, **kwargs)
+
+        with mock.patch.dict(sys.modules):
+            sys.modules.pop(self._TARGET, None)
+            with mock.patch.object(builtins, "__import__", side_effect=fake_import):
+                self.assertFalse(zv._do_patch_cpu_zero_block_ids())
+
+    def test_import_hook_runs_patch_after_module_executes(self):
+        """The finder must execute the real module body BEFORE patching, remove
+        itself from sys.meta_path, and trigger the patch via exec_module."""
+        zv = self._fresh_module()
+
+        call_order = []
+        fake_module = self._make_fake_runner_module()
+
+        def fake_exec(module):
+            call_order.append("exec")
+
+        fake_loader = mock.Mock()
+        fake_loader.exec_module = fake_exec
+        fake_spec = types.SimpleNamespace(loader=fake_loader)
+
+        hook = zv._CpuModelRunnerImportHook()
+        original_meta_path = list(sys.meta_path)
+        sys.meta_path.insert(0, hook)
+        try:
+            with (
+                mock.patch.object(
+                    zv.importlib.util, "find_spec", return_value=fake_spec
+                ),
+                mock.patch.object(
+                    zv,
+                    "_do_patch_cpu_zero_block_ids",
+                    side_effect=lambda: call_order.append("patch"),
+                ),
+            ):
+                returned_spec = hook.find_spec(self._TARGET, None, None)
+
+                self.assertIs(returned_spec, fake_spec)
+                self.assertNotIn(
+                    hook, sys.meta_path, "finder must remove itself (one-shot)"
+                )
+
+                # Simulate the import machinery invoking the wrapped loader.
+                returned_spec.loader.exec_module(fake_module)
+
+            self.assertEqual(
+                call_order,
+                ["exec", "patch"],
+                "real module body must execute before the patch runs",
+            )
+        finally:
+            sys.meta_path[:] = original_meta_path
+
+    def test_import_hook_ignores_other_modules(self):
+        """find_spec must return None (defer to normal machinery) for unrelated
+        module names and must not remove itself for those."""
+        zv = self._fresh_module()
+
+        hook = zv._CpuModelRunnerImportHook()
+        original_meta_path = list(sys.meta_path)
+        sys.meta_path.insert(0, hook)
+        try:
+            self.assertIsNone(hook.find_spec("some.other.module", None, None))
+            self.assertIn(hook, sys.meta_path)
+        finally:
+            sys.meta_path[:] = original_meta_path
+
+
 # =============================================================================
 # Test Runner
 # =============================================================================
@@ -1104,6 +1337,7 @@ def run_tests():
     suite.addTests(loader.loadTestsFromTestCase(TestCPURunnerShutdownPatch))
     suite.addTests(loader.loadTestsFromTestCase(TestGptOssMoEWeightRemapPatch))
     suite.addTests(loader.loadTestsFromTestCase(TestGatedDeltaNetPatch))
+    suite.addTests(loader.loadTestsFromTestCase(TestCpuZeroBlockIdsPatch))
 
     runner = unittest.TextTestRunner(verbosity=2)
     result = runner.run(suite)
