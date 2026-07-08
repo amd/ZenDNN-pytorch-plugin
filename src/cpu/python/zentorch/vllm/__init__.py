@@ -66,6 +66,24 @@ from zentorch.vllm._torchao_int8_patch import (  # noqa: E402, F401
 from zentorch.vllm._moe_class import (  # noqa: E402, F401
     _apply_torchao_moe_patch_impl,
 )
+from zentorch.vllm._int8_moe_patch import (  # noqa: E402, F401
+    _apply_int8_moe_patch_impl,
+)
+from zentorch.vllm._gptoss_moe_loader_patch import (  # noqa: E402, F401
+    _apply_gptoss_loader_patch_impl,
+)
+from zentorch.vllm._mixtral_moe_loader_patch import (  # noqa: E402, F401
+    _apply_mixtral_loader_patch_impl,
+)
+from zentorch.vllm._moe_runner_compile_patch import (  # noqa: E402, F401
+    _apply_moe_runner_compile_patch_impl,
+)
+from zentorch.vllm._moe_topk_cpu_patch import (  # noqa: E402, F401
+    _apply_moe_topk_cpu_patch_impl,
+)
+from zentorch.vllm._cpu_worker_workspace_patch import (  # noqa: E402, F401
+    _apply_cpu_worker_workspace_patch_impl,
+)
 
 logger = get_logger(__name__)
 
@@ -253,6 +271,79 @@ class TorchAOPatch:
 # ---------------------------------------------------------------------------
 # Patches (all versions)
 # ---------------------------------------------------------------------------
+
+
+@vllm_version(VLLM_V22_1, VLLM_V23, VLLM_V24)
+class Int8MoEPatch:
+    """Route compressed-tensors W8A8 INT8 fused-MoE through zentorch.
+
+    Out-of-tree equivalent of the in-tree ``[CPU][Zen] Route Int8 MoE`` change:
+    monkey-patches ``CompressedTensorsW8A8Int8MoEMethod`` so no vLLM source
+    changes are needed. See ``_int8_moe_patch.py``.
+    """
+
+    @classmethod
+    def apply(cls) -> bool:
+        return _apply_int8_moe_patch_impl()
+
+
+@vllm_version(VLLM_V22_1, VLLM_V23, VLLM_V24)
+class GptOssMoELoaderPatch:
+    """GPT-OSS per-expert compressed-tensors W8A8 checkpoint loading (OOT).
+
+    Routes ``experts.experts.N.{w1,w3,w2}_*`` keys into the stacked params so
+    gpt-oss W8A8 loads without vLLM source changes. See
+    ``_gptoss_moe_loader_patch.py``.
+    """
+
+    @classmethod
+    def apply(cls) -> bool:
+        return _apply_gptoss_loader_patch_impl()
+
+
+@vllm_version(VLLM_V22_1, VLLM_V23, VLLM_V24)
+class MixtralMoELoaderPatch:
+    """Mixtral per-expert compressed-tensors W8A8 checkpoint loading (OOT).
+
+    Adds gate_proj/up_proj/down_proj naming to MixtralModel.get_expert_mapping
+    so LLM-Compressor W8A8 checkpoints load. See ``_mixtral_moe_loader_patch.py``.
+    """
+
+    @classmethod
+    def apply(cls) -> bool:
+        return _apply_mixtral_loader_patch_impl()
+
+
+@vllm_version(VLLM_V22_1, VLLM_V23, VLLM_V24)
+class MoERunnerCompilePatch:
+    """Route CPU FusedMoE through the opaque ``moe_forward`` custom op so
+    aot_compile treats it as one node (torch.compile-safe). See
+    ``_moe_runner_compile_patch.py``."""
+
+    @classmethod
+    def apply(cls) -> bool:
+        return _apply_moe_runner_compile_patch_impl()
+
+
+@vllm_version(VLLM_V22_1, VLLM_V23, VLLM_V24)
+class MoETopkCpuPatch:
+    """Register a CPU implementation for the ``_moe_C`` top-k router ops so the
+    MoE router works on CPU. See ``_moe_topk_cpu_patch.py``."""
+
+    @classmethod
+    def apply(cls) -> bool:
+        return _apply_moe_topk_cpu_patch_impl()
+
+
+@vllm_version(VLLM_V22_1, VLLM_V23, VLLM_V24)
+class CpuWorkerWorkspacePatch:
+    """Initialize the modular-kernel workspace manager on the CPU worker so
+    modular MoE kernels can allocate scratch. See
+    ``_cpu_worker_workspace_patch.py``."""
+
+    @classmethod
+    def apply(cls) -> bool:
+        return _apply_cpu_worker_workspace_patch_impl()
 
 
 @vllm_version_range(min_ver=VLLM_MIN_VERSION, max_ver=VLLM_MAX_VERSION)
@@ -1218,6 +1309,12 @@ def _register_patches():
     manager.register("CompilationConfigRepr", CompilationConfigReprPatch)
     manager.register("CPUProfiler", CPUProfilerPatch)
     manager.register("TorchAO", TorchAOPatch)
+    manager.register("Int8MoE", Int8MoEPatch)
+    manager.register("GptOssMoELoader", GptOssMoELoaderPatch)
+    manager.register("MixtralMoELoader", MixtralMoELoaderPatch)
+    manager.register("MoERunnerCompile", MoERunnerCompilePatch)
+    manager.register("MoETopkCpu", MoETopkCpuPatch)
+    manager.register("CpuWorkerWorkspace", CpuWorkerWorkspacePatch)
     manager.register("RMSNorm", RMSNormPatch)
     manager.register("CppIndirectAssert", CppIndirectAssertPatch)
     manager.register("CPURunnerShutdown", CPURunnerShutdownPatch)
