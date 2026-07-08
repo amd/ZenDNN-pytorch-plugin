@@ -156,6 +156,30 @@ jobs:
           echo ""
         shell: bash
 
+      - name: Report pending status to triggering repo(s)
+        if: github.event_name == 'repository_dispatch'
+        shell: bash
+        run: |
+          # Post an early "pending" commit status (with a link to this run) onto the
+          # triggering PR head SHA. This lets downstream notifications resolve the
+          # ZenTorch build link by commit SHA while it is still in progress. The
+          # final success/failure status (posted at the end) reuses the same context.
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          post_pending () {
+            local repo="$1"; local sha="$2"
+            if [ -n "$sha" ]; then
+              echo "Posting pending status to ${repo} @ ${sha}"
+              curl -s -X POST \
+                -H "Accept: application/vnd.github.v3+json" \
+                -H "Authorization: token ${{ secrets.ZIAIE_PAT }}" \
+                "https://api.github.com/repos/${repo}/statuses/${sha}" \
+                -d "{\"state\":\"pending\",\"target_url\":\"${RUN_URL}\",\"context\":\"${{ github.repository }} CI\",\"description\":\"${{ github.repository }} build started\"}"
+            fi
+          }
+          post_pending "AMD-Zenai/ZenDNN" "${{ github.event.client_payload.zendnnl_ref_sha }}"
+          post_pending "AMD-Zenai/ZenDNN" "${{ github.event.client_payload.zendnn_ref_sha }}"
+          post_pending "AMD-Zenai/ZenDNN_tools" "${{ github.event.client_payload.zendnntools_ref_sha }}"
+
       - name: Checkout ZenDNN_PyTorch_Plugin
         uses: actions/checkout@v6
         with:
@@ -775,7 +799,11 @@ jobs:
           if [ "${{ job.status }}" != "success" ]; then
             state="failure"
           fi
-          
+
+          # Link the status back to THIS ZenTorch run so downstream notifications can
+          # resolve the exact build by commit SHA (deterministic correlation).
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
           # Use original SHA for status reporting (before rebase)
           REPORT_SHA="${{ github.event.client_payload.zendnnl_ref_sha }}"
           if [ -n "${ORIGINAL_ZENDNN_SHA:-}" ]; then
@@ -788,7 +816,7 @@ jobs:
               -H "Accept: application/vnd.github.v3+json" \
               -H "Authorization: token ${{ secrets.ZIAIE_PAT }}" \
               "https://api.github.com/repos/AMD-Zenai/ZenDNN/statuses/$REPORT_SHA" \
-              -d "{\"state\":\"${state}\",\"context\":\"${{ github.repository }} CI\",\"description\":\"${{ github.repository }} ${state}\"}"
+              -d "{\"state\":\"${state}\",\"target_url\":\"${RUN_URL}\",\"context\":\"${{ github.repository }} CI\",\"description\":\"${{ github.repository }} ${state}\"}"
           else
             echo "No ZenDNN SHA to report status to"
           fi
@@ -801,7 +829,9 @@ jobs:
           if [ "${{ job.status }}" != "success" ]; then
             state="failure"
           fi
-          
+
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
           REPORT_SHA="${{ github.event.client_payload.zendnntools_ref_sha }}"
           
           if [ -n "$REPORT_SHA" ]; then
@@ -810,7 +840,7 @@ jobs:
               -H "Accept: application/vnd.github.v3+json" \
               -H "Authorization: token ${{ secrets.ZIAIE_PAT }}" \
               "https://api.github.com/repos/AMD-Zenai/ZenDNN_tools/statuses/$REPORT_SHA" \
-              -d "{\"state\":\"${state}\",\"context\":\"${{ github.repository }} CI\",\"description\":\"${{ github.repository }} ${state}\"}"
+              -d "{\"state\":\"${state}\",\"target_url\":\"${RUN_URL}\",\"context\":\"${{ github.repository }} CI\",\"description\":\"${{ github.repository }} ${state}\"}"
           else
             echo "No ZenDNN_tools SHA to report status to"
           fi
