@@ -164,9 +164,9 @@ PACKAGE_NAME = "zentorch"
 # <torch>.0 without a code change. Only bump a value when cutting a follow-up
 # zentorch release for the same torch base.
 _PLUGIN_PATCH_BY_TORCH = {
-    "2.11.0": 2,
-    "2.12.0": 2,
-    "2.12.1": 0,
+    "2.11.0": 3,
+    "2.12.0": 3,
+    "2.12.1": 1,
 }
 _DEFAULT_PLUGIN_PATCH = 0
 _pt_ver = parse(torch_version)

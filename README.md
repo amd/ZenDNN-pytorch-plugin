@@ -45,11 +45,11 @@ Table of Contents
 
 ## 1.1. Overview
 
-__The latest  ZenDNN Plugin for PyTorch* (zentorch) [2.12.1.0] is here__
+__The latest  ZenDNN Plugin for PyTorch* (zentorch) [2.12.1.1] is here__
 
 The ZenDNN plugin for PyTorch is called zentorch.
 
-zentorch 2.12.1.0 plugin is the PyTorch plugin which comes with ZenDNN 6.0.0.
+zentorch 2.12.1.1 plugin is the PyTorch plugin which comes with ZenDNN 6.0.1.
 This upgrade continues the focus on optimizing inference with Recommender Systems and Large Language Models on AMD EPYC™ CPUs. It includes AMD EPYC™ enhancements for bfloat16 performance, expanded support for cutting-edge models like Llama 3.2 and 3.3, Microsoft Phi, and more as well as support for a wide-variety of quantization configurations.
 The quantization support included 4-bit weight-only quantization, along with support for INT8 dynamic activation and INT8 weight quantization, and quantized support for the DLRM-v2 model with a mix of 8-bit and 4-bit quantization.
 This also includes support for running generative models with vLLM. This release introduces functional support for running LLMs using float16 precision with vLLM on 6th Gen AMD EPYC™ processors.
@@ -59,7 +59,7 @@ They also incorporate optimized embedding bag kernels and enhanced zenMatMul mat
 
 Combined with PyTorch's torch.compile, zentorch transforms deep learning pipelines into finely-tuned, AMD-specific engines, delivering unparalleled efficiency and speed for large-scale inference workloads
 
-_zentorch_ supports PyTorch v2.12.1 (recommended), v2.12.0, and v2.11.0. Install the zentorch version matching your PyTorch — zentorch 2.12.1.0 for PyTorch v2.12.1, zentorch 2.12.0.2 for PyTorch v2.12.0, or zentorch 2.11.0.2 for PyTorch v2.11.0, offering a high-performance experience for deep learning on AMD EPYC™ platforms.
+_zentorch_ supports PyTorch v2.12.1 (recommended), v2.12.0, and v2.11.0. Install the zentorch version matching your PyTorch — zentorch 2.12.1.1 for PyTorch v2.12.1, zentorch 2.12.0.3 for PyTorch v2.12.0, or zentorch 2.11.0.3 for PyTorch v2.11.0, offering a high-performance experience for deep learning on AMD EPYC™ platforms.
 
 
 ## Support
@@ -112,7 +112,7 @@ Refer to the [support matrix](https://www.amd.com/en/developer/zendnn.html#getti
 # 2. Installation
 
 _zentorch_ can be installed using binary wheel file or can be built from source itself.
-_zentorch_ supports PyTorch v2.12.1 (recommended), v2.12.0, and v2.11.0. Install the zentorch version matching your PyTorch — zentorch v2.12.1.0 for PyTorch v2.12.1, zentorch v2.12.0.2 for PyTorch v2.12.0, or zentorch v2.11.0.2 for PyTorch v2.11.0.
+_zentorch_ supports PyTorch v2.12.1 (recommended), v2.12.0, and v2.11.0. Install the zentorch version matching your PyTorch — zentorch v2.12.1.1 for PyTorch v2.12.1, zentorch v2.12.0.3 for PyTorch v2.12.0, or zentorch v2.11.0.3 for PyTorch v2.11.0.
 
 ## 2.1. From PyPI
 
@@ -125,9 +125,9 @@ pip uninstall zentorch
 ```bash
 pip install torch==2.12.1 --index-url https://download.pytorch.org/whl/cpu
 ```
-* Install latest stable zentorch v2.12.1.0
+* Install latest stable zentorch v2.12.1.1
 ```bash
-pip install zentorch==2.12.1.0
+pip install zentorch==2.12.1.1
 ```
 >**Notes:**
 >* Dependent packages 'numpy' and 'torch' will be installed by '_zentorch_' if not already present.
@@ -183,7 +183,7 @@ python setup.py bdist_wheel
 
 #### 2.2.2.5. To install the wheel file of _zentorch_
 ```bash
-pip install dist/zentorch-2.12.1.0-cp310-cp310-linux_x86_64.whl
+pip install dist/zentorch-2.12.1.1-cp310-cp310-linux_x86_64.whl
 ```
 >**Note:** After installation, run the following script for recommended environment settings:
 >```bash
@@ -365,7 +365,7 @@ TORCH_COMPILE_DEBUG=1 python test.py
 For more information about TORCH_COMPILE_DEBUG refer to the official PyTorch documentation available.
 
 # 6. Performance tuning and Benchmarking
-zentorch v2.12.1.0 plugin is supported with ZenDNN v6.0.0 plugin. Please see the **Tuning Guidelines** section of ZenDNN User Guide for performance tuning. ZenDNN User Guide can be downloaded from [here](https://developer.amd.com/zendnn)
+Please see the **Tuning Guidelines** section of ZenDNN User Guide for performance tuning. ZenDNN User Guide can be downloaded from [here](https://developer.amd.com/zendnn)
 
 # 7. Additional Utilities:
 
