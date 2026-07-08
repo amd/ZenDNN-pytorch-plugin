@@ -39,7 +39,7 @@ jobs:
     runs-on: [amd-zenai-arc-xlarge-dind]
     env:
       PYTHON_VERSION: '3.12'
-      ZENTORCH_VERSION: '2.12.1.0'
+      ZENTORCH_VERSION: '2.12.1.1'
       NATIVE_TORCH_VERSION: '2.12.1'
       UNWANTED_KEYWORDS: 'stackoverflow,MSDN,wiki,microsoft'
       # WORKSPACE and PARENT_DIR will be set dynamically in the steps
