@@ -1051,6 +1051,120 @@ class CPURunnerShutdownPatch:
         return _apply_torch_accelerator_noop_patch()
 
 
+# ---------------------------------------------------------------------------
+# gpt-oss unquantized MoE weight loading fix (vLLM PR #45818)
+# ---------------------------------------------------------------------------
+#
+# Backport of vllm-project/vllm#45818: wrap the `_load_weights_other` loop
+# with `remap_moe_expert_weights(weights, params_dict)` (one upstream line).
+# Required on vLLM 0.24.0 where the FusedMoE refactor introduced
+# `mlp.experts.routed_experts.*` but `_load_weights_other` was not updated.
+# Deferred until `gpt_oss` is imported: at plugin registration the model
+# module is not loaded yet and the eager import fails silently.
+
+_GPT_OSS_DEFERRED_INSTALLED = False
+
+
+def _do_patch_gpt_oss_load_weights() -> bool:
+    """Backport PR #45818: remap MoE expert names in _load_weights_other."""
+    try:
+        from vllm.model_executor.model_loader.weight_utils import (
+            remap_moe_expert_weights,
+        )
+        from vllm.model_executor.models.gpt_oss import GptOssModel
+    except ImportError:
+        logger.debug(
+            "[zentorch] gpt-oss weight remap patch deferred "
+            "(gpt_oss or remap_moe_expert_weights not importable yet)"
+        )
+        return False
+
+    original = GptOssModel._load_weights_other
+    if getattr(original, "_zentorch_gpt_oss_moe_remap_patched", False):
+        return True
+
+    def _patched_load_weights_other(
+        self,
+        ep_rank_end,
+        ep_rank_start,
+        heads_per_rank,
+        head_start,
+        weights,
+        stacked_params_mapping,
+    ):
+        params_dict = dict(self.named_parameters())
+        weights = remap_moe_expert_weights(weights, params_dict)
+        return original(
+            self,
+            ep_rank_end,
+            ep_rank_start,
+            heads_per_rank,
+            head_start,
+            weights,
+            stacked_params_mapping,
+        )
+
+    _patched_load_weights_other._zentorch_gpt_oss_moe_remap_patched = True
+    GptOssModel._load_weights_other = _patched_load_weights_other
+    logger.info(
+        "[zentorch] Patched GptOssModel._load_weights_other "
+        "(vLLM PR #45818 backport)"
+    )
+    return True
+
+
+class _GptOssImportHook:
+    """Apply the gpt-oss weight remap patch when the model module loads."""
+
+    _TARGET_MODULE = "vllm.model_executor.models.gpt_oss"
+
+    def find_spec(self, fullname, path, target=None):
+        if fullname != self._TARGET_MODULE:
+            return None
+        if self in sys.meta_path:
+            sys.meta_path.remove(self)
+
+        spec = importlib.util.find_spec(fullname)
+        if spec is None or spec.loader is None:
+            return None
+
+        original_exec = spec.loader.exec_module
+
+        def _exec_then_patch(module):
+            original_exec(module)
+            _do_patch_gpt_oss_load_weights()
+
+        spec.loader.exec_module = _exec_then_patch
+        return spec
+
+
+def _apply_gpt_oss_load_weights_patch() -> bool:
+    """Install gpt-oss weight remap patch, deferred until gpt_oss loads."""
+    global _GPT_OSS_DEFERRED_INSTALLED
+
+    if _GPT_OSS_DEFERRED_INSTALLED:
+        return True
+
+    if _GptOssImportHook._TARGET_MODULE in sys.modules:
+        result = _do_patch_gpt_oss_load_weights()
+    else:
+        sys.meta_path.insert(0, _GptOssImportHook())
+        logger.debug("[zentorch] Installed gpt_oss weight remap import hook")
+        result = True
+
+    _GPT_OSS_DEFERRED_INSTALLED = True
+    return result
+
+
+@vllm_version(VLLM_V24)
+class GptOssMoEWeightRemapPatch:
+    """Backport vLLM PR #45818 for unquantized gpt-oss MoE weight loading (v0.24.0)."""
+
+    @classmethod
+    def apply(cls) -> bool:
+        return _apply_gpt_oss_load_weights_patch()
+
+
 # GatedDeltaNet (Qwen3.5 / Qwen3-Next) CPU forward override (vLLM PR #41025).
 
 
@@ -1108,6 +1222,7 @@ def _register_patches():
     manager.register("CppIndirectAssert", CppIndirectAssertPatch)
     manager.register("CPURunnerShutdown", CPURunnerShutdownPatch)
     manager.register("FusedMoE", FusedMoEPatch)
+    manager.register("GptOssMoEWeightRemap", GptOssMoEWeightRemapPatch)
     manager.register("GatedDeltaNet", GatedDeltaNetPatch)
 
     _REGISTERED = True

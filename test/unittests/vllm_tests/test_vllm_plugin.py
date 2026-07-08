@@ -296,9 +296,7 @@ class TestVllmPluginVersionCheck(unittest.TestCase):
                 mock.patch.object(zv, "_apply_torchao_int8_tensor_patch_impl"),
                 mock.patch.object(zv, "_register_patches") as register_patches,
                 mock.patch.object(zv.manager, "apply_all") as apply_all,
-                mock.patch.object(
-                    zv, "_install_pre_v18_dispatch_hooks"
-                ) as install_hooks,
+                mock.patch.object(zv, "_install_pre_v18_dispatch_hooks") as install_hooks,
                 mock.patch("zentorch._C.is_avx512_supported", return_value=True),
             ):
                 result = zv.register()
@@ -379,7 +377,9 @@ class TestVllmPluginVersionCheck(unittest.TestCase):
                 mock.patch.object(zv, "_apply_torchao_int8_tensor_patch_impl"),
                 mock.patch.object(zv, "_register_patches") as register_patches,
                 mock.patch.object(zv.manager, "apply_all") as apply_all,
-                mock.patch.object(zv, "_install_pre_v18_dispatch_hooks") as install_hooks,
+                mock.patch.object(
+                    zv, "_install_pre_v18_dispatch_hooks"
+                ) as install_hooks,
                 mock.patch("zentorch._C.is_avx512_supported", return_value=True),
             ):
                 result = zv.register()
@@ -974,6 +974,82 @@ class TestCPURunnerShutdownPatch(unittest.TestCase):
         zv._TORCH_ACCELERATOR_NOOP_APPLIED = False
 
 
+class TestGptOssMoEWeightRemapPatch(unittest.TestCase):
+    """GptOssMoEWeightRemapPatch is registered and gated to v0.24.0 only."""
+
+    @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
+    @unittest.skipUnless(IS_PYTHON_3_10_OR_ABOVE, "vLLM 0.11+ requires Python 3.10+")
+    def test_patch_is_registered(self):
+        from zentorch.vllm import register
+        from zentorch.vllm._core import manager
+
+        register()
+        self.assertIn("GptOssMoEWeightRemap", manager.patches)
+
+    def test_patch_targets_v24_only(self):
+        from zentorch.vllm import GptOssMoEWeightRemapPatch
+        from zentorch.vllm._core import VLLM_V24
+
+        self.assertTrue(hasattr(GptOssMoEWeightRemapPatch, "_target_versions"))
+        self.assertEqual(GptOssMoEWeightRemapPatch._target_versions, {VLLM_V24})
+
+    def test_deferred_patch_applies_when_gpt_oss_imports(self):
+        """Patch installs a deferred loader hook, then patches on gpt_oss import."""
+        spec, zv = _load_source_vllm_module()
+
+        gpt_oss_mod = types.ModuleType("vllm.model_executor.models.gpt_oss")
+
+        class _FakeGptOssModel:
+            @staticmethod
+            def _load_weights_other(*args, **kwargs):
+                return set()
+
+        gpt_oss_mod.GptOssModel = _FakeGptOssModel
+
+        weight_utils_mod = types.ModuleType(
+            "vllm.model_executor.model_loader.weight_utils"
+        )
+
+        def _remap(weights, params_dict):
+            for name, weight in weights:
+                new_name = name.replace(
+                    ".mlp.experts.", ".mlp.experts.routed_experts.", 1
+                )
+                yield new_name, weight
+
+        weight_utils_mod.remap_moe_expert_weights = _remap
+
+        with mock.patch.dict(sys.modules, {"zentorch.vllm": zv}):
+            spec.loader.exec_module(zv)
+            zv._GPT_OSS_DEFERRED_INSTALLED = False
+            sys.meta_path[:] = [
+                h for h in sys.meta_path if not isinstance(h, zv._GptOssImportHook)
+            ]
+
+            applied = zv._apply_gpt_oss_load_weights_patch()
+            self.assertTrue(applied)
+            self.assertTrue(
+                any(isinstance(h, zv._GptOssImportHook) for h in sys.meta_path)
+            )
+
+            with mock.patch.dict(
+                sys.modules,
+                {
+                    "vllm.model_executor.model_loader.weight_utils": weight_utils_mod,
+                    "vllm.model_executor.models.gpt_oss": gpt_oss_mod,
+                },
+            ):
+                self.assertTrue(zv._do_patch_gpt_oss_load_weights())
+
+            self.assertTrue(
+                getattr(
+                    _FakeGptOssModel._load_weights_other,
+                    "_zentorch_gpt_oss_moe_remap_patched",
+                    False,
+                )
+            )
+
+
 class TestGatedDeltaNetPatch(unittest.TestCase):
     """GatedDeltaNetPatch must be registered and gated to v0.21.0 + v0.22.0 + v0.22.1
     + v0.23.0 + v0.24.0."""
@@ -1026,6 +1102,7 @@ def run_tests():
     suite.addTests(loader.loadTestsFromTestCase(TestZentorchOptimizePass))
     suite.addTests(loader.loadTestsFromTestCase(TestCppIndirectAssertPatch))
     suite.addTests(loader.loadTestsFromTestCase(TestCPURunnerShutdownPatch))
+    suite.addTests(loader.loadTestsFromTestCase(TestGptOssMoEWeightRemapPatch))
     suite.addTests(loader.loadTestsFromTestCase(TestGatedDeltaNetPatch))
 
     runner = unittest.TextTestRunner(verbosity=2)
