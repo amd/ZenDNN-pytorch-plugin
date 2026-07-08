@@ -4,10 +4,11 @@
 # ******************************************************************************
 
 
-import torch  # noqa: F401
+import torch
 from torch._inductor import config
 from torch._inductor.custom_graph_pass import CustomGraphPass, get_hash_for_files
 from torch._inductor.fx_utils import FakeTensorUpdater
+import inspect
 
 
 from ._prepack_pass import add_zentorch_weight_prepack_ops
@@ -25,7 +26,18 @@ from ._binary_binary_fusions import zentorch_binary_binary_post_op_fusions
 # function can be removed and we will reuse the old optimize in export as well.
 def optimize_for_export(fx_graph):
     fx_graph = replace_with_zentorch_ops_new(fx_graph)
-    fake_tensor_updater = FakeTensorUpdater(fx_graph)
+    # torch 2.13 changed FakeTensorUpdater to expect the owning GraphModule;
+    # torch <= 2.12 expected the torch.fx.Graph. Inspect the constructor
+    # parameter's TYPE to pass the right object, independent of torch version.
+    expected_arg_type = next(
+        iter(inspect.signature(FakeTensorUpdater).parameters.values())
+    ).annotation
+    if expected_arg_type is torch.fx.GraphModule or (
+        isinstance(expected_arg_type, str) and "GraphModule" in expected_arg_type
+    ):
+        fake_tensor_updater = FakeTensorUpdater(fx_graph.owning_module)
+    else:
+        fake_tensor_updater = FakeTensorUpdater(fx_graph)
     if config.freezing:
         fx_graph = qkv_fusion(fx_graph)
         fake_tensor_updater.incremental_update()

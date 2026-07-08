@@ -8,6 +8,7 @@ import os
 import torch
 from torch._inductor import config
 from torch._inductor.fx_utils import FakeTensorUpdater
+import inspect
 
 # import the custom logging module
 from ._logging import get_logger
@@ -106,7 +107,18 @@ def optimize(fx_graph):
     # Replacing ops with zentorch ops (to be moved down or replaced)
     optimized_graph = replace_with_zentorch_ops(pattern_matched_model)
 
-    fake_tensor_updater = FakeTensorUpdater(optimized_graph)
+    # torch 2.13 changed FakeTensorUpdater to expect the owning GraphModule;
+    # torch <= 2.12 expected the torch.fx.Graph. Inspect the constructor
+    # parameter's TYPE to pass the right object, independent of torch version.
+    expected_arg_type = next(
+        iter(inspect.signature(FakeTensorUpdater).parameters.values())
+    ).annotation
+    if expected_arg_type is torch.fx.GraphModule or (
+        isinstance(expected_arg_type, str) and "GraphModule" in expected_arg_type
+    ):
+        fake_tensor_updater = FakeTensorUpdater(optimized_graph.owning_module)
+    else:
+        fake_tensor_updater = FakeTensorUpdater(optimized_graph)
 
     optimized_graph = replace_with_composite_zentorch_ops(optimized_graph)
 
