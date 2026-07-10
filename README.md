@@ -59,7 +59,7 @@ They also incorporate optimized embedding bag kernels and enhanced zenMatMul mat
 
 Combined with PyTorch's torch.compile, zentorch transforms deep learning pipelines into finely-tuned, AMD-specific engines, delivering unparalleled efficiency and speed for large-scale inference workloads
 
-_zentorch_ supports PyTorch v2.13.0 (recommended), v2.12.1, v2.12.0, and v2.11.0. Install the zentorch version matching your PyTorch — zentorch 2.13.0.0 for PyTorch v2.13.0, zentorch 2.12.1.0 for PyTorch v2.12.1, zentorch 2.12.0.2 for PyTorch v2.12.0, or zentorch 2.11.0.2 for PyTorch v2.11.0, offering a high-performance experience for deep learning on AMD EPYC™ platforms.
+_zentorch_ supports PyTorch v2.13.0 (recommended), v2.12.1, v2.12.0, and v2.11.0. Install the zentorch version matching your PyTorch — zentorch 2.13.0.0 for PyTorch v2.13.0, zentorch 2.12.1.1 for PyTorch v2.12.1, zentorch 2.12.0.3 for PyTorch v2.12.0, or zentorch 2.11.0.3 for PyTorch v2.11.0, offering a high-performance experience for deep learning on AMD EPYC™ platforms.
 
 
 ## Support
@@ -112,7 +112,7 @@ Refer to the [support matrix](https://www.amd.com/en/developer/zendnn.html#getti
 # 2. Installation
 
 _zentorch_ can be installed using binary wheel file or can be built from source itself.
-_zentorch_ supports PyTorch v2.13.0 (recommended), v2.12.1, v2.12.0, and v2.11.0. Install the zentorch version matching your PyTorch — zentorch v2.13.0.0 for PyTorch v2.13.0, zentorch v2.12.1.0 for PyTorch v2.12.1, zentorch v2.12.0.2 for PyTorch v2.12.0, or zentorch v2.11.0.2 for PyTorch v2.11.0.
+_zentorch_ supports PyTorch v2.13.0 (recommended), v2.12.1, v2.12.0, and v2.11.0. Install the zentorch version matching your PyTorch — zentorch v2.13.0.0 for PyTorch v2.13.0, zentorch v2.12.1.1 for PyTorch v2.12.1, zentorch v2.12.0.3 for PyTorch v2.12.0, or zentorch v2.11.0.3 for PyTorch v2.11.0.
 
 ## 2.1. From PyPI
 
@@ -184,7 +184,7 @@ python setup.py bdist_wheel
 
 #### 2.2.2.5. To install the wheel file of _zentorch_
 ```bash
-pip install dist/zentorch-2.12.1.1-cp310-cp310-linux_x86_64.whl
+pip install dist/zentorch-2.13.0.0-cp310-cp310-linux_x86_64.whl
 ```
 >**Note:** After installation, run the following script for recommended environment settings:
 >```bash
