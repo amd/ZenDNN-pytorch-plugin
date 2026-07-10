@@ -107,9 +107,15 @@ def optimize(fx_graph):
     # Replacing ops with zentorch ops (to be moved down or replaced)
     optimized_graph = replace_with_zentorch_ops(pattern_matched_model)
 
-    # torch 2.13 changed FakeTensorUpdater to expect the owning GraphModule;
-    # torch <= 2.12 expected the torch.fx.Graph. Inspect the constructor
-    # parameter's TYPE to pass the right object, independent of torch version.
+    # torch 2.13's FakeTensorUpdater expects the owning GraphModule, while
+    # torch <= 2.12 expected the torch.fx.Graph. We pick what to pass from the
+    # constructor's declared argument type, so this stays correct across torch
+    # versions without a version check.
+    #
+    # The constructor takes a single argument whose NAME differs between versions
+    # ("gm" vs "graph"), so we read its type positionally rather than by name:
+    # inspect.signature() omits "self", and next(iter(params.values())) returns
+    # the first (and only) parameter, whose .annotation is the expected type.
     expected_arg_type = next(
         iter(inspect.signature(FakeTensorUpdater).parameters.values())
     ).annotation
