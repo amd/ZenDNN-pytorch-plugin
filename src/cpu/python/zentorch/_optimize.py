@@ -113,9 +113,7 @@ def optimize(fx_graph):
     expected_arg_type = next(
         iter(inspect.signature(FakeTensorUpdater).parameters.values())
     ).annotation
-    if expected_arg_type is torch.fx.GraphModule or (
-        isinstance(expected_arg_type, str) and "GraphModule" in expected_arg_type
-    ):
+    if expected_arg_type is torch.fx.GraphModule:
         fake_tensor_updater = FakeTensorUpdater(optimized_graph.owning_module)
     else:
         fake_tensor_updater = FakeTensorUpdater(optimized_graph)
