@@ -49,6 +49,7 @@ __The latest  ZenDNN Plugin for PyTorch* (zentorch) [2.13.0.0] is here__
 
 The ZenDNN plugin for PyTorch is called zentorch.
 
+zentorch 2.12.1.1 plugin is the PyTorch plugin which comes with ZenDNN 6.0.1.
 zentorch 2.13.0.0 plugin is the PyTorch plugin which comes with ZenDNN 6.0.2.
 This upgrade continues the focus on optimizing inference with Recommender Systems and Large Language Models on AMD EPYC™ CPUs. It includes AMD EPYC™ enhancements for bfloat16 performance, expanded support for cutting-edge models like Llama 3.2 and 3.3, Microsoft Phi, and more as well as support for a wide-variety of quantization configurations.
 The quantization support included 4-bit weight-only quantization, along with support for INT8 dynamic activation and INT8 weight quantization, and quantized support for the DLRM-v2 model with a mix of 8-bit and 4-bit quantization.
