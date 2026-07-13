@@ -6,7 +6,7 @@ and build, follow this skill.
 **Agent action:** Run this first (foreground, 600000ms timeout):
 
 ```bash
-.claude/scripts/agent.sh setup
+scripts/setup.sh
 ```
 
 If the script succeeds, stop — do not run manual steps below. Use manual steps
@@ -22,7 +22,7 @@ for environment creation, PyTorch versions, and build steps.
 If the user already has an activated Python environment:
 
 ```bash
-.claude/scripts/agent.sh setup
+scripts/setup.sh
 ```
 
 Run in foreground with a long timeout (600000ms). The script validates PyTorch,
@@ -70,21 +70,21 @@ PyTorch version.
 Preferred:
 
 ```bash
-.claude/scripts/agent.sh install-pytorch
+scripts/install_pytorch.sh
 ```
 
 This installs or validates the pinned PyTorch version for the current branch.
 Use `--force` to reinstall unconditionally:
 
 ```bash
-.claude/scripts/agent.sh install-pytorch --force
+scripts/install_pytorch.sh --force
 ```
 
 | Role       | Branch          | Primary PyTorch | Alternate |
 |------------|-----------------|-----------------|-----------|
-| Developer  | `main`          | 2.11.0          | 2.10.0    |
+| Developer  | `main`          | 2.13.0          | 2.12.1, 2.12.0, 2.11.0 |
 | Developer  | `r5.2`          | 2.10.0          | 2.9.1     |
-| End user   | `main`/`master` | 2.11.0          | 2.10.0    |
+| End user   | `main`/`master` | 2.13.0          | 2.12.1, 2.12.0, 2.11.0 |
 | End user   | `r5.2`          | 2.10.0          | 2.9.1     |
 
 > Use Python 3.10 by default (see README). Choose a Python version supported by
@@ -169,7 +169,7 @@ Use the same `<pinned_version>` from Step 2.
 ## Step 8: Verify
 
 ```bash
-.claude/scripts/agent.sh verify
+scripts/verify.sh
 ```
 
 Or manually:
@@ -182,7 +182,7 @@ python -c 'import zentorch; print(zentorch.__version__); print(*zentorch.__confi
 
 ## What's next
 
-- To run tests: `.claude/scripts/agent.sh test` or follow `run-tests.md`
-- To rebuild after code changes: `.claude/scripts/agent.sh build` or
+- To run tests: `scripts/test.sh` or follow `run-tests.md`
+- To rebuild after code changes: `scripts/build.sh` or
   follow `build-from-source.md`
 - To clean the build: `python setup.py clean --all`

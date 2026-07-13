@@ -5,7 +5,7 @@ When the user asks to rebuild or build zentorch from source, follow this skill.
 **Agent action:** Run this first (foreground, 600000ms timeout):
 
 ```bash
-.claude/scripts/agent.sh build
+scripts/build.sh
 ```
 
 If the script succeeds, stop — do not run manual steps below. The script prints
@@ -20,7 +20,7 @@ version and config string on completion.
 With an activated Python environment:
 
 ```bash
-.claude/scripts/agent.sh build
+scripts/build.sh
 ```
 
 Run in foreground with a long timeout (600000ms).
@@ -96,13 +96,13 @@ pip install dist/zentorch-*.whl
 pip install torch==<pinned_version> --index-url https://download.pytorch.org/whl/cpu --force-reinstall --no-deps
 ```
 
-Use the version from `.claude/scripts/agent.sh install-pytorch` / current branch table
+Use the version from `scripts/install_pytorch.sh` / current branch table
 in `setup-env.md`.
 
 ### 5. Verify
 
 ```bash
-.claude/scripts/agent.sh verify
+scripts/verify.sh
 ```
 
 Prints both version and build config string:
@@ -160,7 +160,7 @@ pip install torch==<pinned_version> --index-url https://download.pytorch.org/whl
 ### 5. Verify
 
 ```bash
-.claude/scripts/agent.sh verify
+scripts/verify.sh
 ```
 
 ---

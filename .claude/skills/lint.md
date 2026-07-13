@@ -5,9 +5,9 @@ When the user asks to lint Python, C++, or shell scripts, follow this skill.
 **Agent action:** Run the command matching the requested language:
 
 ```bash
-.claude/scripts/agent.sh lint python
-.claude/scripts/agent.sh lint cpp
-.claude/scripts/agent.sh lint shell
+scripts/lint.sh python
+scripts/lint.sh cpp
+scripts/lint.sh shell
 ```
 
 Use manual steps below only if the script fails.
@@ -17,9 +17,9 @@ Use manual steps below only if the script fails.
 ## Quick path (preferred)
 
 ```bash
-.claude/scripts/agent.sh lint python
-.claude/scripts/agent.sh lint cpp
-.claude/scripts/agent.sh lint shell
+scripts/lint.sh python
+scripts/lint.sh cpp
+scripts/lint.sh shell
 ```
 
 ---
@@ -48,7 +48,7 @@ flake8 --quiet | xargs black --verbose
 ## C++
 
 ```bash
-pip install clang-format   # if git-clang-format is unavailable
+# Requires git-clang-format (LLVM/clang tools) available on PATH.
 git clang-format --commit $(git rev-list HEAD | tail -n 1) --diff
 ```
 
@@ -58,7 +58,7 @@ To apply suggested formatting:
 git clang-format -f
 ```
 
-- C++17 standard, compiled with `-Wall -Werror`
+- C++20 standard, compiled with `-Wall -Werror` (PyTorch 2.13's c10 headers require C++20)
 - Operator bindings live in `src/cpu/cpp/` and `Bindings.cpp`
 
 ---

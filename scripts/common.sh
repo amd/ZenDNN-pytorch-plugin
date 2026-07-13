@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# Shared helpers for zentorch agent workflow scripts.
+# Shared helpers for the zentorch developer/user workflow scripts in scripts/.
+# Meant to be sourced, not executed directly.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 die() {
     echo "ERROR: $*" >&2
@@ -17,6 +18,13 @@ require_repo_root() {
 }
 
 detect_role() {
+    # Allow an explicit override for forks / non-standard remotes.
+    if [[ -n "${ZENTORCH_ROLE:-}" ]]; then
+        case "${ZENTORCH_ROLE}" in
+            developer|end-user) echo "${ZENTORCH_ROLE}"; return 0 ;;
+            *) die "Invalid ZENTORCH_ROLE '${ZENTORCH_ROLE}'. Use 'developer' or 'end-user'." ;;
+        esac
+    fi
     local origin
     origin="$(git remote get-url origin 2>/dev/null || true)"
     if [[ "${origin}" == *"AMD-Zenai"* ]]; then
@@ -40,15 +48,15 @@ detect_pytorch_version() {
     if [[ "${role}" == "developer" ]]; then
         case "${branch}" in
             r5.2) echo "2.10.0" ;;
-            main|*) echo "2.11.0" ;;
+            main|*) echo "2.13.0" ;;
         esac
     elif [[ "${role}" == "end-user" ]]; then
         case "${branch}" in
             r5.2) echo "2.10.0" ;;
-            master|main|*) echo "2.11.0" ;;
+            master|main|*) echo "2.13.0" ;;
         esac
     else
-        echo "2.11.0"
+        [[ "${branch}" == "r5.2" ]] && echo "2.10.0" || echo "2.13.0"
     fi
 }
 
@@ -60,15 +68,15 @@ detect_pytorch_alternates() {
     if [[ "${role}" == "developer" ]]; then
         case "${branch}" in
             r5.2) echo "2.9.1" ;;
-            main|*) echo "2.10.0" ;;
+            main|*) echo "2.12.1 2.12.0 2.11.0" ;;
         esac
     elif [[ "${role}" == "end-user" ]]; then
         case "${branch}" in
             r5.2) echo "2.9.1" ;;
-            master|main|*) echo "2.10.0" ;;
+            master|main|*) echo "2.12.1 2.12.0 2.11.0" ;;
         esac
     else
-        echo "2.10.0"
+        [[ "${branch}" == "r5.2" ]] && echo "2.9.1" || echo "2.12.1 2.12.0 2.11.0"
     fi
 }
 
@@ -139,4 +147,10 @@ ensure_pytorch_cpu() {
 
 verify_zentorch() {
     python -c 'import zentorch; print("zentorch", zentorch.__version__); print(*zentorch.__config__.split("\n"), sep="\n")'
+}
+
+# Print the most recently built zentorch wheel in dist/ (empty if none).
+latest_wheel() {
+    find dist -maxdepth 1 -name 'zentorch-*.whl' -printf '%T@ %p\n' 2>/dev/null \
+        | sort -rn | head -n 1 | cut -d' ' -f2-
 }

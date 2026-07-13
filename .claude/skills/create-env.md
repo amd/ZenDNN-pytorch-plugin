@@ -6,7 +6,7 @@ development, follow this skill.
 **Agent action:** After confirming an active environment (Step 1), run:
 
 ```bash
-.claude/scripts/agent.sh install-pytorch
+scripts/install_pytorch.sh
 ```
 
 Use manual steps below only if the script fails.
@@ -39,7 +39,7 @@ install the pinned CPU build. **Do not install the latest PyTorch.**
 Preferred — run the script:
 
 ```bash
-.claude/scripts/agent.sh install-pytorch
+scripts/install_pytorch.sh
 ```
 
 Manual equivalent:
@@ -51,9 +51,9 @@ git remote get-url origin
 
 | Role       | Origin contains               | Branch  | Primary PyTorch | Alternate   |
 |------------|-------------------------------|---------|-----------------|-------------|
-| Developer  | `AMD-Zenai`                   | `main`  | 2.11.0          | 2.10.0      |
+| Developer  | `AMD-Zenai`                   | `main`  | 2.13.0          | 2.12.1, 2.12.0, 2.11.0 |
 | Developer  | `AMD-Zenai`                   | `r5.2`  | 2.10.0          | 2.9.1       |
-| End user   | `amd/ZenDNN-pytorch-plugin`   | `main`/`master` | 2.11.0  | 2.10.0      |
+| End user   | `amd/ZenDNN-pytorch-plugin`   | `main`/`master` | 2.13.0  | 2.12.1, 2.12.0, 2.11.0 |
 | End user   | `amd/ZenDNN-pytorch-plugin`   | `r5.2`  | 2.10.0          | 2.9.1       |
 
 ```bash
@@ -86,6 +86,6 @@ pip install -r requirements.txt
 
 ## Step 5: Next steps
 
-- **Full setup:** follow `setup-env.md` or run `.claude/scripts/agent.sh setup`
-- **Build only:** follow `build-from-source.md` or run `.claude/scripts/agent.sh build`
-- **Run tests:** follow `run-tests.md` or run `.claude/scripts/agent.sh test`
+- **Full setup:** follow `setup-env.md` or run `scripts/setup.sh`
+- **Build only:** follow `build-from-source.md` or run `scripts/build.sh`
+- **Run tests:** follow `run-tests.md` or run `scripts/test.sh`

@@ -10,18 +10,18 @@
 For routine operations (building, installing, running tests, reading files, etc.), proceed directly without requesting permission.
 
 **Script-first workflows**: When a task matches a skill in `.claude/skills/`, read
-that skill file first, then run the mapped `agent.sh` command before any manual
+that skill file first, then run the mapped `scripts/*.sh` script before any manual
 steps. Only fall back to manual commands if the script fails or the user asks
 for a manual path.
 
 | User intent | Skill file | Run first |
 |-------------|------------|-----------|
-| Prepare Python env / install PyTorch | `create-env.md` | `agent.sh install-pytorch` |
-| Fresh setup and build | `setup-env.md` | `agent.sh setup` |
-| Rebuild from source | `build-from-source.md` | `agent.sh build` |
-| Verify install | any build skill | `agent.sh verify` |
-| Run tests | `run-tests.md` | `agent.sh test [scope]` |
-| Lint code | `lint.md` | `agent.sh lint python`, `cpp`, or `shell` |
+| Prepare Python env / install PyTorch | `create-env.md` | `scripts/install_pytorch.sh` |
+| Fresh setup and build | `setup-env.md` | `scripts/setup.sh` |
+| Rebuild from source | `build-from-source.md` | `scripts/build.sh` |
+| Verify install | any build skill | `scripts/verify.sh` |
+| Run tests | `run-tests.md` | `scripts/test.sh [scope]` |
+| Lint code | `lint.md` | `scripts/lint.sh python`, `cpp`, or `shell` |
 
 Scripts assume an activated Python environment (see
 [README.md §2.2.2.1](README.md#22221-create-conda-environment-for-the-build)).
@@ -46,8 +46,7 @@ cmake/modules/            # ZenDNN fetch/build, dependency wiring
 src/cpu/cpp/              # C++ operator bindings and integration code
 src/cpu/python/zentorch/  # Python package (backend, llm, vllm plugin)
 test/                     # All tests (unittests, llm_tests, pre_trained_model_tests)
-scripts/                  # Environment setup helpers
-.claude/scripts/          # agent.sh workflow entry point + common.sh helpers
+scripts/                  # Env setup helpers + dev workflow scripts (setup/build/verify/test/lint) + common.sh
 .claude/skills/           # Step-by-step agent skill guides
 benchmark/                # Benchmark configs (BERT, DLRM-v2, etc.)
 third_party/              # Auto-populated at build time (ZenDNN)
@@ -62,7 +61,7 @@ third_party/              # Auto-populated at build time (ZenDNN)
 
 ## Branches
 
-- **main** — latest development (supports PyTorch 2.11.0 and 2.10.0)
+- **main** — latest development (supports PyTorch 2.13.0, 2.12.1, 2.12.0, and 2.11.0)
 - **r5.2** — stable release (supports PyTorch 2.10.0 and 2.9.1)
 - **master** (public repo) — weekly development releases
 
@@ -110,29 +109,29 @@ Install test deps: `python test/install_requirements.py`
 | By name pattern   | `python -m unittest discover -s ./test/unittests -k "woq"` |
 | By file pattern   | `python -m unittest discover -s ./test/unittests -p "test_mm*"` |
 
-Or use `.claude/scripts/agent.sh test [scope]`.
+Or use `scripts/test.sh [scope]`.
 
 ## Coding conventions
 
-- C++17 standard, compiled with `-Wall -Werror`
+- C++20 standard, compiled with `-Wall -Werror` (PyTorch 2.13's c10 headers require C++20)
 - Python package lives under `src/cpu/python/zentorch/`
 - Ops are registered via `TORCH_LIBRARY` / `TORCH_LIBRARY_IMPL` macros in `Bindings.cpp`
 - Linting: `.flake8` config in repo root; `linter/py_cpp_linter.sh` for CI checks
 
 ## Scripts
 
-`.claude/scripts/agent.sh` — single entry point (helpers in `common.sh`):
+User-facing workflow scripts under `scripts/` (shared helpers in `scripts/common.sh`):
 
 | Command | Purpose |
 |---------|---------|
-| `agent.sh install-pytorch [--force]` | Install/validate pinned PyTorch CPU |
-| `agent.sh setup` | Full fresh setup: deps, build, install, verify |
-| `agent.sh build` | Rebuild zentorch from source |
-| `agent.sh verify` | Print zentorch version and build config |
-| `agent.sh test [scope]` | Run tests with required env vars |
-| `agent.sh lint python` | flake8 Python lint |
-| `agent.sh lint cpp` | clang-format C++ check |
-| `agent.sh lint shell` | shellcheck on `.sh` files |
+| `scripts/install_pytorch.sh [--force]` | Install/validate pinned PyTorch CPU |
+| `scripts/setup.sh` | Full fresh setup: deps, build, install, verify |
+| `scripts/build.sh` | Rebuild zentorch from source |
+| `scripts/verify.sh` | Print zentorch version and build config |
+| `scripts/test.sh [scope]` | Run tests with required env vars |
+| `scripts/lint.sh python` | flake8 Python lint |
+| `scripts/lint.sh cpp` | clang-format C++ check |
+| `scripts/lint.sh shell` | shellcheck on `.sh` files |
 
 ## Skills
 
