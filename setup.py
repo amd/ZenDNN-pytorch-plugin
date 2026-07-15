@@ -28,6 +28,10 @@ if parse(torch_version) < parse("2.13.0"):
         stacklevel=1,
     )
 
+# torch >= 2.13 c10 headers require C++20 (e.g. default member initializers for
+# bit-fields in AutogradState.h); older supported torch versions build with C++17.
+ZENTORCH_CXX_STANDARD = 20 if parse(torch_version) >= parse("2.13.0") else 17
+
 
 class CustomBuildExtension(BuildExtension):
     def run(self) -> None:
@@ -69,6 +73,7 @@ class CustomBuildExtension(BuildExtension):
             f"-DBUILD_SHARED_LIBS={build_shared_libs}",
             f"-DCMAKE_PREFIX_PATH={torch_cmake_prefix_path}",
             f"-DINSTALL_LIB_DIR={self.build_lib}",
+            f"-DZENTORCH_CXX_STANDARD={ZENTORCH_CXX_STANDARD}",
         ]
 
         # Add compile flags to cmake
