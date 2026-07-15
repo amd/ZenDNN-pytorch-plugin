@@ -32,21 +32,6 @@ installs dependencies, builds, and verifies zentorch (version + config string).
 
 ## Manual fallback
 
-## Step 0: Auto-detect developer vs end user
-
-```bash
-git remote get-url origin
-```
-
-| Origin URL contains           | Role      |
-|-------------------------------|-----------|
-| `AMD-Zenai`                   | Developer |
-| `amd/ZenDNN-pytorch-plugin`   | End user  |
-
-If the remote doesn't match either pattern, ask the user which role applies.
-
----
-
 ## Step 1: Confirm active Python environment
 
 Ask the user which environment to use. Do **not** assume a fixed environment
@@ -80,12 +65,10 @@ Use `--force` to reinstall unconditionally:
 scripts/install_pytorch.sh --force
 ```
 
-| Role       | Branch          | Primary PyTorch | Alternate |
-|------------|-----------------|-----------------|-----------|
-| Developer  | `main`          | 2.13.0          | 2.12.1, 2.12.0, 2.11.0 |
-| Developer  | `r5.2`          | 2.10.0          | 2.9.1     |
-| End user   | `main`/`master` | 2.13.0          | 2.12.1, 2.12.0, 2.11.0 |
-| End user   | `r5.2`          | 2.10.0          | 2.9.1     |
+| Branch          | Primary PyTorch | Alternate              |
+|-----------------|-----------------|------------------------|
+| `main`/`master` | 2.13.0          | 2.12.1, 2.12.0, 2.11.0 |
+| `r5.2`          | 2.10.0          | 2.9.1                  |
 
 > Use Python 3.10 by default (see README). Choose a Python version supported by
 > your branch's PyTorch release per the [PyTorch Release Compatibility Matrix](https://github.com/pytorch/pytorch/blob/main/RELEASE.md#release-compatibility-matrix).
@@ -108,34 +91,9 @@ pip install -r requirements.txt
 
 ---
 
-## Step 5: Developer only — ensure local ZenDNN
+## Step 5: Build zentorch
 
-Skip for end users.
-
-```bash
-ls ../ZenDNN || git clone https://github.com/amd/ZenDNN.git ../ZenDNN
-```
-
-Expected layout:
-
-```
-<parent_dir>/
-  ZenDNN/
-  ZenDNN_PyTorch_Plugin/   # this repo
-```
-
----
-
-## Step 6: Build zentorch
-
-**Developer:**
-
-```bash
-export ZENTORCH_USE_LOCAL_ZENDNN=1
-python setup.py bdist_wheel
-```
-
-**End user:**
+ZenDNN is fetched automatically by cmake — no local ZenDNN checkout needed.
 
 ```bash
 python setup.py bdist_wheel
@@ -148,13 +106,13 @@ timeout (600000ms).
 
 ---
 
-## Step 7: Install the wheel
+## Step 6: Install the wheel
 
 ```bash
 pip install dist/zentorch-*.whl
 ```
 
-### Step 7a: Reinstall pinned PyTorch CPU (if needed)
+### Step 6a: Reinstall pinned PyTorch CPU (if needed)
 
 The wheel may switch PyTorch to a CUDA build. Reinstall the pinned CPU version:
 
@@ -166,7 +124,7 @@ Use the same `<pinned_version>` from Step 2.
 
 ---
 
-## Step 8: Verify
+## Step 7: Verify
 
 ```bash
 scripts/verify.sh

@@ -52,18 +52,14 @@ benchmark/                # Benchmark configs (BERT, DLRM-v2, etc.)
 third_party/              # Auto-populated at build time (ZenDNN)
 ```
 
-## Repos
+## Repo
 
-| Audience   | Repo                                                         |
-|------------|--------------------------------------------------------------|
-| Developer  | `git@github.com:AMD-Zenai/ZenDNN_PyTorch_Plugin.git` (internal) |
-| End user   | `https://github.com/amd/ZenDNN-pytorch-plugin.git` (public)    |
+`https://github.com/amd/ZenDNN-pytorch-plugin.git` (public)
 
 ## Branches
 
-- **main** — latest development (supports PyTorch 2.13.0, 2.12.1, 2.12.0, and 2.11.0)
+- **main**/**master** — latest development (supports PyTorch 2.13.0, 2.12.1, 2.12.0, and 2.11.0)
 - **r5.2** — stable release (supports PyTorch 2.10.0 and 2.9.1)
-- **master** (public repo) — weekly development releases
 
 See README.md for the authoritative PyTorch/Python compatibility matrix.
 
@@ -140,11 +136,8 @@ See `.claude/skills/` for step-by-step guides:
   Refers to README for environment creation. User chooses their own env name.
 - `setup-env.md` — Full fresh setup: validate PyTorch, install deps, build and
   install zentorch. Validates/reinstalls PyTorch even when reusing an env.
-- `build-from-source.md` — Build/rebuild zentorch from source.
-  - Auto-detects developer vs end-user by inspecting `git remote get-url origin`:
-    - `AMD-Zenai` in origin → **developer** path (local ZenDNN + `ZENTORCH_USE_LOCAL_ZENDNN=1`)
-    - `amd/ZenDNN-pytorch-plugin` in origin → **end-user** path (cmake auto-fetches ZenDNN)
-  - Verify step prints both `__version__` and `__config__`.
+- `build-from-source.md` — Build/rebuild zentorch from source. cmake auto-fetches
+  ZenDNN. Verify step prints both `__version__` and `__config__`.
 - `run-tests.md` — Test dependency setup, env vars, and commands for running
   unit tests, LLM tests, pre-trained model tests, or filtered subsets
 - `lint.md` — flake8 (Python), clang-format (C++), and shellcheck (shell scripts)

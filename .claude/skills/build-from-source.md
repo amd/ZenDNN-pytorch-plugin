@@ -42,84 +42,7 @@ for environment creation).
 
 ---
 
-## Step 1: Auto-detect developer vs end user
-
-```bash
-git remote get-url origin
-```
-
-| Origin URL contains           | Role      | Build path        |
-|-------------------------------|-----------|-------------------|
-| `AMD-Zenai`                   | Developer | Local ZenDNN      |
-| `amd/ZenDNN-pytorch-plugin`   | End user  | Auto-fetch ZenDNN |
-
-If the remote doesn't match either pattern, ask the user which path to follow.
-
----
-
-## Developer build (internal repo + local ZenDNN)
-
-### 1. Uninstall existing zentorch
-
-```bash
-pip uninstall zentorch -y
-```
-
-### 2. Pull latest code
-
-```bash
-git pull
-ls ../ZenDNN || git clone https://github.com/amd/ZenDNN.git ../ZenDNN
-cd ../ZenDNN && git pull && cd -
-```
-
-### 3. Build with local ZenDNN
-
-```bash
-export ZENTORCH_USE_LOCAL_ZENDNN=1
-python setup.py bdist_wheel
-```
-
-> For RHEL/Fedora/AlmaLinux/CentOS, also set: `export ZENDNNL_MANYLINUX_BUILD=1`
-
-**IMPORTANT**: Run in foreground (NOT in background) with a long timeout (600000ms).
-
-### 4. Install the wheel
-
-```bash
-pip install dist/zentorch-*.whl
-```
-
-### 4a. Reinstall pinned PyTorch CPU (if needed)
-
-```bash
-pip install torch==<pinned_version> --index-url https://download.pytorch.org/whl/cpu --force-reinstall --no-deps
-```
-
-Use the version from `scripts/install_pytorch.sh` / current branch table
-in `setup-env.md`.
-
-### 5. Verify
-
-```bash
-scripts/verify.sh
-```
-
-Prints both version and build config string:
-
-```bash
-python -c 'import zentorch; print(zentorch.__version__); print(*zentorch.__config__.split("\n"), sep="\n")'
-```
-
-### Build cleanup
-
-```bash
-python setup.py clean --all
-```
-
----
-
-## End-user build (public repo)
+## Build steps
 
 ZenDNN is fetched automatically by cmake — no local ZenDNN checkout needed.
 
@@ -161,6 +84,12 @@ pip install torch==<pinned_version> --index-url https://download.pytorch.org/whl
 
 ```bash
 scripts/verify.sh
+```
+
+### Build cleanup
+
+```bash
+python setup.py clean --all
 ```
 
 ---

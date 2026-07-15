@@ -4,8 +4,6 @@
 # Usage: scripts/setup.sh
 #
 # Requires an activated Python environment (not base); see README section 2.2.2.1.
-# Developer vs end-user is auto-detected from the git remote; override with
-# ZENTORCH_ROLE=developer or ZENTORCH_ROLE=end-user for non-standard remotes.
 #
 # NOTE: the build step can take several minutes; run it in the foreground.
 
@@ -17,18 +15,11 @@ source "${SCRIPT_DIR}/common.sh"
 require_repo_root
 require_active_env
 
-role="$(detect_role)"
-[[ "${role}" != "unknown" ]] || die "Could not detect role from git remote. Set ZENTORCH_ROLE=developer or end-user."
-echo "Detected role: ${role} (branch: $(current_branch))"
+echo "Setting up zentorch (branch: $(current_branch))"
 
 pip uninstall -y zentorch 2>/dev/null || true
 ensure_pytorch_cpu
 pip install -r requirements.txt
-
-if [[ "${role}" == "developer" ]]; then
-    [[ -d ../ZenDNN ]] || git clone https://github.com/amd/ZenDNN.git ../ZenDNN
-    export ZENTORCH_USE_LOCAL_ZENDNN=1
-fi
 
 # Preserve the currently-installed (supported) torch version so the wheel
 # install does not silently switch it; fall back to the pinned version.

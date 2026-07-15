@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared helpers for the zentorch developer/user workflow scripts in scripts/.
+# Shared helpers for the zentorch user workflow scripts in scripts/.
 # Meant to be sourced, not executed directly.
 
 set -euo pipefail
@@ -17,67 +17,26 @@ require_repo_root() {
     [[ -f setup.py ]] || die "Run this script from the zentorch repository."
 }
 
-detect_role() {
-    # Allow an explicit override for forks / non-standard remotes.
-    if [[ -n "${ZENTORCH_ROLE:-}" ]]; then
-        case "${ZENTORCH_ROLE}" in
-            developer|end-user) echo "${ZENTORCH_ROLE}"; return 0 ;;
-            *) die "Invalid ZENTORCH_ROLE '${ZENTORCH_ROLE}'. Use 'developer' or 'end-user'." ;;
-        esac
-    fi
-    local origin
-    origin="$(git remote get-url origin 2>/dev/null || true)"
-    if [[ "${origin}" == *"AMD-Zenai"* ]]; then
-        echo "developer"
-    elif [[ "${origin}" == *"amd/ZenDNN-pytorch-plugin"* ]]; then
-        echo "end-user"
-    else
-        echo "unknown"
-    fi
-}
-
 current_branch() {
     git branch --show-current 2>/dev/null || echo "unknown"
 }
 
 detect_pytorch_version() {
-    local role branch
-    role="$(detect_role)"
+    local branch
     branch="$(current_branch)"
-
-    if [[ "${role}" == "developer" ]]; then
-        case "${branch}" in
-            r5.2) echo "2.10.0" ;;
-            main|*) echo "2.13.0" ;;
-        esac
-    elif [[ "${role}" == "end-user" ]]; then
-        case "${branch}" in
-            r5.2) echo "2.10.0" ;;
-            master|main|*) echo "2.13.0" ;;
-        esac
-    else
-        [[ "${branch}" == "r5.2" ]] && echo "2.10.0" || echo "2.13.0"
-    fi
+    case "${branch}" in
+        r5.2) echo "2.10.0" ;;
+        *) echo "2.13.0" ;;
+    esac
 }
 
 detect_pytorch_alternates() {
-    local role branch
-    role="$(detect_role)"
+    local branch
     branch="$(current_branch)"
-
-    if [[ "${role}" == "developer" ]]; then
-        case "${branch}" in
-            r5.2) echo "2.9.1" ;;
-            main|*) echo "2.12.1 2.12.0 2.11.0" ;;
-        esac
-    elif [[ "${role}" == "end-user" ]]; then
-        case "${branch}" in
-            r5.2) echo "2.9.1" ;;
-            master|main|*) echo "2.12.1 2.12.0 2.11.0" ;;
-        esac
-    else
-        [[ "${branch}" == "r5.2" ]] && echo "2.9.1" || echo "2.12.1 2.12.0 2.11.0"
-    fi
+    case "${branch}" in
+        r5.2) echo "2.9.1" ;;
+        *) echo "2.12.1 2.12.0 2.11.0" ;;
+    esac
 }
 
 active_env_name() {
