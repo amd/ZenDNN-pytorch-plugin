@@ -293,6 +293,24 @@ def reset_dynamo():
     torch._functorch._aot_autograd.autograd_cache.AOTAutogradCache.clear()
 
 
+def compiled_frozen_reference(ref_model, *inputs):
+    """Run a reference nn.Module through torch.compile (Inductor) with freezing.
+
+    Resets Dynamo before compiling and restores the global Inductor
+    ``freezing`` config afterwards so it does not leak into later tests.
+    """
+    reset_dynamo()
+    from torch._inductor import config
+
+    prev_freezing = config.freezing
+    config.freezing = True
+    try:
+        compiled_ref = torch.compile(ref_model.eval(), backend="inductor")
+        return compiled_ref(*inputs)
+    finally:
+        config.freezing = prev_freezing
+
+
 # This function is used to remove fp16 from supported_dtypes
 # if the op is not fp16 capable/op is None
 def update_supported_dtypes(supported_dtypes, op_name=None):

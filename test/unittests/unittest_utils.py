@@ -37,6 +37,7 @@ from zentorch_test_utils import (  # noqa: 402 # noqa: F401
     skip_test_pt_2_3,
     skip_test_pt_2_4,
     reset_dynamo,
+    compiled_frozen_reference,
     freeze_opt,
     freeze_def_opt,
     test_with_freeze_opt,

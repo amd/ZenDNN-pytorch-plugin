@@ -5,6 +5,7 @@
 
 import unittest
 import torch
+from torch import nn
 import sys
 from pathlib import Path
 
@@ -13,6 +14,7 @@ from unittest_utils import (  # noqa: 402
     WOQTestCase,
     has_zentorch,
     run_tests,
+    compiled_frozen_reference,
     woq_dtypes,
     batch_opt,
     in_features_opt,
@@ -22,6 +24,44 @@ from unittest_utils import (  # noqa: 402
     DataTypes,
     Range,
 )
+
+
+# NOTE: Zentorch fused ops are compared against a torch.compile reference model so that
+# torch fuses the linear with its post-ops, giving a fused baseline to validate against.
+class WOQ_Linear_Gelu_Model(nn.Module):
+    """Reference model for WOQ linear + GELU.
+    Args:
+        dq_weight:   Dequantized weight, shape ``(out_features, in_features)``.
+        bias:        Optional additive bias, shape ``(out_features,)``.
+        approximate: GELU approximation mode, ``"none"`` (erf) or ``"tanh"``.
+    """
+
+    def __init__(self, dq_weight, bias=None, approximate="none"):
+        super().__init__()
+        self.register_buffer("dq_weight", dq_weight)
+        self.register_buffer("bias", bias)
+        self.approximate = approximate
+
+    def forward(self, x):
+        out = torch.nn.functional.linear(x, self.dq_weight, self.bias)
+        return torch.nn.functional.gelu(out, approximate=self.approximate)
+
+
+class WOQ_Linear_Add_Add_Model(nn.Module):
+    """Reference model for WOQ linear + add + add.
+    Args:
+        dq_weight: Dequantized weight, shape ``(out_features, in_features)``.
+        bias:      Optional additive bias, shape ``(out_features,)``.
+    """
+
+    def __init__(self, dq_weight, bias=None):
+        super().__init__()
+        self.register_buffer("dq_weight", dq_weight)
+        self.register_buffer("bias", bias)
+
+    def forward(self, x, add_input, add_input_2):
+        out = torch.nn.functional.linear(x, self.dq_weight, self.bias)
+        return out + add_input + add_input_2
 
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
@@ -55,21 +95,11 @@ class Test_WOQLinear(WOQTestCase):
         zero_point = torch.zeros_like(scale, dtype=torch.int8)
         return quantized_weight, scale, zero_point
 
-    # Test Fails while generalising test
-    # Bug has been reported Jira ID: ZENAI-3718
-    # @WOQTestCase.hypothesis_params_woq_itr(
-    #     dtype_opt_list=woq_dtypes,
-    #     batch_opt_list=batch_opt,
-    #     in_features_opt_list=in_features_opt,
-    #     out_features_opt_list=out_features_opt,
-    #     bias_opt_list=woq_bias_opt,
-    #     input_dim_opt_list=input_dim_opt,
-    # )
     @WOQTestCase.hypothesis_params_woq_itr(
         dtype_opt_list=woq_dtypes,
-        batch_opt_list=[24],
-        in_features_opt_list=[64],
-        out_features_opt_list=[48],
+        batch_opt_list=batch_opt,
+        in_features_opt_list=in_features_opt,
+        out_features_opt_list=out_features_opt,
         bias_opt_list=woq_bias_opt,
         input_dim_opt_list=input_dim_opt,
     )
@@ -134,22 +164,12 @@ class Test_WOQLinear(WOQTestCase):
     # plain WOQ linear; use rtol/atol 1e-2 for comparison with dq_output reference.
     _fused_rtol, _fused_atol = 1e-2, 1e-2
 
-    # Test Fails while generalising test
-    # Bug has been reported Jira ID: ZENAI-3720
-    # @WOQTestCase.hypothesis_params_woq_itr(
-    #     dtype_opt_list=woq_dtypes,
-    #     batch_opt_list=batch_opt,
-    #     in_features_opt_list=in_features_opt,
-    #     out_features_opt_list=out_features_opt,
-    #     bias_opt_list=woq_bias_opt,
-    #     input_dim_opt_list=input_dim_opt,
-    # )
     @WOQTestCase.hypothesis_params_woq_itr(
         dtype_opt_list=woq_dtypes,
-        batch_opt_list=[24],
-        in_features_opt_list=[64],
-        out_features_opt_list=[48],
-        bias_opt_list=[False],
+        batch_opt_list=batch_opt,
+        in_features_opt_list=in_features_opt,
+        out_features_opt_list=out_features_opt,
+        bias_opt_list=woq_bias_opt,
         input_dim_opt_list=input_dim_opt,
     )
     @torch.inference_mode()
@@ -160,30 +180,24 @@ class Test_WOQLinear(WOQTestCase):
             input_t, packed_weight_t, scale_t, None, bias_t
         )
         woq_dtype = DataTypes.get_torch_type(self.data.dtype)
-        dq_output = torch.nn.functional.linear(input_t, dq_weight.to(woq_dtype), bias_t)
-        pytorch_result = torch.nn.functional.gelu(dq_output, approximate="tanh")
+
+        ref_model = WOQ_Linear_Gelu_Model(
+            dq_weight.to(woq_dtype), bias_t, approximate="tanh"
+        )
+        pytorch_result = compiled_frozen_reference(ref_model, input_t)
+
         self._assert_woq_fused_output_sanity(zentorch_result, "zentorch_woq_linear_gelu_tanh")
         self.assertTrue(
             torch.allclose(zentorch_result, pytorch_result, rtol=self._fused_rtol, atol=self._fused_atol),
             "zentorch_woq_linear_gelu_tanh does not match dq linear + gelu(tanh).",
         )
 
-    # Test Fails while generalising test
-    # Bug has been reported Jira ID: ZENAI-3719
-    # @WOQTestCase.hypothesis_params_woq_itr(
-    #     dtype_opt_list=woq_dtypes,
-    #     batch_opt_list=batch_opt,
-    #     in_features_opt_list=in_features_opt,
-    #     out_features_opt_list=out_features_opt,
-    #     bias_opt_list=woq_bias_opt,
-    #     input_dim_opt_list=input_dim_opt,
-    # )
     @WOQTestCase.hypothesis_params_woq_itr(
         dtype_opt_list=woq_dtypes,
-        batch_opt_list=[24],
-        in_features_opt_list=[64],
-        out_features_opt_list=[48],
-        bias_opt_list=[False],
+        batch_opt_list=batch_opt,
+        in_features_opt_list=in_features_opt,
+        out_features_opt_list=out_features_opt,
+        bias_opt_list=woq_bias_opt,
         input_dim_opt_list=input_dim_opt,
     )
     @torch.inference_mode()
@@ -194,13 +208,18 @@ class Test_WOQLinear(WOQTestCase):
             input_t, packed_weight_t, scale_t, None, bias_t
         )
         woq_dtype = DataTypes.get_torch_type(self.data.dtype)
-        dq_output = torch.nn.functional.linear(input_t, dq_weight.to(woq_dtype), bias_t)
-        pytorch_result = torch.nn.functional.gelu(dq_output, approximate="none")
+
+        ref_model = WOQ_Linear_Gelu_Model(
+            dq_weight.to(woq_dtype), bias_t, approximate="none"
+        )
+        pytorch_result = compiled_frozen_reference(ref_model, input_t)
+
         self._assert_woq_fused_output_sanity(zentorch_result, "zentorch_woq_linear_gelu_erf")
         self.assertTrue(
             torch.allclose(zentorch_result, pytorch_result, rtol=self._fused_rtol, atol=self._fused_atol),
             "zentorch_woq_linear_gelu_erf does not match dq linear + gelu(erf).",
         )
+
     # Test Fails while generalising test
     # Bug has been reported Jira ID: ZENAI-3714
     # @WOQTestCase.hypothesis_params_woq_itr(
@@ -240,25 +259,14 @@ class Test_WOQLinear(WOQTestCase):
             "zentorch_woq_linear_mul_add does not match dq linear then (out * mul) + add.",
         )
 
-    # Test Fails while generalising test
-    # Bug has been reported Jira ID: ZENAI-3715
-    # @WOQTestCase.hypothesis_params_woq_itr(
-    #     dtype_opt_list=woq_dtypes,
-    #     batch_opt_list=batch_opt,
-    #     in_features_opt_list=in_features_opt,
-    #     out_features_opt_list=out_features_opt,
-    #     bias_opt_list=woq_bias_opt,
-    #     input_dim_opt_list=input_dim_opt,
-    # )
     @WOQTestCase.hypothesis_params_woq_itr(
         dtype_opt_list=woq_dtypes,
-        batch_opt_list=[2, 3, 4],
-        in_features_opt_list=[64],
-        out_features_opt_list=[48],
-        bias_opt_list=[False],
+        batch_opt_list=batch_opt,
+        in_features_opt_list=in_features_opt,
+        out_features_opt_list=out_features_opt,
+        bias_opt_list=woq_bias_opt,
         input_dim_opt_list=input_dim_opt,
-        pRange=Range(1, 3),
-        qRange=Range(1, 3),
+        time_out=20000,
     )
     @torch.inference_mode()
     def test_woq_linear_add_add_accuracy(self):
@@ -270,8 +278,11 @@ class Test_WOQLinear(WOQTestCase):
             input_t, packed_weight_t, scale_t, None, add_input, add_input_2, bias_t
         )
         woq_dtype = DataTypes.get_torch_type(self.data.dtype)
-        dq_output = torch.nn.functional.linear(input_t, dq_weight.to(woq_dtype), bias_t)
-        pytorch_result = dq_output + add_input + add_input_2
+
+        ref_model = WOQ_Linear_Add_Add_Model(dq_weight.to(woq_dtype), bias_t)
+        pytorch_result = compiled_frozen_reference(
+            ref_model, input_t, add_input, add_input_2
+        )
         self._assert_woq_fused_output_sanity(zentorch_result, "zentorch_woq_linear_add_add")
         self.assertTrue(
             torch.allclose(zentorch_result, pytorch_result, rtol=self._fused_rtol, atol=self._fused_atol),
