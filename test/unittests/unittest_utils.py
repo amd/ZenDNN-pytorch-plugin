@@ -25,6 +25,8 @@ from zentorch_test_utils import (  # noqa: 402 # noqa: F401
     run_tests,
     zentorch,
     has_zentorch,
+    has_zentorch_full,
+    has_zentorch_ops,
     counters,
     default_tolerance,
     supported_dtypes,

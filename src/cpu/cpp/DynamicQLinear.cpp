@@ -295,9 +295,4 @@ STABLE_TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
          TORCH_BOX(&zentorch::zentorch_dynamic_qlinear_out));
 }
 
-template bool check_weight_and_infer_is_da8w4<at::Tensor>(const at::Tensor &,
-                                                          const at::Tensor &);
-template bool check_weight_and_infer_is_da8w4<torch::stable::Tensor>(
-    const torch::stable::Tensor &, const torch::stable::Tensor &);
-
 } // namespace zentorch

@@ -147,6 +147,12 @@ torch::stable::Tensor zentorch_weight_prepack_for_dynamic_qlinear(
                                                   get_zendnnl_dtype(src_dtype));
 }
 
+// The cache flush is also exposed as an op, not only through the _C pybind
+// module, because _C links libtorch_python.so and cannot be imported when the
+// portable library is the one that loaded. Callers must be able to flush in
+// both modes: the caches are keyed on the weight's data pointer, so a freed
+// buffer whose address is later reused by a different same-shaped weight
+// scores a stale hit and returns wrong results.
 STABLE_TORCH_LIBRARY_FRAGMENT(zentorch, m) {
   m.def("zentorch_weight_prepack_for_linear(Tensor weight, "
         "str zentorch_op_name='zentorch::zentorch_weight_prepack_for_linear') "
@@ -156,6 +162,7 @@ STABLE_TORCH_LIBRARY_FRAGMENT(zentorch, m) {
         "zentorch_op_name='zentorch::zentorch_weight_prepack_for_dynamic_"
         "qlinear') "
         "-> Tensor");
+  m.def("zentorch_clear_weight_cache() -> ()");
 }
 
 STABLE_TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
@@ -163,6 +170,14 @@ STABLE_TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
          TORCH_BOX(&zentorch::zentorch_weight_prepack_for_linear));
   m.impl("zentorch_weight_prepack_for_dynamic_qlinear",
          TORCH_BOX(&zentorch::zentorch_weight_prepack_for_dynamic_qlinear));
+}
+
+// Keyed on CompositeExplicitAutograd rather than CPU because the schema takes
+// no tensors, so the dispatcher computes an empty key set and needs a
+// backend-agnostic kernel.
+STABLE_TORCH_LIBRARY_IMPL(zentorch, CompositeExplicitAutograd, m) {
+  m.impl("zentorch_clear_weight_cache",
+         TORCH_BOX(&zentorch::clear_zendnn_weight_caches));
 }
 
 } // namespace zentorch

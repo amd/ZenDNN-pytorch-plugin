@@ -56,7 +56,7 @@ Public repo: `https://github.com/amd/ZenDNN-pytorch-plugin.git`
 ```
 setup.py                  # Wheel packaging + CppExtension build entry point
 CMakeLists.txt            # Top-level cmake; builds libzentorch.so
-cmake/modules/            # ZenDNN fetch/build, dependency wiring
+cmake/modules/            # ZenDNN fetch/build, stable-ABI lib, dependency wiring
 src/cpu/cpp/              # C++ operator bindings and integration code
 src/cpu/python/zentorch/  # Python package (backend, llm, vllm plugin)
 test/                     # All tests (unittests, llm_tests, pre_trained_model_tests)
@@ -82,6 +82,8 @@ Two-phase build:
    - Builds ZenDNN as a static archive (`libzendnnl_archive.a`) with all deps
      (oneDNN, libxsmm, fbgemm, aoclutils, aocl-dlp)
    - Compiles `libzentorch.so` linking against ZenDNN and PyTorch
+   - Compiles `libzentorch_stable.so`, the portable stable-ABI library
+     (`cmake/modules/StableAbiLibs.cmake`)
 2. **setuptools phase** (`python setup.py bdist_wheel`):
    - Builds `_C` CppExtension (Bindings.cpp) linking `libzentorch.so`
    - Packages everything into a wheel under `dist/`
@@ -94,6 +96,33 @@ Two-phase build:
 | `ZENDNNL_MANYLINUX_BUILD=1`   | Required for RHEL/Fedora/AlmaLinux/CentOS builds     |
 | `DEBUG=1`                     | Debug build (disables -O2, sets cmake Debug)         |
 | `ZENTORCH_VLLM_PLUGIN_BUILD`  | Set to `0` to skip building vLLM plugin (default: 1) |
+
+## The two native libraries
+
+| Library                  | Ops registered    | Tensor API              | Torch versions |
+|--------------------------|-------------------|-------------------------|----------------|
+| `libzentorch.so`         | all               | ATen + stable           | minor-locked   |
+| `libzentorch_stable.so`  | stable-ABI subset | `torch::stable::Tensor` | portable       |
+
+Only one loads per process, chosen by the torch version check in
+`src/cpu/python/zentorch/__init__.py`, so both may define the same `zentorch::*`
+schemas. `StableAbiLibs.cmake` globs every op source and subtracts the files
+that are not portable yet, so a newly migrated op is included by default.
+
+Any ATen symbol in `libzentorch_stable.so` defeats its purpose and the linker
+will not catch it, since a shared object may leave symbols undefined and ATen
+symbols resolve out of the `libtorch_cpu.so` it already links. Verify with the
+`torch-abi-audit` tool that `test/install_requirements.py` installs:
+
+```bash
+torch-abi-audit -v build/lib.*/zentorch/libzentorch_stable.so
+```
+
+Two consequences for code compiled into it (guarded on `ZENTORCH_STABLE_ABI_LIB`):
+`ZENTORCH_CHECK` becomes `STD_TORCH_CHECK`, and `LOG()` routes to header-only
+sinks in `Utils.hpp` instead of `c10::MessageLogger`. An op that takes no
+tensors must be keyed on `CompositeExplicitAutograd`, not `CPU`, or the
+dispatcher finds no kernel for its empty key set.
 
 ## Testing
 

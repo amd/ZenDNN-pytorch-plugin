@@ -335,8 +335,8 @@ void zendnnl_quantized_matmul_impl(
 
   unsigned long output_stride_unsigned_long =
       static_cast<unsigned long>(output_stride);
-  int64_t nbytes = c10::elementSize(result.scalar_type()) * result_sizes[0] *
-                   output_stride_unsigned_long;
+  int64_t nbytes =
+      result.element_size() * result_sizes[0] * output_stride_unsigned_long;
   std::vector<unsigned long> tensor_aligned_sizes = {
       result_sizes[0], output_stride_unsigned_long};
   set_zendnnl_tensor_attributes(

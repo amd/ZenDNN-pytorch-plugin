@@ -33,14 +33,16 @@ def _check_dual_install():
 _check_dual_install()
 import os  # noqa: E402
 import ctypes  # noqa: E402
+import warnings  # noqa: E402
+import torch  # noqa: E402
 
 from ._build_info import __torchversion__ as buildtime_torchversion  # noqa: E402
 from torch.torch_version import __version__ as runtime_torchversion  # noqa: E402
 
-# Pytorch lacks symbol-level compatibility, requiring extensions
-# to be pinned to the same minor version. To avoid issues, it is
-# necessary to error out if the runtime Pytorch version
-# differs from the build-time version.
+# Pytorch lacks symbol-level compatibility, so libzentorch.so is pinned to the
+# build-time minor version. libzentorch_stable.so carries the stable-ABI subset
+# of the ops and loads in its place when the runtime minor version differs.
+# Exactly one of the two is loaded per process.
 
 
 def _get_minor_version(torch_version):
@@ -58,35 +60,56 @@ def _get_minor_version(torch_version):
 
 _runtime_minor = _get_minor_version(runtime_torchversion)
 _buildtime_minor = _get_minor_version(buildtime_torchversion)
+__stable_abi_only__ = _runtime_minor != _buildtime_minor
 
-if _runtime_minor != _buildtime_minor:
+_lib_dir = os.path.dirname(os.path.abspath(__file__))
+_lib_path = os.path.join(_lib_dir, "libzentorch.so")
+_stable_lib_path = os.path.join(_lib_dir, "libzentorch_stable.so")
+
+if not __stable_abi_only__:
+    # Load libzentorch.so with RTLD_GLOBAL so that AOTI-compiled modules can
+    # find the shim functions (aoti_torch_cpu_zentorch_*).
+    # This MUST happen after `torch` has been imported above: libzentorch.so
+    # references ATen symbols from libtorch_cpu.so, and RTLD_NOW would fail
+    # to resolve them if the torch shared libraries are not yet loaded.
+    if os.path.exists(_lib_path):
+        # The mode parameter must be passed directly to CDLL for RTLD_GLOBAL to work
+        ctypes.CDLL(_lib_path, mode=os.RTLD_GLOBAL | os.RTLD_NOW)
+elif os.path.exists(_stable_lib_path):
+    warnings.warn(
+        f"PyTorch {runtime_torchversion} does not match the zentorch build "
+        f"({_buildtime_minor}.x): loading the stable-ABI ops from "
+        f"libzentorch_stable.so. Rebuild zentorch to get the full backend.",
+        stacklevel=1,
+    )
+    torch.ops.load_library(_stable_lib_path)
+else:
     raise ImportError(
         f"Incompatible PyTorch version {runtime_torchversion} detected. "
         f"The installed zentorch binary is only compatible "
         f"with PyTorch versions {_buildtime_minor}.x"
     )
 
-# Load libzentorch.so with RTLD_GLOBAL so that AOTI-compiled modules can
-# find the shim functions (aoti_torch_cpu_zentorch_*).
-# This MUST happen after `torch` has been imported above: libzentorch.so
-# references ATen symbols from libtorch_cpu.so, and RTLD_NOW would fail
-# to resolve them if the torch shared libraries are not yet loaded.
-_lib_dir = os.path.dirname(os.path.abspath(__file__))
-_lib_path = os.path.join(_lib_dir, "libzentorch.so")
-if os.path.exists(_lib_path):
-    # The mode parameter must be passed directly to CDLL for RTLD_GLOBAL to work
-    ctypes.CDLL(_lib_path, mode=os.RTLD_GLOBAL | os.RTLD_NOW)
+if not __stable_abi_only__:
+    from ._optimize import optimize  # noqa
+    from ._optimize_for_export import export_optimize_pass  # noqa
+    from ._info import __config__, __version__, __source_tag__, __release_type__  # noqa
+    from ._compile_backend import *  # noqa
+    from ._meta_registrations import *  # noqa
+    from ._lowerings import *  # noqa
+    from ._freeze_utils import freezing_enabled  # noqa
+    from . import utils  # noqa F401
+    from . import llm  # noqa F401
+    from ._fp16_capabilities import update_fp16_registry, get_fp16_registry, is_fp16_capable # noqa
 
-from ._optimize import optimize  # noqa
-from ._optimize_for_export import export_optimize_pass  # noqa
-from ._info import __config__, __version__, __source_tag__, __release_type__  # noqa
-from ._compile_backend import *  # noqa
-from ._meta_registrations import *  # noqa
-from ._lowerings import *  # noqa
-from ._freeze_utils import freezing_enabled  # noqa
-from . import utils  # noqa F401
-from . import llm  # noqa F401
-from ._fp16_capabilities import update_fp16_registry, get_fp16_registry, is_fp16_capable # noqa
+    # update the fp16 capabilities registry
+    update_fp16_registry()
+else:
+    # Neither of these depends on which native library loaded: the fp16 registry
+    # is pure Python keyed off an env var, and the version metadata comes from
+    # _build_info. Exporting them here keeps the package's Python surface the
+    # same in both modes, so callers do not have to special-case the mismatch.
+    from ._info import __config__, __version__, __source_tag__, __release_type__  # noqa
+    from ._fp16_capabilities import update_fp16_registry, get_fp16_registry, is_fp16_capable # noqa
 
-# update the fp16 capabilities registry
-update_fp16_registry()
+    update_fp16_registry()

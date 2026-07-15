@@ -69,4 +69,10 @@ void zentorch_woq_linear_binary_binary_out(
     const std::optional<torch::stable::Tensor> &bias,
     std::string zentorch_op_name, torch::stable::Tensor &out);
 
+torch::stable::Tensor
+zentorch_woq_repack_weight(const torch::stable::Tensor &unpacked_weight);
+
+torch::stable::Tensor
+zentorch_woq_repack_from_int4pack(const torch::stable::Tensor &packed_weight);
+
 } // namespace zentorch

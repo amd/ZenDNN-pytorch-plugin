@@ -18,8 +18,8 @@ namespace zentorch {
 // a non-int8/int32 weight. Expects a 2D [N, K-dim] weight; K-dim is the
 // contraction dim, packed or not.
 //
-// Templated so ATen and stable-ABI call sites share one classifier. Header-only
-// because torch::stable has hidden visibility (a .cpp instantiation is local).
+// Header-only because torch::stable has hidden visibility, which would make a
+// definition in the .cpp a local symbol its cross-TU callers cannot resolve.
 //
 // Infer the weight mode from the packing (pack_factor = K / weight.size(1),
 // where K is the input's last dim) and check the weight dtype for that mode.
@@ -29,9 +29,9 @@ namespace zentorch {
 //   pack_factor 8 -> DA8W4 (int32, [N, K/8])
 // weight.size(1) must divide K and yield one of the pack factors above, so an
 // invalid layout errors here instead of being mis-dispatched to matmul_direct.
-template <typename TensorT>
-inline bool check_weight_and_infer_is_da8w4(const TensorT &input,
-                                            const TensorT &weight) {
+inline bool
+check_weight_and_infer_is_da8w4(const torch::stable::Tensor &input,
+                                const torch::stable::Tensor &weight) {
   const auto wdt = weight.scalar_type();
   if (wdt != c10::kChar && wdt != c10::kInt) {
     return false;

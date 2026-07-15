@@ -26,6 +26,49 @@ except ImportError:
     counters = None
     has_zentorch = False
 
+# libzentorch.so is not loaded when the runtime torch minor version differs from
+# the build; only the stable-ABI ops are, out of libzentorch_stable.so. The
+# compile backend and the _C pybind module go with it, so suites that drive
+# torch.compile or the pattern-matcher counters gate on this rather than on
+# has_zentorch. Ops present in both libraries keep running either way.
+has_zentorch_full = bool(has_zentorch and not zentorch.__stable_abi_only__)
+
+
+def has_zentorch_ops(*op_names):
+    """True when every named op is registered by the library currently loaded.
+
+    Tests for ops that have not been migrated to the stable ABI yet gate on this
+    rather than on has_zentorch_full, so each one starts running by itself once
+    its op becomes portable.
+    """
+    return has_zentorch and all(
+        hasattr(torch.ops.zentorch, name) for name in op_names
+    )
+
+
+if has_zentorch and not hasattr(zentorch, "_C"):
+    # Capabilities.cpp and WeightReorder.cpp register these as ops in both
+    # libraries. Bind them onto the module under the names the tests already
+    # use, so call sites stay identical across the two modes.
+    class _StableCapabilities:
+        @staticmethod
+        def is_avx512_supported():
+            return torch.ops.zentorch.zentorch_is_avx512_supported()
+
+        @staticmethod
+        def is_bf16_supported():
+            return torch.ops.zentorch.zentorch_is_bf16_supported()
+
+        @staticmethod
+        def is_fp16_supported():
+            return torch.ops.zentorch.zentorch_is_fp16_supported()
+
+        @staticmethod
+        def clear_weight_cache():
+            return torch.ops.zentorch.zentorch_clear_weight_cache()
+
+    zentorch._C = _StableCapabilities()
+
 supported_dtypes = ["float32"]
 supported_dtypes_def = []
 qlinear_dtypes = []
@@ -308,7 +351,13 @@ def reset_dynamo():
     # wouldn't be pass through zentorch.optimize
     # WARNING: torch._dynamo hit config.cache_size_limit (8)
     torch._dynamo.reset()
-    torch._functorch._aot_autograd.autograd_cache.AOTAutogradCache.clear()
+    # Imported rather than reached through torch._functorch._aot_autograd: the
+    # parent module only grows that attribute once the submodule is imported,
+    # which normally happens as a side effect of loading zentorch's compile
+    # backend. That does not load when only the portable library is present.
+    from torch._functorch._aot_autograd import autograd_cache
+
+    autograd_cache.AOTAutogradCache.clear()
 
 
 def compiled_frozen_reference(ref_model, *inputs):

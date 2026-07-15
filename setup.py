@@ -10,6 +10,7 @@ from torch.torch_version import __version__ as torch_version
 from os.path import join as Path
 import datetime
 import os
+import sys
 import shutil
 import subprocess
 import torch
@@ -76,7 +77,42 @@ class CustomBuildExtension(BuildExtension):
 
         self.spawn(["make", "-j", str(os.cpu_count()), "-C", self.build_temp])
 
+        self.audit_stable_abi()
+
         super().run()
+
+    def audit_stable_abi(self) -> None:
+        """Fail the build if libzentorch_stable.so imports an ATen symbol.
+
+        Nothing else catches this. A shared object may leave symbols undefined,
+        so the linker does not object, and ATen resolves at load time out of the
+        libtorch_cpu.so that library already links - the build succeeds and the
+        wheel ships, and the breakage only shows up on the torch version the
+        library was supposed to tolerate. The source list in
+        cmake/modules/StableAbiLibs.cmake is also a glob, so a newly added .cpp
+        is compiled in without anyone opting it in.
+
+        Run here rather than as a cmake POST_BUILD step so it checks the copy
+        that actually gets packaged, and runs on every build rather than only
+        when the library relinks. sys.executable is used because torch-abi-audit
+        is installed per environment.
+        """
+        library = os.path.join(self.build_lib, PACKAGE_NAME, "libzentorch_stable.so")
+        if not os.path.exists(library):
+            # ZENTORCH_STABLE_ABI_LIB_BUILD=OFF, so there is nothing to audit.
+            return
+
+        self.spawn(
+            [
+                sys.executable,
+                os.path.join(
+                    os.path.abspath(os.path.dirname(__file__)),
+                    "scripts",
+                    "check-torch-abi.py",
+                ),
+                library,
+            ]
+        )
 
     def build_extensions(self) -> None:
         """
@@ -346,7 +382,12 @@ def main():
         },
         packages=packages,
         package_dir={"": Path("src", "cpu", "python")},
-        package_data={PACKAGE_NAME: ["include/*.hpp"]},
+        package_data={
+            PACKAGE_NAME: [
+                "include/*.hpp",
+                "libzentorch_stable.so",
+            ],
+        },
         extras_require=extras_require,
         entry_points={
             # vLLM will import this automatically when the wheel is present

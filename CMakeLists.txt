@@ -92,11 +92,17 @@ target_link_options(zentorch PRIVATE
 )
 
 message(STATUS "zentorch PROJECT_NAME, ${PROJECT_NAME}")
+if(DEFINED INSTALL_LIB_DIR AND INSTALL_LIB_DIR)
 add_custom_command(
     TARGET zentorch  POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+            ${CMAKE_SOURCE_DIR}/${INSTALL_LIB_DIR}/${PROJECT_NAME}
     COMMAND ${CMAKE_COMMAND} -E copy
             ${CMAKE_CURRENT_BINARY_DIR}/lib/libzentorch.so
-            ${CMAKE_SOURCE_DIR}/${INSTALL_LIB_DIR}/${PROJECT_NAME}/)
+            ${CMAKE_SOURCE_DIR}/${INSTALL_LIB_DIR}/${PROJECT_NAME}/libzentorch.so)
+endif()
+
+include(StableAbiLibs)
 
 # Set default build type
 if(NOT CMAKE_BUILD_TYPE)

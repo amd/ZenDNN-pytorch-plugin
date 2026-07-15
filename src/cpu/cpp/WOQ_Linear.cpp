@@ -7,7 +7,6 @@
 #include "EnvReader.hpp"
 #include "MatmulUtils.hpp"
 #include "Memory.hpp"
-#include <ATen/Parallel.h>
 #include <c10/util/StringUtil.h>
 #include <torch/csrc/stable/library.h>
 
@@ -392,7 +391,7 @@ zentorch_woq_repack_weight(const torch::stable::Tensor &unpacked_weight) {
   constexpr int order_map[pack_num] = {0, 1, 2, 3, 4, 5, 6, 7};
 
   // Process each row independently (parallelized)
-  at::parallel_for(0, N, 0, [&](int64_t begin, int64_t end) {
+  torch::stable::parallel_for(0, N, 0, [&](int64_t begin, int64_t end) {
     for (const auto n : c10::irange(begin, end)) {
       // Get pointer to current row in unpacked data
       const int8_t *row_src = weight_data + n * K;
@@ -459,7 +458,7 @@ unpack_int4pack_to_int8(const torch::stable::Tensor &packed_weight) {
                  "receiving an unpadded tensor indicates a packing mismatch.");
   const int NB = N / BLOCK_N;
   // Parallel processing over blocks of rows
-  at::parallel_for(0, NB, 0, [&](int64_t begin, int64_t end) {
+  torch::stable::parallel_for(0, NB, 0, [&](int64_t begin, int64_t end) {
     for (const auto i : c10::irange(begin, end)) {
       // Calculate source pointer for this block in strided packed data
       // Each block contains K columns * BLOCK_N rows / 2 (2 values per byte)

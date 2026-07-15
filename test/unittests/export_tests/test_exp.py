@@ -7,6 +7,7 @@ import torch
 from torch import nn
 import zentorch
 import sys
+import unittest
 from pathlib import Path
 import os  # noqa: E402
 import tempfile
@@ -16,12 +17,20 @@ sys.path.append(str(Path(__file__).parent.parent))
 from unittest_utils import (  # noqa: 402
     AddmmTestCase,
     DataTypes,
+    has_zentorch_full,
     run_tests,
     supported_dtypes,
     counters,
 )
 
-ind_conf = {"joint_custom_post_pass": zentorch.export_optimize_pass}
+# export_optimize_pass lives in libzentorch.so, so it is absent when only the
+# portable library loaded. Evaluated here at import time, before the class-level
+# skip below can take effect.
+ind_conf = (
+    {"joint_custom_post_pass": zentorch.export_optimize_pass}
+    if has_zentorch_full
+    else {}
+)
 
 
 # create simple linear model
@@ -104,6 +113,9 @@ class LinearBinaryBinaryNet(nn.Module):
         return self.linear(x) * binary_1 + binary_2
 
 
+@unittest.skipUnless(
+    has_zentorch_full, "Export pass requires the full zentorch backend"
+)
 class TestExport(AddmmTestCase):
     @torch.inference_mode()
     def test_export(self):

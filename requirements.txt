@@ -8,3 +8,4 @@ packaging
 setuptools>=50.0
 setupext_janitor
 deprecated
+torch-abi-audit

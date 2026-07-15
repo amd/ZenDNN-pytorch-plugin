@@ -15,7 +15,15 @@ from typing import List
 # import the custom logging module
 from ._logging import get_logger
 from ._fp16_capabilities import is_fp16_capable
-from ._C import is_fp16_supported
+
+
+def is_fp16_supported():
+    # Read through the op rather than _C: _C links libzentorch.so and cannot be
+    # imported when the portable library is the one that loaded. Capabilities.cpp
+    # registers this probe into both, so this module stays importable in either
+    # mode and its callers (the vLLM plugin, the test suite) keep working.
+    return torch.ops.zentorch.zentorch_is_fp16_supported()
+
 
 # make a logger for this file
 logger = get_logger(__name__)

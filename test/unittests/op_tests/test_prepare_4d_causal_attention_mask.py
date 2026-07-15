@@ -13,7 +13,7 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))
 from unittest_utils import (  # noqa: 402
     Zentorch_TestCase,
-    has_zentorch,
+    has_zentorch_ops,
     run_tests,
     supported_dtypes,
     update_supported_dtypes,
@@ -25,7 +25,10 @@ sliding_windows = [10, 40]
 seq_lens = [1, 32]
 
 
-@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
+@unittest.skipIf(
+    not has_zentorch_ops("prepare_4d_causal_attention_mask"),
+    "prepare_4d_causal_attention_mask is not registered",
+)
 class Test_Prepare_4d_causal_Attention_Mask(Zentorch_TestCase):
     @parameterized.expand(product(supported_dtypes, sliding_windows, seq_lens))
     @torch.inference_mode()
