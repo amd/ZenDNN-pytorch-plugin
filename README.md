@@ -141,7 +141,6 @@ git clone https://github.com/amd/ZenDNN-pytorch-plugin.git
 cd ZenDNN-pytorch-plugin
 ```
 >**Notes:**
->* The repository defaults to the main branch. To build the v2.12.1.0 release, checkout the branch v2.12.1.0: ```git checkout v2.12.1.0```
 >* ```export ZENDNNL_MANYLINUX_BUILD=1``` is needed for build from source for RHEL/FEDORA/Almalinux/CentOS OS families
 
 ### 2.2.1. Preparing third party repositories
