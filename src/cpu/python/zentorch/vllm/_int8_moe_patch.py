@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
+import inspect
 import sys
 
 import torch
@@ -375,6 +376,8 @@ def _register_int8_moe_patches(mod) -> None:
     method_cls = getattr(mod, _TARGET_CLASS)
     orig_init = method_cls.__init__
     orig_create_weights = method_cls.create_weights
+    int8_quant_config_params = inspect.signature(make_int8_moe_quant_config).parameters
+    int8_kernel_params = inspect.signature(make_int8_moe_kernel).parameters
 
     def _zen_init(self, *args, **kwargs):
         # Vanilla __init__'s select_int8_moe_backend() raises on CPU; neutralize
@@ -436,14 +439,21 @@ def _register_int8_moe_patches(mod) -> None:
     def _zen_get_fused_moe_quant_config(self, layer) -> "FusedMoEQuantConfig":
         # Pass per-expert biases through so CPUInt8Experts can add them
         # (vanilla's config omits w1_bias/w2_bias).
+        quant_config_kwargs = {
+            "w1_scale": layer.w13_weight_scale,
+            "w2_scale": layer.w2_weight_scale,
+            "a1_scale": layer.w13_input_scale,
+            "a2_scale": layer.w2_input_scale,
+            "w1_bias": getattr(layer, "w13_bias", None),
+            "w2_bias": getattr(layer, "w2_bias", None),
+            "per_act_token_quant": True,
+        }
+        # vLLM 0.25 adds int8_backend to the quant-config constructor; keep
+        # older supported releases on the original call shape.
+        if "int8_backend" in int8_quant_config_params:
+            quant_config_kwargs["int8_backend"] = self.int8_backend
         return make_int8_moe_quant_config(
-            w1_scale=layer.w13_weight_scale,
-            w2_scale=layer.w2_weight_scale,
-            a1_scale=layer.w13_input_scale,
-            a2_scale=layer.w2_input_scale,
-            w1_bias=getattr(layer, "w13_bias", None),
-            w2_bias=getattr(layer, "w2_bias", None),
-            per_act_token_quant=True,
+            **quant_config_kwargs,
         )
 
     def _maybe_permute_swigluoai(layer) -> None:
@@ -485,11 +495,18 @@ def _register_int8_moe_patches(mod) -> None:
     def _zen_process_weights_after_loading(self, layer) -> None:
         _maybe_permute_swigluoai(layer)
         self.moe_quant_config = self.get_fused_moe_quant_config(layer)
+        kernel_kwargs = {
+            "moe_quant_config": self.moe_quant_config,
+            "moe_config": self.moe,
+            "experts_cls": CPUInt8Experts,
+            "routing_tables": layer._expert_routing_tables(),
+        }
+        # vLLM 0.25 adds int8_backend to the kernel constructor; keep older
+        # supported releases on the original call shape.
+        if "int8_backend" in int8_kernel_params:
+            kernel_kwargs["int8_backend"] = self.int8_backend
         self.moe_kernel = make_int8_moe_kernel(
-            moe_quant_config=self.moe_quant_config,
-            moe_config=self.moe,
-            experts_cls=CPUInt8Experts,
-            routing_tables=layer._expert_routing_tables(),
+            **kernel_kwargs,
         )
         logger.info(
             "[zentorch] W8A8 int8 MoE kernel built via OOT patch "

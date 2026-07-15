@@ -32,10 +32,10 @@ The plugin uses vLLM's platform and general plugin entry points to:
 
 | Component | Version | Notes |
 |-----------|---------|-------|
-| vLLM | 0.20.0 - 0.24.0 | In-tree `ZenCpuPlatform` is available from 0.18.0 on supported AMD AVX512 systems; out-of-tree plugin runtime support starts at 0.20.0 |
+| vLLM | 0.20.0 - 0.25.1 | In-tree `ZenCpuPlatform` is available from 0.18.0 on supported AMD AVX512 systems; out-of-tree plugin runtime support starts at 0.20.0 |
 | Python | 3.12 | |
 | PyTorch | 2.11.0 | Auto-installed by the supported vLLM CPU releases |
-| TorchAO | 0.17.0 (vLLM 0.20.0-0.24.0) | Required for TorchAO quantized model paths; the plugin skips TorchAO patches when the package is absent |
+| TorchAO | 0.17.0 (vLLM 0.20.0-0.25.1) | Required for TorchAO quantized model paths; the plugin skips TorchAO patches when the package is absent |
 
 > **Note:** vLLM version ranges in this README are shorthand for the supported
 > releases captured by the plugin's version map; unsupported patch releases are
@@ -105,13 +105,13 @@ The plugin leverages AMD EPYC specific intrinsics and optimizations to accelerat
 
      > **Important:** Pre-built vLLM CPU binaries are available from [0.13.0](https://docs.vllm.ai/en/stable/getting_started/installation/cpu/#pre-built-wheels), so all currently supported versions can use the published CPU wheels.
 
-   - Supported versions: 0.20.0 - 0.24.0. Check out the appropriate release tag before building.
+   - Supported versions: 0.20.0 - 0.25.1. Check out the appropriate release tag before building.
 
 3. **Install zentorch:**
 
    | vLLM version | PyTorch version (auto-installed by vLLM) | zentorch install method |
    |--------------|-----------------|------------------------|
-   | 0.20.0 - 0.24.0 | 2.11.0 | PyPI or source |
+   | 0.20.0 - 0.25.1 | 2.11.0 | PyPI or source |
 
    > **Note:** The out-of-tree plugin is supported only with vLLM `0.20.0+` and, when present, takes precedence over the in-tree `ZenCpuPlatform` on supported AMD AVX512 systems. To use the in-tree platform instead, build and install zentorch with `ZENTORCH_VLLM_PLUGIN_BUILD=0`, which omits the out-of-tree vLLM plugin from the wheel.
 

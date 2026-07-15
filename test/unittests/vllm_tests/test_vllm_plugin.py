@@ -7,13 +7,14 @@
 Unit tests for zentorch.vllm plugin.
 
 Tests verify:
-- Runtime compatibility checks for supported versions (0.20.0 - 0.24.0)
+- Runtime compatibility checks for supported versions (0.20.0 - 0.25.1)
 - Version parsing logic
 - Patch registration and application
 - Individual patch functionality (oneDNN disable, CompilationConfig repr, etc.)
 - Platform configuration
 
-Runtime-supported vLLM versions: 0.20.0, 0.20.1, 0.20.2, 0.21.0, 0.22.0, 0.22.1, 0.23.0, 0.24.0
+Runtime-supported vLLM versions: 0.20.0, 0.20.1, 0.20.2, 0.21.0, 0.22.0, 0.22.1,
+0.23.0, 0.24.0, 0.25.0, 0.25.1
 Retained legacy version map: 0.15.0, 0.15.1, 0.16.0, 0.17.0, 0.17.1, 0.18.0,
 0.18.1, 0.19.0, 0.19.1
 """
@@ -122,6 +123,8 @@ class TestVersionParsing(unittest.TestCase):
             "0.22.1",
             "0.23.0",
             "0.24.0",
+            "0.25.0",
+            "0.25.1",
         ]
         for ver in expected_versions:
             self.assertIn(ver, _VERSION_MAP, f"{ver} should be in VERSION_MAP")
@@ -194,6 +197,14 @@ class TestVersionParsing(unittest.TestCase):
         self.assertEqual(_VERSION_MAP.get(_base_version("0.24.0+cpu")), "v24")
         self.assertEqual(_VERSION_MAP.get(_base_version("0.24.0rc2+cpu")), "v24")
 
+        # v25 family
+        self.assertEqual(_VERSION_MAP.get(_base_version("0.25.0")), "v25")
+        self.assertEqual(_VERSION_MAP.get(_base_version("0.25.0+cpu")), "v25")
+        self.assertEqual(_VERSION_MAP.get(_base_version("0.25.0rc3+cpu")), "v25")
+        self.assertEqual(_VERSION_MAP.get(_base_version("0.25.1")), "v25")
+        self.assertEqual(_VERSION_MAP.get(_base_version("0.25.1+cpu")), "v25")
+        self.assertEqual(_VERSION_MAP.get(_base_version("0.25.1rc1+cpu")), "v25")
+
     def test_version_family_detection_unsupported(self):
         """VERSION_MAP should return None for unsupported versions."""
         from zentorch.vllm._core import _base_version, _VERSION_MAP
@@ -215,6 +226,7 @@ class TestVersionParsing(unittest.TestCase):
             "0.22.2",
             "0.23.1",
             "0.24.1",
+            "0.25.2",
             "1.0.0",
         ]
         for ver in unsupported:
@@ -416,6 +428,60 @@ class TestVllmPluginVersionCheck(unittest.TestCase):
             apply_all.assert_called_once_with()
             install_hooks.assert_not_called()
 
+    def test_register_accepts_v25_runtime(self):
+        """register() should accept vLLM 0.25.0 as a supported runtime version."""
+        spec, zv = _load_source_vllm_module()
+        fake_vllm = types.ModuleType("vllm")
+        fake_vllm.__version__ = "0.25.0"
+
+        with mock.patch.dict(sys.modules, {"zentorch.vllm": zv, "vllm": fake_vllm}):
+            spec.loader.exec_module(zv)
+            zv._INITIALIZED = False
+
+            with (
+                mock.patch.object(zv, "get_version_family", return_value="v25"),
+                mock.patch.object(zv, "_apply_faketensor_subclass_patch"),
+                mock.patch.object(zv, "_apply_fxgraphcache_pickle_patch"),
+                mock.patch.object(zv, "_apply_torchao_int8_tensor_patch_impl"),
+                mock.patch.object(zv, "_register_patches") as register_patches,
+                mock.patch.object(zv.manager, "apply_all") as apply_all,
+                mock.patch.object(zv, "_install_pre_v18_dispatch_hooks") as install_hooks,
+                mock.patch("zentorch._C.is_avx512_supported", return_value=True),
+            ):
+                result = zv.register()
+
+            self.assertEqual(result, "zentorch.vllm._platform.ZenCPUPlatform")
+            register_patches.assert_called_once_with()
+            apply_all.assert_called_once_with()
+            install_hooks.assert_not_called()
+
+    def test_register_accepts_v25_1_runtime(self):
+        """register() should accept vLLM 0.25.1 as a supported runtime version."""
+        spec, zv = _load_source_vllm_module()
+        fake_vllm = types.ModuleType("vllm")
+        fake_vllm.__version__ = "0.25.1"
+
+        with mock.patch.dict(sys.modules, {"zentorch.vllm": zv, "vllm": fake_vllm}):
+            spec.loader.exec_module(zv)
+            zv._INITIALIZED = False
+
+            with (
+                mock.patch.object(zv, "get_version_family", return_value="v25"),
+                mock.patch.object(zv, "_apply_faketensor_subclass_patch"),
+                mock.patch.object(zv, "_apply_fxgraphcache_pickle_patch"),
+                mock.patch.object(zv, "_apply_torchao_int8_tensor_patch_impl"),
+                mock.patch.object(zv, "_register_patches") as register_patches,
+                mock.patch.object(zv.manager, "apply_all") as apply_all,
+                mock.patch.object(zv, "_install_pre_v18_dispatch_hooks") as install_hooks,
+                mock.patch("zentorch._C.is_avx512_supported", return_value=True),
+            ):
+                result = zv.register()
+
+            self.assertEqual(result, "zentorch.vllm._platform.ZenCPUPlatform")
+            register_patches.assert_called_once_with()
+            apply_all.assert_called_once_with()
+            install_hooks.assert_not_called()
+
 
 class TestPatchRegistration(unittest.TestCase):
     """Test that patches are registered and applied correctly."""
@@ -433,9 +499,27 @@ class TestPatchRegistration(unittest.TestCase):
         with mock.patch("zentorch._C.is_avx512_supported", return_value=True):
             zv.register()  # Ensure patches are registered
 
+        # The full set of monkey-patches registered by _register_patches().
+        # Every patch (incl. the torchcodec import guard) must show up here so
+        # this stays the single place that verifies all patching is wired in.
         expected_patches = [
+            "TorchcodecImportGuard",
             "CompilationConfigRepr",
             "CPUProfiler",
+            "TorchAO",
+            "Int8MoE",
+            "GptOssMoELoader",
+            "MixtralMoELoader",
+            "MoERunnerCompile",
+            "MoETopkCpu",
+            "CpuWorkerWorkspace",
+            "RMSNorm",
+            "CppIndirectAssert",
+            "CPURunnerShutdown",
+            "FusedMoE",
+            "GptOssMoEWeightRemap",
+            "GatedDeltaNet",
+            "CpuZeroBlockIds",
         ]
         for patch_name in expected_patches:
             self.assertIn(
@@ -684,6 +768,13 @@ class TestPlatformProfilerPatchVersionRange(unittest.TestCase):
             ("0.24.0+cpu", True),
             ("0.24.0rc2+cpu", True),
             ("0.24.1", False),
+            ("0.25.0", True),
+            ("0.25.0+cpu", True),
+            ("0.25.0rc3+cpu", True),
+            ("0.25.1", True),
+            ("0.25.1+cpu", True),
+            ("0.25.1rc1+cpu", True),
+            ("0.25.2", False),
         ]
 
         for version_str, expected in cases:
@@ -1052,7 +1143,7 @@ class TestGptOssMoEWeightRemapPatch(unittest.TestCase):
 
 class TestGatedDeltaNetPatch(unittest.TestCase):
     """GatedDeltaNetPatch must be registered and gated to v0.21.0 + v0.22.0 + v0.22.1
-    + v0.23.0 + v0.24.0."""
+    + v0.23.0 + v0.24.0 + v0.25.0."""
 
     @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
     @unittest.skipUnless(IS_PYTHON_3_10_OR_ABOVE, "vLLM 0.11+ requires Python 3.10+")
@@ -1071,12 +1162,14 @@ class TestGatedDeltaNetPatch(unittest.TestCase):
             VLLM_V22_1,
             VLLM_V23,
             VLLM_V24,
+            VLLM_V25,
+            VLLM_V25_1,
         )
 
         self.assertTrue(hasattr(GatedDeltaNetPatch, "_target_versions"))
         self.assertEqual(
             GatedDeltaNetPatch._target_versions,
-            {VLLM_V21, VLLM_V22, VLLM_V22_1, VLLM_V23, VLLM_V24},
+            {VLLM_V21, VLLM_V22, VLLM_V22_1, VLLM_V23, VLLM_V24, VLLM_V25, VLLM_V25_1},
         )
 
 
@@ -1313,6 +1406,204 @@ class TestCpuZeroBlockIdsPatch(unittest.TestCase):
             sys.meta_path[:] = original_meta_path
 
 
+@unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
+@unittest.skipUnless(IS_PYTHON_3_10_OR_ABOVE, "vLLM 0.11+ requires Python 3.10+")
+class TestTorchcodecImportGuardPatch(unittest.TestCase):
+    """TorchcodecImportGuardPatch must be registered, gated to v0.25.0 only, and
+    must make a broken torchcodec import survive during vllm.multimodal.video
+    load (backport of vLLM #47888) without changing runtime availability.
+
+    The hook/stub tests load an isolated copy of ``zentorch.vllm`` from source
+    so they neither depend on nor pollute the process-wide plugin state.
+    """
+
+    _TARGET = "vllm.multimodal.video"
+
+    def _fresh_module(self):
+        """Return an isolated, executed ``zentorch.vllm`` source module."""
+        spec, zv = _load_source_vllm_module()
+        with mock.patch.dict(sys.modules, {"zentorch.vllm": zv}):
+            spec.loader.exec_module(zv)
+        return zv
+
+    def test_patch_is_registered(self):
+        """TorchcodecImportGuard should be registered with the manager."""
+        from zentorch.vllm import register
+        from zentorch.vllm._core import manager
+
+        _skip_if_installed_vllm_is_unsupported(self)
+        register()
+        self.assertIn("TorchcodecImportGuard", manager.patches)
+
+    def test_patch_targets_v25_only(self):
+        """The @vllm_version decorator should target only v0.25.0."""
+        from zentorch.vllm import TorchcodecImportGuardPatch
+        from zentorch.vllm._core import VLLM_V25
+
+        self.assertTrue(hasattr(TorchcodecImportGuardPatch, "_target_versions"))
+        self.assertEqual(
+            TorchcodecImportGuardPatch._target_versions, {VLLM_V25}
+        )
+
+    def test_apply_installs_deferred_hook_when_video_absent(self):
+        """When video.py is not yet imported, apply() must arm exactly one
+        import hook and must not import the module eagerly."""
+        zv = self._fresh_module()
+
+        original_meta_path = list(sys.meta_path)
+        try:
+            with mock.patch.dict(sys.modules):
+                sys.modules.pop(self._TARGET, None)
+                result = zv._apply_torchcodec_import_guard()
+
+                self.assertTrue(result)
+                armed = [
+                    f
+                    for f in sys.meta_path
+                    if isinstance(f, zv._MultimodalVideoImportHook)
+                ]
+                self.assertEqual(len(armed), 1)
+        finally:
+            sys.meta_path[:] = original_meta_path
+
+    def test_apply_is_noop_when_video_already_imported(self):
+        """If video.py already imported (loaded fine), no hook is armed."""
+        zv = self._fresh_module()
+
+        original_meta_path = list(sys.meta_path)
+        try:
+            fake_video = types.ModuleType(self._TARGET)
+            with mock.patch.dict(sys.modules, {self._TARGET: fake_video}):
+                result = zv._apply_torchcodec_import_guard()
+
+            self.assertTrue(result)
+            armed = [
+                f
+                for f in sys.meta_path
+                if isinstance(f, zv._MultimodalVideoImportHook)
+            ]
+            self.assertEqual(armed, [])
+        finally:
+            sys.meta_path[:] = original_meta_path
+
+    def test_stub_installs_placeholder_when_torchcodec_broken(self):
+        """A broken `import torchcodec` (RuntimeError, as with missing FFmpeg)
+        must yield a removable placeholder so `from torchcodec.decoders import
+        VideoDecoder` succeeds."""
+        import builtins
+
+        zv = self._fresh_module()
+        real_import = builtins.__import__
+
+        def fake_import(name, *args, **kwargs):
+            if name == "torchcodec" or name.startswith("torchcodec."):
+                raise RuntimeError(
+                    "Could not load libtorchcodec (simulated missing FFmpeg)"
+                )
+            return real_import(name, *args, **kwargs)
+
+        with mock.patch.dict(sys.modules):
+            sys.modules.pop("torchcodec", None)
+            sys.modules.pop("torchcodec.decoders", None)
+            with mock.patch.object(builtins, "__import__", side_effect=fake_import):
+                stubbed = zv._stub_broken_torchcodec_for_video_import()
+
+            self.assertTrue(stubbed)
+            self.assertIn("torchcodec.decoders", sys.modules)
+            self.assertTrue(
+                getattr(sys.modules["torchcodec"], "_zentorch_torchcodec_stub", False)
+            )
+            # `from torchcodec.decoders import VideoDecoder` must resolve.
+            self.assertTrue(hasattr(sys.modules["torchcodec.decoders"], "VideoDecoder"))
+
+            # Teardown must remove ONLY our stub.
+            zv._remove_torchcodec_stub()
+            self.assertNotIn("torchcodec", sys.modules)
+            self.assertNotIn("torchcodec.decoders", sys.modules)
+
+    def test_stub_is_noop_when_torchcodec_importable(self):
+        """When torchcodec imports cleanly, no stub is installed and the real
+        module is left untouched."""
+        if importlib.util.find_spec("torchcodec") is None:
+            self.skipTest("torchcodec not installed")
+        try:
+            import torchcodec.decoders  # noqa: F401
+        except (ImportError, RuntimeError):
+            self.skipTest("torchcodec present but not loadable on this host")
+
+        zv = self._fresh_module()
+        stubbed = zv._stub_broken_torchcodec_for_video_import()
+        self.assertFalse(stubbed)
+        self.assertFalse(
+            getattr(sys.modules.get("torchcodec"), "_zentorch_torchcodec_stub", False)
+        )
+
+    def test_import_hook_wraps_exec_and_guards_torchcodec(self):
+        """The finder must wrap exec_module so the stub is active during the
+        module body and removed afterwards, and must remove itself (one-shot)."""
+        zv = self._fresh_module()
+
+        events = []
+        fake_module = types.ModuleType(self._TARGET)
+
+        def fake_exec(module):
+            # Emulate video.py's top-level `from torchcodec.decoders import
+            # VideoDecoder`: it must succeed while the guard is active.
+            events.append(("exec", "torchcodec.decoders" in sys.modules))
+
+        fake_loader = mock.Mock()
+        fake_loader.exec_module = fake_exec
+        fake_spec = types.SimpleNamespace(loader=fake_loader)
+
+        hook = zv._MultimodalVideoImportHook()
+        original_meta_path = list(sys.meta_path)
+        sys.meta_path.insert(0, hook)
+        try:
+            with (
+                mock.patch.object(
+                    zv.importlib.util, "find_spec", return_value=fake_spec
+                ),
+                mock.patch.object(
+                    zv,
+                    "_stub_broken_torchcodec_for_video_import",
+                    side_effect=lambda: (events.append(("stub", True)) or True),
+                ),
+                mock.patch.object(
+                    zv,
+                    "_remove_torchcodec_stub",
+                    side_effect=lambda: events.append(("unstub", True)),
+                ),
+            ):
+                returned_spec = hook.find_spec(self._TARGET, None, None)
+                self.assertIs(returned_spec, fake_spec)
+                self.assertNotIn(
+                    hook, sys.meta_path, "finder must remove itself (one-shot)"
+                )
+                returned_spec.loader.exec_module(fake_module)
+
+            self.assertEqual(
+                [e[0] for e in events],
+                ["stub", "exec", "unstub"],
+                "stub must be installed before exec and removed after",
+            )
+        finally:
+            sys.meta_path[:] = original_meta_path
+
+    def test_import_hook_ignores_other_modules(self):
+        """find_spec must defer (return None) for unrelated modules and stay
+        armed."""
+        zv = self._fresh_module()
+
+        hook = zv._MultimodalVideoImportHook()
+        original_meta_path = list(sys.meta_path)
+        sys.meta_path.insert(0, hook)
+        try:
+            self.assertIsNone(hook.find_spec("some.other.module", None, None))
+            self.assertIn(hook, sys.meta_path)
+        finally:
+            sys.meta_path[:] = original_meta_path
+
+
 # =============================================================================
 # Test Runner
 # =============================================================================
@@ -1338,6 +1629,7 @@ def run_tests():
     suite.addTests(loader.loadTestsFromTestCase(TestGptOssMoEWeightRemapPatch))
     suite.addTests(loader.loadTestsFromTestCase(TestGatedDeltaNetPatch))
     suite.addTests(loader.loadTestsFromTestCase(TestCpuZeroBlockIdsPatch))
+    suite.addTests(loader.loadTestsFromTestCase(TestTorchcodecImportGuardPatch))
 
     runner = unittest.TextTestRunner(verbosity=2)
     result = runner.run(suite)

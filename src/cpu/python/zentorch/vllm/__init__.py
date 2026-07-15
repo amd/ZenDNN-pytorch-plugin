@@ -24,6 +24,7 @@ from __future__ import annotations
 import importlib.util
 import os
 import sys
+import types
 from typing import Optional
 import torch
 
@@ -53,6 +54,8 @@ from zentorch.vllm._core import (
     VLLM_V22_1,
     VLLM_V23,
     VLLM_V24,
+    VLLM_V25,
+    VLLM_V25_1,
 )
 
 
@@ -273,7 +276,7 @@ class TorchAOPatch:
 # ---------------------------------------------------------------------------
 
 
-@vllm_version(VLLM_V22_1, VLLM_V23, VLLM_V24)
+@vllm_version(VLLM_V22_1, VLLM_V23, VLLM_V24, VLLM_V25, VLLM_V25_1)
 class Int8MoEPatch:
     """Route compressed-tensors W8A8 INT8 fused-MoE through zentorch.
 
@@ -287,7 +290,7 @@ class Int8MoEPatch:
         return _apply_int8_moe_patch_impl()
 
 
-@vllm_version(VLLM_V22_1, VLLM_V23, VLLM_V24)
+@vllm_version(VLLM_V22_1, VLLM_V23, VLLM_V24, VLLM_V25, VLLM_V25_1)
 class GptOssMoELoaderPatch:
     """GPT-OSS per-expert compressed-tensors W8A8 checkpoint loading (OOT).
 
@@ -301,7 +304,7 @@ class GptOssMoELoaderPatch:
         return _apply_gptoss_loader_patch_impl()
 
 
-@vllm_version(VLLM_V22_1, VLLM_V23, VLLM_V24)
+@vllm_version(VLLM_V22_1, VLLM_V23, VLLM_V24, VLLM_V25, VLLM_V25_1)
 class MixtralMoELoaderPatch:
     """Mixtral per-expert compressed-tensors W8A8 checkpoint loading (OOT).
 
@@ -314,7 +317,7 @@ class MixtralMoELoaderPatch:
         return _apply_mixtral_loader_patch_impl()
 
 
-@vllm_version(VLLM_V22_1, VLLM_V23, VLLM_V24)
+@vllm_version(VLLM_V22_1, VLLM_V23, VLLM_V24, VLLM_V25, VLLM_V25_1)
 class MoERunnerCompilePatch:
     """Route CPU FusedMoE through the opaque ``moe_forward`` custom op so
     aot_compile treats it as one node (torch.compile-safe). See
@@ -325,7 +328,7 @@ class MoERunnerCompilePatch:
         return _apply_moe_runner_compile_patch_impl()
 
 
-@vllm_version(VLLM_V22_1, VLLM_V23, VLLM_V24)
+@vllm_version(VLLM_V22_1, VLLM_V23, VLLM_V24, VLLM_V25, VLLM_V25_1)
 class MoETopkCpuPatch:
     """Register a CPU implementation for the ``_moe_C`` top-k router ops so the
     MoE router works on CPU. See ``_moe_topk_cpu_patch.py``."""
@@ -335,7 +338,7 @@ class MoETopkCpuPatch:
         return _apply_moe_topk_cpu_patch_impl()
 
 
-@vllm_version(VLLM_V22_1, VLLM_V23, VLLM_V24)
+@vllm_version(VLLM_V22_1, VLLM_V23, VLLM_V24, VLLM_V25, VLLM_V25_1)
 class CpuWorkerWorkspacePatch:
     """Initialize the modular-kernel workspace manager on the CPU worker so
     modular MoE kernels can allocate scratch. See
@@ -422,6 +425,8 @@ class CompilationConfigReprPatch:
     VLLM_V22_1,
     VLLM_V23,
     VLLM_V24,
+    VLLM_V25,
+    VLLM_V25_1,
 )
 class CPUProfilerPatch:
     """Stub: Actual patching happens in platform.py check_and_update_config.
@@ -1259,7 +1264,7 @@ class GptOssMoEWeightRemapPatch:
 # GatedDeltaNet (Qwen3.5 / Qwen3-Next) CPU forward override (vLLM PR #41025).
 
 
-@vllm_version(VLLM_V21, VLLM_V22, VLLM_V22_1, VLLM_V23, VLLM_V24)
+@vllm_version(VLLM_V21, VLLM_V22, VLLM_V22_1, VLLM_V23, VLLM_V24, VLLM_V25, VLLM_V25_1)
 class GatedDeltaNetPatch:
     """Override ``GatedDeltaNetAttention.forward_cpu`` with ``forward_cpu_zen``.
 
@@ -1475,6 +1480,160 @@ class CpuZeroBlockIdsPatch:
 
 
 # ---------------------------------------------------------------------------
+# torchcodec import-guard backport (vLLM 0.25.0 release wheel)
+# ---------------------------------------------------------------------------
+#
+# Backport of vllm-project/vllm#47888 ("Avoid blocking model launching when no
+# system ffmpeg available for TorchCodec"). That one-line fix widened the guard
+# in vllm/multimodal/video.py from `except ImportError:` to
+# `except (ImportError, RuntimeError):`.
+#
+# torchcodec (>=0.14) is a hard vLLM dependency, so it is always installed. When
+# the host has no system FFmpeg, `import torchcodec` raises RuntimeError (not
+# ImportError) while trying to dlopen libtorchcodec. The final v0.25.0 CPU
+# release wheel was cut from a base *before* #47888, so its video.py still only
+# catches ImportError -- the RuntimeError propagates through the import chain
+# (sampling_params -> multimodal.inputs -> ... -> multimodal.video) and crashes
+# the entire `vllm` CLI / `import vllm` before any model is loaded.
+#
+# The zentorch platform plugin's register() runs before vllm.multimodal.video is
+# imported (verified for both the `vllm bench` CLI and the `from vllm import
+# LLM` API path), so we arm a one-shot import hook that makes the broken
+# torchcodec import survive as a placeholder -- exactly reproducing the effect
+# of #47888 without editing vLLM sources.
+#
+# The stub is scoped to video.py's import ONLY and removed immediately after, so
+# the runtime `check_torchcodec_available()` (a fresh `import torchcodec` at the
+# actual video-decode call site) still correctly reports torchcodec unavailable
+# and no non-video behaviour changes.
+#
+# Gated to vLLM 0.25.0 (see @vllm_version on TorchcodecImportGuardPatch): the
+# fix is already in vLLM main and ships from 0.26 onwards.
+
+_TORCHCODEC_VIDEO_MODULE = "vllm.multimodal.video"
+
+
+def _stub_broken_torchcodec_for_video_import() -> bool:
+    """Install a placeholder torchcodec iff the real one fails to import.
+
+    Returns True if a stub was installed (the caller must remove it once
+    video.py has finished importing), False when torchcodec imports cleanly and
+    the real module is left untouched.
+    """
+    try:
+        import torchcodec.decoders  # noqa: F401
+
+        return False
+    except (ImportError, RuntimeError):
+        # Missing system FFmpeg surfaces as RuntimeError during import; a broken
+        # torchcodec is exactly the case #47888 guards against.
+        pass
+
+    # A failed import can leave partial entries behind; clear them before
+    # seeding the placeholder so `from torchcodec.decoders import VideoDecoder`
+    # resolves to our stub instead of re-triggering the crash.
+    sys.modules.pop("torchcodec", None)
+    sys.modules.pop("torchcodec.decoders", None)
+
+    from vllm.utils.import_utils import PlaceholderModule
+
+    placeholder = PlaceholderModule("torchcodec").placeholder_attr(
+        "decoders.VideoDecoder"
+    )
+    tc = types.ModuleType("torchcodec")
+    tc._zentorch_torchcodec_stub = True
+    tcd = types.ModuleType("torchcodec.decoders")
+    tcd._zentorch_torchcodec_stub = True
+    tcd.VideoDecoder = placeholder
+    tc.decoders = tcd
+    sys.modules["torchcodec"] = tc
+    sys.modules["torchcodec.decoders"] = tcd
+    return True
+
+
+def _remove_torchcodec_stub() -> None:
+    """Remove ONLY the zentorch placeholder so a later real `import torchcodec`
+    (e.g. from check_torchcodec_available()) re-probes and correctly fails."""
+    tc = sys.modules.get("torchcodec")
+    if getattr(tc, "_zentorch_torchcodec_stub", False):
+        sys.modules.pop("torchcodec", None)
+        sys.modules.pop("torchcodec.decoders", None)
+
+
+class _MultimodalVideoImportHook:
+    """One-shot finder that guards vllm.multimodal.video's torchcodec import.
+
+    Wraps the real loader's exec_module so that, only while video.py's module
+    body runs, a broken torchcodec is replaced by a placeholder (mirroring vLLM
+    #47888). The stub is torn down immediately afterwards.
+    """
+
+    _TARGET_MODULE = _TORCHCODEC_VIDEO_MODULE
+
+    def find_spec(self, fullname, path, target=None):
+        if fullname != self._TARGET_MODULE:
+            return None
+        if self in sys.meta_path:
+            sys.meta_path.remove(self)
+
+        spec = importlib.util.find_spec(fullname)
+        if spec is None or spec.loader is None:
+            return None
+
+        original_exec = spec.loader.exec_module
+
+        def _exec_with_torchcodec_guard(module):
+            stubbed = _stub_broken_torchcodec_for_video_import()
+            try:
+                original_exec(module)
+            finally:
+                if stubbed:
+                    _remove_torchcodec_stub()
+
+        spec.loader.exec_module = _exec_with_torchcodec_guard
+        return spec
+
+
+def _apply_torchcodec_import_guard() -> bool:
+    """Arm the torchcodec import guard for vllm.multimodal.video.
+
+    If video.py is already imported it loaded fine and there is nothing to do;
+    otherwise install the one-shot import hook so the guard runs when the module
+    is imported later in the CLI / engine startup path.
+    """
+    # Already imported cleanly (nothing to guard), or the hook is already armed.
+    if _TORCHCODEC_VIDEO_MODULE in sys.modules:
+        return True
+    if any(isinstance(h, _MultimodalVideoImportHook) for h in sys.meta_path):
+        return True
+
+    sys.meta_path.insert(0, _MultimodalVideoImportHook())
+    logger.debug("[zentorch] Installed torchcodec import guard hook")
+    return True
+
+
+@vllm_version(VLLM_V25)
+class TorchcodecImportGuardPatch:
+    """Backport vLLM #47888 for the v0.25.0 release wheel.
+
+    The final v0.25.0 CPU release wheel ships vllm/multimodal/video.py with the
+    pre-#47888 guard (`except ImportError:` only). On hosts without system
+    FFmpeg, torchcodec raises RuntimeError during import, which propagates
+    through the multimodal import chain and crashes `import vllm` / the `vllm`
+    CLI before any model loads. This patch arms a one-shot import hook that lets
+    the broken torchcodec import survive as a placeholder -- identical in effect
+    to #47888 -- scoped to video.py's import so runtime torchcodec availability
+    detection is unchanged.
+
+    Gated to v0.25.0: the fix is already in vLLM main (ships from 0.26).
+    """
+
+    @classmethod
+    def apply(cls) -> bool:
+        return _apply_torchcodec_import_guard()
+
+
+# ---------------------------------------------------------------------------
 # Registration
 # ---------------------------------------------------------------------------
 
@@ -1487,6 +1646,8 @@ def _register_patches():
     if _REGISTERED:
         return
 
+    # Registered first so its import hook is armed before any other patch runs.
+    manager.register("TorchcodecImportGuard", TorchcodecImportGuardPatch)
     manager.register("CompilationConfigRepr", CompilationConfigReprPatch)
     manager.register("CPUProfiler", CPUProfilerPatch)
     manager.register("TorchAO", TorchAOPatch)
