@@ -7,6 +7,9 @@
 #include "MatmulUtils.hpp"
 #include "Ops.hpp"
 
+#include <torch/csrc/stable/library.h>
+#include <torch/csrc/stable/ops.h>
+
 using namespace zendnnl::interface;
 using namespace zendnnl::lowoha::normalization;
 
@@ -17,11 +20,12 @@ namespace zentorch {
 // back through `input.data_ptr()`. The non-mutating `zentorch_rms_norm`
 // caller passes a cheap non-const alias of `input` (it only reads it in the
 // result path).
-void zentorch_rms_norm_impl(at::Tensor &input, const at::Tensor &weight,
-                            const c10::optional<at::Tensor> &result,
-                            const c10::optional<at::Tensor> &residual,
-                            const double epsilon,
-                            std::string zentorch_op_name) {
+static void
+zentorch_rms_norm_impl(torch::stable::Tensor &input,
+                       const torch::stable::Tensor &weight,
+                       const std::optional<torch::stable::Tensor> &result,
+                       const std::optional<torch::stable::Tensor> &residual,
+                       const double &epsilon) {
   norm_params params;
   params.batch = static_cast<uint64_t>(input.size(0));
   params.norm_size = static_cast<uint64_t>(input.size(-1));
@@ -46,28 +50,28 @@ void zentorch_rms_norm_impl(at::Tensor &input, const at::Tensor &weight,
   }
 }
 
-void zentorch_add_rms_norm_(at::Tensor &input, const at::Tensor &weight,
-                            at::Tensor &residual, const double epsilon,
-                            std::string zentorch_op_name) {
-  zentorch_rms_norm_impl(input, weight, c10::nullopt, residual, epsilon,
-                         zentorch_op_name);
+void zentorch_add_rms_norm_(torch::stable::Tensor &input,
+                            const torch::stable::Tensor &weight,
+                            torch::stable::Tensor &residual,
+                            const double &epsilon,
+                            const std::string &zentorch_op_name) {
+  zentorch_rms_norm_impl(input, weight, std::nullopt, residual, epsilon);
 }
 
-at::Tensor zentorch_rms_norm(const at::Tensor &input, const at::Tensor &weight,
-                             const double epsilon,
-                             std::string zentorch_op_name) {
-  at::Tensor result = at::detail::empty_strided_cpu(
-      input.sizes(), input.strides(), input.options());
+torch::stable::Tensor zentorch_rms_norm(const torch::stable::Tensor &input,
+                                        const torch::stable::Tensor &weight,
+                                        const double &epsilon,
+                                        const std::string &zentorch_op_name) {
+  torch::stable::Tensor result = torch::stable::new_empty(input, input.sizes());
   // The shared impl takes a mutable `input` for its in-place add path; here
   // (result path) it only reads `input`. Use a cheap non-const alias (shares
   // the same TensorImpl -- no data copy) instead of casting away constness.
-  at::Tensor input_mut = input;
-  zentorch_rms_norm_impl(input_mut, weight, result, c10::nullopt, epsilon,
-                         zentorch_op_name);
+  torch::stable::Tensor input_mut = input;
+  zentorch_rms_norm_impl(input_mut, weight, result, std::nullopt, epsilon);
   return result;
 }
 
-TORCH_LIBRARY_FRAGMENT(zentorch, m) {
+STABLE_TORCH_LIBRARY_FRAGMENT(zentorch, m) {
   m.def("zentorch_add_rms_norm_(Tensor(a!) input, Tensor weight, Tensor(b!) "
         "residual, "
         "float epsilon, *, str "
@@ -78,8 +82,9 @@ TORCH_LIBRARY_FRAGMENT(zentorch, m) {
         "zentorch_op_name='zentorch::zentorch_rms_norm') -> Tensor");
 }
 
-TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
-  m.impl("zentorch_add_rms_norm_", zentorch_add_rms_norm_);
-  m.impl("zentorch_rms_norm", zentorch_rms_norm);
+STABLE_TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
+  m.impl("zentorch_add_rms_norm_",
+         TORCH_BOX(&zentorch::zentorch_add_rms_norm_));
+  m.impl("zentorch_rms_norm", TORCH_BOX(&zentorch::zentorch_rms_norm));
 }
 } // namespace zentorch

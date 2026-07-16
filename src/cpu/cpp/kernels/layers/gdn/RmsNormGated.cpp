@@ -10,6 +10,9 @@
 #include <ATen/ops/silu.h>
 #include <ATen/record_function.h>
 #include <torch/all.h>
+#include <torch/csrc/inductor/aoti_torch/utils.h>
+#include <torch/csrc/stable/ops.h>
+#include <torch/csrc/stable/tensor.h>
 
 #include <string>
 
@@ -49,12 +52,21 @@ at::Tensor zentorch_gdn_rms_norm_gated(const at::Tensor &x,
     return at::empty(x.sizes(), x.options());
   }
 
-  at::Tensor x_f = x.to(c10::kFloat).contiguous();
-  at::Tensor w_f = weight.to(c10::kFloat).contiguous();
+  auto aten_to_stable = [](const at::Tensor &t) {
+    return torch::stable::Tensor(
+        torch::aot_inductor::new_tensor_handle(at::Tensor(t)));
+  };
+
+  torch::stable::Tensor x_f = torch::stable::contiguous(
+      torch::stable::to(aten_to_stable(x), c10::kFloat));
+  torch::stable::Tensor w_f = torch::stable::contiguous(
+      torch::stable::to(aten_to_stable(weight), c10::kFloat));
   at::Tensor z_f = z.to(c10::kFloat).contiguous();
 
-  at::Tensor y_f =
+  torch::stable::Tensor y_stable =
       zentorch::zentorch_rms_norm(x_f, w_f, eps, "zentorch::zentorch_rms_norm");
+  at::Tensor y_f =
+      *torch::aot_inductor::tensor_handle_to_tensor_pointer(y_stable.get());
 
   at::Tensor gate_f = is_sigmoid ? at::sigmoid(z_f) : at::silu(z_f);
 

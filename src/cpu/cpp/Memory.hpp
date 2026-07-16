@@ -5,21 +5,22 @@
 
 #pragma once
 
-#include "DataPointerManager.hpp"
 #include "Utils.hpp"
 #include <functional> // For std::reference_wrapper, std::ref, std::cref
 #include <optional>   // For std::optional, std::nullopt
 
 #include "zendnnl.hpp"
 
+#include <torch/csrc/stable/tensor.h>
+#include <torch/headeronly/core/ScalarType.h>
+
 using namespace zendnnl::interface;
 
 namespace zentorch {
 
-// this infers the zendnnl datatype from aten tensor
-inline auto get_zendnnl_dtype(const at::Tensor &atensor) {
-  auto atype = atensor.scalar_type();
-  switch (atype) {
+template <typename TensorT>
+inline data_type_t get_zendnnl_dtype(const TensorT &tensor) {
+  switch (tensor.scalar_type()) {
   case c10::kByte:
     return data_type_t::u8;
   case c10::kChar:
@@ -40,6 +41,7 @@ inline auto get_zendnnl_dtype(const at::Tensor &atensor) {
     return data_type_t::f16;
   default:
     ZENTORCH_CHECK(false, "Unsupported data type.");
+    return data_type_t::f32; // unreachable; satisfies -Werror=return-type
   }
 }
 

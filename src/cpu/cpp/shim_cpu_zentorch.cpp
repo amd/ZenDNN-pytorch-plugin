@@ -17,6 +17,8 @@
 #include <ATen/core/List.h>
 #include <c10/util/ArrayRef.h>
 #include <c10/util/Optional.h>
+#include <torch/csrc/inductor/aoti_torch/c/shim.h>
+#include <torch/csrc/stable/tensor.h>
 
 using namespace torch::aot_inductor;
 
@@ -50,6 +52,27 @@ build_tensor_vector(const AtenTensorHandle *handles, int64_t len) {
     out.emplace_back(*tensor_handle_to_tensor_pointer(handles[i]));
   }
   return out;
+}
+
+// Bridge an AOTI caller-owned handle to torch::stable::Tensor without stealing
+// ownership. aoti_torch_new_tensor_handle creates a new handle referencing the
+// same TensorImpl (refcount bump only, no tensor data copy). Required because
+// stable::Tensor(AtenTensorHandle) takes ownership of its handle.
+inline torch::stable::Tensor stable_from_handle(AtenTensorHandle orig_handle) {
+  AtenTensorHandle new_handle = nullptr;
+  TORCH_ERROR_CODE_CHECK(
+      aoti_torch_new_tensor_handle(orig_handle, &new_handle));
+  return torch::stable::Tensor(new_handle);
+}
+
+// Reverse bridge: return a new caller-owned AtenTensorHandle from a stable
+// tensor after a stable op completes. Same refcount-only semantics as above.
+inline AtenTensorHandle
+handle_from_stable(const torch::stable::Tensor &stable_tensor) {
+  AtenTensorHandle orig_handle = nullptr;
+  TORCH_ERROR_CODE_CHECK(
+      aoti_torch_new_tensor_handle(stable_tensor.get(), &orig_handle));
+  return orig_handle;
 }
 
 } // namespace
@@ -545,10 +568,11 @@ AOTITorchError aoti_torch_cpu_zentorch_rms_norm(AtenTensorHandle input,
                                                 const char *zentorch_op_name,
                                                 AtenTensorHandle *ret0) {
   AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
-    auto tmp_result = zentorch::zentorch_rms_norm(
-        *tensor_handle_to_tensor_pointer(input),
-        *tensor_handle_to_tensor_pointer(weight), epsilon, zentorch_op_name);
-    *ret0 = new_tensor_handle(std::move(tmp_result));
+    auto input_stable = stable_from_handle(input);
+    auto weight_stable = stable_from_handle(weight);
+    auto tmp_result = zentorch::zentorch_rms_norm(input_stable, weight_stable,
+                                                  epsilon, zentorch_op_name);
+    *ret0 = handle_from_stable(tmp_result);
   });
 }
 
@@ -574,10 +598,12 @@ AOTITorchError aoti_torch_cpu_zentorch_add_rms_norm_(
     AtenTensorHandle input, AtenTensorHandle weight, AtenTensorHandle residual,
     double epsilon, const char *zentorch_op_name) {
   AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
-    zentorch::zentorch_add_rms_norm_(*tensor_handle_to_tensor_pointer(input),
-                                     *tensor_handle_to_tensor_pointer(weight),
-                                     *tensor_handle_to_tensor_pointer(residual),
-                                     epsilon, zentorch_op_name);
+    auto input_stable = stable_from_handle(input);
+    auto weight_stable = stable_from_handle(weight);
+    auto residual_stable = stable_from_handle(residual);
+    zentorch::zentorch_add_rms_norm_(input_stable, weight_stable,
+                                     residual_stable, epsilon,
+                                     zentorch_op_name);
   });
 }
 
