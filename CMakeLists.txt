@@ -9,11 +9,15 @@ include(FetchContent)
 
 # C++ standard: PyTorch >= 2.13 headers (e.g. c10/core/AutogradState.h) require
 # C++20; older supported torch versions build with C++17. setup.py passes
-# -DZENTORCH_CXX_STANDARD based on the detected torch version; default to 17.
-if(NOT DEFINED ZENTORCH_CXX_STANDARD)
-    set(ZENTORCH_CXX_STANDARD 17)
+# -DCMAKE_CXX_STANDARD based on the detected torch version; default to 17 if not
+# provided. ZenDNN is added via FetchContent (child scope) and pins its own
+# standard, so this stays scoped to zentorch's targets.
+if(NOT DEFINED CMAKE_CXX_STANDARD)
+    set(CMAKE_CXX_STANDARD 17)
 endif()
-message(STATUS "zentorch: building with C++${ZENTORCH_CXX_STANDARD}")
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+message(STATUS "zentorch: building with C++${CMAKE_CXX_STANDARD}")
 
 # set cmake folder as a place to search for .cmake files
 set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake/modules)
@@ -54,12 +58,6 @@ target_compile_options(zentorch
 
 add_dependencies(CPUkernels zendnnl::zendnnl_archive)
 add_dependencies(zentorch CPUkernels zendnnl::zendnnl_archive)
-
-
-# C++ standard is version-dependent (see ZENTORCH_CXX_STANDARD above): torch
-# >= 2.13 needs C++20 (c10 headers use C++20 bit-field default initializers),
-# older torch builds with C++17.
-target_compile_features(zentorch PUBLIC cxx_std_${ZENTORCH_CXX_STANDARD})
 
 set_target_properties(zentorch PROPERTIES
                       LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/lib/)

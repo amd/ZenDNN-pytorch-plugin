@@ -76,7 +76,7 @@ class CustomBuildExtension(BuildExtension):
             f"-DBUILD_SHARED_LIBS={build_shared_libs}",
             f"-DCMAKE_PREFIX_PATH={torch_cmake_prefix_path}",
             f"-DINSTALL_LIB_DIR={self.build_lib}",
-            f"-DZENTORCH_CXX_STANDARD={ZENTORCH_CXX_STANDARD}",
+            f"-DCMAKE_CXX_STANDARD={ZENTORCH_CXX_STANDARD}",
         ]
 
         # Add compile flags to cmake
