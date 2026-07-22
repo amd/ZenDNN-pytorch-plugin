@@ -1,26 +1,37 @@
 #!/usr/bin/env bash
-# Shared helpers for the zentorch user workflow scripts in scripts/.
+# Shared helpers for the zentorch skill workflow scripts.
+#
+# A copy of this file is bundled in each skill's scripts/ directory so every
+# skill under .claude/skills/ is self-contained. Keep the copies identical.
+#
 # Meant to be sourced, not executed directly.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 die() {
     echo "ERROR: $*" >&2
     exit 1
 }
 
+# Resolve the repository root from git so these scripts work regardless of
+# where they are bundled (repo-root scripts/ or .claude/skills/<name>/scripts/)
+# and regardless of the current working directory.
+REPO_ROOT="$(git -C "${SCRIPT_DIR}" rev-parse --show-toplevel 2>/dev/null)" \
+    || die "Not inside a git repository. Run from a zentorch checkout."
+
 require_repo_root() {
     cd "${REPO_ROOT}"
-    [[ -f setup.py ]] || die "Run this script from the zentorch repository."
+    [[ -f setup.py ]] || die "Could not find the zentorch repository root (setup.py missing)."
 }
 
 current_branch() {
-    git branch --show-current 2>/dev/null || echo "unknown"
+    git -C "${REPO_ROOT}" branch --show-current 2>/dev/null || echo "unknown"
 }
 
+# Primary (recommended) PyTorch CPU version pinned for the current branch.
+# See README.md for the authoritative PyTorch/Python compatibility matrix.
 detect_pytorch_version() {
     local branch
     branch="$(current_branch)"
@@ -30,6 +41,7 @@ detect_pytorch_version() {
     esac
 }
 
+# Additional supported PyTorch versions (space-separated) for the current branch.
 detect_pytorch_alternates() {
     local branch
     branch="$(current_branch)"
@@ -39,6 +51,7 @@ detect_pytorch_alternates() {
     esac
 }
 
+# Name of the active Python environment (empty if none).
 active_env_name() {
     if [[ -n "${VIRTUAL_ENV:-}" ]]; then
         basename "${VIRTUAL_ENV}"
@@ -49,14 +62,17 @@ active_env_name() {
     fi
 }
 
+# All skills share this convention: require an activated, non-base environment.
+# The user picks the environment name (see README.md section 2.2.2.1); skills do
+# not prescribe one.
 require_active_env() {
     local env_name
     env_name="$(active_env_name)"
     if [[ -z "${env_name}" ]]; then
-        die "No active Python environment detected. Create and activate one first (see README.md §2.2.2.1)."
+        die "No active Python environment detected. Create and activate one first (see README.md section 2.2.2.1)."
     fi
     if [[ "${env_name}" == "base" ]]; then
-        die "Do not use the base environment. Create a dedicated Python environment (see README.md §2.2.2.1)."
+        die "Do not use the base environment. Create a dedicated Python environment (see README.md section 2.2.2.1)."
     fi
     echo "Using active environment: ${env_name}"
 }
@@ -110,6 +126,6 @@ verify_zentorch() {
 
 # Print the most recently built zentorch wheel in dist/ (empty if none).
 latest_wheel() {
-    find dist -maxdepth 1 -name 'zentorch-*.whl' -printf '%T@ %p\n' 2>/dev/null \
+    find "${REPO_ROOT}/dist" -maxdepth 1 -name 'zentorch-*.whl' -printf '%T@ %p\n' 2>/dev/null \
         | sort -rn | head -n 1 | cut -d' ' -f2-
 }

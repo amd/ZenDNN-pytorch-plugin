@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Rebuild zentorch from source: pull latest, build the wheel, install, verify.
 #
-# Usage: scripts/build.sh
+# Usage: build.sh
 #
 # Requires an activated Python environment (not base); see README section 2.2.2.1.
 #

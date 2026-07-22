@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Install or validate the pinned PyTorch CPU build for the current branch.
 #
-# Usage: scripts/install_pytorch.sh [--force]
+# Usage: install_pytorch.sh [--force]
 #   --force   Uninstall any existing torch/torchvision/torchaudio and reinstall.
 #
 # Requires an activated Python environment (not base); see README section 2.2.2.1.
@@ -23,7 +23,7 @@ case "${1:-}" in
         ensure_pytorch_cpu
         ;;
     *)
-        die "Usage: scripts/install_pytorch.sh [--force]"
+        die "Usage: install_pytorch.sh [--force]"
         ;;
 esac
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Fresh setup: validate PyTorch, install deps, build and install zentorch, verify.
 #
-# Usage: scripts/setup.sh
+# Usage: setup.sh
 #
 # Requires an activated Python environment (not base); see README section 2.2.2.1.
 #

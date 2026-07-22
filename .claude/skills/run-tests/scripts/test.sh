@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Run zentorch tests with the required environment variables.
 #
-# Usage: scripts/test.sh [scope]
-#   scope: all | unittests (default) | op_tests | model_tests | llm |
+# Usage: test.sh [scope]
+#   scope: all | unittests (default) | op_tests | model_tests |
+#          miscellaneous_tests | export_tests | vllm_tests | llm |
 #          pre_trained | <path/to/test_file.py>
 #
 # Requires an activated Python environment with zentorch installed.
@@ -27,13 +28,16 @@ case "${scope}" in
     unittests) cmd=(python -m unittest discover -s ./test/unittests) ;;
     op_tests) cmd=(python -m unittest discover -s ./test/unittests/op_tests) ;;
     model_tests) cmd=(python -m unittest discover -s ./test/unittests/model_tests) ;;
+    miscellaneous_tests) cmd=(python -m unittest discover -s ./test/unittests/miscellaneous_tests) ;;
+    export_tests) cmd=(python -m unittest discover -s ./test/unittests/export_tests) ;;
+    vllm_tests) cmd=(python -m unittest discover -s ./test/unittests/vllm_tests) ;;
     llm) cmd=(python -m unittest discover -s ./test/llm_tests) ;;
     pre_trained) cmd=(python -m unittest discover -s ./test/pre_trained_model_tests) ;;
     *)
         if [[ -f "${scope}" ]]; then
             cmd=(python -m unittest "${scope}")
         else
-            die "Unknown scope '${scope}'. Use: all, unittests, op_tests, model_tests, llm, pre_trained, or a test file path."
+            die "Unknown scope '${scope}'. Use: all, unittests, op_tests, model_tests, miscellaneous_tests, export_tests, vllm_tests, llm, pre_trained, or a test file path."
         fi
         ;;
 esac

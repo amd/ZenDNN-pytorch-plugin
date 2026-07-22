@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Lint zentorch source.
 #
-# Usage: scripts/lint.sh <python|cpp|shell>
+# Usage: lint.sh <python|cpp|shell>
 #   python : flake8 (requires an activated Python environment)
 #   cpp    : git clang-format check (requires git-clang-format on PATH)
 #   shell  : shellcheck over tracked .sh files (requires shellcheck)
@@ -14,7 +14,7 @@ source "${SCRIPT_DIR}/common.sh"
 require_repo_root
 
 target="${1:-}"
-[[ -n "${target}" ]] || die "Usage: scripts/lint.sh <python|cpp|shell>"
+[[ -n "${target}" ]] || die "Usage: lint.sh <python|cpp|shell>"
 
 case "${target}" in
     python)
