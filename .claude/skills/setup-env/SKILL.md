@@ -1,15 +1,18 @@
 ---
 name: setup-env
 description: >-
-  Do a fresh end-to-end zentorch setup: validate PyTorch, install dependencies,
-  build, install, and verify zentorch. Use when the user asks to set up from
-  scratch, get started, or do a full fresh setup and build.
+  Prepare the Python environment (install the pinned PyTorch CPU build) and/or
+  do a fresh end-to-end zentorch setup: validate PyTorch, install dependencies,
+  build, install, and verify zentorch. Use when the user asks to create or
+  prepare an environment, install PyTorch for zentorch, get started, set up from
+  scratch, or do a full fresh setup and build.
 ---
 
-# Fresh setup and build of zentorch
+# Set up the environment and build zentorch
 
-When the user asks to set up the environment, get started, or do a fresh setup
-and build, follow this skill.
+When the user asks to prepare a Python environment, install PyTorch for
+zentorch, get started, set up from scratch, or do a fresh setup and build,
+follow this skill.
 
 **Agent action:** Run this first (foreground, 600000ms timeout):
 
@@ -30,7 +33,7 @@ for environment creation, PyTorch versions, and build steps.
 All zentorch skills share one environment convention:
 
 - Use a single activated, non-`base` Python environment for the whole workflow
-  (create-env → build → test → lint). Do not switch environments between skills.
+  (environment setup → build → test → lint). Do not switch environments between skills.
 - You choose the environment name; skills never assume or create a fixed one.
   See [README.md section 2.2.2.1](../../../README.md) to create one.
 - Confirm what is active before running anything:
@@ -39,8 +42,9 @@ All zentorch skills share one environment convention:
 echo "${VIRTUAL_ENV:-${CONDA_DEFAULT_ENV:-none}}"
 ```
 
-If this prints `none` or `base`, activate a dedicated environment first (follow
-the `create-env` skill). The bundled scripts enforce this automatically.
+If this prints `none` or `base`, create and activate a dedicated environment
+first (see [README.md section 2.2.2.1](../../../README.md)), then install
+PyTorch as in the steps below. The bundled scripts enforce this automatically.
 
 ---
 
@@ -55,6 +59,26 @@ With an activated environment:
 Run in the foreground with a long timeout (600000ms). The script validates
 PyTorch, installs dependencies, builds, installs, and verifies zentorch
 (version + config string).
+
+---
+
+## Prepare the environment only (no build)
+
+If the user only wants to prepare the environment — install the pinned PyTorch
+CPU build without building zentorch — run:
+
+```bash
+.claude/skills/setup-env/scripts/install_pytorch.sh          # validate/install
+.claude/skills/setup-env/scripts/install_pytorch.sh --force  # reinstall unconditionally
+```
+
+Then verify PyTorch:
+
+```bash
+python -c "import torch; print(f'PyTorch {torch.__version__}')"
+```
+
+See the PyTorch version matrix in Step 1 below.
 
 ---
 

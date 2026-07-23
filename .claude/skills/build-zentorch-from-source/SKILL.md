@@ -28,7 +28,7 @@ prints the version and config string on completion.
 All zentorch skills share one environment convention:
 
 - Use a single activated, non-`base` Python environment for the whole workflow
-  (create-env → build → test → lint). Do not switch environments between skills.
+  (environment setup → build → test → lint). Do not switch environments between skills.
 - You choose the environment name; skills never assume or create a fixed one.
   See [README.md section 2.2.2.1](../../../README.md) to create one.
 - Confirm what is active before running anything:
@@ -38,7 +38,7 @@ echo "${VIRTUAL_ENV:-${CONDA_DEFAULT_ENV:-none}}"
 ```
 
 If this prints `none` or `base`, activate a dedicated environment first (follow
-the `create-env` skill). The bundled scripts enforce this automatically and exit
+the `setup-env` skill). The bundled scripts enforce this automatically and exit
 if no non-`base` environment is active.
 
 ---
@@ -89,7 +89,7 @@ pip install dist/zentorch-*.whl
 ### 4a. Reinstall pinned PyTorch CPU (if needed)
 
 The wheel install may pull a CUDA build of torch. Reinstall the CPU build you
-were using (see the version matrix in the `create-env` skill):
+were using (see the version matrix in the `setup-env` skill):
 
 ```bash
 pip install torch==<version> --index-url https://download.pytorch.org/whl/cpu --force-reinstall --no-deps

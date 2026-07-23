@@ -20,8 +20,8 @@ any manual steps. Only fall back to manual commands if the script fails or the
 user asks for a manual path.
 
 **Environment convention (shared by all skills)**: Use a single activated,
-non-`base` Python environment for the whole workflow (create-env → build → test
-→ lint). The user chooses the environment name; skills never assume or create a
+non-`base` Python environment for the whole workflow (environment setup → build
+→ test → lint). The user chooses the environment name; skills never assume or create a
 fixed one (see [README.md section 2.2.2.1](README.md)). Every skill checks the
 active environment the same way and reuses it.
 
@@ -33,8 +33,7 @@ source of truth):
 
 | Skill | Purpose | Run first |
 |-------|---------|-----------|
-| [`create-env`](.claude/skills/create-env/SKILL.md) | Prepare a Python env; install pinned PyTorch CPU for the branch | `.claude/skills/create-env/scripts/install_pytorch.sh` |
-| [`setup-env`](.claude/skills/setup-env/SKILL.md) | Fresh end-to-end setup: validate PyTorch, install deps, build, install, verify | `.claude/skills/setup-env/scripts/setup.sh` |
+| [`setup-env`](.claude/skills/setup-env/SKILL.md) | Prepare the env (install pinned PyTorch CPU) and/or fresh end-to-end setup: deps, build, install, verify | `.claude/skills/setup-env/scripts/setup.sh` (or `install_pytorch.sh` for env only) |
 | [`build-zentorch-from-source`](.claude/skills/build-zentorch-from-source/SKILL.md) | Build/rebuild zentorch from source and verify | `.claude/skills/build-zentorch-from-source/scripts/build.sh` |
 | [`run-tests`](.claude/skills/run-tests/SKILL.md) | Run tests (unit, op, model, misc, export, vLLM, LLM, pre-trained) | `.claude/skills/run-tests/scripts/test.sh [scope]` |
 | [`lint`](.claude/skills/lint/SKILL.md) | Lint Python (flake8), C++ (git clang-format), shell (shellcheck) | `.claude/skills/lint/scripts/lint.sh <python\|cpp\|shell>` |
