@@ -50,7 +50,8 @@ if no non-`base` environment is active.
 ```
 
 Run in the foreground with a long timeout (600000ms). ZenDNN is fetched
-automatically by cmake — no local ZenDNN checkout needed.
+automatically by cmake — no local ZenDNN checkout needed. The script builds the
+current checkout; run `git pull --ff-only` first if you want the latest code.
 
 ---
 

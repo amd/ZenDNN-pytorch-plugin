@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Rebuild zentorch from source: pull latest, build the wheel, install, verify.
+# Rebuild zentorch from source: build the wheel, install, verify.
+# Builds the current checkout; update the repo separately if you want the latest.
 #
 # Usage: build.sh
 #
@@ -20,7 +21,6 @@ require_active_env
 echo "Building zentorch (branch: $(current_branch))"
 
 pip uninstall -y zentorch 2>/dev/null || true
-git pull --ff-only
 
 # Preserve the currently-installed (supported) torch version; fall back to the
 # pinned version if torch is not installed yet.

@@ -27,8 +27,18 @@ require_repo_root() {
     [[ -f setup.py ]] || die "Could not find the zentorch repository root (setup.py missing)."
 }
 
+# Best-effort current branch name. `git branch --show-current` is empty on a
+# detached HEAD (common in CI), so fall back to GITHUB_REF_NAME and finally
+# "unknown" rather than silently assuming a branch for version pinning.
 current_branch() {
-    git -C "${REPO_ROOT}" branch --show-current 2>/dev/null || echo "unknown"
+    local branch
+    branch="$(git -C "${REPO_ROOT}" branch --show-current 2>/dev/null || true)"
+    [[ -z "${branch}" ]] && branch="${GITHUB_REF_NAME:-}"
+    if [[ -z "${branch}" || "${branch}" == "HEAD" ]]; then
+        echo "unknown"
+    else
+        echo "${branch}"
+    fi
 }
 
 # Primary (recommended) PyTorch CPU version pinned for the current branch.

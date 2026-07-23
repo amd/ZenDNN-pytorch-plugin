@@ -37,14 +37,9 @@ case "${target}" in
         ;;
     shell)
         command -v shellcheck >/dev/null 2>&1 || die "shellcheck is not installed."
-        mapfile -t scripts < <(
-            find . \
-                -path ./third_party -prune -o \
-                -path ./build -prune -o \
-                -path ./dist -prune -o \
-                -path ./.git -prune -o \
-                -type f -name '*.sh' -print
-        )
+        # Lint only tracked .sh files for deterministic results. This excludes
+        # untracked/generated scripts and the git-ignored third_party/build/dist.
+        mapfile -t scripts < <(git -C "${REPO_ROOT}" ls-files -- '*.sh')
         [[ ${#scripts[@]} -gt 0 ]] || { echo "No shell scripts found."; exit 0; }
         shellcheck "${scripts[@]}"
         echo "Shell lint passed."
