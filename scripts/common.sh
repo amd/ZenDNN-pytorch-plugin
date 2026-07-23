@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Shared helpers for the zentorch skill workflow scripts.
 #
-# A copy of this file is bundled in each skill's scripts/ directory so every
-# skill under .claude/skills/ is self-contained. Keep the copies identical.
+# Single source of truth. The per-skill entry scripts under
+# .claude/skills/<name>/scripts/ locate the repo root via git and source this
+# file, so there is exactly one copy to maintain.
 #
 # Meant to be sourced, not executed directly.
 

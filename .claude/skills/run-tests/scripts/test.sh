@@ -10,8 +10,10 @@
 
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source-path=SCRIPTDIR source=common.sh
-source "${SCRIPT_DIR}/common.sh"
+REPO_ROOT="$(git -C "${SCRIPT_DIR}" rev-parse --show-toplevel 2>/dev/null)" \
+    || { echo "ERROR: run this from a zentorch git checkout." >&2; exit 1; }
+# shellcheck source=scripts/common.sh
+source "${REPO_ROOT}/scripts/common.sh"
 
 require_repo_root
 require_active_env

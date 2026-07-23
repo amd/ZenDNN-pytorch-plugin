@@ -27,8 +27,9 @@ active environment the same way and reuses it.
 
 ## Skills
 
-All skills live under `.claude/skills/<name>/SKILL.md`, each with its own bundled
-`scripts/`:
+All skills live under `.claude/skills/<name>/SKILL.md`, each with an entry script
+under its own `scripts/` that sources the shared `scripts/common.sh` helper (one
+source of truth):
 
 | Skill | Purpose | Run first |
 |-------|---------|-----------|
@@ -56,8 +57,8 @@ cmake/modules/            # ZenDNN fetch/build, dependency wiring
 src/cpu/cpp/              # C++ operator bindings and integration code
 src/cpu/python/zentorch/  # Python package (backend, llm, vllm plugin)
 test/                     # All tests (unittests, llm_tests, pre_trained_model_tests)
-.claude/skills/           # Agent skills (each: SKILL.md + bundled scripts/)
-scripts/                  # Benchmark/runtime env-setup helpers (not build workflow)
+.claude/skills/           # Agent skills (each: SKILL.md + an entry script under scripts/)
+scripts/                  # Shared skill helper (common.sh) + benchmark env-setup scripts
 benchmark/                # Benchmark configs (BERT, DLRM-v2, etc.)
 third_party/              # Auto-populated at build time (ZenDNN)
 ```
