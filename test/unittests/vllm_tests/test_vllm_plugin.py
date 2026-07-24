@@ -19,8 +19,8 @@ Retained legacy version map: 0.15.0, 0.15.1, 0.16.0, 0.17.0, 0.17.1, 0.18.0,
 0.18.1, 0.19.0, 0.19.1
 """
 
-import os
 import importlib.util
+import os
 import sys
 import types
 import unittest
@@ -30,18 +30,7 @@ import zentorch  # noqa: F401 - ensures zentorch native extension is loaded
 import torch
 from zentorch._utils import counters
 
-TORCHAO_AVAILABLE = importlib.util.find_spec("torchao") is not None
-
-# vLLM 0.11+ uses Python 3.10+ type syntax (e.g., `X | None`)
-# which fails at import time on Python 3.9
-IS_PYTHON_3_10_OR_ABOVE = sys.version_info >= (3, 10)
-
-try:
-    import vllm  # NoQA: F401
-
-    VLLM_AVAILABLE = True
-except ImportError:
-    VLLM_AVAILABLE = False
+from ._test_constants import TORCHAO_AVAILABLE, VLLM_AVAILABLE, vllm
 
 
 def _load_source_vllm_module():
@@ -263,7 +252,6 @@ class TestVllmPluginVersionCheck(unittest.TestCase):
         )
 
     @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
-    @unittest.skipUnless(IS_PYTHON_3_10_OR_ABOVE, "vLLM 0.11+ requires Python 3.10+")
     def test_register_returns_platform_for_installed_vllm(self):
         """register() should return platform path for the installed vLLM version."""
         from zentorch.vllm import register
@@ -278,7 +266,6 @@ class TestVllmPluginVersionCheck(unittest.TestCase):
         self.assertEqual(result, "zentorch.vllm._platform.ZenCPUPlatform")
 
     @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
-    @unittest.skipUnless(IS_PYTHON_3_10_OR_ABOVE, "vLLM 0.11+ requires Python 3.10+")
     def test_installed_vllm_version_is_supported(self):
         """Installed vLLM version should be in supported list."""
         from zentorch.vllm._core import get_version_family, _base_version
@@ -487,7 +474,6 @@ class TestPatchRegistration(unittest.TestCase):
     """Test that patches are registered and applied correctly."""
 
     @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
-    @unittest.skipUnless(IS_PYTHON_3_10_OR_ABOVE, "vLLM 0.11+ requires Python 3.10+")
     def test_patches_are_registered(self):
         """All expected patches should be registered with manager."""
         from zentorch import vllm as zv
@@ -532,7 +518,6 @@ class TestPatchRegistration(unittest.TestCase):
         self.assertNotIn("DispatchCPUUnquantizedGemm", manager.patches)
 
     @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
-    @unittest.skipUnless(IS_PYTHON_3_10_OR_ABOVE, "vLLM 0.11+ requires Python 3.10+")
     def test_version_appropriate_patches_applied(self):
         """Patches appropriate for installed vLLM version should be applied."""
         from zentorch import vllm as zv
@@ -664,7 +649,6 @@ class TestCompilationConfigPatch(unittest.TestCase):
     """Test CompilationConfig repr patch."""
 
     @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
-    @unittest.skipUnless(IS_PYTHON_3_10_OR_ABOVE, "vLLM 0.11+ requires Python 3.10+")
     def test_compilation_config_repr_is_patched(self):
         """CompilationConfig.__repr__ should have _zentorch_patched attribute."""
         from zentorch import vllm as zv
@@ -686,7 +670,6 @@ class TestCompilationConfigPatch(unittest.TestCase):
         )
 
     @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
-    @unittest.skipUnless(IS_PYTHON_3_10_OR_ABOVE, "vLLM 0.11+ requires Python 3.10+")
     def test_compilation_config_repr_handles_custom_pass(self):
         """Patched repr should not raise errors with zentorch optimize_pass."""
         from zentorch import vllm as zv
@@ -796,7 +779,6 @@ class TestPlatformConfiguration(unittest.TestCase):
     """Test ZenCPUPlatform configuration."""
 
     @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
-    @unittest.skipUnless(IS_PYTHON_3_10_OR_ABOVE, "vLLM 0.11+ requires Python 3.10+")
     def test_platform_device_name_is_cpu(self):
         """device_name should be 'cpu'."""
         from zentorch.vllm._platform import ZenCPUPlatform
@@ -804,7 +786,6 @@ class TestPlatformConfiguration(unittest.TestCase):
         self.assertEqual(ZenCPUPlatform.device_name, "cpu")
 
     @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
-    @unittest.skipUnless(IS_PYTHON_3_10_OR_ABOVE, "vLLM 0.11+ requires Python 3.10+")
     def test_platform_device_type_is_cpu(self):
         """device_type should be 'cpu'."""
         from zentorch.vllm._platform import ZenCPUPlatform
@@ -821,7 +802,6 @@ class TestDynamicQLinearDispatchPatch(unittest.TestCase):
     """Test that Int8Tensor F.linear dispatch is patched to zentorch_dynamic_qlinear."""
 
     @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
-    @unittest.skipUnless(IS_PYTHON_3_10_OR_ABOVE, "vLLM 0.11+ requires Python 3.10+")
     @unittest.skipUnless(TORCHAO_AVAILABLE, "torchao not installed")
     def test_patch_is_applied_after_register(self):
         """TorchAOPatch.apply() must invoke _apply_torchao_int8_tensor_patch_impl
@@ -870,7 +850,6 @@ class TestDynamicQLinearDispatchNoTorchAO(unittest.TestCase):
 
 
 @unittest.skipUnless(TORCHAO_AVAILABLE, "torchao not installed")
-@unittest.skipUnless(IS_PYTHON_3_10_OR_ABOVE, "torchao requires Python 3.10+")
 class TestInt8TensorHandlers(unittest.TestCase):
     """End-to-end checks for the shape-transform Int8Tensor handlers
     registered by ``_register_int8_tensor_handlers``
@@ -995,7 +974,6 @@ class TestCppIndirectAssertPatch(unittest.TestCase):
     """CppIndirectAssertPatch must be registered and gated to vLLM 0.20.0/0.20.1/0.20.2."""
 
     @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
-    @unittest.skipUnless(IS_PYTHON_3_10_OR_ABOVE, "vLLM 0.11+ requires Python 3.10+")
     def test_patch_is_registered(self):
         """CppIndirectAssertPatch should be registered with the manager."""
         from zentorch.vllm import register
@@ -1022,7 +1000,6 @@ class TestCPURunnerShutdownPatch(unittest.TestCase):
     """
 
     @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
-    @unittest.skipUnless(IS_PYTHON_3_10_OR_ABOVE, "vLLM 0.11+ requires Python 3.10+")
     def test_patch_is_registered(self):
         from zentorch.vllm import register
         from zentorch.vllm._core import manager
@@ -1069,7 +1046,6 @@ class TestGptOssMoEWeightRemapPatch(unittest.TestCase):
     """GptOssMoEWeightRemapPatch is registered and gated to v0.24.0 only."""
 
     @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
-    @unittest.skipUnless(IS_PYTHON_3_10_OR_ABOVE, "vLLM 0.11+ requires Python 3.10+")
     def test_patch_is_registered(self):
         from zentorch.vllm import register
         from zentorch.vllm._core import manager
@@ -1146,7 +1122,6 @@ class TestGatedDeltaNetPatch(unittest.TestCase):
     + v0.23.0 + v0.24.0 + v0.25.0."""
 
     @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
-    @unittest.skipUnless(IS_PYTHON_3_10_OR_ABOVE, "vLLM 0.11+ requires Python 3.10+")
     def test_patch_is_registered(self):
         from zentorch.vllm import register
         from zentorch.vllm._core import manager
@@ -1205,7 +1180,6 @@ class TestCpuZeroBlockIdsPatch(unittest.TestCase):
         return module
 
     @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
-    @unittest.skipUnless(IS_PYTHON_3_10_OR_ABOVE, "vLLM 0.11+ requires Python 3.10+")
     def test_patch_is_registered(self):
         """CpuZeroBlockIds should be registered with the manager."""
         from zentorch.vllm import register
@@ -1407,7 +1381,6 @@ class TestCpuZeroBlockIdsPatch(unittest.TestCase):
 
 
 @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
-@unittest.skipUnless(IS_PYTHON_3_10_OR_ABOVE, "vLLM 0.11+ requires Python 3.10+")
 class TestTorchcodecImportGuardPatch(unittest.TestCase):
     """TorchcodecImportGuardPatch must be registered, gated to v0.25.0 only, and
     must make a broken torchcodec import survive during vllm.multimodal.video

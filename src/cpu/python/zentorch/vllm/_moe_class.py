@@ -19,6 +19,26 @@ logger = get_logger(__name__)
 _TORCHAO_MOE_TARGET_MODULE = "vllm.model_executor.layers.quantization.torchao"
 
 
+def _resolve_moe_layer_types():
+    """Return the MoE weight-container type(s) exposed by the installed vLLM.
+
+    vLLM 0.24.0+ onwards, FusedMoE is refactored from a class into a factory
+    function and the MoE weight container is moved to RoutedExperts.
+    """
+    types = []
+    try:
+        from vllm.model_executor.layers.fused_moe.routed_experts import (
+            RoutedExperts,
+        )
+        types.append(RoutedExperts)
+    except ImportError:
+        pass
+    from vllm.model_executor.layers.fused_moe.layer import FusedMoE
+    if isinstance(FusedMoE, type):
+        types.append(FusedMoE)
+    return tuple(types)
+
+
 def _register_torchao_moe_patches(torchao_mod) -> None:
     """Install FusedMoE-related changes on the loaded ``torchao_mod``.
 
@@ -28,7 +48,6 @@ def _register_torchao_moe_patches(torchao_mod) -> None:
     importable before vLLM's layer modules exist.
     """
     from vllm.model_executor.layers.fused_moe.config import FusedMoEConfig
-    from vllm.model_executor.layers.fused_moe.layer import FusedMoE
     from vllm.model_executor.layers.fused_moe.unquantized_fused_moe_method import (
         UnquantizedFusedMoEMethod,
     )
@@ -38,6 +57,7 @@ def _register_torchao_moe_patches(torchao_mod) -> None:
     )
     from vllm.model_executor.utils import set_weight_attrs
 
+    _moe_layer_types = _resolve_moe_layer_types()
     TorchAOConfig = torchao_mod.TorchAOConfig
     _get_weight_attrs = torchao_mod._get_weight_attrs
     _restore_weight_attrs = torchao_mod._restore_weight_attrs
@@ -87,7 +107,7 @@ def _register_torchao_moe_patches(torchao_mod) -> None:
         return self
 
     def _patched_get_quant_method(self, layer, prefix):
-        if isinstance(layer, FusedMoE):
+        if _moe_layer_types and isinstance(layer, _moe_layer_types):
             resolved = self._resolve_torchao_config_for_prefix(prefix)
             if resolved is None:
                 # Layer is explicitly skipped (e.g. via `modules_to_not_convert`
@@ -241,7 +261,7 @@ def _apply_torchao_moe_patch_to_module(torchao_mod) -> bool:
         _register_torchao_moe_patches(torchao_mod)
         torchao_mod.TorchAOConfig._zentorch_moe_patched = True
         logger.info(
-            "[zentorch] Patched vLLM TorchAOConfig: FusedMoE -> "
+            "[zentorch] Patched vLLM TorchAOConfig: MoE layer -> "
             "TorchAOFusedMoEMethod"
         )
         return True
