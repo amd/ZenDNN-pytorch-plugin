@@ -30,13 +30,13 @@ Follow the zentorch installation steps in the [README](https://github.com/amd/Ze
 ```
 ## 3. Model Preparation
 
-Download and install Quark v0.8. Installation instructions can be found [here](https://github.com/amd/Quark/blob/v0.8/README.md).
-We suggest downloading the "zip release".
+To quantize model locally follow the steps in this [README.md](https://github.com/amd/ZenDNN-pytorch-plugin/blob/main/examples/quantization/torchao/DLRM-v2/README.md) file.
 
-> zentorch v5.2 is compatible with Quark v0.8. Please make sure you download the right version.
+Set the path for the quantized DLRM model directory.
 
-Follow the steps in the README file at "examples/torch/rm" directory to download, prepare and quantize the model.
-
+```bash
+export MODEL_DIR=/path/to/drmv2_quantized_model/<file_name>.pt2
+```
 
 ## 4. Execute DLRMv2
 

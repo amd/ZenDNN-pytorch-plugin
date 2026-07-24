@@ -73,8 +73,7 @@ def sub_process(
 ):
     zentorch.utils.thread_bind(affinity)
     if model_type in ["export_quant32", "export_quant16"]:
-        model = model.module(check_guards=False)
-        model = torch.compile(model, backend="zentorch")
+        model = torch.compile(model.module(check_guards=False), backend="zentorch")
 
     densex, index, offset, labels = sample_inputs
 
@@ -182,7 +181,7 @@ if __name__ == "__main__":
 
     num_of_instances = len(proc_inst_start_idx)
     input_dtype = torch.float32
-    if args.model in ["bf16", "quant16", "export_quant16"]:
+    if args.model in ["bf16", "export_quant16"]:
         input_dtype = torch.bfloat16
     elif args.model == "fp16":
         input_dtype = torch.float16

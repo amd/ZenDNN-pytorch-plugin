@@ -3,10 +3,10 @@
 # All rights reserved.
 # ******************************************************************************
 
-import zentorch
 from dlrm_model import DLRMMLPerf
 import torch
 import os
+import zentorch  # noqa: F401
 
 
 def get_model():
@@ -74,16 +74,7 @@ def get_model():
 
 def get_compiled_model(args):
     model = get_model()
-    if args.model == "quant32":
-        try:
-            model = zentorch.load_quantized_model(
-                model, saved_model_path=args.model_path
-            )
-        except Exception as e:
-            raise RuntimeError(
-                f"Failed to load quantized model from {args.model_path}. Error: {e}"
-            ) from e
-    elif args.model in ["fp32", "bf16", "fp16"]:
+    if args.model in ["fp32", "bf16", "fp16"]:
         try:
             model.load_state_dict(
                 torch.load(
@@ -99,36 +90,9 @@ def get_compiled_model(args):
             raise RuntimeError(
                 f"Failed to load {args.model} model from {args.model_path}. Error: {e}"
             ) from e
-    elif args.model == "qdq_model":
-        try:
-            from quark.torch.quantization.api import load_params
-        except ImportError as e:
-            raise ImportError("Please install quark package to use qdq_model. ") from e
-        try:
-            model = load_params(
-                model,
-                json_path=os.path.join(args.model_path, "DLRM_INT.json"),
-                safetensors_path=os.path.join(args.model_path, "DLRM_INT.safetensors"),
-                compressed=True,
-            )
-        except Exception as e:
-            raise RuntimeError(
-                f"Failed to load qdq_model from {args.model_path}. Error: {e}"
-            ) from e
-    elif args.model == "quant16":
-        try:
-            model = model.to(dtype=torch.bfloat16)
-            model = zentorch.load_quantized_model(
-                model, saved_model_path=args.model_path
-            )
-        except Exception as e:
-            raise RuntimeError(
-                f"Failed to load quant16 model from {args.model_path}. Error: {e}"
-            ) from e
     elif args.model in ["export_quant32", "export_quant16"]:
         try:
             import torchao  # noqa: F401
-
             model = torch.export.load(args.model_path)
         except Exception as e:
             raise RuntimeError(
@@ -136,8 +100,8 @@ def get_compiled_model(args):
             ) from e
     else:
         raise ValueError(
-            f"Unsupported model type: {args.model}. Supported types are: quant32, fp32, "
-            f"bf16, fp16, qdq_model, quant16, export_quant32, export_quant16."
+            f"Unsupported model type: {args.model}. Supported types are: fp32, "
+            f"bf16, fp16, export_quant32, export_quant16."
         )
     print("Sharing memory", flush=True)
     if args.model in ["export_quant32", "export_quant16"]:

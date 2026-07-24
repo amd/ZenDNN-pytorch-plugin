@@ -70,15 +70,12 @@ def get_args():
         type=str,
         default="export_quant32",
         help=(
-            "type of model to load [quant32, fp32, bf16, qdq_model, quant16, "
+            "type of model to load [fp32, bf16, "
             "export_quant32, export_quant16, fp16]"
         ),
         choices=[
-            "quant32",
             "fp32",
             "bf16",
-            "qdq_model",
-            "quant16",
             "export_quant32",
             "export_quant16",
             "fp16",
