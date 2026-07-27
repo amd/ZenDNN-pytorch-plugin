@@ -4,40 +4,40 @@ This flow mirrors
 [`scripts/build.sh`](scripts/build.sh) and the source-build procedure in
 [README.md section 2.2](../../../README.md).
 
+The build script installs the repository requirements before compiling so the
+active environment supplies CMake and Ninja:
+
+```bash
+python -m pip install -r requirements.txt
+python setup.py bdist_wheel
+```
+
+After building, it installs the newest wheel, restores the selected CPU-only
+PyTorch version, and verifies the zentorch version and build configuration. On
+RHEL/Fedora-family systems, set `ZENDNNL_MANYLINUX_BUILD=1` when required.
+
 ```mermaid
 flowchart TD
-    start([START: Build zentorch from source])
-    checkout["1. Use the current zentorch git checkout"]
-    env["2. Require an active, dedicated Python environment"]
-    requirements["3. Install repo requirements in the active environment<br/><code>python -m pip install -r requirements.txt</code>"]
-    uninstall["4. Uninstall the existing zentorch package"]
-    torch["5. Record the installed PyTorch version<br/>(fall back to the branch-recommended CPU version)"]
-    build["6. Build the wheel<br/><code>python setup.py bdist_wheel</code>"]
-    rhel["RHEL / Fedora family:<br/><code>export ZENDNNL_MANYLINUX_BUILD=1</code> when required"]
-    wheel{"Wheel found<br/>in dist/?"}
-    buildFail["STOP: Build failed<br/>Read the full error, fix it, and rebuild"]
-    install["7. Install the newest wheel, then force-reinstall<br/>the selected PyTorch CPU version without dependencies"]
-    verify["8. Verify <code>import zentorch</code>, version, and build config"]
-    imports{"Import and<br/>verification succeed?"}
-    importFail["STOP: Import failed<br/>Check GLIBCXX / LD_PRELOAD, then rebuild"]
-    done([END: zentorch built and installed<br/>Continue to unit tests])
+    start(["START: Build zentorch<br/>from source"])
+    checkout["1. Current zentorch<br/>git checkout"]
+    env["2. Active dedicated<br/>Python environment"]
+    requirements["3. Install repository<br/>requirements"]
+    uninstall["4. Uninstall existing<br/>zentorch"]
+    torch["5. Select PyTorch<br/>CPU version"]
+    build["6. Build wheel"]
+    rhel["RHEL / Fedora:<br/>enable manylinux build"]
+    wheel{"Wheel found<br/>in dist?"}
+    buildFail["STOP: Build failed<br/>Fix error and rebuild"]
+    install["7. Install wheel<br/>Restore PyTorch CPU"]
+    verify["8. Import and verify<br/>version and config"]
+    imports{"Verification<br/>successful?"}
+    importFail["STOP: Import failed<br/>Check GLIBCXX<br/>or LD_PRELOAD"]
+    done(["END: Build installed<br/>Continue to tests"])
 
     start --> checkout --> env --> requirements --> uninstall --> torch --> build --> wheel
-    rhel -. platform-specific build setting .-> build
+    rhel -. platform setting .-> build
     wheel -- No --> buildFail
     wheel -- Yes --> install --> verify --> imports
     imports -- No --> importFail
     imports -- Yes --> done
-
-    classDef terminal fill:#c9efc5,stroke:#55a75a,stroke-width:2px,color:#111;
-    classDef action fill:#d9ebfa,stroke:#5b9bd5,stroke-width:1.5px,color:#111;
-    classDef decision fill:#fff2cc,stroke:#e5a100,stroke-width:1.5px,color:#111;
-    classDef stop fill:#ffd9d9,stroke:#e58c8c,stroke-width:1.5px,color:#111;
-    classDef note fill:#fff8e7,stroke:#d6b656,stroke-width:1.25px,color:#111;
-
-    class start,done terminal;
-    class checkout,env,requirements,uninstall,torch,build,install,verify action;
-    class wheel,imports decision;
-    class buildFail,importFail stop;
-    class rhel note;
 ```
