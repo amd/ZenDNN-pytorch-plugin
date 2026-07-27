@@ -20,6 +20,7 @@ require_active_env
 
 export ZENDNNL_MATMUL_WEIGHT_CACHE=0
 export ZENDNNL_ZP_COMP_CACHE=0
+export ZENDNNL_ENABLE_POSTOP_CACHE=0
 
 python test/install_requirements.py
 

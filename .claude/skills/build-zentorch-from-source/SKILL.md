@@ -21,6 +21,8 @@ prints the version and config string on completion.
 
 **Authoritative reference:** [README.md section 2.2 (From Source)](../../../README.md)
 
+See [zentorch-build-flow.md](zentorch-build-flow.md) for the build workflow.
+
 ---
 
 ## Environment
@@ -59,19 +61,28 @@ current checkout; run `git pull --ff-only` first if you want the latest code.
 
 Use these steps only if the script fails or the user requests a manual build.
 
-### 1. Uninstall existing zentorch
+### 1. Install build dependencies
 
 ```bash
-pip uninstall zentorch -y
+python -m pip install -r requirements.txt
 ```
 
-### 2. Pull latest code
+This installs the environment-local CMake and Ninja versions required by the
+build instead of relying on potentially missing or outdated system tools.
+
+### 2. Uninstall existing zentorch
+
+```bash
+python -m pip uninstall zentorch -y
+```
+
+### 3. Pull latest code
 
 ```bash
 git pull --ff-only
 ```
 
-### 3. Build
+### 4. Build
 
 ```bash
 python setup.py bdist_wheel
@@ -81,22 +92,22 @@ python setup.py bdist_wheel
 
 **IMPORTANT:** Run in the foreground (NOT in background) with a long timeout (600000ms).
 
-### 4. Install the wheel
+### 5. Install the wheel
 
 ```bash
-pip install dist/zentorch-*.whl
+python -m pip install dist/zentorch-*.whl
 ```
 
-### 4a. Reinstall pinned PyTorch CPU (if needed)
+### 5a. Reinstall pinned PyTorch CPU (if needed)
 
 The wheel install may pull a CUDA build of torch. Reinstall the CPU build you
 were using (see the version matrix in the `setup-env` skill):
 
 ```bash
-pip install torch==<version> --index-url https://download.pytorch.org/whl/cpu --force-reinstall --no-deps
+python -m pip install torch==<version> --index-url https://download.pytorch.org/whl/cpu --force-reinstall --no-deps
 ```
 
-### 5. Verify
+### 6. Verify
 
 ```bash
 python -c 'import zentorch; print(zentorch.__version__); print(*zentorch.__config__.split("\n"), sep="\n")'

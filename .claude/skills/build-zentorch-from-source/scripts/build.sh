@@ -20,7 +20,10 @@ require_active_env
 
 echo "Building zentorch (branch: $(current_branch))"
 
-pip uninstall -y zentorch 2>/dev/null || true
+echo "Installing build requirements into the active environment..."
+python -m pip install -r requirements.txt
+
+python -m pip uninstall -y zentorch 2>/dev/null || true
 
 # Preserve the currently-installed (supported) torch version; fall back to the
 # pinned version if torch is not installed yet.
@@ -28,8 +31,8 @@ torch_version="$(installed_pytorch_version)"
 python setup.py bdist_wheel
 wheel="$(latest_wheel)"
 [[ -n "${wheel}" ]] || die "No zentorch wheel found in dist/."
-pip install "${wheel}"
-pip install "torch==${torch_version:-$(detect_pytorch_version)}" \
+python -m pip install "${wheel}"
+python -m pip install "torch==${torch_version:-$(detect_pytorch_version)}" \
     --index-url https://download.pytorch.org/whl/cpu --force-reinstall --no-deps
 
 echo "Build complete."

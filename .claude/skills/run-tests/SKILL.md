@@ -29,6 +29,8 @@ The script sets the required env vars, installs test deps, and runs the scope.
 Use the manual commands below only if the script fails or a `-k` / `-p` filter is
 needed that the script does not support.
 
+See [zentorch-test-flow.md](zentorch-test-flow.md) for the test workflow.
+
 ---
 
 ## Environment
@@ -62,6 +64,7 @@ Disable ZenDNN caching before running any tests:
 ```bash
 export ZENDNNL_MATMUL_WEIGHT_CACHE=0
 export ZENDNNL_ZP_COMP_CACHE=0
+export ZENDNNL_ENABLE_POSTOP_CACHE=0
 ```
 
 ## 3. Determine what to run
