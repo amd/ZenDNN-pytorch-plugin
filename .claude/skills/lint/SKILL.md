@@ -45,7 +45,7 @@ flake8
 To auto-format files flagged by flake8 with black:
 
 ```bash
-flake8 --quiet | xargs black --verbose
+flake8 --format='%(path)s' | sort -u | xargs -r black --verbose
 ```
 
 - Config: `.flake8` in the repo root

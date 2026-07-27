@@ -27,7 +27,7 @@ flowchart TD
     scope{"4. Test scope?"}
     default["Default:<br/>all unit tests"]
     all["All test suites"]
-    category["Named test<br/>category"]
+    category["Named category:<br/>op_tests, model_tests<br/>miscellaneous_tests<br/>export_tests, vllm_tests<br/>llm, pre_trained"]
     file["Existing test<br/>file"]
     invalid["STOP: Unknown scope<br/>Choose scope or file"]
     run["5. Run Python<br/>unittest discovery"]
