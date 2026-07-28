@@ -22,21 +22,26 @@ case "${target}" in
     python)
         require_active_env
         python -m pip install -q -r linter/requirements.txt
-        flake8
+        python -m flake8
         echo "Python lint passed."
         ;;
     cpp)
         # The repo C++ lint (linter/py_cpp_linter.sh) uses git clang-format,
         # which the clang-format pip package does not provide. Require it and
         # point the user at an actionable install instead of a no-op fallback.
+        command -v git >/dev/null 2>&1 \
+            || die "git is required for C++ lint."
         if ! git clang-format -h >/dev/null 2>&1; then
-            die "git clang-format is required for C++ lint (install LLVM/clang tools that provide git-clang-format)."
+            die "git clang-format is required for C++ lint (install with 'conda install -c conda-forge clang-tools' or 'sudo apt-get install clang-format')."
         fi
         git clang-format --commit "$(git rev-list HEAD | tail -n 1)" --diff
         echo "C++ lint passed."
         ;;
     shell)
-        command -v shellcheck >/dev/null 2>&1 || die "shellcheck is not installed."
+        command -v shellcheck >/dev/null 2>&1 \
+            || die "shellcheck is required for shell lint (install with 'conda install -c conda-forge shellcheck' or 'sudo apt-get install shellcheck')."
+        shellcheck --version >/dev/null 2>&1 \
+            || die "shellcheck is present but could not run."
         # Lint only tracked .sh files for deterministic results. This excludes
         # untracked/generated scripts and the git-ignored third_party/build/dist.
         mapfile -t scripts < <(git -C "${REPO_ROOT}" ls-files -- '*.sh')

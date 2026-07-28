@@ -39,13 +39,13 @@ C++ and shell linting do not require a Python environment.
 
 ```bash
 python -m pip install -r linter/requirements.txt
-flake8
+python -m flake8
 ```
 
 To auto-format files flagged by flake8 with black:
 
 ```bash
-flake8 --format='%(path)s' | sort -u | xargs -r black --verbose
+python -m flake8 --format='%(path)s' | sort -u | xargs -r black --verbose
 ```
 
 - Config: `.flake8` in the repo root
@@ -59,6 +59,21 @@ flake8 --format='%(path)s' | sort -u | xargs -r black --verbose
 Requires `git-clang-format` (from LLVM/clang tools) on `PATH`. This is the same
 tool the repo's CI linter (`linter/py_cpp_linter.sh`) uses; the `clang-format`
 pip package does not provide it.
+
+Check the prerequisite:
+
+```bash
+command -v git
+git clang-format -h
+```
+
+Install it explicitly if needed:
+
+```bash
+conda install -c conda-forge clang-tools
+# Ubuntu/Debian:
+sudo apt-get update && sudo apt-get install clang-format
+```
 
 ```bash
 git clang-format --commit "$(git rev-list HEAD | tail -n 1)" --diff
@@ -77,7 +92,20 @@ git clang-format -f
 
 ## Shell
 
-Requires `shellcheck` on the system (e.g. `sudo apt-get install shellcheck`).
+Requires `shellcheck` on `PATH`. Check it before running:
+
+```bash
+command -v shellcheck
+shellcheck --version
+```
+
+Install it explicitly if needed:
+
+```bash
+conda install -c conda-forge shellcheck
+# Ubuntu/Debian:
+sudo apt-get update && sudo apt-get install shellcheck
+```
 
 ```bash
 find . \
