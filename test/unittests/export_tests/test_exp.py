@@ -9,6 +9,7 @@ import zentorch
 import sys
 from pathlib import Path
 import os  # noqa: E402
+import tempfile
 from torch._inductor import config
 
 sys.path.append(str(Path(__file__).parent.parent))
@@ -75,6 +76,14 @@ class QKVFusionModel(nn.Module):
 
 
 class TestExport(AddmmTestCase):
+    def setUp(self):
+        super().setUp()
+        self._package_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._package_dir.cleanup)
+
+    def package_path(self, name):
+        return os.path.join(self._package_dir.name, name)
+
     @torch.inference_mode()
     def test_export(self):
         my_model = SimpleLinearModel().eval()
@@ -82,7 +91,7 @@ class TestExport(AddmmTestCase):
         exp_model = torch.export.export(my_model, args=(example_arg_1,))
         output_path = torch._inductor.aoti_compile_and_package(
             exp_model,
-            package_path=os.path.join(os.getcwd(), "model.pt2"),
+            package_path=self.package_path("model.pt2"),
         )
         counters.clear()
         self.assertEqual(counters["zentorch"]["zentorch_linear_gelu_erf"], 0)
@@ -98,7 +107,7 @@ class TestExport(AddmmTestCase):
         self.assertEqual(counters["zentorch"]["zentorch_linear_mul_add"], 0)
         output_path_z = torch._inductor.aoti_compile_and_package(
             exp_model,
-            package_path=os.path.join(os.getcwd(), "model_z.pt2"),
+            package_path=self.package_path("model_z.pt2"),
             inductor_configs=ind_conf,
         )
         exported_model = torch._inductor.aoti_load_package(output_path)
@@ -139,13 +148,13 @@ class TestExport(AddmmTestCase):
         exp_model = torch.export.export(my_model, args=(example_args_1,))
         output_path = torch._inductor.aoti_compile_and_package(
             exp_model,
-            package_path=os.path.join(os.getcwd(), "model.pt2"),
+            package_path=self.package_path("model.pt2"),
         )
         counters.clear()
         self.assertEqual(counters["zentorch"]["qkv_fusion_linear"], 0)
         output_path_z = torch._inductor.aoti_compile_and_package(
             exp_model,
-            package_path=os.path.join(os.getcwd(), "model_z.pt2"),
+            package_path=self.package_path("model_z.pt2"),
             inductor_configs=ind_conf,
         )
         exported_model = torch._inductor.aoti_load_package(output_path)

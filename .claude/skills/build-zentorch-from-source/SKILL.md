@@ -54,6 +54,14 @@ if no non-`base` environment is active.
 Run in the foreground with a long timeout (600000ms). ZenDNN is fetched
 automatically by cmake — no local ZenDNN checkout needed. The script builds the
 current checkout; run `git pull --ff-only` first if you want the latest code.
+Before compiling, it:
+
+- rejects missing and `base` environments;
+- installs the repository requirements in the active environment;
+- preserves an installed, branch-supported CPU-only PyTorch version (including
+  supported alternates), or installs the recommended CPU version otherwise;
+- builds into an isolated temporary directory and installs only that wheel, so
+  a stale wheel already in `dist/` cannot be selected or overwritten.
 
 ---
 
@@ -61,7 +69,13 @@ current checkout; run `git pull --ff-only` first if you want the latest code.
 
 Use these steps only if the script fails or the user requests a manual build.
 
-### 1. Install build dependencies
+### 1. Pull latest code
+
+```bash
+git pull --ff-only
+```
+
+### 2. Install build dependencies
 
 ```bash
 python -m pip install -r requirements.txt
@@ -70,44 +84,52 @@ python -m pip install -r requirements.txt
 This installs the environment-local CMake and Ninja versions required by the
 build instead of relying on potentially missing or outdated system tools.
 
-### 2. Uninstall existing zentorch
+### 3. Ensure supported CPU-only PyTorch
+
+```bash
+.claude/skills/setup-env/scripts/install_pytorch.sh
+torch_version="$(python -c "import torch; print(torch.__version__.split('+')[0])")"
+```
+
+This preserves a supported CPU alternate. A missing, unsupported, CUDA, or ROCm
+build is replaced with the branch-recommended CPU version before compilation.
+
+### 4. Uninstall existing zentorch
 
 ```bash
 python -m pip uninstall zentorch -y
 ```
 
-### 3. Pull latest code
+### 5. Build in an isolated directory
 
 ```bash
-git pull --ff-only
-```
-
-### 4. Build
-
-```bash
-python setup.py bdist_wheel
+wheel_build_dir="$(mktemp -d)"
+python setup.py bdist_wheel --dist-dir "${wheel_build_dir}"
+wheel="$(find "${wheel_build_dir}" -maxdepth 1 -name '*.whl' -print -quit)"
+test -n "${wheel}"
 ```
 
 > For RHEL/Fedora/AlmaLinux/CentOS, set first: `export ZENDNNL_MANYLINUX_BUILD=1`
 
 **IMPORTANT:** Run in the foreground (NOT in background) with a long timeout (600000ms).
 
-### 5. Install the wheel
+### 6. Install the wheel
 
 ```bash
-python -m pip install dist/zentorch-*.whl
+python -m pip install "${wheel}"
+rm -rf "${wheel_build_dir}"
 ```
 
-### 5a. Reinstall pinned PyTorch CPU (if needed)
+### 6a. Restore the selected PyTorch CPU build
 
 The wheel install may pull a CUDA build of torch. Reinstall the CPU build you
-were using (see the version matrix in the `setup-env` skill):
+validated before building:
 
 ```bash
-python -m pip install torch==<version> --index-url https://download.pytorch.org/whl/cpu --force-reinstall --no-deps
+python -m pip install "torch==${torch_version}" --index-url https://download.pytorch.org/whl/cpu --force-reinstall --no-deps
 ```
 
-### 6. Verify
+### 7. Verify
 
 ```bash
 python -c 'import zentorch; print(zentorch.__version__); print(*zentorch.__config__.split("\n"), sep="\n")'
@@ -116,8 +138,14 @@ python -c 'import zentorch; print(zentorch.__version__); print(*zentorch.__confi
 ### Build cleanup
 
 ```bash
-python setup.py clean --all
+.claude/skills/build-zentorch-from-source/scripts/clean.sh
 ```
+
+This removes only the repository's generated `build/`, `dist/`, and
+`src/cpu/python/zentorch.egg-info/` directories. Use this skill-owned cleanup
+because `setupext_janitor` 1.1.2 calls a removed setuptools `remove_tree`
+argument in current environments, causing `python setup.py clean --all` to
+fail.
 
 ---
 
@@ -144,3 +172,11 @@ python setup.py bdist_wheel
 export ZENTORCH_VLLM_PLUGIN_BUILD=0
 python setup.py bdist_wheel
 ```
+
+### Post-install runtime tuning
+
+`scripts/zentorch_env_setup.sh` is intentionally not sourced by the build
+skill. It selects model- and precision-specific runtime settings and may
+install jemalloc or LLVM OpenMP packages, so applying it during build would
+mutate the environment beyond installation. Source it explicitly before a
+workload when those runtime settings are wanted.

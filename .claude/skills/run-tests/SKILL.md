@@ -25,9 +25,12 @@ When the user asks to run tests, follow this skill.
 .claude/skills/run-tests/scripts/test.sh test/unittests/op_tests/test_bmm.py
 ```
 
-The script sets the required env vars, installs test deps, and runs the scope.
-Use the manual commands below only if the script fails or a `-k` / `-p` filter is
-needed that the script does not support.
+The script validates the requested scope before any package checks or
+installation, verifies that zentorch is installed, sets the required env vars,
+installs test deps, and runs the scope. Export-test AOT packages are created in
+test-owned temporary directories and removed after each test. Use the manual
+commands below only if the script fails or a `-k` / `-p` filter is needed that
+the script does not support.
 
 See [zentorch-test-flow.md](zentorch-test-flow.md) for the test workflow.
 
@@ -48,26 +51,7 @@ If zentorch is not built/installed yet, follow the `setup-env` or
 
 ---
 
-## 1. Install test dependencies
-
-```bash
-python test/install_requirements.py
-```
-
-Installs `transformers`, `expecttest`, `parameterized`, and the `torchvision` /
-`torchao` versions matching the installed PyTorch.
-
-## 2. Set required environment variables
-
-Disable ZenDNN caching before running any tests:
-
-```bash
-export ZENDNNL_MATMUL_WEIGHT_CACHE=0
-export ZENDNNL_ZP_COMP_CACHE=0
-export ZENDNNL_ENABLE_POSTOP_CACHE=0
-```
-
-## 3. Determine what to run
+## 1. Validate what to run
 
 Match the user's request to the right command. If the user just says "run
 tests" with no specifics, run all unit tests:
@@ -75,6 +59,32 @@ tests" with no specifics, run all unit tests:
 ```bash
 python -m unittest discover -s ./test/unittests
 ```
+
+The script rejects an unknown scope or nonexistent file immediately, before
+checking zentorch or running the dependency installer. A direct test file is
+run with `python -m unittest <file>`; it does not use discovery.
+
+## 2. Verify zentorch and set required environment variables
+
+The script first verifies `import zentorch`. Then disable ZenDNN caching before
+running any tests:
+
+```bash
+python -c "import zentorch"
+export ZENDNNL_MATMUL_WEIGHT_CACHE=0
+export ZENDNNL_ZP_COMP_CACHE=0
+export ZENDNNL_ENABLE_POSTOP_CACHE=0
+```
+
+## 3. Install test dependencies
+
+```bash
+python test/install_requirements.py
+```
+
+Installs `transformers`, `expecttest`, `parameterized`, `hypothesis`, and
+`deprecated`, plus the `torchvision` and `torchao` versions matching the
+installed PyTorch.
 
 ### Test categories
 
@@ -116,6 +126,13 @@ Examples (verified paths):
 
 If multiple files match, show the matches and ask which to run, or use `-k` /
 `-p` filters to run all of them.
+
+### Generated export-test packages
+
+Export tests compile `model.pt2` and `model_z.pt2` inside a fresh temporary
+directory owned by each test. `unittest` cleanup removes that directory even
+when a test fails. Files with those names that already exist in the checkout
+are never overwritten or deleted.
 
 ---
 

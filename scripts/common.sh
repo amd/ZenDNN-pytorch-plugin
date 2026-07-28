@@ -92,6 +92,12 @@ installed_pytorch_version() {
     python -c "import torch; print(torch.__version__.split('+')[0])" 2>/dev/null || true
 }
 
+pytorch_is_cpu_build() {
+    python -c \
+        "import sys, torch; sys.exit(0 if torch.version.cuda is None and getattr(torch.version, 'hip', None) is None else 1)" \
+        2>/dev/null
+}
+
 pytorch_version_supported() {
     local installed expected alternates alt
     installed="$1"
@@ -108,7 +114,13 @@ pytorch_version_supported() {
 install_pytorch_cpu() {
     local version="${1:-$(detect_pytorch_version)}"
     echo "Installing PyTorch CPU ${version}..."
-    pip install "torch==${version}" --index-url https://download.pytorch.org/whl/cpu
+    python -m pip install "torch==${version}" \
+        --index-url https://download.pytorch.org/whl/cpu \
+        --force-reinstall --no-deps
+
+    [[ "$(installed_pytorch_version)" == "${version}" ]] \
+        || die "Installed PyTorch version does not match ${version}."
+    pytorch_is_cpu_build || die "Installed PyTorch ${version} is not CPU-only."
 }
 
 ensure_pytorch_cpu() {
@@ -121,13 +133,17 @@ ensure_pytorch_cpu() {
         return
     fi
 
-    if pytorch_version_supported "${installed}"; then
-        echo "PyTorch ${installed} is compatible with branch $(current_branch) (expected ${expected} or $(detect_pytorch_alternates))."
+    if pytorch_version_supported "${installed}" && pytorch_is_cpu_build; then
+        echo "PyTorch ${installed} CPU is compatible with branch $(current_branch) (expected ${expected} or $(detect_pytorch_alternates))."
         return
     fi
 
-    echo "PyTorch ${installed} is incompatible with branch $(current_branch). Reinstalling ${expected}..."
-    pip uninstall -y torch torchvision torchaudio 2>/dev/null || true
+    if pytorch_version_supported "${installed}"; then
+        echo "PyTorch ${installed} is not CPU-only. Reinstalling ${expected} CPU..."
+    else
+        echo "PyTorch ${installed} is incompatible with branch $(current_branch). Reinstalling ${expected} CPU..."
+    fi
+    python -m pip uninstall -y torch torchvision torchaudio 2>/dev/null || true
     install_pytorch_cpu "${expected}"
 }
 
@@ -135,8 +151,32 @@ verify_zentorch() {
     python -c 'import zentorch; print("zentorch", zentorch.__version__); print(*zentorch.__config__.split("\n"), sep="\n")'
 }
 
-# Print the most recently built zentorch wheel in dist/ (empty if none).
-latest_wheel() {
-    find "${REPO_ROOT}/dist" -maxdepth 1 -name 'zentorch-*.whl' -printf '%T@ %p\n' 2>/dev/null \
-        | sort -rn | head -n 1 | cut -d' ' -f2-
+# Print the single wheel produced in an isolated build directory.
+wheel_from_build_directory() {
+    local build_directory="$1"
+    local -a wheels=()
+    [[ -d "${build_directory}" ]] \
+        || die "Wheel build directory does not exist: ${build_directory}"
+    mapfile -d '' wheels < <(
+        find "${build_directory}" -maxdepth 1 -type f -name '*.whl' -print0
+    )
+    [[ "${#wheels[@]}" -eq 1 ]] \
+        || die "Expected one wheel from the current build, found ${#wheels[@]}."
+    printf '%s\n' "${wheels[0]}"
+}
+
+# Keep a conventional dist/<wheel> artifact when that path is unused. If an
+# artifact with the same name predates the build, preserve it; installation
+# still uses the isolated, current-build wheel.
+preserve_wheel_artifact() {
+    local wheel="$1"
+    local destination
+    mkdir -p "${REPO_ROOT}/dist"
+    destination="${REPO_ROOT}/dist/$(basename "${wheel}")"
+    if [[ -e "${destination}" ]]; then
+        echo "Preserving pre-existing wheel: ${destination}"
+    else
+        cp -p -- "${wheel}" "${destination}"
+        echo "Saved current-build wheel: ${destination}"
+    fi
 }

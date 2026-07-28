@@ -18,12 +18,6 @@ source "${REPO_ROOT}/scripts/common.sh"
 require_repo_root
 require_active_env
 
-export ZENDNNL_MATMUL_WEIGHT_CACHE=0
-export ZENDNNL_ZP_COMP_CACHE=0
-export ZENDNNL_ENABLE_POSTOP_CACHE=0
-
-python test/install_requirements.py
-
 scope="${1:-unittests}"
 declare -a cmd
 case "${scope}" in
@@ -44,6 +38,15 @@ case "${scope}" in
         fi
         ;;
 esac
+
+python -c "import zentorch" 2>/dev/null \
+    || die "zentorch is not installed in the active environment. Build and install it first."
+
+export ZENDNNL_MATMUL_WEIGHT_CACHE=0
+export ZENDNNL_ZP_COMP_CACHE=0
+export ZENDNNL_ENABLE_POSTOP_CACHE=0
+
+python test/install_requirements.py
 
 echo "Running: ${cmd[*]}"
 "${cmd[@]}"

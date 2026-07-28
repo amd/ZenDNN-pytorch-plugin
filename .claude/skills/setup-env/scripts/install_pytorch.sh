@@ -18,7 +18,7 @@ require_active_env
 
 case "${1:-}" in
     --force)
-        pip uninstall -y torch torchvision torchaudio 2>/dev/null || true
+        python -m pip uninstall -y torch torchvision torchaudio 2>/dev/null || true
         install_pytorch_cpu "$(detect_pytorch_version)"
         ;;
     "")

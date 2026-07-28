@@ -4,44 +4,70 @@ This flow mirrors
 [`scripts/test.sh`](scripts/test.sh) and the unit-test procedure in
 [README.md section 3](../../../README.md).
 
-Before running tests, the script disables all required ZenDNN caches and
-installs the matching test dependencies:
+The script first rejects a missing or `base` environment, then maps the
+requested scope. Unknown scopes and nonexistent files stop before zentorch or
+package checks, so they cannot mutate the environment. A direct file uses
+`python -m unittest <file>`; directory scopes use discovery.
+
+After scope validation, the script checks that zentorch is installed, disables
+all required ZenDNN caches, and installs the matching test dependencies:
 
 ```bash
+python -c "import zentorch"
 export ZENDNNL_MATMUL_WEIGHT_CACHE=0
 export ZENDNNL_ZP_COMP_CACHE=0
 export ZENDNNL_ENABLE_POSTOP_CACHE=0
 python test/install_requirements.py
 ```
 
+The dependency installer covers `transformers`, `expecttest`, `parameterized`,
+`hypothesis`, `deprecated`, and PyTorch-matched `torchvision` and `torchao`.
 With no argument, the script runs all unit tests under `./test/unittests`.
 Other supported scopes map to `./test`, a named test category, or one existing
-test file.
+test file. Export-test AOT packages are created in test-owned temporary
+directories and cleaned even after a failure; pre-existing checkout files are
+untouched.
 
 ```mermaid
 flowchart TD
     start(["START: Run zentorch<br/>tests"])
-    env["1. Active environment<br/>zentorch installed"]
-    cache["2. Disable ZenDNN<br/>test caches"]
-    deps["3. Install test<br/>dependencies"]
-    scope{"4. Test scope?"}
+    env{"Dedicated env<br/>active?"}
+    envFail["STOP: Activate a<br/>non-base environment"]
+    scope{"1. Test scope?"}
     default["Default:<br/>all unit tests"]
     all["All test suites"]
     category["Named category:<br/>op_tests, model_tests<br/>miscellaneous_tests<br/>export_tests, vllm_tests<br/>llm, pre_trained"]
     file["Existing test<br/>file"]
     invalid["STOP: Unknown scope<br/>Choose scope or file"]
-    run["5. Run Python<br/>unittest discovery"]
+    installed{"zentorch<br/>installed?"}
+    installFail["STOP: Build and<br/>install zentorch"]
+    cache["2. Disable ZenDNN<br/>test caches"]
+    deps["3. Install test<br/>dependencies"]
+    depsOk{"Dependencies<br/>ready?"}
+    depsFail["STOP: Dependency<br/>install failed"]
+    mode{"Directory scope<br/>or test file?"}
+    discover["4. Run unittest<br/>discovery"]
+    direct["4. Run file without<br/>discovery"]
+    cleanup["5. Clean test-owned<br/>AOT packages"]
     passed{"All selected<br/>tests passed?"}
     failed["STOP: Report failures<br/>and non-zero exit"]
     done(["END: All selected<br/>tests passed"])
 
-    start --> env --> cache --> deps --> scope
-    scope -- No argument --> default --> run
-    scope -- all --> all --> run
-    scope -- category --> category --> run
-    scope -- test file --> file --> run
+    start --> env
+    env -- No --> envFail
+    env -- Yes --> scope
+    scope -- No argument --> default --> installed
+    scope -- all --> all --> installed
+    scope -- category --> category --> installed
+    scope -- test file --> file --> installed
     scope -- unknown --> invalid
-    run --> passed
+    installed -- No --> installFail
+    installed -- Yes --> cache --> deps --> depsOk
+    depsOk -- No --> depsFail
+    depsOk -- Yes --> mode
+    mode -- Directory --> discover --> cleanup
+    mode -- File --> direct --> cleanup
+    cleanup --> passed
     passed -- No --> failed
     passed -- Yes --> done
 ```

@@ -58,7 +58,9 @@ With an activated environment:
 
 Run in the foreground with a long timeout (600000ms). The script validates
 PyTorch, installs dependencies, builds, installs, and verifies zentorch
-(version + config string).
+(version + config string). Validation accepts only branch-supported CPU builds
+while preserving supported alternates. The wheel is built in an isolated
+directory so a stale `dist/` wheel cannot be installed.
 
 ---
 
@@ -88,7 +90,8 @@ See the PyTorch version matrix in Step 1 below.
 
 **Always run this step**, including when reusing an existing environment — an
 environment previously used on a different branch may have an incompatible
-PyTorch version.
+PyTorch version or a CUDA/ROCm build. Supported alternate CPU versions are
+preserved.
 
 ```bash
 .claude/skills/setup-env/scripts/install_pytorch.sh          # validate/install
@@ -120,7 +123,10 @@ pip install -r requirements.txt
 ZenDNN is fetched automatically by cmake — no local ZenDNN checkout needed.
 
 ```bash
-python setup.py bdist_wheel
+wheel_build_dir="$(mktemp -d)"
+python setup.py bdist_wheel --dist-dir "${wheel_build_dir}"
+wheel="$(find "${wheel_build_dir}" -maxdepth 1 -name '*.whl' -print -quit)"
+test -n "${wheel}"
 ```
 
 > For RHEL/Fedora/AlmaLinux/CentOS, also set: `export ZENDNNL_MANYLINUX_BUILD=1`
@@ -131,7 +137,8 @@ timeout (600000ms).
 ### Step 5: Install the wheel
 
 ```bash
-pip install dist/zentorch-*.whl
+python -m pip install "${wheel}"
+rm -rf "${wheel_build_dir}"
 ```
 
 The wheel install may switch PyTorch to a CUDA build. Reinstall the pinned CPU
@@ -153,4 +160,5 @@ python -c 'import zentorch; print(zentorch.__version__); print(*zentorch.__confi
 
 - To run tests: follow the `run-tests` skill.
 - To rebuild after code changes: follow the `build-zentorch-from-source` skill.
-- To clean the build: `python setup.py clean --all`
+- To clean generated build outputs:
+  `.claude/skills/build-zentorch-from-source/scripts/clean.sh`

@@ -19,19 +19,19 @@ require_active_env
 
 echo "Setting up zentorch (branch: $(current_branch))"
 
-pip uninstall -y zentorch 2>/dev/null || true
+python -m pip uninstall -y zentorch 2>/dev/null || true
 ensure_pytorch_cpu
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 
-# Preserve the currently-installed (supported) torch version so the wheel
-# install does not silently switch it; fall back to the pinned version.
+# Preserve the validated, supported CPU version across wheel installation.
 torch_version="$(installed_pytorch_version)"
-python setup.py bdist_wheel
-wheel="$(latest_wheel)"
-[[ -n "${wheel}" ]] || die "No zentorch wheel found in dist/."
-pip install "${wheel}"
-pip install "torch==${torch_version:-$(detect_pytorch_version)}" \
-    --index-url https://download.pytorch.org/whl/cpu --force-reinstall --no-deps
+wheel_build_dir="$(mktemp -d)"
+trap 'rm -rf -- "${wheel_build_dir}"' EXIT
+python setup.py bdist_wheel --dist-dir "${wheel_build_dir}"
+wheel="$(wheel_from_build_directory "${wheel_build_dir}")"
+preserve_wheel_artifact "${wheel}"
+python -m pip install "${wheel}"
+install_pytorch_cpu "${torch_version}"
 
 echo "Setup complete."
 verify_zentorch
