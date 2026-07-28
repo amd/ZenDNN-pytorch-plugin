@@ -36,7 +36,7 @@ source of truth):
 | Skill | Purpose | Run first |
 |-------|---------|-----------|
 | [`setup-env`](.claude/skills/setup-env/SKILL.md) | Prepare the env (install pinned PyTorch CPU) and/or fresh end-to-end setup: deps, build, install, verify | `.claude/skills/setup-env/scripts/setup.sh` (or `install_pytorch.sh` for env only) |
-| [`build-zentorch-from-source`](.claude/skills/build-zentorch-from-source/SKILL.md) | Build/rebuild zentorch from source and verify | `.claude/skills/build-zentorch-from-source/scripts/build.sh` |
+| [`zentorch-build-from-source`](.claude/skills/zentorch-build-from-source/SKILL.md) | Build/rebuild zentorch from source and verify | `.claude/skills/zentorch-build-from-source/scripts/build.sh` |
 | [`run-tests`](.claude/skills/run-tests/SKILL.md) | Run tests (unit, op, model, misc, export, vLLM, LLM, pre-trained) | `.claude/skills/run-tests/scripts/test.sh [scope]` |
 | [`lint`](.claude/skills/lint/SKILL.md) | Lint Python (flake8), C++ (git clang-format), shell (shellcheck) | `.claude/skills/lint/scripts/lint.sh <python\|cpp\|shell>` |
 

@@ -162,6 +162,6 @@ python -c 'import zentorch; print(zentorch.__version__); print(*zentorch.__confi
 ## What's next
 
 - To run tests: follow the `run-tests` skill.
-- To rebuild after code changes: follow the `build-zentorch-from-source` skill.
+- To rebuild after code changes: follow the `zentorch-build-from-source` skill.
 - To clean generated build outputs:
-  `.claude/skills/build-zentorch-from-source/scripts/clean.sh`
+  `.claude/skills/zentorch-build-from-source/scripts/clean.sh`

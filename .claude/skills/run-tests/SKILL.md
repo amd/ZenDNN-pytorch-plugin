@@ -49,7 +49,7 @@ echo "${VIRTUAL_ENV:-${CONDA_DEFAULT_ENV:-none}}"
 ```
 
 If zentorch is not built/installed yet, follow the `setup-env` or
-`build-zentorch-from-source` skill first.
+`zentorch-build-from-source` skill first.
 
 ---
 
