@@ -116,7 +116,7 @@ install_pytorch_cpu() {
     echo "Installing PyTorch CPU ${version}..."
     python -m pip install "torch==${version}" \
         --index-url https://download.pytorch.org/whl/cpu \
-        --force-reinstall --no-deps
+        --force-reinstall
 
     [[ "$(installed_pytorch_version)" == "${version}" ]] \
         || die "Installed PyTorch version does not match ${version}."

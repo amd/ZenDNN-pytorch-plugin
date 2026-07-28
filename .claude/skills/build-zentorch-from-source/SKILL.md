@@ -126,7 +126,7 @@ The wheel install may pull a CUDA build of torch. Reinstall the CPU build you
 validated before building:
 
 ```bash
-python -m pip install "torch==${torch_version}" --index-url https://download.pytorch.org/whl/cpu --force-reinstall --no-deps
+python -m pip install "torch==${torch_version}" --index-url https://download.pytorch.org/whl/cpu --force-reinstall
 ```
 
 ### 7. Verify

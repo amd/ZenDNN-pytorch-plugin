@@ -21,7 +21,7 @@ target="${1:-}"
 case "${target}" in
     python)
         require_active_env
-        pip install -q -r linter/requirements.txt
+        python -m pip install -q -r linter/requirements.txt
         flake8
         echo "Python lint passed."
         ;;

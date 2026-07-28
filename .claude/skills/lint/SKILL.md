@@ -38,7 +38,7 @@ C++ and shell linting do not require a Python environment.
 ## Python
 
 ```bash
-pip install -r linter/requirements.txt
+python -m pip install -r linter/requirements.txt
 flake8
 ```
 

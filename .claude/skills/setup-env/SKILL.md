@@ -109,13 +109,13 @@ preserved.
 ### Step 2: Uninstall existing zentorch
 
 ```bash
-pip uninstall zentorch -y
+python -m pip uninstall zentorch -y
 ```
 
 ### Step 3: Install build dependencies
 
 ```bash
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 ```
 
 ### Step 4: Build zentorch
@@ -145,7 +145,7 @@ The wheel install may switch PyTorch to a CUDA build. Reinstall the pinned CPU
 version (same version from Step 1):
 
 ```bash
-pip install torch==<version> --index-url https://download.pytorch.org/whl/cpu --force-reinstall --no-deps
+python -m pip install torch==<version> --index-url https://download.pytorch.org/whl/cpu --force-reinstall
 ```
 
 ### Step 6: Verify
