@@ -1,5 +1,5 @@
 ---
-name: setup-env
+name: build-zentorch-setup-env
 description: >-
   Prepare the Python environment (install the pinned PyTorch CPU build) and/or
   do a fresh end-to-end zentorch setup: validate PyTorch, install dependencies,
@@ -19,7 +19,7 @@ follow this skill.
 **Agent action:** Run this first (foreground, 600000ms timeout):
 
 ```bash
-.claude/skills/setup-env/scripts/setup.sh
+.claude/skills/build-zentorch-setup-env/scripts/setup.sh
 ```
 
 If the script succeeds, stop — do not run the manual steps below. Use the manual
@@ -55,7 +55,7 @@ PyTorch as in the steps below. The bundled scripts enforce this automatically.
 With an activated environment:
 
 ```bash
-.claude/skills/setup-env/scripts/setup.sh
+.claude/skills/build-zentorch-setup-env/scripts/setup.sh
 ```
 
 Run in the foreground with a long timeout (600000ms). The script validates
@@ -72,8 +72,8 @@ If the user only wants to prepare the environment — install the pinned PyTorch
 CPU build without building zentorch — run:
 
 ```bash
-.claude/skills/setup-env/scripts/install_pytorch.sh          # validate/install
-.claude/skills/setup-env/scripts/install_pytorch.sh --force  # reinstall unconditionally
+.claude/skills/build-zentorch-setup-env/scripts/install_pytorch.sh          # validate/install
+.claude/skills/build-zentorch-setup-env/scripts/install_pytorch.sh --force  # reinstall unconditionally
 ```
 
 Then verify PyTorch:
@@ -97,8 +97,8 @@ preserved; a supported CUDA/ROCm version is restored as CPU at that same base
 version.
 
 ```bash
-.claude/skills/setup-env/scripts/install_pytorch.sh          # validate/install
-.claude/skills/setup-env/scripts/install_pytorch.sh --force  # reinstall unconditionally
+.claude/skills/build-zentorch-setup-env/scripts/install_pytorch.sh          # validate/install
+.claude/skills/build-zentorch-setup-env/scripts/install_pytorch.sh --force  # reinstall unconditionally
 ```
 
 | Branch          | Primary PyTorch (recommended) | Alternates             |
@@ -161,7 +161,7 @@ python -c 'import zentorch; print(zentorch.__version__); print(*zentorch.__confi
 
 ## What's next
 
-- To run tests: follow the `run-tests` skill.
-- To rebuild after code changes: follow the `zentorch-build-from-source` skill.
+- To run tests: follow the `test-zentorch-unit` skill.
+- To rebuild after code changes: follow the `build-zentorch-from-source` skill.
 - To clean generated build outputs:
-  `.claude/skills/zentorch-build-from-source/scripts/clean.sh`
+  `.claude/skills/build-zentorch-from-source/scripts/clean.sh`

@@ -1,5 +1,5 @@
 ---
-name: lint
+name: lint-zentorch-source
 description: >-
   Lint zentorch Python (flake8), C++ (git clang-format), or shell (shellcheck)
   code. Use when the user asks to lint, format-check, or run style checks on
@@ -15,9 +15,9 @@ When the user asks to lint Python, C++, or shell code, follow this skill.
 **Agent action:** Run the command matching the requested language:
 
 ```bash
-.claude/skills/lint/scripts/lint.sh python
-.claude/skills/lint/scripts/lint.sh cpp
-.claude/skills/lint/scripts/lint.sh shell
+.claude/skills/lint-zentorch-source/scripts/lint.sh python
+.claude/skills/lint-zentorch-source/scripts/lint.sh cpp
+.claude/skills/lint-zentorch-source/scripts/lint.sh shell
 ```
 
 Use the manual steps below only if the script fails.

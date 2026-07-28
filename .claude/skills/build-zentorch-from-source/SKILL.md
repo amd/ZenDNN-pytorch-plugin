@@ -1,5 +1,5 @@
 ---
-name: zentorch-build-from-source
+name: build-zentorch-from-source
 description: >-
   Build or rebuild the zentorch wheel from source (cmake auto-fetches ZenDNN),
   install it, and verify the version and build config. Use when the user asks to
@@ -15,7 +15,7 @@ When the user asks to build or rebuild zentorch from source, follow this skill.
 **Agent action:** Run this first (foreground, 600000ms timeout):
 
 ```bash
-.claude/skills/zentorch-build-from-source/scripts/build.sh
+.claude/skills/build-zentorch-from-source/scripts/build.sh
 ```
 
 If the script succeeds, stop — do not run the manual steps below. The script
@@ -43,7 +43,7 @@ echo "${VIRTUAL_ENV:-${CONDA_DEFAULT_ENV:-none}}"
 ```
 
 If this prints `none` or `base`, activate a dedicated environment first (follow
-the `setup-env` skill). The bundled scripts enforce this automatically and exit
+the `build-zentorch-setup-env` skill). The bundled scripts enforce this automatically and exit
 if no non-`base` environment is active.
 
 ---
@@ -51,7 +51,7 @@ if no non-`base` environment is active.
 ## Quick path (preferred)
 
 ```bash
-.claude/skills/zentorch-build-from-source/scripts/build.sh
+.claude/skills/build-zentorch-from-source/scripts/build.sh
 ```
 
 Run in the foreground with a long timeout (600000ms). ZenDNN is fetched
@@ -90,7 +90,7 @@ build instead of relying on potentially missing or outdated system tools.
 ### 3. Ensure supported CPU-only PyTorch
 
 ```bash
-.claude/skills/setup-env/scripts/install_pytorch.sh
+.claude/skills/build-zentorch-setup-env/scripts/install_pytorch.sh
 torch_version="$(python -c "import torch; print(torch.__version__.split('+')[0])")"
 ```
 
@@ -142,7 +142,7 @@ python -c 'import zentorch; print(zentorch.__version__); print(*zentorch.__confi
 ### Build cleanup
 
 ```bash
-.claude/skills/zentorch-build-from-source/scripts/clean.sh
+.claude/skills/build-zentorch-from-source/scripts/clean.sh
 ```
 
 This removes only the repository's generated `build/`, `dist/`, and

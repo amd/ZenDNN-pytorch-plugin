@@ -1,5 +1,5 @@
 ---
-name: run-tests
+name: test-zentorch-unit
 description: >-
   Run zentorch tests (unit, op, model, miscellaneous, export, vLLM, LLM, or
   pre-trained model tests) with the required ZenDNN cache env vars. Use when the
@@ -15,16 +15,16 @@ When the user asks to run tests, follow this skill.
 **Agent action:** Run the mapped command (adjust scope as needed):
 
 ```bash
-.claude/skills/run-tests/scripts/test.sh                     # unit tests (default)
-.claude/skills/run-tests/scripts/test.sh all
-.claude/skills/run-tests/scripts/test.sh op_tests
-.claude/skills/run-tests/scripts/test.sh model_tests
-.claude/skills/run-tests/scripts/test.sh miscellaneous_tests
-.claude/skills/run-tests/scripts/test.sh export_tests
-.claude/skills/run-tests/scripts/test.sh vllm_tests
-.claude/skills/run-tests/scripts/test.sh llm
-.claude/skills/run-tests/scripts/test.sh pre_trained
-.claude/skills/run-tests/scripts/test.sh test/unittests/op_tests/test_bmm.py
+.claude/skills/test-zentorch-unit/scripts/test.sh                     # unit tests (default)
+.claude/skills/test-zentorch-unit/scripts/test.sh all
+.claude/skills/test-zentorch-unit/scripts/test.sh op_tests
+.claude/skills/test-zentorch-unit/scripts/test.sh model_tests
+.claude/skills/test-zentorch-unit/scripts/test.sh miscellaneous_tests
+.claude/skills/test-zentorch-unit/scripts/test.sh export_tests
+.claude/skills/test-zentorch-unit/scripts/test.sh vllm_tests
+.claude/skills/test-zentorch-unit/scripts/test.sh llm
+.claude/skills/test-zentorch-unit/scripts/test.sh pre_trained
+.claude/skills/test-zentorch-unit/scripts/test.sh test/unittests/op_tests/test_bmm.py
 ```
 
 The script validates the requested scope before any package checks or
@@ -48,8 +48,8 @@ active:
 echo "${VIRTUAL_ENV:-${CONDA_DEFAULT_ENV:-none}}"
 ```
 
-If zentorch is not built/installed yet, follow the `setup-env` or
-`zentorch-build-from-source` skill first.
+If zentorch is not built/installed yet, follow the `build-zentorch-setup-env`
+or `build-zentorch-from-source` skill first.
 
 ---
 
