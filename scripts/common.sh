@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+
+# ******************************************************************************
+# Copyright (c) 2026 Advanced Micro Devices, Inc.
+# All rights reserved.
+# ******************************************************************************
+
 # Shared helpers for the zentorch skill workflow scripts.
 #
 # Single source of truth. The per-skill entry scripts under

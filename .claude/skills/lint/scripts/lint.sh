@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+
+# ******************************************************************************
+# Copyright (c) 2026 Advanced Micro Devices, Inc.
+# All rights reserved.
+# ******************************************************************************
+
 # Lint zentorch source.
 #
 # Usage: lint.sh <python|cpp|shell>

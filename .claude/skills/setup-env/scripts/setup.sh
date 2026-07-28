@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+
+# ******************************************************************************
+# Copyright (c) 2026 Advanced Micro Devices, Inc.
+# All rights reserved.
+# ******************************************************************************
+
 # Fresh setup: validate PyTorch, install deps, build and install zentorch, verify.
 #
 # Usage: setup.sh

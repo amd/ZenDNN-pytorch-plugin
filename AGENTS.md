@@ -1,3 +1,5 @@
+Copyright &copy; 2026 Advanced Micro Devices, Inc. All rights reserved.
+
 # AGENTS.md — zentorch (ZenDNN PyTorch Plugin)
 
 This is the primary agent guide for the repository. It tracks the available
@@ -98,6 +100,7 @@ Before running tests, disable ZenDNN caching:
 ```bash
 export ZENDNNL_MATMUL_WEIGHT_CACHE=0
 export ZENDNNL_ZP_COMP_CACHE=0
+export ZENDNNL_ENABLE_POSTOP_CACHE=0
 ```
 
 Install test deps: `python test/install_requirements.py`
@@ -116,7 +119,8 @@ Direct commands:
 
 ## Coding conventions
 
-- C++20 standard, compiled with `-Wall -Werror`
+- C++20 with PyTorch 2.13; C++17 with supported older PyTorch, compiled with
+  `-Wall -Werror`
 - Python package lives under `src/cpu/python/zentorch/`
 - Ops are registered via `TORCH_LIBRARY` / `TORCH_LIBRARY_IMPL` macros in `Bindings.cpp`
 - Linting: `.flake8` config in repo root; `linter/py_cpp_linter.sh` for CI checks

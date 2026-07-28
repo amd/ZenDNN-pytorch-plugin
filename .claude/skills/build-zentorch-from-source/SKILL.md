@@ -6,6 +6,8 @@ description: >-
   build, rebuild, or compile zentorch from source.
 ---
 
+<!-- Copyright &copy; 2026 Advanced Micro Devices, Inc. All rights reserved. -->
+
 # Build zentorch from source
 
 When the user asks to build or rebuild zentorch from source, follow this skill.

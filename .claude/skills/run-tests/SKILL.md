@@ -6,6 +6,8 @@ description: >-
   user asks to run or discover zentorch tests.
 ---
 
+<!-- Copyright &copy; 2026 Advanced Micro Devices, Inc. All rights reserved. -->
+
 # Run zentorch tests
 
 When the user asks to run tests, follow this skill.

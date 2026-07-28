@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+
+# ******************************************************************************
+# Copyright (c) 2026 Advanced Micro Devices, Inc.
+# All rights reserved.
+# ******************************************************************************
+
 # Install or validate the pinned PyTorch CPU build for the current branch.
 #
 # Usage: install_pytorch.sh [--force]

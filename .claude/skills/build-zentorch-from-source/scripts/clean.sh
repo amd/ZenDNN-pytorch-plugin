@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+
+# ******************************************************************************
+# Copyright (c) 2026 Advanced Micro Devices, Inc.
+# All rights reserved.
+# ******************************************************************************
+
 # Remove generated zentorch build, wheel, and package-metadata directories.
 #
 # Usage: clean.sh

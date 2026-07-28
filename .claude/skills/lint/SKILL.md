@@ -6,6 +6,8 @@ description: >-
   zentorch code.
 ---
 
+<!-- Copyright &copy; 2026 Advanced Micro Devices, Inc. All rights reserved. -->
+
 # Lint zentorch code
 
 When the user asks to lint Python, C++, or shell code, follow this skill.
@@ -85,7 +87,8 @@ To apply the suggested formatting:
 git clang-format -f
 ```
 
-- C++20 standard, compiled with `-Wall -Werror`
+- C++20 with PyTorch 2.13; C++17 with supported older PyTorch, compiled with
+  `-Wall -Werror`
 - Operator bindings live in `src/cpu/cpp/` and `Bindings.cpp`
 
 ---

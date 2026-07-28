@@ -1,3 +1,5 @@
+Copyright &copy; 2026 Advanced Micro Devices, Inc. All rights reserved.
+
 # zentorch build-from-source flow
 
 This flow mirrors

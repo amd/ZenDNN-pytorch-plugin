@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+
+# ******************************************************************************
+# Copyright (c) 2026 Advanced Micro Devices, Inc.
+# All rights reserved.
+# ******************************************************************************
+
 # Rebuild zentorch from source: build the wheel, install, verify.
 # Builds the current checkout; update the repo separately if you want the latest.
 #

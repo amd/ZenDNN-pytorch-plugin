@@ -8,6 +8,8 @@ description: >-
   scratch, or do a full fresh setup and build.
 ---
 
+<!-- Copyright &copy; 2026 Advanced Micro Devices, Inc. All rights reserved. -->
+
 # Set up the environment and build zentorch
 
 When the user asks to prepare a Python environment, install PyTorch for
