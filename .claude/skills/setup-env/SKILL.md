@@ -91,7 +91,8 @@ See the PyTorch version matrix in Step 1 below.
 **Always run this step**, including when reusing an existing environment — an
 environment previously used on a different branch may have an incompatible
 PyTorch version or a CUDA/ROCm build. Supported alternate CPU versions are
-preserved.
+preserved; a supported CUDA/ROCm version is restored as CPU at that same base
+version.
 
 ```bash
 .claude/skills/setup-env/scripts/install_pytorch.sh          # validate/install

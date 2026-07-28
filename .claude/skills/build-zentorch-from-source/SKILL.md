@@ -91,8 +91,9 @@ build instead of relying on potentially missing or outdated system tools.
 torch_version="$(python -c "import torch; print(torch.__version__.split('+')[0])")"
 ```
 
-This preserves a supported CPU alternate. A missing, unsupported, CUDA, or ROCm
-build is replaced with the branch-recommended CPU version before compilation.
+This preserves a supported CPU alternate. A supported CUDA or ROCm build is
+reinstalled as CPU at the same base version; only a missing or unsupported
+version falls back to the branch-recommended CPU version.
 
 ### 4. Uninstall existing zentorch
 

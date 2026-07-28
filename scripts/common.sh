@@ -133,16 +133,19 @@ ensure_pytorch_cpu() {
         return
     fi
 
-    if pytorch_version_supported "${installed}" && pytorch_is_cpu_build; then
-        echo "PyTorch ${installed} CPU is compatible with branch $(current_branch) (expected ${expected} or $(detect_pytorch_alternates))."
+    if pytorch_version_supported "${installed}"; then
+        if pytorch_is_cpu_build; then
+            echo "PyTorch ${installed} CPU is compatible with branch $(current_branch) (expected ${expected} or $(detect_pytorch_alternates))."
+            return
+        fi
+
+        echo "PyTorch ${installed} is not CPU-only. Reinstalling ${installed} CPU..."
+        python -m pip uninstall -y torch torchvision torchaudio 2>/dev/null || true
+        install_pytorch_cpu "${installed}"
         return
     fi
 
-    if pytorch_version_supported "${installed}"; then
-        echo "PyTorch ${installed} is not CPU-only. Reinstalling ${expected} CPU..."
-    else
-        echo "PyTorch ${installed} is incompatible with branch $(current_branch). Reinstalling ${expected} CPU..."
-    fi
+    echo "PyTorch ${installed} is incompatible with branch $(current_branch). Reinstalling ${expected} CPU..."
     python -m pip uninstall -y torch torchvision torchaudio 2>/dev/null || true
     install_pytorch_cpu "${expected}"
 }

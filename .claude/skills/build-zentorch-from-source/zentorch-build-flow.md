@@ -13,10 +13,11 @@ python -m pip install -r requirements.txt
 python setup.py bdist_wheel
 ```
 
-Supported alternate CPU versions are preserved. CUDA, ROCm, missing, and
-unsupported builds are replaced with the branch-recommended CPU version. Only
-the single wheel in the isolated directory can be installed. Older wheels in
-`dist/` cannot be selected or overwritten.
+Supported alternate CPU versions are preserved. A supported CUDA or ROCm build
+is reinstalled as CPU at the same base version. Missing and unsupported
+versions use the branch-recommended CPU version. Only the single wheel in the
+isolated directory can be installed. Older wheels in `dist/` cannot be selected
+or overwritten.
 
 After installation, the script restores the selected CPU PyTorch version and
 verifies the zentorch version and build configuration. On
@@ -34,8 +35,10 @@ flowchart TD
     env{"Dedicated env<br/>active?"}
     envFail["STOP: Activate a<br/>non-base environment"]
     requirements["2. Install repository<br/>requirements"]
-    torch{"Supported CPU<br/>PyTorch?"}
-    remediate["3. Install recommended<br/>CPU PyTorch"]
+    version{"Supported base<br/>version?"}
+    cpu{"CPU-only<br/>build?"}
+    sameCpu["3. Reinstall same<br/>base version as CPU"]
+    recommended["3. Install recommended<br/>CPU PyTorch"]
     selected["4. Record selected<br/>CPU version"]
     uninstall["5. Uninstall existing<br/>zentorch"]
     isolate["6. Create isolated<br/>wheel directory"]
@@ -53,9 +56,11 @@ flowchart TD
 
     start --> checkout --> env
     env -- No --> envFail
-    env -- Yes --> requirements --> torch
-    torch -- Yes --> selected
-    torch -- No --> remediate --> selected
+    env -- Yes --> requirements --> version
+    version -- Yes --> cpu
+    version -- No --> recommended --> selected
+    cpu -- Yes --> selected
+    cpu -- No --> sameCpu --> selected
     selected --> uninstall --> isolate --> build --> wheel
     rhel -. platform setting .-> build
     wheel -- No --> buildFail
