@@ -152,7 +152,7 @@ Build setup downloads the ZenDNN repo into `third_party` folder.
 #### 2.2.2.1. Create conda environment for the build
 
 ```bash
-conda create -n pt-zentorch python=3.10 -y
+conda create -n pt-zentorch python=3.12 -y
 conda activate pt-zentorch
 ```
 #### 2.2.2.2. Install PyTorch
@@ -169,9 +169,9 @@ pip install torch==2.12.0 --index-url https://download.pytorch.org/whl/cpu
 pip install torch==2.11.0 --index-url https://download.pytorch.org/whl/cpu
 ```
 >**Notes:**
->* This README uses Python 3.10.
->* Zentorch follows PyTorch’s Python version compatibility. For PyTorch 2.13.0, 2.12.1, 2.12.0 and 2.11.0, Zentorch supports Python versions 3.10 through 3.13. For other PyTorch releases, refer to the [PyTorch Release Compatibility Matrix](https://github.com/pytorch/pytorch/blob/main/RELEASE.md#release-compatibility-matrix).
->* Zentorch does not support experimental versions of Python (3.13T/3.14/3.14T)
+>* This README uses Python 3.12.
+>* Zentorch follows PyTorch’s Python version compatibility. For PyTorch 2.13.0 Zentorch supports Python versions 3.10 through 3.14. For PyTorch 2.12.1, 2.12.0, and 2.11.0 Zentorch supports Python versions 3.10 through 3.13. For other PyTorch releases, refer to the [PyTorch Release Compatibility Matrix](https://github.com/pytorch/pytorch/blob/main/RELEASE.md#release-compatibility-matrix).
+>* Zentorch does not support experimental versions of Python (3.13T/3.14T)
 
 #### 2.2.2.3. Install Dependencies
 ```bash
