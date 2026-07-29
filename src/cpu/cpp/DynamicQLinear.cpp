@@ -12,74 +12,98 @@ using namespace zendnnl::interface;
 
 namespace zentorch {
 
-static void check_valid_dtypes_for_dynamic_qlinear(
-    const at::Tensor &input, const at::Tensor &weight,
-    const at::Tensor &weight_scales, const at::Tensor &bias) {
+static inline bool zentorch_checks_enabled() {
+  return static_cast<bool>(
+      EnvReader::getEnvVariableAsInt("ZENTORCH_ENABLE_CHECKS"));
+}
+
+// Dtype checks (input, weight_scales, bias) common to both modes. The
+// weight_scales and bias constraints are identical; only the input differs:
+// DA8W8 accepts bf16 or f32, DA8W4 is bf16-only (allow_fp32_input == false).
+static void check_valid_common_dtypes_for_qlinear(
+    const at::Tensor &input, const at::Tensor &weight_scales,
+    const at::Tensor &bias, bool allow_fp32_input) {
+  if (!zentorch_checks_enabled())
+    return;
 
   const bool is_input_bf16 = (input.scalar_type() == c10::kBFloat16);
   const bool is_input_fp32 = (input.scalar_type() == c10::kFloat);
-  ZENTORCH_CHECK(is_input_bf16 || is_input_fp32,
-                 "zentorch_dynamic_qlinear: input must be bfloat16 or "
-                 "float32, got ",
-                 input.scalar_type());
+  ZENTORCH_CHECK(is_input_bf16 || (allow_fp32_input && is_input_fp32),
+                 "zentorch_dynamic_qlinear: input must be ",
+                 allow_fp32_input ? "bfloat16 or float32" : "bfloat16",
+                 ", got ", input.scalar_type());
 
   const bool is_scales_fp32 = (weight_scales.scalar_type() == c10::kFloat);
   const bool is_scales_bf16 = (weight_scales.scalar_type() == c10::kBFloat16);
   ZENTORCH_CHECK(is_scales_fp32 || is_scales_bf16,
-                 "zentorch_dynamic_qlinear: weight_scales must be float32, "
+                 "zentorch_dynamic_qlinear: weight_scales must be float32 or "
                  "bfloat16, got ",
                  weight_scales.scalar_type());
 
-  ZENTORCH_CHECK(
-      weight.scalar_type() == c10::kChar,
-      "zentorch_dynamic_qlinear: weight must be int8 (c10::kChar), got ",
-      weight.scalar_type());
-
   if (bias.defined()) {
-    ZENTORCH_CHECK(bias.scalar_type() == c10::kFloat ||
-                       bias.scalar_type() == c10::kBFloat16,
-                   "zentorch_dynamic_qlinear: bias must be float32 or "
-                   "bfloat16, got ",
-                   bias.scalar_type());
+    ZENTORCH_CHECK(
+        bias.scalar_type() == c10::kFloat ||
+            bias.scalar_type() == c10::kBFloat16,
+        "zentorch_dynamic_qlinear: bias must be float32 or bfloat16, got ",
+        bias.scalar_type());
   }
 }
 
-static void check_valid_sizes_for_dynamic_qlinear(
-    const at::Tensor &input, const at::Tensor &weight,
-    const at::Tensor &weight_scales, const at::Tensor &bias) {
+// Infer the weight mode from the packing (pack_factor = K / weight.size(1),
+// where K is the input's last dim) and check the weight dtype for that mode.
+// Returns true for DA8W4, false for DA8W8:
+//   pack_factor 1 -> DA8W8  (s8,    [N, K])
+//   pack_factor 2 -> DA8W4 (int8,  [N, K/2])
+//   pack_factor 8 -> DA8W4 (int32, [N, K/8])
+// weight.size(1) must divide K and yield one of the pack factors above, so an
+// invalid layout errors here instead of being mis-dispatched to matmul_direct.
 
-  ZENTORCH_CHECK(input.dim() >= 2,
-                 "zentorch_dynamic_qlinear: input must be at least 2D");
+bool check_weight_and_infer_is_da8w4(const at::Tensor &input,
+                                     const at::Tensor &weight) {
+  const int64_t K = input.size(input.dim() - 1);
+  const int64_t wk = weight.size(1);
+  ZENTORCH_CHECK(wk > 0 && K % wk == 0,
+                 "zentorch_dynamic_qlinear: weight dim 1 (", wk,
+                 ") must divide the input K (", K, ")");
+  const auto wdt = weight.scalar_type();
 
-  ZENTORCH_CHECK(weight.dim() == 2,
-                 "zentorch_dynamic_qlinear: weight must be 2D [N, K], got ",
-                 weight.dim(), "D");
-  // Weight is [N, K] (original nn.Linear layout)
-  const int64_t N = weight.size(0);
-  const int64_t K = weight.size(1);
-
-  ZENTORCH_CHECK(input.size(input.dim() - 1) == K,
-                 "zentorch_dynamic_qlinear: input last dim (", input.size(-1),
-                 ") must match weight dim 1 (", K, ")");
-
-  if (bias.defined()) {
-    ZENTORCH_CHECK(bias.dim() == 1 && bias.size(0) == N,
-                   "zentorch_dynamic_qlinear: bias must be 1D with size N (", N,
-                   ")");
+  switch (K / wk) {
+  case 1: // DA8W8
+    ZENTORCH_CHECK(wdt == c10::kChar,
+                   "zentorch_dynamic_qlinear: DA8W8 weight must be int8, got ",
+                   wdt);
+    return false;
+  case 2: // DA8W4, 2 s4 per byte
+    ZENTORCH_CHECK(
+        wdt == c10::kChar,
+        "zentorch_dynamic_qlinear: DA8W4 (K/2) weight must be int8, got ", wdt);
+    return true;
+  case 8: // DA8W4, 8 s4 per int32
+    ZENTORCH_CHECK(
+        wdt == c10::kInt,
+        "zentorch_dynamic_qlinear: DA8W4 (K/8) weight must be int32, got ",
+        wdt);
+    return true;
+  default:
+    ZENTORCH_CHECK(false,
+                   "zentorch_dynamic_qlinear: unsupported weight dim 1 (", wk,
+                   ") for input K (", K, "); expected K, K/2, or K/8");
+    return false; // unreachable
   }
 }
 
-// Core implementation: the input is dynamically quantized to S8 inside the
-// kernel. src_scale_dims controls the source quantization granularity.
+// Core implementation shared by DA8W8 (s8 weight) and DA8W4 (packed s4 weight).
 static void zentorch_dynamic_qlinear_impl(const at::Tensor &input_2d,
                                           const at::Tensor &weight,
                                           const at::Tensor &bias,
                                           at::Tensor &result_2d,
                                           const at::Tensor &weight_scales,
+                                          bool is_da8w4,
                                           const std::string &zentorch_op_name) {
 
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
-            << "Executing function: " << __FUNCTION__;
+            << "Executing function: " << __FUNCTION__
+            << " (is_da8w4=" << is_da8w4 << ")";
   LOG(INFO) << "input dimensions: " << input_2d.sizes();
   LOG(INFO) << "weight dimensions: " << weight.sizes();
   LOG(INFO) << "weight_scales dimensions: " << weight_scales.sizes();
@@ -87,12 +111,12 @@ static void zentorch_dynamic_qlinear_impl(const at::Tensor &input_2d,
 
   const int M = input_2d.size(0);
   const int K = input_2d.size(1);
-  // Weight is [N, K] (original nn.Linear layout), transposed via transB=true
+  // Weight is [N, K-dim]; N = size(0) for all modes.
   const int N = weight.size(0);
 
   zendnnl::lowoha::matmul::matmul_data_types dtypes;
   dtypes.src = get_zendnnl_dtype(input_2d);
-  dtypes.wei = data_type_t::s8;
+  dtypes.wei = is_da8w4 ? data_type_t::s4 : data_type_t::s8;
   dtypes.dst = get_zendnnl_dtype(result_2d);
   dtypes.bias = bias.defined() ? get_zendnnl_dtype(bias) : data_type_t::none;
   dtypes.compute = data_type_t::s8;
@@ -100,27 +124,35 @@ static void zentorch_dynamic_qlinear_impl(const at::Tensor &input_2d,
   zendnnl::lowoha::matmul::matmul_params params;
   params.dtypes = dtypes;
   params.dynamic_quant = true;
+  // lowoha_algo is left unset: ZenDNN auto-detects W4A8 (dynamic s8 x s4) and
+  // routes it to AOCL-DLP, honoring any runtime algo override.
   params.plugin_op = zentorch_op_name;
 
-  // src_scale.dt must match wei_scale.dt (DLP backend requirement)
+  // Dynamic per-token source scale: buffer computed at runtime by the kernel.
+  // src_scale.dt must match wei_scale.dt (DLP backend requirement).
   params.quant_params.src_scale.buff = nullptr;
   params.quant_params.src_scale.dt = get_zendnnl_dtype(weight_scales);
-  // TODO: Currently src_scale_dims is hardcoded to be (M,1). Eventually it has
-  // to be handled in the replacement pattern.
   params.quant_params.src_scale.dims = {static_cast<int64_t>(M), 1};
 
   params.quant_params.wei_scale.buff = weight_scales.data_ptr();
   params.quant_params.wei_scale.dt = get_zendnnl_dtype(weight_scales);
-  auto ws_dims = weight_scales.sizes().vec();
-  if (ws_dims.size() == 1) {
-    // Normalize 1D {N} to 2D {1, N} for per-channel format required by LowOHA
-    ws_dims = {1, ws_dims[0]};
+  if (is_da8w4) {
+    // Per-group weight scale {G, N}.
+    params.quant_params.wei_scale.dims = {weight_scales.size(0),
+                                          static_cast<int64_t>(N)};
+  } else {
+    // Per-channel: normalize 1D {N} to 2D {1, N} as required by LowOHA.
+    auto ws_dims = weight_scales.sizes().vec();
+    if (ws_dims.size() == 1) {
+      ws_dims = {1, ws_dims[0]};
+    }
+    params.quant_params.wei_scale.dims = ws_dims;
   }
-  params.quant_params.wei_scale.dims = ws_dims;
 
   zendnnl::lowoha::matmul::matmul_batch_params_t batch_params;
 
-  // Weight is contiguous [N, K], transposed via transB=true; ldb = K
+  // Weight passed in [N, K-dim] orientation, transposed via transB=true;
+  // ldb = K (in element units for s8, nibble units for packed s4).
   status_t status = zendnnl::lowoha::matmul::matmul_direct(
       'r', false /* transA */, true /* transB */, M, N, K, 1.0f /* alpha */,
       input_2d.data_ptr(), K, weight.data_ptr(), K,
@@ -134,12 +166,63 @@ static void zentorch_dynamic_qlinear_impl(const at::Tensor &input_2d,
   LOG(INFO) << "Finished executing: " << __FUNCTION__ << "!\n";
 }
 
+static void check_valid_dims_for_qlinear(const at::Tensor &input,
+                                         const at::Tensor &weight) {
+  if (!zentorch_checks_enabled())
+    return;
+  ZENTORCH_CHECK(input.dim() >= 2,
+                 "zentorch_dynamic_qlinear: input must be at least 2D, got ",
+                 input.dim(), "D");
+  ZENTORCH_CHECK(weight.dim() == 2,
+                 "zentorch_dynamic_qlinear: weight must be 2D [N, K-dim], got ",
+                 weight.dim(), "D");
+}
+
+// Shared by the functional and out variants; assumes valid dims (see
+// check_valid_dims_for_qlinear) and writes into the pre-shaped `result`.
+static void dispatch_dynamic_qlinear(const at::Tensor &input,
+                                     const at::Tensor &weight,
+                                     const at::Tensor &weight_scales,
+                                     const at::Tensor &bias_t,
+                                     at::Tensor &result,
+                                     const std::string &zentorch_op_name) {
+  auto input_2d = input.is_contiguous()
+                      ? input.view(get_2d_size_for_tensor(input))
+                      : input.contiguous().view(get_2d_size_for_tensor(input));
+
+  // Infers the mode and validates the weight dtype/shape in one step.
+  const bool is_da8w4 = check_weight_and_infer_is_da8w4(input, weight);
+
+  check_valid_common_dtypes_for_qlinear(input, weight_scales, bias_t,
+                                        /*allow_fp32_input=*/!is_da8w4);
+
+  // weight/weight_scales/bias are read via raw data_ptr(), so must be
+  // contiguous guaranteed by the replacement/lowering; asserted only here.
+  if (zentorch_checks_enabled()) {
+    ZENTORCH_CHECK(weight.is_contiguous(),
+                   "zentorch_dynamic_qlinear: weight must be contiguous");
+    ZENTORCH_CHECK(
+        weight_scales.is_contiguous(),
+        "zentorch_dynamic_qlinear: weight_scales must be contiguous");
+    if (bias_t.defined()) {
+      ZENTORCH_CHECK(bias_t.dim() == 1 && bias_t.size(0) == weight.size(0),
+                     "zentorch_dynamic_qlinear: bias must be 1D with size N (",
+                     weight.size(0), ")");
+      ZENTORCH_CHECK(bias_t.is_contiguous(),
+                     "zentorch_dynamic_qlinear: bias must be contiguous");
+    }
+  }
+
+  at::Tensor result_2d = result.view(get_2d_size_for_tensor(result));
+  zentorch_dynamic_qlinear_impl(input_2d, weight, bias_t, result_2d,
+                                weight_scales, is_da8w4, zentorch_op_name);
+}
+
 at::Tensor zentorch_dynamic_qlinear(const at::Tensor &input,
                                     const at::Tensor &weight,
                                     const at::Tensor &weight_scales,
                                     const c10::optional<at::Tensor> &bias,
                                     std::string zentorch_op_name) {
-
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
 
@@ -147,49 +230,70 @@ at::Tensor zentorch_dynamic_qlinear(const at::Tensor &input,
       at::borrow_from_optional_tensor(bias);
   const at::Tensor &bias_t = *bias_maybe_owned;
 
-  check_valid_dtypes_for_dynamic_qlinear(input, weight, weight_scales, bias_t);
-  check_valid_sizes_for_dynamic_qlinear(input, weight, weight_scales, bias_t);
+  check_valid_dims_for_qlinear(input, weight);
 
-  // Weight is [N, K]; output last dim is N = weight.size(0)
+  // Output last dim is N = weight.size(0) for the s8 [N, K] and packed-s4
+  // [N, K/2] / [N, K/8] weight layouts.
   auto output_sz = input.sizes().vec();
   output_sz.back() = weight.size(0);
   auto output_strides = get_matmul_and_linear_output_strides(output_sz);
   at::Tensor result =
       at::detail::empty_strided_cpu(output_sz, output_strides, input.options());
 
-  auto input_2d = input.is_contiguous()
-                      ? input.view(get_2d_size_for_tensor(input))
-                      : input.contiguous().view(get_2d_size_for_tensor(input));
-
-  at::Tensor result_2d = result.view(get_2d_size_for_tensor(result));
-
-  // The impl reads weight / weight_scales / bias through raw data_ptr() with
-  // hardcoded leading dims (weight ldb = K), so they must be contiguous.
-  // at::Tensor::contiguous() is a no-op that shares storage when the tensor is
-  // already contiguous -- the common case for frozen [N, K] weights,
-  // per-channel scales and 1-D bias -- and only copies in the rare
-  // non-contiguous case. This guards the eager entry point; the Inductor
-  // lowering pins the same contiguity for the compiled / cpp_wrapper path.
-  const at::Tensor weight_c = weight.contiguous();
-  const at::Tensor weight_scales_c = weight_scales.contiguous();
-  const at::Tensor bias_c = bias_t.defined() ? bias_t.contiguous() : bias_t;
-
-  zentorch_dynamic_qlinear_impl(input_2d, weight_c, bias_c, result_2d,
-                                weight_scales_c, zentorch_op_name);
-
+  dispatch_dynamic_qlinear(input, weight, weight_scales, bias_t, result,
+                           zentorch_op_name);
   return result;
 }
 
-// zentorch_dynamic_qlinear API is experimental.
+void zentorch_dynamic_qlinear_out(const at::Tensor &input,
+                                  const at::Tensor &weight,
+                                  const at::Tensor &weight_scales,
+                                  const c10::optional<at::Tensor> &bias,
+                                  std::string zentorch_op_name,
+                                  at::Tensor &out) {
+  LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
+            << "Executing function: " << __FUNCTION__;
+
+  c10::MaybeOwned<at::Tensor> bias_maybe_owned =
+      at::borrow_from_optional_tensor(bias);
+  const at::Tensor &bias_t = *bias_maybe_owned;
+
+  check_valid_dims_for_qlinear(input, weight);
+
+  if (zentorch_checks_enabled()) {
+    auto output_sz = input.sizes().vec();
+    output_sz.back() = weight.size(0);
+    ZENTORCH_CHECK(out.scalar_type() == input.scalar_type(),
+                   "zentorch_dynamic_qlinear.out: out dtype (",
+                   out.scalar_type(), ") must match input dtype (",
+                   input.scalar_type(), ")");
+    ZENTORCH_CHECK(
+        out.sizes() == c10::IntArrayRef(output_sz),
+        "zentorch_dynamic_qlinear.out: out shape must be [*, N] with "
+        "N = weight.size(0)");
+    ZENTORCH_CHECK(out.is_contiguous(),
+                   "zentorch_dynamic_qlinear.out: out must be contiguous");
+  }
+
+  dispatch_dynamic_qlinear(input, weight, weight_scales, bias_t, out,
+                           zentorch_op_name);
+}
+
 TORCH_LIBRARY_FRAGMENT(zentorch, m) {
   m.def("zentorch_dynamic_qlinear(Tensor input, Tensor weight, "
         "Tensor weight_scales, Tensor? bias=None, *, "
         "str zentorch_op_name="
         "'zentorch::zentorch_dynamic_qlinear') -> Tensor");
+  m.def("zentorch_dynamic_qlinear.out(Tensor input, Tensor weight, "
+        "Tensor weight_scales, Tensor? bias=None, *, "
+        "str zentorch_op_name='zentorch::zentorch_dynamic_qlinear.out', "
+        "Tensor(a!) out) -> ()");
 }
 
 TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
   m.impl("zentorch_dynamic_qlinear", zentorch::zentorch_dynamic_qlinear);
+  m.impl("zentorch_dynamic_qlinear.out",
+         zentorch::zentorch_dynamic_qlinear_out);
 }
 
 } // namespace zentorch

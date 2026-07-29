@@ -208,12 +208,21 @@ AOTI_TORCH_EXPORT AOTITorchError aoti_torch_cpu_zentorch_woq_linear_add_add(
     AtenTensorHandle add_input_2, AtenTensorHandle *B,
     const char *zentorch_op_name, AtenTensorHandle *ret0);
 
-// Dynamic (per-token source) qlinear: input is quantized to s8 inside the
-// kernel; weight is pre-quantized s8 with per-channel weight_scales. bias is
-// the only optional tensor.
+// Dynamic (per-token source) qlinear. Input is dynamically quantized to s8
+// inside the kernel; weight is pre-quantized (s8 [N, K] for DA8W8, or packed s4
+// [N, K/2] int8 / [N, K/8] int32 for DA8W4) with per-(channel|group)
+// weight_scales. The mode is inferred from the weight dtype/dims. B is the only
+// optional tensor.
 AOTI_TORCH_EXPORT AOTITorchError aoti_torch_cpu_zentorch_dynamic_qlinear(
     AtenTensorHandle X, AtenTensorHandle W, AtenTensorHandle weight_scales,
     AtenTensorHandle *B, const char *zentorch_op_name, AtenTensorHandle *ret0);
+
+// Out variant of the above: writes into `out` (first arg, per the *_out shim
+// convention); no return handle.
+AOTI_TORCH_EXPORT AOTITorchError aoti_torch_cpu_zentorch_dynamic_qlinear_out(
+    AtenTensorHandle out, AtenTensorHandle X, AtenTensorHandle W,
+    AtenTensorHandle weight_scales, AtenTensorHandle *B,
+    const char *zentorch_op_name);
 
 // Fused MoE FFN block. `output` (Tensor(a!)) is mutated in place; the op
 // returns void (no ret handle). w13_bias/w2_bias/w13_scales/w2_scales are

@@ -355,6 +355,43 @@ def test_with_freeze_opt_and_cpp_wrapper(
         config.freezing = prev_freezing
 
 
+def compare_inductor_vs_zentorch(
+    test_case, model, inputs, freeze_opt, cpp_wrapper, atol=1e-3, rtol=1e-3
+):
+    """Compile `model` with backend='inductor' (reference) and
+    backend='zentorch' (candidate, under the drawn freeze/cpp_wrapper), and
+    assert the outputs match tightly -- they run the same kernel, so the only
+    difference is the compile/codegen path (incl. the AOTI shim).
+
+    Shared by the dynamic-qlinear-family model tests (DA8W8, DA8W4)."""
+    if not isinstance(inputs, (tuple, list)):
+        inputs = (inputs,)
+
+    reset_dynamo()
+    ref_model = copy.deepcopy(model)
+    inductor_graph = torch.compile(ref_model, backend="inductor")
+    inductor_out = inductor_graph(*inputs)
+
+    reset_dynamo()
+    zentorch_graph = torch.compile(model, backend="zentorch")
+    zentorch_out = test_with_freeze_opt_and_cpp_wrapper(
+        zentorch_graph, inputs, freeze_opt, cpp_wrapper
+    )
+
+    # Optional keepalive: retain the most recent models/graphs so a freed
+    # frozen-weight buffer isn't reused (stale hit in ZenDNN's pointer-keyed
+    # const-weight cache). Bounded to the last `_cmp_keepalive_max` (default 16).
+    keepalive = getattr(test_case, "_cmp_keepalive", None)
+    if keepalive is not None:
+        keepalive.append((model, ref_model, inductor_graph, zentorch_graph))
+        max_keep = getattr(test_case, "_cmp_keepalive_max", 16)
+        if max_keep is not None and len(keepalive) > max_keep:
+            del keepalive[:-max_keep]
+
+    test_case.assertEqual(zentorch_out.dtype, inductor_out.dtype)
+    test_case.assertEqual(zentorch_out, inductor_out, atol=atol, rtol=rtol)
+
+
 # Singleton class definition
 class Singleton(type):
     _instances = {}

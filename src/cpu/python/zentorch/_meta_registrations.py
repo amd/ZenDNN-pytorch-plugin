@@ -753,9 +753,25 @@ def meta_zentorch_dynamic_qlinear(
     bias=None,
     zentorch_op_name="zentorch::zentorch_dynamic_qlinear",
 ):
+    # Output channel count N is weight.size(0) for the s8 [N, K] (DA8W8) and
+    # packed-s4 [N, K/2] int8 / [N, K/8] int32 (DA8W4) weight layouts.
     out_dim = list(input.size())
     out_dim[-1] = weight.size(0)
     return input.new_empty(out_dim)
+
+
+@register_meta("zentorch_dynamic_qlinear", "out")
+def meta_zentorch_dynamic_qlinear_out(
+    input,
+    weight,
+    weight_scales,
+    bias=None,
+    zentorch_op_name="zentorch::zentorch_dynamic_qlinear.out",
+    out=None,
+):
+    # Out variant: `out` is the last, kwarg-only arg; the op writes into it and
+    # returns nothing (matches the other zentorch .out ops).
+    return
 
 
 @register_meta("zentorch_group_matmul", "out")

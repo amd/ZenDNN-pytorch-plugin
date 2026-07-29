@@ -1844,31 +1844,34 @@ def zentorch_woq_linear_add_add_lowering(
 #   zentorch_dynamic_qlinear(Tensor input, Tensor weight, Tensor weight_scales,
 #                            Tensor? bias=None, *, str zentorch_op_name)
 #                            -> Tensor
+#   zentorch_dynamic_qlinear.out(Tensor input, Tensor weight,
+#                                Tensor weight_scales, Tensor? bias=None, *,
+#                                str zentorch_op_name, Tensor(a!) out)
+#                                -> Tensor(a!)
 #
 # Weight is in original nn.Linear layout [N, K] (NOT a packed WOQ layout), so
-# out_features = weight.size(0). Required tensors (always present): input,
-# weight -> _num_required_tensors = 2. weight_scales is required by schema but
-# tracked via _optional_tensor_presence (always True) so _qlinear_codegen_args
-# interleaves the truly-optional bias into its correct schema slot. Routing
-# through this ExternKernelAlloc (with op_overload + cpp_kernel_name) makes
-# cpp_wrapper emit a direct `aoti_torch_cpu_zentorch_dynamic_qlinear` C-shim
-# call instead of the slow `custom_op_wrapper` Python fallback.
+# out_features = weight.size(0).
+#
+# The functional `.default` lowers to a stock ExternKernelOut bound to the aten-
+# convention `.out` overload: Inductor allocates + reuses the output buffer
+# (should_allocate() == True) and drives the out variant -- `out=` kwarg on the
+# Python path, and the out-first `..._dynamic_qlinear_out` C-shim on cpp_wrapper
+# (generate_extern_kernel_out inserts `out` first for the shim). Since `out` is
+# kwarg-only it's excluded from arg_properties, `zentorch_op_name` is the
+# schema's kwarg, and the trailing optional `bias` is filled by
+# fill_non_provided_args -- so no custom codegen/codegen_args is needed.
 # -----------------------------------------------------------------------------
 
 
-class zentorch_DynamicQlinear(ExternKernelAlloc):
-    _num_required_tensors = 2
-    _optional_tensor_presence = [True, True]
-    codegen_args = _qlinear_codegen_args
-
+class zentorch_DynamicQlinear(ExternKernelOut):
     def __init__(
         self, layout, inputs, constant_args=(), kwargs=None,
     ) -> None:
         self.device_type = get_device_type(inputs[0])
         super().__init__(
             layout, inputs, constant_args, kwargs,
-            op_overload=torch.ops.zentorch.zentorch_dynamic_qlinear.default,
-            cpp_kernel_name="aoti_torch_cpu_zentorch_dynamic_qlinear",
+            op_overload=torch.ops.zentorch.zentorch_dynamic_qlinear.out,
+            cpp_kernel_name="aoti_torch_cpu_zentorch_dynamic_qlinear_out",
         )
 
     def codegen(self, wrapper):
@@ -1877,22 +1880,16 @@ class zentorch_DynamicQlinear(ExternKernelAlloc):
 
     @classmethod
     def create(cls, input, weight, weight_scales, bias, name):
-        # Pin contiguity at the IR level for every tensor the kernel reads
-        # through a raw data_ptr() with hardcoded leading dims. The kernel
-        # (DynamicQLinear.cpp) assumes contiguous storage for weight (ldb=K),
-        # weight_scales and bias and never calls .contiguous() on them -- only
-        # `input` is guarded inside the kernel. require_contiguous is a no-op
-        # when the buffer is already contiguous (the common case for a frozen
-        # [N, K] weight / per-channel scales / 1-D bias), so this only inserts
-        # a clone in the rare non-contiguous case. The weight keeps its logical
-        # [N, K] layout -- we pin storage contiguity, we do NOT transpose or
-        # repack it.
+        # Pin storage contiguity for every tensor the kernel reads via raw
+        # data_ptr() (it does not call .contiguous()). Logical layout is
+        # unchanged; require_contiguous is a no-op when already contiguous.
         input = cls.require_contiguous(cls.realize_input(input))
         weight = cls.require_contiguous(cls.realize_input(weight))
         weight_scales = cls.require_contiguous(cls.realize_input(weight_scales))
 
         *m, _ = input.get_size()
-        # weight is [N, K] (original nn.Linear layout); out_features = N
+        # weight is [N, K] (s8, DA8W8) or packed [N, K/2] int8 / [N, K/8] int32
+        # (s4, DA8W4); out_features = N.
         oc, _ic = weight.get_size()
         output_size = list(m) + [oc]
 
@@ -1904,7 +1901,7 @@ class zentorch_DynamicQlinear(ExternKernelAlloc):
         device = input.get_device()
         assert device is not None
 
-        packed = zentorch_DynamicQlinear(
+        return zentorch_DynamicQlinear(
             layout=FixedLayout(
                 device=device, dtype=input.get_dtype(), size=output_size,
             ),
@@ -1912,11 +1909,6 @@ class zentorch_DynamicQlinear(ExternKernelAlloc):
             constant_args=(),
             kwargs={"zentorch_op_name": name},
         )
-        packed._optional_tensor_presence = [
-            True,            # weight_scales (required by schema, always present)
-            bias is not None,
-        ]
-        return packed
 
     def apply_constraint(self):
         pass
@@ -1933,6 +1925,9 @@ def zentorch_dynamic_qlinear_lowering(
     bias: TensorBox = None,
     zentorch_op_name="zentorch_dynamic_qlinear",
 ):
+    # The functional node lowers to the out-variant shim via ExternKernelOut
+    # (see zentorch_DynamicQlinear); count it so tests can confirm the flow.
+    counters["zentorch"]["zentorch_dynamic_qlinear_out"] += 1
     return TensorBox.create(
         zentorch_DynamicQlinear.create(
             input, weight, weight_scales, bias, zentorch_op_name,

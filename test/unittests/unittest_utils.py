@@ -42,6 +42,7 @@ from zentorch_test_utils import (  # noqa: 402 # noqa: F401
     freeze_def_opt,
     test_with_freeze_opt,
     test_with_freeze_opt_and_cpp_wrapper,
+    compare_inductor_vs_zentorch,
     cpp_wrapper_opt,
     cpp_wrapper_def_opt,
     mode_opt,

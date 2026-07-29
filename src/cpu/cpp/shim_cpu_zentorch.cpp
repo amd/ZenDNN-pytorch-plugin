@@ -579,6 +579,22 @@ AOTITorchError aoti_torch_cpu_zentorch_dynamic_qlinear(
   });
 }
 
+// Out variant: writes into the caller-owned `out` handle (first arg, per the
+// *_out shim convention); no return handle.
+AOTITorchError aoti_torch_cpu_zentorch_dynamic_qlinear_out(
+    AtenTensorHandle out, AtenTensorHandle X, AtenTensorHandle W,
+    AtenTensorHandle weight_scales, AtenTensorHandle *B,
+    const char *zentorch_op_name) {
+  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+    zentorch::zentorch_dynamic_qlinear_out(
+        *tensor_handle_to_tensor_pointer(X),
+        *tensor_handle_to_tensor_pointer(W),
+        *tensor_handle_to_tensor_pointer(weight_scales),
+        pointer_to_optional<at::Tensor>(B), zentorch_op_name,
+        *tensor_handle_to_tensor_pointer(out));
+  });
+}
+
 // Void-returning, output-mutating op: `output` (Tensor(a!)) is written in
 // place, no return handle. `act` and `zentorch_op_name` arrive as const char*
 // (std::string_view / std::string construct from them implicitly).

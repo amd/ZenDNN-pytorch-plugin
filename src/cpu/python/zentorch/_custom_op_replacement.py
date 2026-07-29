@@ -35,6 +35,17 @@ def has_out_variant_for_all_args(node):
                 return False
             op = getattr(zt_ops, arg.target._opname)
             if hasattr(op, "out"):
+                # This fusion rewrites producers to op.out(out_slice, *args)
+                # (out FIRST). Skip ops whose .out takes out last (aten
+                # convention, e.g. dynamic_qlinear.out) to avoid mis-mapping.
+                first_arg = op.out._schema.arguments[0]
+                if first_arg.alias_info is None or not first_arg.alias_info.is_write:
+                    logger.info(
+                        "Skipping cat-fold for %s (.out takes out as a "
+                        "non-leading arg)",
+                        arg.target._opname,
+                    )
+                    return False
                 logger.info("Found out variant for %s", arg.target._opname)
                 nodes_visited.append(arg)
                 continue

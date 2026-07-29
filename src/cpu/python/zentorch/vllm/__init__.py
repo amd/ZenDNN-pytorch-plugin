@@ -1298,6 +1298,35 @@ class GatedDeltaNetPatch:
         return gdn_patch.apply_deferred()
 
 
+# DA8W4 (W4A8) fast path for compressed-tensors symmetric W4 checkpoints,
+# added out-of-tree (no vLLM source changes).
+
+
+@vllm_version(VLLM_V22_1, VLLM_V23, VLLM_V24, VLLM_V25, VLLM_V25_1)
+class Da8w4KernelPatch:
+    """Register the DA8W4 (W4A8) fast path on vLLM's ``ZentorchWNA16LinearKernel``.
+
+    Enabled by default; set ``VLLM_CPU_INT4_W4A8=0`` to disable and force the
+    W4A16 path. See ``zentorch.vllm._da8w4_kernel_patch`` for the DA8W4 semantics
+    and eligibility rules.
+    """
+
+    @classmethod
+    def apply(cls) -> bool:
+        from zentorch.vllm._da8w4_kernel_patch import (
+            _da8w4_enabled,
+            apply_da8w4_patch,
+        )
+
+        if not _da8w4_enabled():
+            logger.debug(
+                "[zentorch] DA8W4 disabled via VLLM_CPU_INT4_W4A8=0; "
+                "using W4A16"
+            )
+            return False
+        return apply_da8w4_patch()
+
+
 # ---------------------------------------------------------------------------
 # CPU KV-cache block zeroing backport (vLLM 0.23-0.24)
 # ---------------------------------------------------------------------------
@@ -1664,6 +1693,7 @@ def _register_patches():
     manager.register("GptOssMoEWeightRemap", GptOssMoEWeightRemapPatch)
     manager.register("GatedDeltaNet", GatedDeltaNetPatch)
     manager.register("CpuZeroBlockIds", CpuZeroBlockIdsPatch)
+    manager.register("Da8w4Kernel", Da8w4KernelPatch)
 
     _REGISTERED = True
 

@@ -3,7 +3,6 @@
 # All rights reserved.
 # ******************************************************************************
 
-import copy
 import unittest
 import torch
 from torch import nn
@@ -16,7 +15,6 @@ from unittest_utils import (  # noqa: 402
     Range,
     has_zentorch,
     zentorch,
-    reset_dynamo,
     run_tests,
     qlinear_dtypes,
     input_dim_opt,
@@ -26,7 +24,9 @@ from unittest_utils import (  # noqa: 402
     q_linear_dtype_opt,
     freeze_opt,
     cpp_wrapper_opt,
-    test_with_freeze_opt_and_cpp_wrapper,
+    compare_inductor_vs_zentorch,
+    counters,
+    reset_dynamo,
     DYNAMIC_QLINEAR_K_OPT,
 )
 
@@ -93,26 +93,6 @@ class Test_DynamicQLinear_Model(QLinearTestCase):
         wide[tuple(sl)] = t
         return wide[tuple(sl)]
 
-    def _compare_inductor_vs_zentorch(
-        self, model, inputs, freeze_opt, cpp_wrapper
-    ):
-        """Compile `model` with backend='inductor' (reference) and
-        backend='zentorch' (candidate, under the drawn freeze/cpp_wrapper), and
-        assert the outputs match tightly -- they run the same kernel, so the
-        only difference is the compile/codegen path (incl. the AOTI shim)."""
-        reset_dynamo()
-        inductor_graph = torch.compile(copy.deepcopy(model), backend="inductor")
-        inductor_out = inductor_graph(*inputs)
-
-        reset_dynamo()
-        zentorch_graph = torch.compile(model, backend="zentorch")
-        zentorch_out = test_with_freeze_opt_and_cpp_wrapper(
-            zentorch_graph, inputs, freeze_opt, cpp_wrapper
-        )
-
-        self.assertEqual(zentorch_out.dtype, inductor_out.dtype)
-        self.assertEqual(zentorch_out, inductor_out, atol=1e-3, rtol=1e-3)
-
     @QLinearTestCase.hypothesis_params_qlinear_itr(
         input_dim_opt_list=input_dim_opt,
         q_weight_list_opt_list=q_weight_list_opt,
@@ -151,8 +131,8 @@ class Test_DynamicQLinear_Model(QLinearTestCase):
         model = Custom_Model_DynamicQLinear(
             weight_int8, weight_scales, bias
         ).eval()
-        self._compare_inductor_vs_zentorch(
-            model, (input_nd,), freeze_opt, cpp_wrapper
+        compare_inductor_vs_zentorch(
+            self, model, (input_nd,), freeze_opt, cpp_wrapper
         )
 
     @QLinearTestCase.hypothesis_params_qlinear_itr(
@@ -200,9 +180,56 @@ class Test_DynamicQLinear_Model(QLinearTestCase):
         model = Custom_Model_DynamicQLinear(
             weight_int8, weight_scales, bias
         ).eval()
-        self._compare_inductor_vs_zentorch(
-            model, (input_nd,), freeze_opt, cpp_wrapper
+        compare_inductor_vs_zentorch(
+            self, model, (input_nd,), freeze_opt, cpp_wrapper
         )
+
+
+@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
+class Test_DynamicQLinear_OutVariant_Lowering(QLinearTestCase):
+    """Confirms the functional zentorch_dynamic_qlinear node lowers to the
+    out-variant shim under torch.compile(backend='zentorch'). The lowering
+    bumps counters['zentorch']['zentorch_dynamic_qlinear_out'] once per node,
+    so a two-layer model must register exactly 2."""
+
+    @staticmethod
+    def _layer(N, K):
+        weight = torch.randint(-8, 7, (N, K), dtype=torch.int8)
+        scales = torch.rand(1, N, dtype=torch.float32) * 0.02 + 0.01
+        bias = torch.rand(N, dtype=torch.float32)
+        return weight, scales, bias
+
+    @torch.inference_mode()
+    def test_dynamic_qlinear_lowers_to_out_variant(self):
+        if not zentorch._C.is_avx512_supported():
+            self.skipTest("AVX512 not supported")
+
+        w0, s0, b0 = self._layer(32, 16)
+        w1, s1, b1 = self._layer(16, 32)
+
+        class TwoLayer(nn.Module):
+            def forward(self, x):
+                h = torch.ops.zentorch.zentorch_dynamic_qlinear(x, w0, s0, b0)
+                return torch.ops.zentorch.zentorch_dynamic_qlinear(h, w1, s1, b1)
+
+        model = TwoLayer().eval()
+        x = torch.randn(4, 16, dtype=torch.float32)
+
+        ref = model(x)
+
+        # Force a fresh compile so a FxGraphCache hit doesn't skip the lowering.
+        from torch._inductor.utils import fresh_inductor_cache
+
+        reset_dynamo()
+        counters.clear()
+        with fresh_inductor_cache():
+            compiled = torch.compile(model, backend="zentorch")
+            got = compiled(x)
+
+        self.assertEqual(
+            counters["zentorch"]["zentorch_dynamic_qlinear_out"], 2
+        )
+        self.assertTrue(torch.allclose(ref, got, atol=1e-2, rtol=1e-2))
 
 
 if __name__ == "__main__":
