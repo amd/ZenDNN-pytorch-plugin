@@ -37,6 +37,7 @@ source of truth):
 |-------|---------|-----------|
 | [`build-zentorch-setup-env`](.claude/skills/build-zentorch-setup-env/SKILL.md) | Prepare the env (install pinned PyTorch CPU) and/or fresh end-to-end setup: deps, build, install, verify | `.claude/skills/build-zentorch-setup-env/scripts/setup.sh` (or `install_pytorch.sh` for env only) |
 | [`build-zentorch-from-source`](.claude/skills/build-zentorch-from-source/SKILL.md) | Build/rebuild zentorch from source and verify | `.claude/skills/build-zentorch-from-source/scripts/build.sh` |
+| [`build-vllm-zentorch`](.claude/skills/build-vllm-zentorch/SKILL.md) | Install vLLM (pip CPU wheel or source, optionally with PR cherry-picks) plus zentorch against a local ZenDNN | Read `SKILL.md`: interactive, no single entry point. Delegates the wheel build to `.claude/skills/build-zentorch-from-source/scripts/build.sh --for-vllm` |
 | [`test-zentorch-unit`](.claude/skills/test-zentorch-unit/SKILL.md) | Run tests (unit, op, model, misc, export, vLLM, LLM, pre-trained) | `.claude/skills/test-zentorch-unit/scripts/test.sh [scope]` |
 | [`lint-zentorch-source`](.claude/skills/lint-zentorch-source/SKILL.md) | Lint Python (flake8), C++ (git clang-format), shell (shellcheck) | `.claude/skills/lint-zentorch-source/scripts/lint.sh <python\|cpp\|shell>` |
 

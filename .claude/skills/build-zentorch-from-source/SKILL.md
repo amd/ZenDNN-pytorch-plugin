@@ -66,6 +66,21 @@ Before compiling, it:
 - builds into an isolated temporary directory and installs only that wheel, so
   a stale wheel already in `dist/` cannot be selected or overwritten.
 
+### Building into a vLLM environment
+
+```bash
+.claude/skills/build-zentorch-from-source/scripts/build.sh --for-vllm
+```
+
+Use this when vLLM is already installed and has pinned its own CPU PyTorch. The
+default behaviour above would replace that torch, so `--for-vllm` instead leaves
+the installed torch alone, installs the wheel with `--no-deps`, and fails if the
+torch version changed by the end of the build. The three behaviours are tied to
+one flag because applying only some of them still lets pip swap vLLM's torch.
+
+Follow the `build-vllm-zentorch` skill for the full vLLM workflow; it also
+exports `ZENTORCH_USE_LOCAL_ZENDNN=1`, which this script does not set.
+
 ---
 
 ## Manual fallback

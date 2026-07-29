@@ -1,0 +1,41 @@
+%% Copyright (c) 2026 Advanced Micro Devices, Inc. All rights reserved.
+
+flowchart TD
+    start(["START: user requests a<br/>vLLM plus zentorch build"])
+    inputs["Stage 0 - Confirm inputs<br/>acquisition, vLLM version, vLLM PRs,<br/>native or docker, zentorch and ZenDNN refs"]
+    prs{"vLLM PRs<br/>provided?"}
+    forceSource["Force source plus cherry-pick<br/>pip cannot carry PR patches<br/>ask for the base version"]
+    askPip["Ask pip vs source<br/>no default"]
+    validate["Stage 1 - Validate the vLLM version<br/>grep VLLM_MIN and MAX_VERSION plus _VERSION_MAP<br/>from _core.py, cross-check the vllm README table"]
+    inRange{"Within MIN..MAX<br/>and in _VERSION_MAP?"}
+    rangeFail["STOP: version out of range<br/>warn the user, do not build"]
+    envPrep["Stage 2 - Environment prep, native<br/>env at the grepped Python version, gcc and g plus plus<br/>no sudo: conda-forge libnuma plus CPATH and LIBRARY_PATH"]
+    vllmInstall["Stage 3 - vLLM install<br/>CPU wheel, OR source, OR source plus cherry-pick<br/>plain pip vllm equals pulls the CUDA wheel<br/>capture TORCH_VLLM right after"]
+    conflict{"Cherry-pick<br/>conflict?"}
+    conflictFail["STOP: surface the conflict<br/>do NOT auto-resolve"]
+    backend["Stage 4 - Backend setup<br/>point third_party/ZenDNN at the local checkout<br/>grep the pinned tag from zendnnl.cmake<br/>do NOT git submodule update over a symlink"]
+    backendOk{"Local ZenDNN tree<br/>resolves?"}
+    backendFail["STOP: re-create the symlink<br/>or let cmake copy the sibling checkout"]
+    buildWheel["Stage 5 - Build zentorch<br/>export ZENTORCH_USE_LOCAL_ZENDNN=1, then run<br/>build-zentorch-from-source scripts/build.sh --for-vllm"]
+    torchSame{"Wheel built and torch<br/>still equals TORCH_VLLM?"}
+    buildFail["STOP: restore a clobbered third_party/ZenDNN,<br/>remove build, or reinstall vLLM's torch, then re-run"]
+    smoke["Stage 6 - Smoke test<br/>import vllm and zentorch, expect<br/>'Platform plugin zentorch is activated'"]
+    bench["Stage 7 - Benchmark validation<br/>vllm bench throughput on Qwen3-0.6B<br/>with TORCHINDUCTOR_FREEZING=1 set VLLM_USE_AOT_COMPILE=0"]
+    benchOk{"Plugin activated AND<br/>Throughput line AND exit 0?"}
+    benchFail["STOP: inspect bench.log<br/>CUDA wheel, missing AOT flag,<br/>or plugin not installed"]
+    done(["END: validated vLLM<br/>plus zentorch build"])
+
+    start --> inputs --> prs
+    prs -- Yes --> forceSource --> validate
+    prs -- No --> askPip --> validate
+    validate --> inRange
+    inRange -- No --> rangeFail
+    inRange -- Yes --> envPrep --> vllmInstall --> conflict
+    conflict -- Yes --> conflictFail
+    conflict -- No --> backend --> backendOk
+    backendOk -- No --> backendFail
+    backendOk -- Yes --> buildWheel --> torchSame
+    torchSame -- No --> buildFail
+    torchSame -- Yes --> smoke --> bench --> benchOk
+    benchOk -- No --> benchFail
+    benchOk -- Yes --> done
