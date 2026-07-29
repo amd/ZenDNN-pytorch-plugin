@@ -26,9 +26,8 @@ The dependency installer covers `transformers`, `expecttest`, `parameterized`,
 `hypothesis`, `deprecated`, and PyTorch-matched `torchvision` and `torchao`.
 With no argument, the script runs all unit tests under `./test/unittests`.
 Other supported scopes map to `./test`, a named test category, or one existing
-test file. Export-test AOT packages are created in test-owned temporary
-directories and cleaned even after a failure; pre-existing checkout files are
-untouched.
+test file. Export tests may write `model.pt2` and `model_z.pt2` in the checkout;
+the script does not delete files by name because their ownership is unknown.
 
 ```mermaid
 flowchart TD
@@ -50,7 +49,6 @@ flowchart TD
     mode{"Directory scope<br/>or test file?"}
     discover["4. Run unittest<br/>discovery"]
     direct["4. Run file without<br/>discovery"]
-    cleanup["5. Clean test-owned<br/>AOT packages"]
     passed{"All selected<br/>tests passed?"}
     failed["STOP: Report failures<br/>and non-zero exit"]
     done(["END: All selected<br/>tests passed"])
@@ -67,9 +65,8 @@ flowchart TD
     installed -- Yes --> cache --> deps --> depsOk
     depsOk -- No --> depsFail
     depsOk -- Yes --> mode
-    mode -- Directory --> discover --> cleanup
-    mode -- File --> direct --> cleanup
-    cleanup --> passed
+    mode -- Directory --> discover --> passed
+    mode -- File --> direct --> passed
     passed -- No --> failed
     passed -- Yes --> done
 ```

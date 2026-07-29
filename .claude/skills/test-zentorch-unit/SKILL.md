@@ -29,10 +29,9 @@ When the user asks to run tests, follow this skill.
 
 The script validates the requested scope before any package checks or
 installation, verifies that zentorch is installed, sets the required env vars,
-installs test deps, and runs the scope. Export-test AOT packages are created in
-test-owned temporary directories and removed after each test. Use the manual
-commands below only if the script fails or a `-k` / `-p` filter is needed that
-the script does not support.
+installs test deps, and runs the scope. Use the manual commands below only if
+the script fails or a `-k` / `-p` filter is needed that the script does not
+support.
 
 See [zentorch-test-flow.md](zentorch-test-flow.md) for the test workflow.
 
@@ -131,10 +130,11 @@ If multiple files match, show the matches and ask which to run, or use `-k` /
 
 ### Generated export-test packages
 
-Export tests compile `model.pt2` and `model_z.pt2` inside a fresh temporary
-directory owned by each test. `unittest` cleanup removes that directory even
-when a test fails. Files with those names that already exist in the checkout
-are never overwritten or deleted.
+The underlying export tests may write `model.pt2` and `model_z.pt2` in the
+repository root. The test skill intentionally does not delete or restore files
+by name because it cannot determine whether they predated the run. Check those
+paths before running export tests, and clean up only artifacts known to belong
+to that run.
 
 ---
 
