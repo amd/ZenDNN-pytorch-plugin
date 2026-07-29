@@ -443,14 +443,9 @@ inline void check_valid_sizes_for_quantized_matmul(
 
   // Size checks specfic for quantized matmul.
   // Per-tensor config check.
-  // For Hugging Face's large language models (LLMs) that are statically
-  // quantized with the Quark quantizer, 0-dimensional scales and zero_points
-  // need to be supported for per-tensor configuration.
-  //
-  // However, for recommender models (RMs, e.g., DLRM_v2) that are statically
-  // quantized with the Quark quantizer, 1-dimensional scales and zero_points
-  // need to be supported for per-tensor configuration.
-  ZENTORCH_CHECK((input_scales.dim() == 1 || input_scales.dim() == 0),
+  // Per-tensor scales are represented as 1-dimensional tensors, while
+  // zero_points may be either scalar (0-dimensional) or 1-dimensional.
+  ZENTORCH_CHECK((input_scales.dim() == 1),
                  "unsupported dims for input_scales with respect to "
                  "input tensor");
   if (input_zero_points.defined()) {
@@ -466,7 +461,7 @@ inline void check_valid_sizes_for_quantized_matmul(
                  "with respect to input tensor");
 
   // Per-tensor/channel config check.
-  ZENTORCH_CHECK((weight_scales.dim() == 1 || weight_scales.dim() == 0),
+  ZENTORCH_CHECK((weight_scales.dim() == 1),
                  "unsupported dims for weight_scales with respect "
                  "to weight tensor");
   ZENTORCH_CHECK(
@@ -483,7 +478,7 @@ inline void check_valid_sizes_for_quantized_matmul(
         "only supporting per-tensor and per-channel quantization for weight");
   }
   if (output_scales.defined() && output_zero_points.defined()) {
-    ZENTORCH_CHECK((output_scales.dim() == 1 || output_scales.dim() == 0),
+    ZENTORCH_CHECK((output_scales.dim() == 1),
                    "unsupported dims for output_scales with respect "
                    "to output tensor");
     ZENTORCH_CHECK(
