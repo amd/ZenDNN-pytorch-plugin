@@ -84,11 +84,24 @@ AOTITorchError aoti_torch_cpu_zentorch_linear_unary(
     bool is_weight_prepacked, const char *post_op, const char *zentorch_op_name,
     AtenTensorHandle *ret0) {
   AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
-    auto tmp_result = zentorch::zentorch_linear_unary_impl(
+    auto tmp_result = zentorch::zentorch_linear_unary(
         *tensor_handle_to_tensor_pointer(X),
         *tensor_handle_to_tensor_pointer(W), pointer_to_optional<at::Tensor>(B),
         is_weight_prepacked, post_op, zentorch_op_name);
     *ret0 = new_tensor_handle(std::move(tmp_result));
+  });
+}
+
+AOTITorchError aoti_torch_cpu_zentorch_linear_unary_out(
+    AtenTensorHandle out, AtenTensorHandle X, AtenTensorHandle W,
+    AtenTensorHandle *B, bool is_weight_prepacked, const char *post_op,
+    const char *zentorch_op_name) {
+  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+    zentorch::zentorch_linear_unary_out_impl(
+        *tensor_handle_to_tensor_pointer(X),
+        *tensor_handle_to_tensor_pointer(W), pointer_to_optional<at::Tensor>(B),
+        is_weight_prepacked, post_op, zentorch_op_name,
+        *tensor_handle_to_tensor_pointer(out));
   });
 }
 
@@ -248,7 +261,7 @@ AOTITorchError aoti_torch_cpu_zentorch_linear_unary_binary(
     const char *post_op_2, const char *zentorch_op_name,
     AtenTensorHandle *ret0) {
   AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
-    auto tmp_result = zentorch::zentorch_linear_unary_binary_impl(
+    auto tmp_result = zentorch::zentorch_linear_unary_binary(
         *tensor_handle_to_tensor_pointer(X),
         *tensor_handle_to_tensor_pointer(W),
         *tensor_handle_to_tensor_pointer(binary_input),
@@ -258,13 +271,28 @@ AOTITorchError aoti_torch_cpu_zentorch_linear_unary_binary(
   });
 }
 
+AOTITorchError aoti_torch_cpu_zentorch_linear_unary_binary_out(
+    AtenTensorHandle out, AtenTensorHandle X, AtenTensorHandle W,
+    AtenTensorHandle binary_input, AtenTensorHandle *B,
+    bool is_weight_prepacked, const char *post_op_1, const char *post_op_2,
+    const char *zentorch_op_name) {
+  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+    zentorch::zentorch_linear_unary_binary_out_impl(
+        *tensor_handle_to_tensor_pointer(X),
+        *tensor_handle_to_tensor_pointer(W),
+        *tensor_handle_to_tensor_pointer(binary_input),
+        pointer_to_optional<at::Tensor>(B), is_weight_prepacked, post_op_1,
+        post_op_2, zentorch_op_name, *tensor_handle_to_tensor_pointer(out));
+  });
+}
+
 AOTITorchError aoti_torch_cpu_zentorch_linear_binary_binary(
     AtenTensorHandle X, AtenTensorHandle W, AtenTensorHandle binary_input_1,
     AtenTensorHandle binary_input_2, AtenTensorHandle *B,
     bool is_weight_prepacked, const char *post_op_1, const char *post_op_2,
     const char *zentorch_op_name, AtenTensorHandle *ret0) {
   AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
-    auto tmp_result = zentorch::zentorch_linear_binary_binary_impl(
+    auto tmp_result = zentorch::zentorch_linear_binary_binary(
         *tensor_handle_to_tensor_pointer(X),
         *tensor_handle_to_tensor_pointer(W),
         *tensor_handle_to_tensor_pointer(binary_input_1),
@@ -272,6 +300,22 @@ AOTITorchError aoti_torch_cpu_zentorch_linear_binary_binary(
         pointer_to_optional<at::Tensor>(B), is_weight_prepacked, post_op_1,
         post_op_2, zentorch_op_name);
     *ret0 = new_tensor_handle(std::move(tmp_result));
+  });
+}
+
+AOTITorchError aoti_torch_cpu_zentorch_linear_binary_binary_out(
+    AtenTensorHandle out, AtenTensorHandle X, AtenTensorHandle W,
+    AtenTensorHandle binary_input_1, AtenTensorHandle binary_input_2,
+    AtenTensorHandle *B, bool is_weight_prepacked, const char *post_op_1,
+    const char *post_op_2, const char *zentorch_op_name) {
+  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+    zentorch::zentorch_linear_binary_binary_out_impl(
+        *tensor_handle_to_tensor_pointer(X),
+        *tensor_handle_to_tensor_pointer(W),
+        *tensor_handle_to_tensor_pointer(binary_input_1),
+        *tensor_handle_to_tensor_pointer(binary_input_2),
+        pointer_to_optional<at::Tensor>(B), is_weight_prepacked, post_op_1,
+        post_op_2, zentorch_op_name, *tensor_handle_to_tensor_pointer(out));
   });
 }
 

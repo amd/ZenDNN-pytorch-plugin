@@ -9,6 +9,7 @@
 #include <optional>   // For std::optional, std::nullopt
 #include <unordered_map>
 
+#include "EnvReader.hpp"
 #include "Memory.hpp"
 
 using namespace zendnnl::interface;
@@ -594,6 +595,29 @@ create_linear_and_matmul_output_tensor(const at::Tensor input,
   at::Tensor result =
       at::detail::empty_strided_cpu(output_size, output_strides, options);
   return result;
+}
+
+// Validates a caller-supplied `out` tensor for the linear/matmul `.out`
+// variants against the expected shape and contiguity, guarding the downstream
+// `out.view(...)` reshape. The Inductor lowering already allocates a contiguous
+// `out`, but this covers other callers (eager, export) where that isn't
+// guaranteed. Gated behind ZENTORCH_ENABLE_CHECKS.
+inline void check_linear_and_matmul_out_tensor(const at::Tensor &input,
+                                               const at::Tensor &weight,
+                                               const at::Tensor &out) {
+  const bool enable_checks = static_cast<bool>(
+      EnvReader::getEnvVariableAsInt("ZENTORCH_ENABLE_CHECKS"));
+  if (!enable_checks)
+    return;
+  ZENTORCH_CHECK(out.defined(),
+                 "'out' tensor in the linear out variant must be defined");
+  const auto expected_sizes = get_matmul_and_linear_output_sizes(input, weight);
+  ZENTORCH_CHECK(out.sizes() == c10::IntArrayRef(expected_sizes),
+                 "unsupported shape for 'out' tensor in the linear out "
+                 "variant, expected ",
+                 c10::IntArrayRef(expected_sizes), " but got ", out.sizes());
+  ZENTORCH_CHECK(out.is_contiguous(),
+                 "'out' tensor in the linear out variant must be contiguous");
 }
 
 // TODO

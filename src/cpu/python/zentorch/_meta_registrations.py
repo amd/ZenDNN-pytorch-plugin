@@ -58,8 +58,21 @@ def meta_zentorch_linear_unary(
     return input.new_empty(out_dim)
 
 
+@register_meta("zentorch_linear_unary", "out")
+def meta_zentorch_linear_unary_out(
+    input,
+    weight,
+    bias=None,
+    is_weight_prepacked=False,
+    post_op="none",
+    zentorch_op_name="zentorch::zentorch_linear_unary_out",
+    out=None,
+):
+    return
+
+
 @register_meta("zentorch_linear_binary_binary")
-def meta_zendnn_linear_binary_binary(
+def meta_zentorch_linear_binary_binary(
     input,
     weight,
     binary_input_1,
@@ -73,8 +86,24 @@ def meta_zendnn_linear_binary_binary(
     return binary_input_2.new_empty(binary_input_2.shape)
 
 
+@register_meta("zentorch_linear_binary_binary", "out")
+def meta_zentorch_linear_binary_binary_out(
+    input,
+    weight,
+    binary_input_1,
+    binary_input_2,
+    bias=None,
+    is_weight_prepacked=False,
+    post_op_1="none",
+    post_op_2="none",
+    zentorch_op_name="zentorch::zentorch_linear_binary_binary_out",
+    out=None,
+):
+    return
+
+
 @register_meta("zentorch_linear_unary_binary")
-def meta_zendnn_linear_unary_binary(
+def meta_zentorch_linear_unary_binary(
     input,
     weight,
     binary_input,
@@ -85,6 +114,21 @@ def meta_zendnn_linear_unary_binary(
     zentorch_op_name="zentorch::zentorch_linear_unary_binary",
 ):
     return binary_input.new_empty(binary_input.shape)
+
+
+@register_meta("zentorch_linear_unary_binary", "out")
+def meta_zentorch_linear_unary_binary_out(
+    input,
+    weight,
+    binary_input,
+    bias=None,
+    is_weight_prepacked=False,
+    post_op_1="none",
+    post_op_2="none",
+    zentorch_op_name="zentorch::zentorch_linear_unary_binary_out",
+    out=None,
+):
+    return
 
 
 @register_meta("zentorch_addmm_1dbias")

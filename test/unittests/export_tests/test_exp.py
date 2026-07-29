@@ -9,6 +9,7 @@ import zentorch
 import sys
 from pathlib import Path
 import os  # noqa: E402
+import tempfile
 from torch._inductor import config
 
 sys.path.append(str(Path(__file__).parent.parent))
@@ -72,6 +73,35 @@ class QKVFusionModel(nn.Module):
 
         # Return concatenated for easy comparison
         return torch.cat([q, k, v], dim=-1)
+
+
+# Minimal single-fusion models used to exercise each linear `.out` variant
+# (lowered to its AOTI out-variant shim) on the export path.
+class LinearUnaryNet(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.linear = nn.Linear(10, 10)
+
+    def forward(self, x):
+        return torch.nn.functional.relu(self.linear(x))
+
+
+class LinearUnaryBinaryNet(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.linear = nn.Linear(10, 10)
+
+    def forward(self, x, binary):
+        return torch.nn.functional.silu(self.linear(x)) * binary
+
+
+class LinearBinaryBinaryNet(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.linear = nn.Linear(10, 10)
+
+    def forward(self, x, binary_1, binary_2):
+        return self.linear(x) * binary_1 + binary_2
 
 
 class TestExport(AddmmTestCase):
@@ -158,6 +188,84 @@ class TestExport(AddmmTestCase):
         self.assertEqual(counters["zentorch"]["qkv_fusion_linear"], 1)
         self.assertEqual(output, output_z, atol=1e-2, rtol=1e-2)
         config.freezing = False
+
+    # Asserts the linear was lowered to its `.out` shim on the AOTI path. Caching
+    # is disabled since the lowering counter is short-circuited on a cache hit.
+    @config.patch(force_disable_caches=True)
+    @torch.inference_mode()
+    def test_linear_unary_out_variant_export(self):
+        model = LinearUnaryNet().eval()
+        inp = torch.rand(6, 10)
+        native_output = model(inp)
+
+        exp_model = torch.export.export(model, args=(inp,))
+        counters.clear()
+        self.assertEqual(counters["zentorch"]["zentorch_linear_unary_out"], 0)
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            output_path = torch._inductor.aoti_compile_and_package(
+                exp_model,
+                package_path=os.path.join(tmp_dir, "linear_unary_out.pt2"),
+                inductor_configs=ind_conf,
+            )
+            self.assertEqual(counters["zentorch"]["zentorch_linear_unary_out"], 1)
+            exported_model = torch._inductor.aoti_load_package(output_path)
+            export_output = exported_model(inp)
+        self.assertEqual(native_output, export_output, atol=1e-2, rtol=1e-2)
+
+    @config.patch(force_disable_caches=True)
+    @torch.inference_mode()
+    def test_linear_unary_binary_out_variant_export(self):
+        model = LinearUnaryBinaryNet().eval()
+        inp = torch.rand(6, 10)
+        binary = torch.rand(6, 10)
+        native_output = model(inp, binary)
+
+        exp_model = torch.export.export(model, args=(inp, binary))
+        counters.clear()
+        self.assertEqual(
+            counters["zentorch"]["zentorch_linear_unary_binary_out"], 0
+        )
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            output_path = torch._inductor.aoti_compile_and_package(
+                exp_model,
+                package_path=os.path.join(tmp_dir, "linear_unary_binary_out.pt2"),
+                inductor_configs=ind_conf,
+            )
+            self.assertEqual(
+                counters["zentorch"]["zentorch_linear_unary_binary_out"], 1
+            )
+            exported_model = torch._inductor.aoti_load_package(output_path)
+            export_output = exported_model(inp, binary)
+        self.assertEqual(native_output, export_output, atol=1e-2, rtol=1e-2)
+
+    @config.patch(force_disable_caches=True)
+    @torch.inference_mode()
+    def test_linear_binary_binary_out_variant_export(self):
+        model = LinearBinaryBinaryNet().eval()
+        inp = torch.rand(6, 10)
+        binary_1 = torch.rand(6, 10)
+        binary_2 = torch.rand(6, 10)
+        native_output = model(inp, binary_1, binary_2)
+
+        exp_model = torch.export.export(model, args=(inp, binary_1, binary_2))
+        counters.clear()
+        self.assertEqual(
+            counters["zentorch"]["zentorch_linear_binary_binary_out"], 0
+        )
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            output_path = torch._inductor.aoti_compile_and_package(
+                exp_model,
+                package_path=os.path.join(tmp_dir, "linear_binary_binary_out.pt2"),
+                inductor_configs=ind_conf,
+            )
+            self.assertEqual(
+                counters["zentorch"]["zentorch_linear_binary_binary_out"], 1
+            )
+            exported_model = torch._inductor.aoti_load_package(output_path)
+            export_output = exported_model(inp, binary_1, binary_2)
+        self.assertEqual(
+            native_output, export_output, atol=1e-2, rtol=1e-2
+        )
 
 
 if __name__ == "__main__":

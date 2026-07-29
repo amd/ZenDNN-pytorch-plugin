@@ -6,6 +6,7 @@
 import unittest
 import torch
 from torch import nn
+from torch._inductor import config as inductor_config
 import sys
 from pathlib import Path
 import copy
@@ -98,7 +99,7 @@ class Custom_Deep_Linear_Activation_Model(nn.Module):
 class Test_Linear_Unary_Model(AddmmTestCase):
 
     def _run_activation(
-        self, key, dtype, freeze_flag, cpp_wrapper=False, model=None, input_tensor=None, expected_count=1
+        self, key, dtype, freeze_flag, cpp_wrapper=False, model=None, input_tensor=None, expected_count=1, check_out_variant=False
     ):
         case = LINEAR_ACTIVATIONS[key]
         if model is None:
@@ -120,6 +121,8 @@ class Test_Linear_Unary_Model(AddmmTestCase):
         compiled_graph = torch.compile(model, backend="zentorch")
         counters.clear()
         self.assertEqual(counters["zentorch"][case["counter"]], 0)
+        if check_out_variant:
+            self.assertEqual(counters["zentorch"]["zentorch_linear_unary_out"], 0)
         compiled_output = test_with_freeze_opt_and_cpp_wrapper(
             compiled_graph,
             (input_tensor,),
@@ -127,6 +130,10 @@ class Test_Linear_Unary_Model(AddmmTestCase):
             cpp_wrapper,
         )
         self.assertEqual(counters["zentorch"][case["counter"]], expected_count)
+        if check_out_variant:
+            self.assertEqual(
+                counters["zentorch"]["zentorch_linear_unary_out"], expected_count
+            )
         self.assertEqual(native_output, compiled_output, atol=1e-3, rtol=1e-5)
 
     def _run_deep_linear_activation(self, key, dtype, freeze_flag, cpp_wrapper=False):
@@ -144,13 +151,19 @@ class Test_Linear_Unary_Model(AddmmTestCase):
             expected_count=6,
         )
 
+    # The relu case also asserts the linear was lowered to its `.out` variant
+    # (via check_out_variant). Caching is disabled since the lowering counter is
+    # short-circuited on an FxGraphCache hit.
+    @inductor_config.patch(force_disable_caches=True)
     @AddmmTestCase.hypothesis_params_addmm_itr(
         dtype_list=supported_dtypes, freeze_list=freeze_opt,
-        cpp_wrapper_opt_list=cpp_wrapper_opt
+        cpp_wrapper_opt_list=cpp_wrapper_opt, time_out=60000
     )
     @torch.inference_mode()
     def test_linear_relu_model(self, dtype, freeze_opt, cpp_wrapper):
-        self._run_activation("relu", dtype, freeze_opt, cpp_wrapper)
+        self._run_activation(
+            "relu", dtype, freeze_opt, cpp_wrapper, check_out_variant=True
+        )
 
     @AddmmTestCase.hypothesis_params_addmm_itr(
         dtype_list=supported_dtypes, freeze_list=freeze_opt,

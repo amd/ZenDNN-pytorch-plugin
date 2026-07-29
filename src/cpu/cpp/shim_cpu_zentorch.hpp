@@ -25,6 +25,11 @@ AOTI_TORCH_EXPORT AOTITorchError aoti_torch_cpu_zentorch_linear_unary(
     bool is_weight_prepacked, const char *post_op, const char *zentorch_op_name,
     AtenTensorHandle *ret0);
 
+AOTI_TORCH_EXPORT AOTITorchError aoti_torch_cpu_zentorch_linear_unary_out(
+    AtenTensorHandle out, AtenTensorHandle X, AtenTensorHandle W,
+    AtenTensorHandle *B, bool is_weight_prepacked, const char *post_op,
+    const char *zentorch_op_name);
+
 AOTI_TORCH_EXPORT AOTITorchError aoti_torch_cpu_zentorch_qlinear(
     AtenTensorHandle X, AtenTensorHandle W, AtenTensorHandle X_scales,
     AtenTensorHandle X_zero_points, AtenTensorHandle W_scales,
@@ -80,11 +85,25 @@ AOTI_TORCH_EXPORT AOTITorchError aoti_torch_cpu_zentorch_linear_unary_binary(
     const char *post_op_2, const char *zentorch_op_name,
     AtenTensorHandle *ret0);
 
+AOTI_TORCH_EXPORT AOTITorchError
+aoti_torch_cpu_zentorch_linear_unary_binary_out(
+    AtenTensorHandle out, AtenTensorHandle X, AtenTensorHandle W,
+    AtenTensorHandle binary_input, AtenTensorHandle *B,
+    bool is_weight_prepacked, const char *post_op_1, const char *post_op_2,
+    const char *zentorch_op_name);
+
 AOTI_TORCH_EXPORT AOTITorchError aoti_torch_cpu_zentorch_linear_binary_binary(
     AtenTensorHandle X, AtenTensorHandle W, AtenTensorHandle binary_input_1,
     AtenTensorHandle binary_input_2, AtenTensorHandle *B,
     bool is_weight_prepacked, const char *post_op_1, const char *post_op_2,
     const char *zentorch_op_name, AtenTensorHandle *ret0);
+
+AOTI_TORCH_EXPORT AOTITorchError
+aoti_torch_cpu_zentorch_linear_binary_binary_out(
+    AtenTensorHandle out, AtenTensorHandle X, AtenTensorHandle W,
+    AtenTensorHandle binary_input_1, AtenTensorHandle binary_input_2,
+    AtenTensorHandle *B, bool is_weight_prepacked, const char *post_op_1,
+    const char *post_op_2, const char *zentorch_op_name);
 
 // ============================================================================
 // Quantized embedding bag (single + horizontally-fused group). These ops have

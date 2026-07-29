@@ -10,12 +10,11 @@ import torch._inductor.config as _inductor_config
 import torch._inductor.ir as _inductor_ir
 from torch._inductor.ir import (
     ExternKernelAlloc,
+    ExternKernelOut,
     FixedLayout,
     FlexibleLayout,
     get_device_type,
     Layout,
-    MultiOutput,
-    MultiOutputLayout,
     NoneLayout,
     TensorBox,
 )
@@ -26,6 +25,8 @@ from torch._inductor.lowering import (
     register_lowering,
 )
 from torch.utils import _pytree as pytree
+
+from ._utils import counters
 
 _ZENTORCH_HEADER = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "include", "shim_cpu_zentorch.hpp")
@@ -64,7 +65,9 @@ if (
 add_needs_realized_inputs(
     [
         torch.ops.zentorch.zentorch_linear_unary_binary.default,
+        torch.ops.zentorch.zentorch_linear_unary_binary.out,
         torch.ops.zentorch.zentorch_linear_binary_binary.default,
+        torch.ops.zentorch.zentorch_linear_binary_binary.out,
         torch.ops.zentorch.zentorch_qlinear.default,
         torch.ops.zentorch.zentorch_qlinear_relu.default,
         torch.ops.zentorch.zentorch_qlinear_sigmoid.default,
@@ -77,17 +80,6 @@ add_needs_realized_inputs(
         torch.ops.zentorch.zentorch_horizontal_quant_embedding_bag_group.out,
     ]
 )
-
-
-def _create_output_node(packed):
-    output_ir = MultiOutput(
-        packed.get_layout(),
-        packed,
-        [],
-    )
-    packed.layout = MultiOutputLayout(device=packed.get_device())
-    packed.outputs = [output_ir]
-    return output_ir
 
 
 def _qlinear_codegen_args(self):
@@ -122,7 +114,7 @@ def _qlinear_codegen_args(self):
         return args
 
 
-class zentorch_LinearUnary(ExternKernelAlloc):
+class zentorch_LinearUnary(ExternKernelOut):
     def __init__(
         self,
         layout,
@@ -136,8 +128,8 @@ class zentorch_LinearUnary(ExternKernelAlloc):
             inputs,
             constant_args,
             kwargs,
-            op_overload=torch.ops.zentorch.zentorch_linear_unary.default,
-            cpp_kernel_name="aoti_torch_cpu_zentorch_linear_unary",
+            op_overload=torch.ops.zentorch.zentorch_linear_unary.out,
+            cpp_kernel_name="aoti_torch_cpu_zentorch_linear_unary_out",
         )
 
     def codegen(self, wrapper):
@@ -164,13 +156,13 @@ class zentorch_LinearUnary(ExternKernelAlloc):
         kwargs = {
             "is_weight_prepacked": is_weight_prepacked,
             "post_op": post_op,
-            "zentorch_op_name": name,
+            "zentorch_op_name": f"{name}_out",
         }
 
         device = x.get_device()
         assert device is not None
 
-        packed = zentorch_LinearUnary(
+        return zentorch_LinearUnary(
             layout=FixedLayout(
                 device=device,
                 dtype=x.get_dtype(),
@@ -180,10 +172,6 @@ class zentorch_LinearUnary(ExternKernelAlloc):
             constant_args=(),
             kwargs=kwargs,
         )
-        return _create_output_node(packed)
-
-    def apply_constraint(self):
-        pass
 
 
 @register_lowering(torch.ops.zentorch.zentorch_linear_unary)
@@ -195,6 +183,9 @@ def zentorch_linear_unary_lowering(
     post_op="none",
     zentorch_op_name="zentorch_linear_unary",
 ):
+    # Bumped when lowered to the `.out` variant; lets tests confirm the
+    # compiled/exported graph took the out-variant path.
+    counters["zentorch"]["zentorch_linear_unary_out"] += 1
     return TensorBox.create(
         zentorch_LinearUnary.create(
             input,
@@ -207,7 +198,7 @@ def zentorch_linear_unary_lowering(
     )
 
 
-class zentorch_LinearUnaryBinary(ExternKernelAlloc):
+class zentorch_LinearUnaryBinary(ExternKernelOut):
     def __init__(
         self,
         layout,
@@ -221,8 +212,8 @@ class zentorch_LinearUnaryBinary(ExternKernelAlloc):
             inputs,
             constant_args,
             kwargs,
-            op_overload=torch.ops.zentorch.zentorch_linear_unary_binary.default,
-            cpp_kernel_name="aoti_torch_cpu_zentorch_linear_unary_binary",
+            op_overload=torch.ops.zentorch.zentorch_linear_unary_binary.out,
+            cpp_kernel_name="aoti_torch_cpu_zentorch_linear_unary_binary_out",
         )
 
     def codegen(self, wrapper):
@@ -252,13 +243,13 @@ class zentorch_LinearUnaryBinary(ExternKernelAlloc):
             "is_weight_prepacked": is_weight_prepacked,
             "post_op_1": post_op_1,
             "post_op_2": post_op_2,
-            "zentorch_op_name": name,
+            "zentorch_op_name": f"{name}_out",
         }
 
         device = x.get_device()
         assert device is not None
 
-        packed = zentorch_LinearUnaryBinary(
+        return zentorch_LinearUnaryBinary(
             layout=FixedLayout(
                 device=device,
                 dtype=x.get_dtype(),
@@ -268,10 +259,6 @@ class zentorch_LinearUnaryBinary(ExternKernelAlloc):
             constant_args=(),
             kwargs=kwargs,
         )
-        return _create_output_node(packed)
-
-    def apply_constraint(self):
-        pass
 
 
 @register_lowering(torch.ops.zentorch.zentorch_linear_unary_binary)
@@ -285,6 +272,9 @@ def zentorch_linear_unary_binary_lowering(
     post_op_2="none",
     zentorch_op_name="zentorch_linear_unary_binary",
 ):
+    # Bumped when lowered to the `.out` variant; lets tests confirm the
+    # compiled/exported graph took the out-variant path.
+    counters["zentorch"]["zentorch_linear_unary_binary_out"] += 1
     return TensorBox.create(
         zentorch_LinearUnaryBinary.create(
             input,
@@ -299,7 +289,7 @@ def zentorch_linear_unary_binary_lowering(
     )
 
 
-class zentorch_LinearBinaryBinary(ExternKernelAlloc):
+class zentorch_LinearBinaryBinary(ExternKernelOut):
     def __init__(
         self,
         layout,
@@ -313,8 +303,8 @@ class zentorch_LinearBinaryBinary(ExternKernelAlloc):
             inputs,
             constant_args,
             kwargs,
-            op_overload=torch.ops.zentorch.zentorch_linear_binary_binary.default,
-            cpp_kernel_name="aoti_torch_cpu_zentorch_linear_binary_binary",
+            op_overload=torch.ops.zentorch.zentorch_linear_binary_binary.out,
+            cpp_kernel_name="aoti_torch_cpu_zentorch_linear_binary_binary_out",
         )
 
     def codegen(self, wrapper):
@@ -345,13 +335,13 @@ class zentorch_LinearBinaryBinary(ExternKernelAlloc):
             "is_weight_prepacked": is_weight_prepacked,
             "post_op_1": post_op_1,
             "post_op_2": post_op_2,
-            "zentorch_op_name": name,
+            "zentorch_op_name": f"{name}_out",
         }
 
         device = x.get_device()
         assert device is not None
 
-        packed = zentorch_LinearBinaryBinary(
+        return zentorch_LinearBinaryBinary(
             layout=FixedLayout(
                 device=device,
                 dtype=x.get_dtype(),
@@ -361,10 +351,6 @@ class zentorch_LinearBinaryBinary(ExternKernelAlloc):
             constant_args=(),
             kwargs=kwargs,
         )
-        return _create_output_node(packed)
-
-    def apply_constraint(self):
-        pass
 
 
 @register_lowering(torch.ops.zentorch.zentorch_linear_binary_binary)
@@ -379,6 +365,9 @@ def zentorch_linear_binary_binary_lowering(
     post_op_2="none",
     zentorch_op_name="zentorch_linear_binary_binary",
 ):
+    # Bumped when lowered to the `.out` variant; lets tests confirm the
+    # compiled/exported graph took the out-variant path.
+    counters["zentorch"]["zentorch_linear_binary_binary_out"] += 1
     return TensorBox.create(
         zentorch_LinearBinaryBinary.create(
             input,

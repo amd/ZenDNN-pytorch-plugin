@@ -193,6 +193,19 @@ class Test_Linear_Unary(MMTestCase):
             output_1, self.data.x, self.data.y.t(), post_op="tanh"
         )
 
+    @MMTestCase.hypothesis_params_mm_itr(dtype_list=supported_dtypes)
+    def test_linear_unary_out_variant(self):
+        reset_dynamo()
+        tol = 1e-2
+        expected = torch.ops.zentorch.zentorch_linear_unary(
+            self.data.x, self.data.y.t(), self.data.input1d, post_op="relu"
+        )
+        out = torch.empty_like(expected)
+        torch.ops.zentorch.zentorch_linear_unary.out(
+            self.data.x, self.data.y.t(), self.data.input1d, post_op="relu", out=out
+        )
+        self.assertEqual(expected, out, atol=tol, rtol=tol)
+
 
 if __name__ == "__main__":
     run_tests()

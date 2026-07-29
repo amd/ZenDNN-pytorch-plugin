@@ -7,6 +7,7 @@ import operator
 import unittest
 import torch
 from torch import nn
+from torch._inductor import config as inductor_config
 import sys
 from pathlib import Path
 
@@ -94,7 +95,7 @@ class Test_Linear_Binary_Binary_Model(AddmmTestCase):
 
     def _run_binary_binary_post_op(
         self, key: str, bias_flag: bool, dtype: str, freeze_flag: bool,
-        cpp_wrapper: bool = False
+        cpp_wrapper: bool = False, check_out_variant: bool = False
     ) -> None:
         if dtype == "bfloat16":
             self.skip_if_bfloat16_unsupported_hardware()
@@ -124,6 +125,10 @@ class Test_Linear_Binary_Binary_Model(AddmmTestCase):
         counters.clear()
         counter_key = LINEAR_BINARY_BINARY_OPS[key]["counter"]
         self.assertEqual(counters["zentorch"][counter_key], 0)
+        if check_out_variant:
+            self.assertEqual(
+                counters["zentorch"]["zentorch_linear_binary_binary_out"], 0
+            )
         compiled_output = test_with_freeze_opt_and_cpp_wrapper(
             compiled_graph,
             (self.data.input, binary_tensor1, binary_tensor2),
@@ -131,6 +136,10 @@ class Test_Linear_Binary_Binary_Model(AddmmTestCase):
             cpp_wrapper,
         )
         self.assertEqual(counters["zentorch"][counter_key], 1)
+        if check_out_variant:
+            self.assertEqual(
+                counters["zentorch"]["zentorch_linear_binary_binary_out"], 1
+            )
         if freeze_flag:
             self.assertEqual(
                 counters["zentorch"]["zentorch_weight_prepack_for_linear"], 1
@@ -148,15 +157,22 @@ class Test_Linear_Binary_Binary_Model(AddmmTestCase):
             with self.subTest(bias=bias_name):
                 self._run_binary_binary_post_op("add_add", bias_flag, dtype, freeze_opt, cpp_wrapper)
 
+    # The mul_add case also asserts the linear was lowered to its `.out`
+    # variant (via check_out_variant). Caching is disabled since the lowering
+    # counter is short-circuited on an FxGraphCache hit.
+    @inductor_config.patch(force_disable_caches=True)
     @AddmmTestCase.hypothesis_params_addmm_itr(
         dtype_list=supported_dtypes, freeze_list=freeze_opt,
-        cpp_wrapper_opt_list=cpp_wrapper_opt
+        cpp_wrapper_opt_list=cpp_wrapper_opt, time_out=60000
     )
     @torch.inference_mode()
     def test_linear_mul_add_model(self, dtype, freeze_opt, cpp_wrapper):
         for bias_name, bias_flag in LINEAR_BIAS_CASES.items():
             with self.subTest(bias=bias_name):
-                self._run_binary_binary_post_op("mul_add", bias_flag, dtype, freeze_opt, cpp_wrapper)
+                self._run_binary_binary_post_op(
+                    "mul_add", bias_flag, dtype, freeze_opt, cpp_wrapper,
+                    check_out_variant=True,
+                )
 
 
 if __name__ == "__main__":
