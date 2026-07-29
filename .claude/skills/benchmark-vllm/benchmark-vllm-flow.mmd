@@ -1,0 +1,44 @@
+%% Copyright (c) 2026 Advanced Micro Devices, Inc. All rights reserved.
+
+flowchart TD
+    START(["START: user asks for a vLLM benchmark"]):::term
+    START --> S12
+
+    S12["Stage 1-2 - Quadrant<br/>online vs offline, then single vs multi-instance"]:::box
+    S12 --> S3["Stage 3 - Hardware check<br/>scripts/check_hardware.sh for the topology and a recommendation,<br/>then ask N instances and cores per instance"]:::box
+
+    S3 --> G3{"N x CPI fits the physical cores?"}:::dia
+    G3 -->|"No"| RE["Do NOT run<br/>present the recommended N / CPI,<br/>one instance per NUMA node or the largest N that fits"]:::stop
+    RE -->|"re-prompt"| S3
+    G3 -->|"Yes"| GON{"online quadrant?"}:::dia
+
+    GON -->|"Yes"| RES["Confirm the core reservation bands<br/>multi: nginx 0-15, guidellm 16-31, vLLM from core 32<br/>single: guidellm pinned to the last ~3 physical cores"]:::box
+    GON -->|"No"| S4
+    RES --> S4
+
+    S4["Stage 4 - Image, always ask<br/>default the newest amdih/zendnn_zentorch tag from common.sh,<br/>runners podman pull it when absent"]:::box
+    S4 --> S5["Stage 5 - Workload params, quadrant-specific<br/>offline: input, output, prompts, max-seqs<br/>online: also confirm --rates and --max-seconds, default 300<br/>model, HF_TOKEN, --hf-offline on HF-blocked hosts"]:::box
+
+    S5 --> S6["Stage 6 - Confirm, then run<br/>show the assembled command with --dry-run, get a yes,<br/>then re-run without it"]:::box
+    S6 --> GQ{"Which quadrant?"}:::dia
+
+    GQ -->|"offline single"| Q1["run_offline_single.sh<br/>entrypoint bash /bench/offline_launcher.sh<br/>1 x taskset vllm bench throughput"]:::box
+    GQ -->|"offline multi"| Q2["run_offline_multi.sh<br/>same entrypoint, N taskset-pinned procs in 1 container"]:::box
+    GQ -->|"online single"| Q3["run_online_single.sh<br/>entrypoint bash /bench/incontainer_serve.sh<br/>vllm serve plus host GuideLLM"]:::box
+    GQ -->|"online multi"| Q4["online-multi/run_sweep.sh<br/>podman-compose: N serve services behind an NGINX round-robin LB<br/>plus host GuideLLM"]:::box
+
+    Q1 --> GF
+    Q2 --> GF
+    Q3 --> GF
+    Q4 --> GF
+
+    GF{"any step failed?<br/>non-zero exit, pull error, unhealthy container,<br/>crash, 0 tok/s, missing Throughput, or OOM"}:::dia
+    GF -->|"Yes"| STF["STOP immediately, never continue the sweep<br/>tear down containers or online-multi/stop.sh,<br/>surface server.log / guidellm.log / result_inst*.txt plus the likely fix"]:::stop
+    GF -->|"No"| RES2["Collect results<br/>offline: parse_offline.py to throughput_summary.csv<br/>online: the parse-guidellm parser for TTFT / ITL / TPOT<br/>mem_poll.sh appends the PEAK memory line"]:::box
+
+    RES2 --> DONE(["END: results under ./bench_results/quadrant_timestamp/"]):::term
+
+    classDef box fill:#dbe9f6,stroke:#6f9dc9,color:#1a1a1a
+    classDef dia fill:#fdeec2,stroke:#e0b84a,color:#1a1a1a
+    classDef stop fill:#f7d4d4,stroke:#d98a8a,color:#1a1a1a
+    classDef term fill:#c9ecc9,stroke:#6cb56c,color:#1a1a1a
