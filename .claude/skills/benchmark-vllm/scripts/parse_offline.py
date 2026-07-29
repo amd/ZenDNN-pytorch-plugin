@@ -137,8 +137,8 @@ def main(results_dir):
             for fname, t, o in per:
                 print(f"      {fname}: total={t} tok/s, output={o} tok/s")
             print(
-                f"      SUM: total={round(sum_t,2)} tok/s, output={round(sum_o,2)} tok/s "
-                f"(avg/inst: total={round(avg_t,2)}, output={round(avg_o,2)})"
+                f"      SUM: total={round(sum_t, 2)} tok/s, output={round(sum_o, 2)} tok/s "
+                f"(avg/inst: total={round(avg_t, 2)}, output={round(avg_o, 2)})"
             )
             if no_tp:
                 print(
