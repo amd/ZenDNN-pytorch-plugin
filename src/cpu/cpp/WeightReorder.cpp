@@ -10,10 +10,29 @@
 #include <torch/csrc/stable/ops.h>
 
 #include <algorithm>
+#include <array>
 
 namespace zentorch {
 
 using namespace zendnnl::interface;
+
+namespace {
+
+torch::stable::Tensor
+stable_as_strided(const torch::stable::Tensor &self,
+                  torch::headeronly::IntHeaderOnlyArrayRef sizes,
+                  torch::headeronly::IntHeaderOnlyArrayRef strides) {
+  const auto num_args = 4;
+  std::array<StableIValue, num_args> stack{
+      torch::stable::detail::from(self), torch::stable::detail::from(sizes),
+      torch::stable::detail::from(strides),
+      torch::stable::detail::from(int64_t{0})};
+  STABLE_TORCH_ERROR_CODE_CHECK(torch_call_dispatcher(
+      "aten::as_strided", "", stack.data(), TORCH_ABI_VERSION));
+  return torch::stable::detail::to<torch::stable::Tensor>(stack[0]);
+}
+
+} // namespace
 
 torch::stable::Tensor
 zentorch_weight_prepack_for_linear(const torch::stable::Tensor &weight,
@@ -81,11 +100,9 @@ zentorch_weight_prepack_for_linear(const torch::stable::Tensor &weight,
   ZENTORCH_CHECK(status == status_t::success,
                  "weight prepack reorder_direct failed.");
 
-  // Present the buffer with the weight's original shape/strides. from_blob is
-  // non-owning, so capture `packed` in the deleter to keep its storage alive.
-  return torch::stable::from_blob(packed.data_ptr(), weight.sizes(),
-                                  weight.strides(), weight.device(), dtype,
-                                  [packed](void * /*data*/) {});
+  // Keep the owning storage: from_blob would expose only the logical view span,
+  // causing AOTI to truncate an aligned packed constant during serialization.
+  return stable_as_strided(packed, weight.sizes(), weight.strides());
 }
 
 STABLE_TORCH_LIBRARY_FRAGMENT(zentorch, m) {
