@@ -6,36 +6,14 @@
 #include "Memory.hpp"
 #include "zendnnl.hpp"
 
-#include <torch/csrc/stable/library.h>
-#include <torch/csrc/stable/ops.h>
-
 #include <algorithm>
-#include <array>
 
 namespace zentorch {
 
 using namespace zendnnl::interface;
 
-namespace {
-
-torch::stable::Tensor
-stable_as_strided(const torch::stable::Tensor &self,
-                  torch::headeronly::IntHeaderOnlyArrayRef sizes,
-                  torch::headeronly::IntHeaderOnlyArrayRef strides) {
-  const auto num_args = 4;
-  std::array<StableIValue, num_args> stack{
-      torch::stable::detail::from(self), torch::stable::detail::from(sizes),
-      torch::stable::detail::from(strides),
-      torch::stable::detail::from(int64_t{0})};
-  STABLE_TORCH_ERROR_CODE_CHECK(torch_call_dispatcher(
-      "aten::as_strided", "", stack.data(), TORCH_ABI_VERSION));
-  return torch::stable::detail::to<torch::stable::Tensor>(stack[0]);
-}
-
-} // namespace
-
-torch::stable::Tensor
-zentorch_weight_prepack_for_linear(const torch::stable::Tensor &weight,
+at::Tensor
+zentorch_weight_prepack_for_linear(const at::Tensor &weight,
                                    const std::string & /*zentorch_op_name*/) {
   ZENTORCH_CHECK(weight.dim() == 2,
                  "Weight tensor must be 2D for linear layer prepacking, got ",
@@ -49,7 +27,7 @@ zentorch_weight_prepack_for_linear(const torch::stable::Tensor &weight,
 
   // Matmul weight B = weight.t() = [K, N] = [in_features, out_features];
   // a contiguous [N, K] weight makes this view column-major ("ba").
-  torch::stable::Tensor reorder_input = torch::stable::transpose(weight, 0, 1);
+  at::Tensor reorder_input = weight.transpose(0, 1);
   const auto in_sizes = reorder_input.sizes();
   const auto in_strides = reorder_input.strides();
 
@@ -91,8 +69,7 @@ zentorch_weight_prepack_for_linear(const torch::stable::Tensor &weight,
   const int64_t view_elements = (weight.size(0) - 1) * weight.stride(0) +
                                 (weight.size(1) - 1) * weight.stride(1) + 1;
   const int64_t num_elements = std::max(packed_elements, view_elements);
-  torch::stable::Tensor packed =
-      torch::stable::new_empty(weight, {num_elements});
+  at::Tensor packed = at::empty({num_elements}, weight.options());
 
   // Step 3: one-time prepack directly on the raw pointers.
   const status_t status = zendnnl::lowoha::reorder::reorder_direct(
@@ -102,18 +79,18 @@ zentorch_weight_prepack_for_linear(const torch::stable::Tensor &weight,
 
   // Keep the owning storage: from_blob would expose only the logical view span,
   // causing AOTI to truncate an aligned packed constant during serialization.
-  return stable_as_strided(packed, weight.sizes(), weight.strides());
+  return at::as_strided(packed, weight.sizes(), weight.strides());
 }
 
-STABLE_TORCH_LIBRARY_FRAGMENT(zentorch, m) {
+TORCH_LIBRARY_FRAGMENT(zentorch, m) {
   m.def("zentorch_weight_prepack_for_linear(Tensor weight, "
         "str zentorch_op_name='zentorch::zentorch_weight_prepack_for_linear') "
         "-> Tensor");
 }
 
-STABLE_TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
+TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
   m.impl("zentorch_weight_prepack_for_linear",
-         TORCH_BOX(&zentorch::zentorch_weight_prepack_for_linear));
+         zentorch::zentorch_weight_prepack_for_linear);
 }
 
 } // namespace zentorch
