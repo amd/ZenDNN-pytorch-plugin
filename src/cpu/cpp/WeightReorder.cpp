@@ -77,8 +77,6 @@ zentorch_weight_prepack_for_linear(const at::Tensor &weight,
   ZENTORCH_CHECK(status == status_t::success,
                  "weight prepack reorder_direct failed.");
 
-  // Keep the owning storage: from_blob would expose only the logical view span,
-  // causing AOTI to truncate an aligned packed constant during serialization.
   return at::as_strided(packed, weight.sizes(), weight.strides());
 }
 
