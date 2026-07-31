@@ -7,24 +7,46 @@
 #include "EnvReader.hpp"
 #include "MatmulUtils.hpp"
 #include "Memory.hpp"
-#include <ATen/cpu/vec/vec.h>
+#include <ATen/Parallel.h>
+#include <c10/util/StringUtil.h>
+#include <torch/csrc/stable/library.h>
+
+#ifndef TORCH_VERSION_2_12_0
+#define TORCH_VERSION_2_12_0 (((0ULL + 2) << 56) | ((0ULL + 12) << 48))
+#endif
+
+inline void
+zentorch_stable_def_needs_fixed_stride(torch::stable::detail::StableLibrary &m,
+                                       const char *schema) {
+#if (TORCH_VERSION_MAJOR > 2) ||                                               \
+    (TORCH_VERSION_MAJOR == 2 && TORCH_VERSION_MINOR >= 12)
+  m.def(schema, {at::Tag::needs_fixed_stride_order});
+#else
+  m.def(schema);
+#endif
+}
 
 namespace zentorch {
 using namespace zendnnl::interface;
-void zentorch_woq_linear_impl(const at::Tensor &input, const at::Tensor &weight,
-                              const at::Tensor &bias, at::Tensor &result,
-                              const at::Tensor &weight_scales,
-                              const at::Tensor &weight_zero_points,
-                              const std::vector<int64_t> &post_op_ids,
-                              const std::vector<at::Tensor> &post_op_buffers,
-                              std::string zentorch_op_name) {
+
+void zentorch_woq_linear_impl(
+    const torch::stable::Tensor &input, const torch::stable::Tensor &weight,
+    const std::optional<torch::stable::Tensor> &bias,
+    torch::stable::Tensor &result, const torch::stable::Tensor &weight_scales,
+    const std::optional<torch::stable::Tensor> &weight_zero_points,
+    const std::vector<int64_t> &post_op_ids,
+    const std::vector<torch::stable::Tensor> &post_op_buffers,
+    std::string zentorch_op_name) {
 
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
-  LOG(INFO) << "input dimensions: " << input.sizes();
-  LOG(INFO) << "weight dimensions: " << weight.sizes();
-  LOG(INFO) << "weight_scales dimensions: " << weight_scales.sizes();
-  LOG(INFO) << "result dimensions: " << result.sizes();
+  LOG(INFO) << "input sizes: [" << c10::Join(", ", input.sizes().vec()) << "]";
+  LOG(INFO) << "weight sizes: [" << c10::Join(", ", weight.sizes().vec())
+            << "]";
+  LOG(INFO) << "weight_scales sizes: ["
+            << c10::Join(", ", weight_scales.sizes().vec()) << "]";
+  LOG(INFO) << "result sizes: [" << c10::Join(", ", result.sizes().vec())
+            << "]";
   LOG(INFO) << "post_op_ids size: " << post_op_ids.size();
   LOG(INFO) << "post_op_buffers size: " << post_op_buffers.size();
 
@@ -32,19 +54,20 @@ void zentorch_woq_linear_impl(const at::Tensor &input, const at::Tensor &weight,
   // where each int32 packs 8 int4 values. Transposition of the weight tensor,
   // as well as arranging weight_scales and weight_zero_points contiguously,
   // is performed in op_replacements_new.py during graph passes.
-  TORCH_CHECK(weight.dtype() == torch::kInt32,
-              "weight must have dtype int32, got ", weight.dtype());
-  TORCH_CHECK(weight.dim() == 2, "weight must be 2D, got ", weight.dim(), "D");
-  TORCH_CHECK(weight_scales.size(1) == weight.size(1), "weight_scales dim 1 (",
-              weight_scales.size(1), ") must match weight dim 1 (",
-              weight.size(1), ")");
+  ZENTORCH_CHECK(weight.scalar_type() == c10::kInt,
+                 "weight must have dtype int32, got ", weight.scalar_type());
+  ZENTORCH_CHECK(weight.dim() == 2, "weight must be 2D, got ", weight.dim(),
+                 "D");
+  ZENTORCH_CHECK(weight_scales.size(1) == weight.size(1),
+                 "weight_scales dim 1 (", weight_scales.size(1),
+                 ") must match weight dim 1 (", weight.size(1), ")");
   constexpr int kInt4PackedPerInt32 = 8; // 8 int4 values packed per int32
   const auto unpackedK = weight.size(0) * kInt4PackedPerInt32;
 
   // TODO: Consider moving weight_dtype selection to graph pass level.
   // Use u4 for unsigned int4 weights (asymmetric: zero_points provided),
   // s4 for signed int4 weights (symmetric: zero_points is None)
-  const auto weight_dtype = weight_zero_points.defined()
+  const auto weight_dtype = weight_zero_points.has_value()
                                 ? data_type_t::u4  // Asymmetric quantization
                                 : data_type_t::s4; // Symmetric quantization
 
@@ -65,19 +88,22 @@ void zentorch_woq_linear_impl(const at::Tensor &input, const at::Tensor &weight,
     // weight scale
     quantization_params.wei_scale.buff = weight_scales.data_ptr();
     quantization_params.wei_scale.dt = get_zendnnl_dtype(weight_scales);
-    quantization_params.wei_scale.dims = weight_scales.sizes().vec();
+    quantization_params.wei_scale.dims =
+        sizes_to_int64_vec(weight_scales.sizes());
 
     // weight zero point
-    if (weight_zero_points.defined()) {
-      quantization_params.wei_zp.buff = weight_zero_points.data_ptr();
-      quantization_params.wei_zp.dt = get_zendnnl_dtype(weight_zero_points);
-      quantization_params.wei_zp.dims = weight_zero_points.sizes().vec();
+    if (weight_zero_points.has_value()) {
+      quantization_params.wei_zp.buff = weight_zero_points->data_ptr();
+      quantization_params.wei_zp.dt = get_zendnnl_dtype(*weight_zero_points);
+      quantization_params.wei_zp.dims =
+          sizes_to_int64_vec(weight_zero_points->sizes());
     }
 
     zendnnl::lowoha::matmul::matmul_data_types dtypes;
     dtypes.src = get_zendnnl_dtype(input);
     dtypes.wei = weight_dtype;
-    dtypes.bias = bias.defined() ? get_zendnnl_dtype(bias) : data_type_t::none;
+    dtypes.bias =
+        bias.has_value() ? get_zendnnl_dtype(*bias) : data_type_t::none;
     dtypes.dst = get_zendnnl_dtype(result); // Match actual result tensor dtype
 
     zendnnl::lowoha::matmul::matmul_params params;
@@ -103,7 +129,7 @@ void zentorch_woq_linear_impl(const at::Tensor &input, const at::Tensor &weight,
     status = zendnnl::lowoha::matmul::matmul_direct(
         'r', is_transposed(input), is_transposed(weight), M, N, K,
         1.0f /* alpha */, input.data_ptr(), lda, weight.data_ptr(), ldb,
-        bias.defined() ? bias.data_ptr() : nullptr, 0.0f /* beta */,
+        bias.has_value() ? bias->data_ptr() : nullptr, 0.0f /* beta */,
         result.data_ptr(), ldc, true /* is_weights_const (required for WOQ) */,
         batch_params, params);
 
@@ -128,8 +154,8 @@ void zentorch_woq_linear_impl(const at::Tensor &input, const at::Tensor &weight,
   woq_weight_scales_opt_ref = tensor_opt_ref(std::ref(woq_weight_scales));
 
   tensor_opt_ref woq_weight_zero_points_opt_ref = std::nullopt;
-  if (weight_zero_points.defined()) {
-    create_zendnnl_quantized_tensor(weight_zero_points, woq_weight_zero_points,
+  if (weight_zero_points.has_value()) {
+    create_zendnnl_quantized_tensor(*weight_zero_points, woq_weight_zero_points,
                                     "woq_weight_zero_points");
     woq_weight_zero_points_opt_ref =
         tensor_opt_ref(std::ref(woq_weight_zero_points));
@@ -149,12 +175,12 @@ void zentorch_woq_linear_impl(const at::Tensor &input, const at::Tensor &weight,
                                 false /* is_weight_prepacked */);
 
   auto matmul_context = matmul_context_t();
-  if (bias.defined()) {
+  if (bias.has_value()) {
     tensor_t bias_tensor = tensor_t();
-    long unsigned int bias_numel = bias.numel();
-    set_zendnnl_tensor_attributes(bias, bias_tensor, "bias",
+    unsigned long bias_numel = bias->numel();
+    set_zendnnl_tensor_attributes(*bias, bias_tensor, "bias",
                                   false /* is_weight_prepacked */,
-                                  {1, bias_numel}, {bias_numel, 1});
+                                  {1UL, bias_numel}, {bias_numel, 1UL});
     set_matmul_context_attributes(matmul_context, woq_weight, post_op_ids,
                                   1.0f /* alpha */, bias_tensor);
   } else {
@@ -176,127 +202,117 @@ void zentorch_woq_linear_impl(const at::Tensor &input, const at::Tensor &weight,
 }
 
 template <UNARY_POST_OP fuse>
-at::Tensor
-zentorch_woq_linear_unary(const at::Tensor &input, const at::Tensor &weight,
-                          const at::Tensor &weight_scales,
-                          const std::optional<at::Tensor> &weight_zero_points,
-                          const std::optional<at::Tensor> &bias,
-                          std::string zentorch_op_name) {
+torch::stable::Tensor zentorch_woq_linear_unary(
+    const torch::stable::Tensor &input, const torch::stable::Tensor &weight,
+    const torch::stable::Tensor &weight_scales,
+    const std::optional<torch::stable::Tensor> &weight_zero_points,
+    const std::optional<torch::stable::Tensor> &bias,
+    std::string zentorch_op_name) {
 
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
 
   // `input` is viewed as 2d for matmul computation.
   auto input_2d_view =
-      get_contiguous_view(input).view(get_2d_size_for_tensor(input));
+      view_tensor(get_contiguous_view(input), get_2d_size_for_tensor(input));
   // `result` tensor's dtype will be same as input dtype.
-  at::Tensor result = create_linear_and_matmul_output_tensor(input, weight);
+  torch::stable::Tensor result =
+      create_linear_and_matmul_output_tensor(input, weight);
   // `result` is viewed as 2d for matmul computation.
-  auto result_2d = result.view(get_2d_size_for_tensor(result));
+  auto result_2d = view_tensor(result, get_2d_size_for_tensor(result));
 
-  c10::MaybeOwned<at::Tensor> bias_maybe_owned =
-      at::borrow_from_optional_tensor(bias);
-  const at::Tensor &bias_t = *bias_maybe_owned;
-  c10::MaybeOwned<at::Tensor> wzp_maybe_owned =
-      at::borrow_from_optional_tensor(weight_zero_points);
-  const at::Tensor &weight_zero_points_t = *wzp_maybe_owned;
   // Set unary post ops.
-  std::vector<at::Tensor> post_op_buffers = {};
+  std::vector<torch::stable::Tensor> post_op_buffers = {};
   std::vector<int64_t> post_op_ids = {fuse};
 
-  zentorch_woq_linear_impl(input_2d_view, weight, bias_t, result_2d,
-                           weight_scales, weight_zero_points_t, post_op_ids,
+  zentorch_woq_linear_impl(input_2d_view, weight, bias, result_2d,
+                           weight_scales, weight_zero_points, post_op_ids,
                            post_op_buffers, zentorch_op_name);
 
   return result;
 }
 
 template <UNARY_POST_OP fuse1, BINARY_POST_OP fuse2>
-inline at::Tensor zentorch_woq_linear_unary_binary(
-    const at::Tensor &input, const at::Tensor &weight,
-    const at::Tensor &weight_scales,
-    const std::optional<at::Tensor> &weight_zero_points,
-    const at::Tensor &binary_input, const std::optional<at::Tensor> &bias,
+inline torch::stable::Tensor zentorch_woq_linear_unary_binary(
+    const torch::stable::Tensor &input, const torch::stable::Tensor &weight,
+    const torch::stable::Tensor &weight_scales,
+    const std::optional<torch::stable::Tensor> &weight_zero_points,
+    const torch::stable::Tensor &binary_input,
+    const std::optional<torch::stable::Tensor> &bias,
     std::string zentorch_op_name) {
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
 
   // `input` is viewed as 2d for matmul computation.
   auto input_2d_view =
-      get_contiguous_view(input).view(get_2d_size_for_tensor(input));
-  auto binary_input_2d_view = get_contiguous_view(binary_input)
-                                  .view(get_2d_size_for_tensor(binary_input));
+      view_tensor(get_contiguous_view(input), get_2d_size_for_tensor(input));
+  auto binary_input_2d_view = view_tensor(get_contiguous_view(binary_input),
+                                          get_2d_size_for_tensor(binary_input));
   // `result` tensor's dtype will be same as input dtype.
-  at::Tensor result = create_linear_and_matmul_output_tensor(input, weight);
+  torch::stable::Tensor result =
+      create_linear_and_matmul_output_tensor(input, weight);
   // `result` is viewed as 2d for matmul computation.
-  auto result_2d = result.view(get_2d_size_for_tensor(result));
+  auto result_2d = view_tensor(result, get_2d_size_for_tensor(result));
 
-  c10::MaybeOwned<at::Tensor> bias_maybe_owned =
-      at::borrow_from_optional_tensor(bias);
-  const at::Tensor &bias_t = *bias_maybe_owned;
-  c10::MaybeOwned<at::Tensor> wzp_maybe_owned =
-      at::borrow_from_optional_tensor(weight_zero_points);
-  const at::Tensor &weight_zero_points_t = *wzp_maybe_owned;
-
-  std::vector<at::Tensor> post_op_buffers = {binary_input_2d_view};
+  std::vector<torch::stable::Tensor> post_op_buffers = {binary_input_2d_view};
   std::vector<int64_t> post_op_ids = {fuse1, fuse2};
 
   LOG(INFO) << "Calling  zentorch_woq_linear_impl from " << __FUNCTION__
             << "!\n";
 
-  zentorch_woq_linear_impl(input_2d_view, weight, bias_t, result_2d,
-                           weight_scales, weight_zero_points_t, post_op_ids,
+  zentorch_woq_linear_impl(input_2d_view, weight, bias, result_2d,
+                           weight_scales, weight_zero_points, post_op_ids,
                            post_op_buffers, zentorch_op_name);
   return result;
 }
 
 template <BINARY_POST_OP fuse1, BINARY_POST_OP fuse2>
-inline at::Tensor zentorch_woq_linear_binary_binary(
-    const at::Tensor &input, const at::Tensor &weight,
-    const at::Tensor &weight_scales,
-    const std::optional<at::Tensor> &weight_zero_points,
-    const at::Tensor &binary1_input, const at::Tensor &binary2_input,
-    const std::optional<at::Tensor> &bias, std::string zentorch_op_name) {
+inline torch::stable::Tensor zentorch_woq_linear_binary_binary(
+    const torch::stable::Tensor &input, const torch::stable::Tensor &weight,
+    const torch::stable::Tensor &weight_scales,
+    const std::optional<torch::stable::Tensor> &weight_zero_points,
+    const torch::stable::Tensor &binary1_input,
+    const torch::stable::Tensor &binary2_input,
+    const std::optional<torch::stable::Tensor> &bias,
+    std::string zentorch_op_name) {
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
 
   // `input` is viewed as 2d for matmul computation.
   auto input_2d_view =
-      get_contiguous_view(input).view(get_2d_size_for_tensor(input));
-  auto binary1_input_2d_view = get_contiguous_view(binary1_input)
-                                   .view(get_2d_size_for_tensor(binary1_input));
-  auto binary2_input_2d_view = get_contiguous_view(binary2_input)
-                                   .view(get_2d_size_for_tensor(binary2_input));
+      view_tensor(get_contiguous_view(input), get_2d_size_for_tensor(input));
+  auto binary1_input_2d_view =
+      view_tensor(get_contiguous_view(binary1_input),
+                  get_2d_size_for_tensor(binary1_input));
+  auto binary2_input_2d_view =
+      view_tensor(get_contiguous_view(binary2_input),
+                  get_2d_size_for_tensor(binary2_input));
   // `result` tensor's dtype will be same as input dtype.
-  at::Tensor result = create_linear_and_matmul_output_tensor(input, weight);
+  torch::stable::Tensor result =
+      create_linear_and_matmul_output_tensor(input, weight);
   // `result` is viewed as 2d for matmul computation.
-  auto result_2d = result.view(get_2d_size_for_tensor(result));
-  c10::MaybeOwned<at::Tensor> bias_maybe_owned =
-      at::borrow_from_optional_tensor(bias);
-  const at::Tensor &bias_t = *bias_maybe_owned;
-  c10::MaybeOwned<at::Tensor> wzp_maybe_owned =
-      at::borrow_from_optional_tensor(weight_zero_points);
-  const at::Tensor &weight_zero_points_t = *wzp_maybe_owned;
+  auto result_2d = view_tensor(result, get_2d_size_for_tensor(result));
 
-  std::vector<at::Tensor> post_op_buffers = {binary1_input_2d_view,
-                                             binary2_input_2d_view};
+  std::vector<torch::stable::Tensor> post_op_buffers = {binary1_input_2d_view,
+                                                        binary2_input_2d_view};
   std::vector<int64_t> post_op_ids = {fuse1, fuse2};
 
   LOG(INFO) << "Calling  zentorch_woq_linear_impl from " << __FUNCTION__
             << "!\n";
 
-  zentorch_woq_linear_impl(input_2d_view, weight, bias_t, result_2d,
-                           weight_scales, weight_zero_points_t, post_op_ids,
+  zentorch_woq_linear_impl(input_2d_view, weight, bias, result_2d,
+                           weight_scales, weight_zero_points, post_op_ids,
                            post_op_buffers, zentorch_op_name);
   return result;
 }
 
-at::Tensor zentorch_woq_repack_weight(const at::Tensor &unpacked_weight) {
-  TORCH_CHECK(unpacked_weight.dtype() == torch::kInt8,
-              "unpacked_weight must have dtype int8, got ",
-              unpacked_weight.dtype());
-  TORCH_CHECK(unpacked_weight.dim() == 2, "unpacked_weight must be 2D, got ",
-              unpacked_weight.dim(), "D");
+torch::stable::Tensor
+zentorch_woq_repack_weight(const torch::stable::Tensor &unpacked_weight) {
+  ZENTORCH_CHECK(unpacked_weight.scalar_type() == c10::kChar,
+                 "unpacked_weight must have dtype int8, got ",
+                 unpacked_weight.scalar_type());
+  ZENTORCH_CHECK(unpacked_weight.dim() == 2, "unpacked_weight must be 2D, got ",
+                 unpacked_weight.dim(), "D");
 
   int N = unpacked_weight.size(0);
   int K = unpacked_weight.size(1);
@@ -304,18 +320,18 @@ at::Tensor zentorch_woq_repack_weight(const at::Tensor &unpacked_weight) {
   constexpr int pack_num = 8;
   int K_packed = K / pack_num;
 
-  TORCH_CHECK(K >= pack_num, "K must be at least ", pack_num, ", got ", K);
-  TORCH_CHECK(K % pack_num == 0, "K must be divisible by ", pack_num, ", got ",
-              K);
+  ZENTORCH_CHECK(K >= pack_num, "K must be at least ", pack_num, ", got ", K);
+  ZENTORCH_CHECK(K % pack_num == 0, "K must be divisible by ", pack_num,
+                 ", got ", K);
 
-  int8_t *weight_data = unpacked_weight.data_ptr<int8_t>();
+  int8_t *weight_data = unpacked_weight.mutable_data_ptr<int8_t>();
 
   // Tensor for row-wise repacked weights [N, K/8], dtype int32
-  at::Tensor weight_packed_rowwise =
-      torch::empty({N, K_packed}, torch::TensorOptions()
-                                      .dtype(torch::kInt32)
-                                      .device(unpacked_weight.device()));
-  int32_t *packed_rowwise_data = weight_packed_rowwise.data_ptr<int32_t>();
+  std::vector<int64_t> packed_sizes = {N, K_packed};
+  torch::stable::Tensor weight_packed_rowwise = torch::stable::empty(
+      packed_sizes, c10::kInt, std::nullopt, unpacked_weight.device());
+  int32_t *packed_rowwise_data =
+      weight_packed_rowwise.mutable_data_ptr<int32_t>();
 
   // Order map that matches zendnnl's expected byte layout
   // Original int8 packing: (even_col << 4) | odd_col
@@ -358,12 +374,13 @@ at::Tensor zentorch_woq_repack_weight(const at::Tensor &unpacked_weight) {
 
 // Unpacks PyTorch's int4pack layout (uint8 tensor) into a plain int8 tensor
 // where each element holds one uint4 value.
-at::Tensor unpack_int4pack_to_int8(const at::Tensor &packed_weight) {
-  TORCH_CHECK(packed_weight.dtype() == torch::kUInt8,
-              "packed_weight must have dtype uint8, got ",
-              packed_weight.dtype());
-  TORCH_CHECK(packed_weight.dim() == 2, "packed_weight must be 2D, got ",
-              packed_weight.dim(), "D");
+torch::stable::Tensor
+unpack_int4pack_to_int8(const torch::stable::Tensor &packed_weight) {
+  ZENTORCH_CHECK(packed_weight.scalar_type() == c10::kByte,
+                 "packed_weight must have dtype uint8, got ",
+                 packed_weight.scalar_type());
+  ZENTORCH_CHECK(packed_weight.dim() == 2, "packed_weight must be 2D, got ",
+                 packed_weight.dim(), "D");
   // Infer original dimensions
   // Packed format: [N, K/2] where N is number of rows, K is number of columns
   int N = packed_weight.size(0);      // Number of rows
@@ -371,12 +388,12 @@ at::Tensor unpack_int4pack_to_int8(const at::Tensor &packed_weight) {
   int K = K_half * 2;                 // K (full columns after unpacking)
   // Tensor for unpacked weights [N, K], dtype int8 (one uint4 value per
   // element)
-  at::Tensor weight_unpacked = at::detail::empty_strided_cpu(
-      {N, K}, {K, 1}, torch::TensorOptions().dtype(torch::kInt8));
+  std::vector<int64_t> unpacked_sizes = {N, K};
+  torch::stable::Tensor weight_unpacked = torch::stable::empty(
+      unpacked_sizes, c10::kChar, std::nullopt, packed_weight.device());
   // Get raw pointers to tensor data
-  const auto packed_strided_data =
-      reinterpret_cast<const uint8_t *>(packed_weight.data_ptr<uint8_t>());
-  auto weight_data = weight_unpacked.data_ptr<int8_t>();
+  const uint8_t *packed_strided_data = packed_weight.const_data_ptr<uint8_t>();
+  int8_t *weight_data = weight_unpacked.mutable_data_ptr<int8_t>();
   // BLOCK_N = 64 is fixed by PyTorch's int4pack layout (see
   // aten/src/ATen/native/cpu/int4mm_kernel.cpp), which always groups rows
   // into blocks of 64 regardless of the CPU's SIMD width. The unpacking
@@ -386,10 +403,10 @@ at::Tensor unpack_int4pack_to_int8(const at::Tensor &packed_weight) {
   // TODO: Include BLOCK_N from the appropriate torch header instead of
   // hardcoding it.
   constexpr int BLOCK_N = 64;
-  TORCH_CHECK(N % BLOCK_N == 0, "packed_weight row count (", N,
-              ") must be a multiple of ", BLOCK_N,
-              ". The int4pack format from PyTorch pads N to BLOCK_N; "
-              "receiving an unpadded tensor indicates a packing mismatch.");
+  ZENTORCH_CHECK(N % BLOCK_N == 0, "packed_weight row count (", N,
+                 ") must be a multiple of ", BLOCK_N,
+                 ". The int4pack format from PyTorch pads N to BLOCK_N; "
+                 "receiving an unpadded tensor indicates a packing mismatch.");
   const int NB = N / BLOCK_N;
   // Parallel processing over blocks of rows
   at::parallel_for(0, NB, 0, [&](int64_t begin, int64_t end) {
@@ -427,12 +444,14 @@ at::Tensor unpack_int4pack_to_int8(const at::Tensor &packed_weight) {
   return weight_unpacked;
 }
 
-at::Tensor zentorch_woq_repack_from_int4pack(const at::Tensor &packed_weight) {
-  at::Tensor weight_unpacked = unpack_int4pack_to_int8(packed_weight);
+torch::stable::Tensor
+zentorch_woq_repack_from_int4pack(const torch::stable::Tensor &packed_weight) {
+  torch::stable::Tensor weight_unpacked =
+      unpack_int4pack_to_int8(packed_weight);
   return zentorch_woq_repack_weight(weight_unpacked);
 }
 
-TORCH_LIBRARY_FRAGMENT(zentorch, m) {
+STABLE_TORCH_LIBRARY_FRAGMENT(zentorch, m) {
   m.def("zentorch_woq_linear(Tensor input, Tensor weight, "
         "Tensor weight_scales, Tensor? weight_zero_points, "
         "Tensor? bias=None, "
@@ -457,21 +476,22 @@ TORCH_LIBRARY_FRAGMENT(zentorch, m) {
         "*, str zentorch_op_name="
         "'zentorch::zentorch_woq_linear_gelu_erf') -> Tensor");
 
-  m.def("zentorch_woq_linear_add(Tensor input, Tensor weight, "
-        "Tensor weight_scales, Tensor? weight_zero_points, "
-        "Tensor add_input, Tensor? bias=None, *, str zentorch_op_name="
-        "'zentorch::zentorch_woq_linear_add') -> Tensor",
-        {at::Tag::needs_contiguous_strides});
-  m.def("zentorch_woq_linear_mul_add(Tensor input, Tensor weight,"
-        "Tensor weight_scales, Tensor? weight_zero_points, "
-        "Tensor mul_input, Tensor add_input, Tensor? bias=None, *, str "
-        "zentorch_op_name= 'zentorch::zentorch_woq_linear_mul_add') -> Tensor",
-        {at::Tag::needs_fixed_stride_order});
-  m.def("zentorch_woq_linear_add_add(Tensor input, Tensor weight,"
-        "Tensor weight_scales, Tensor? weight_zero_points, "
-        "Tensor add_input, Tensor add_input_2, Tensor? bias=None, *, str "
-        "zentorch_op_name='zentorch::zentorch_woq_linear_add_add') -> Tensor",
-        {at::Tag::needs_fixed_stride_order});
+  zentorch_stable_def_needs_fixed_stride(
+      m, "zentorch_woq_linear_add(Tensor input, Tensor weight, "
+         "Tensor weight_scales, Tensor? weight_zero_points, "
+         "Tensor add_input, Tensor? bias=None, *, str zentorch_op_name="
+         "'zentorch::zentorch_woq_linear_add') -> Tensor");
+  zentorch_stable_def_needs_fixed_stride(
+      m,
+      "zentorch_woq_linear_mul_add(Tensor input, Tensor weight,"
+      "Tensor weight_scales, Tensor? weight_zero_points, "
+      "Tensor mul_input, Tensor add_input, Tensor? bias=None, *, str "
+      "zentorch_op_name= 'zentorch::zentorch_woq_linear_mul_add') -> Tensor");
+  zentorch_stable_def_needs_fixed_stride(
+      m, "zentorch_woq_linear_add_add(Tensor input, Tensor weight,"
+         "Tensor weight_scales, Tensor? weight_zero_points, "
+         "Tensor add_input, Tensor add_input_2, Tensor? bias=None, *, str "
+         "zentorch_op_name='zentorch::zentorch_woq_linear_add_add') -> Tensor");
 
   m.def("zentorch_woq_repack_weight(Tensor unpacked_weight) -> Tensor");
 
@@ -479,36 +499,43 @@ TORCH_LIBRARY_FRAGMENT(zentorch, m) {
         "packed_weight) -> Tensor");
 }
 
-TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
-  m.impl("zentorch_woq_linear",
-         zentorch::zentorch_woq_linear_unary<UNARY_POST_OP::POST_OP_NONE>);
+STABLE_TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
+  m.impl(
+      "zentorch_woq_linear",
+      TORCH_BOX(
+          (&zentorch::zentorch_woq_linear_unary<UNARY_POST_OP::POST_OP_NONE>)));
 
-  m.impl("zentorch_woq_linear_relu",
-         zentorch::zentorch_woq_linear_unary<UNARY_POST_OP::RELU>);
+  m.impl(
+      "zentorch_woq_linear_relu",
+      TORCH_BOX((&zentorch::zentorch_woq_linear_unary<UNARY_POST_OP::RELU>)));
 
   m.impl("zentorch_woq_linear_sigmoid",
-         zentorch::zentorch_woq_linear_unary<UNARY_POST_OP::SIGMOID>);
+         TORCH_BOX(
+             (&zentorch::zentorch_woq_linear_unary<UNARY_POST_OP::SIGMOID>)));
 
   m.impl("zentorch_woq_linear_add",
-         zentorch::zentorch_woq_linear_unary_binary<UNARY_POST_OP::POST_OP_NONE,
-                                                    BINARY_POST_OP::ADD>);
+         TORCH_BOX((&zentorch::zentorch_woq_linear_unary_binary<
+                    UNARY_POST_OP::POST_OP_NONE, BINARY_POST_OP::ADD>)));
 
   m.impl("zentorch_woq_linear_gelu_tanh",
-         zentorch::zentorch_woq_linear_unary<UNARY_POST_OP::GELU_TANH>);
+         TORCH_BOX(
+             (&zentorch::zentorch_woq_linear_unary<UNARY_POST_OP::GELU_TANH>)));
 
   m.impl("zentorch_woq_linear_gelu_erf",
-         zentorch::zentorch_woq_linear_unary<UNARY_POST_OP::GELU_ERF>);
+         TORCH_BOX(
+             (&zentorch::zentorch_woq_linear_unary<UNARY_POST_OP::GELU_ERF>)));
 
   m.impl("zentorch_woq_linear_mul_add",
-         zentorch::zentorch_woq_linear_binary_binary<BINARY_POST_OP::MUL,
-                                                     BINARY_POST_OP::ADD>);
+         TORCH_BOX((&zentorch::zentorch_woq_linear_binary_binary<
+                    BINARY_POST_OP::MUL, BINARY_POST_OP::ADD>)));
   m.impl("zentorch_woq_linear_add_add",
-         zentorch::zentorch_woq_linear_binary_binary<BINARY_POST_OP::ADD,
-                                                     BINARY_POST_OP::ADD>);
+         TORCH_BOX((&zentorch::zentorch_woq_linear_binary_binary<
+                    BINARY_POST_OP::ADD, BINARY_POST_OP::ADD>)));
 
-  m.impl("zentorch_woq_repack_weight", zentorch::zentorch_woq_repack_weight);
+  m.impl("zentorch_woq_repack_weight",
+         TORCH_BOX(&zentorch::zentorch_woq_repack_weight));
   m.impl("zentorch_woq_repack_from_int4pack",
-         zentorch::zentorch_woq_repack_from_int4pack);
+         TORCH_BOX(&zentorch::zentorch_woq_repack_from_int4pack));
 }
 
 } // namespace zentorch

@@ -5,12 +5,16 @@
 
 #pragma once
 
-#include <functional> // For std::reference_wrapper, std::ref, std::cref
-#include <optional>   // For std::optional, std::nullopt
+#include <algorithm>
+#include <functional>
+#include <optional>
+#include <type_traits>
 #include <unordered_map>
 
 #include "EnvReader.hpp"
 #include "Memory.hpp"
+
+#include <torch/csrc/stable/ops.h>
 
 using namespace zendnnl::interface;
 
@@ -30,17 +34,40 @@ static const std::unordered_map<int64_t, post_op_type_t> post_op_type_map = {
     {BINARY_POST_OP::MUL, post_op_type_t::binary_mul},
     {BINARY_POST_OP::ADD, post_op_type_t::binary_add}};
 
+template <typename TensorT>
+inline TensorT make_contiguous_tensor(const TensorT &tensor) {
+  if constexpr (std::is_same_v<std::decay_t<TensorT>, at::Tensor>) {
+    return tensor.contiguous();
+  } else {
+    return torch::stable::contiguous(tensor);
+  }
+}
+
+template <typename TensorT>
+inline TensorT view_tensor(const TensorT &tensor,
+                           const std::vector<int64_t> &sizes) {
+  if constexpr (std::is_same_v<std::decay_t<TensorT>, at::Tensor>) {
+    return tensor.view(sizes);
+  } else {
+    return torch::stable::view(tensor, sizes);
+  }
+}
+
+template <typename SizesT>
+inline std::vector<int64_t> sizes_to_int64_vec(const SizesT &sizes) {
+  return std::vector<int64_t>(sizes.begin(), sizes.end());
+}
+
 /** Fills matmul_params.postop_ from post_op_ids and post_op_buffers.
  *  Reusable from zendnnl_direct_kernel, WOQ linear, and other matmul call
- * sites.
+ * sites. Works with both at::Tensor and torch::stable::Tensor.
  */
+template <typename TensorT>
 inline void matmul_post_ops(zendnnl::lowoha::matmul::matmul_params &params,
-                            const at::Tensor &result,
+                            const TensorT &result,
                             const std::vector<int64_t> &post_op_ids,
-                            const std::vector<at::Tensor> &post_op_buffers) {
-  std::vector<long int> result_sizes =
-      std::vector<long int>(result.sizes().begin(), result.sizes().end());
-
+                            const std::vector<TensorT> &post_op_buffers) {
+  std::vector<int64_t> result_sizes = sizes_to_int64_vec(result.sizes());
   auto unary_post_op = [&params, &result_sizes](post_op_type_t op_type) {
     zendnnl::lowoha::matmul::matmul_post_op post_op;
     post_op.po_type = op_type;
@@ -50,15 +77,13 @@ inline void matmul_post_ops(zendnnl::lowoha::matmul::matmul_params &params,
     params.postop_.emplace_back(post_op);
   };
 
-  auto binary_post_op = [&params,
-                         &result_sizes](post_op_type_t op_type,
-                                        const at::Tensor &post_op_buffer) {
+  auto binary_post_op = [&params](post_op_type_t op_type,
+                                  const TensorT &post_op_buffer) {
     zendnnl::lowoha::matmul::matmul_post_op post_op;
     post_op.po_type = op_type;
     post_op.buff = post_op_buffer.data_ptr();
     post_op.dtype = get_zendnnl_dtype(post_op_buffer);
-    auto dims = post_op_buffer.sizes();
-    post_op.dims = std::vector<long int>(dims.begin(), dims.end());
+    post_op.dims = sizes_to_int64_vec(post_op_buffer.sizes());
     params.postop_.emplace_back(post_op);
   };
 
@@ -77,28 +102,31 @@ inline void matmul_post_ops(zendnnl::lowoha::matmul::matmul_params &params,
   }
 }
 
-inline at::Tensor get_contiguous_view(const at::Tensor &tensor) {
+template <typename TensorT>
+inline TensorT get_contiguous_view(const TensorT &tensor) {
   auto stride = tensor.strides();
   auto sizes = tensor.sizes();
+  std::vector<int64_t> size_vec(sizes.begin(), sizes.end());
   bool is_zero =
       std::any_of(stride.begin(), stride.end(), [](auto s) { return s == 0; });
   if (!tensor.is_contiguous() || is_zero) {
-    auto new_tensor = tensor.contiguous();
+    auto new_tensor = make_contiguous_tensor(tensor);
     LOG(INFO) << "Tensor is not contiguous. Converting the tensor to a "
                  "contiguous format in "
               << __FILE__ << ": " << __LINE__ << " in " << __FUNCTION__;
-    return new_tensor.view(sizes);
+    return view_tensor(new_tensor, size_vec);
   }
-  return tensor.view(sizes);
+  return view_tensor(tensor, size_vec);
 }
 
 // this function returns the output size for matrix multiplication of two
 // tensors - tensor1 @ tensor2 and also it returns the output size for
 // linear operation of these two tensors, and if tensor2 is packed on the
 // last dim it will support the unpacking the size of last dim of tensor2
+template <typename TensorT>
 inline std::vector<int64_t>
-get_matmul_and_linear_output_sizes(const at::Tensor &tensor1,
-                                   const at::Tensor &tensor2,
+get_matmul_and_linear_output_sizes(const TensorT &tensor1,
+                                   const TensorT &tensor2,
                                    const int64_t unpacking_ratio = 1) {
   auto tensor1_size = tensor1.sizes();
   std::vector<int64_t> output_size(tensor1_size.begin(),
@@ -547,8 +575,9 @@ inline bool is_zendnn_optimized_format(const at::Tensor &t) {
 // this function returns the 2-d size for n-d inp_tensor,
 // also if inp_tensor is packed on the last dim it will
 // support the unpacking the size of last dim of inp_tensor
+template <typename TensorT>
 inline std::vector<int64_t>
-get_2d_size_for_tensor(const at::Tensor &inp_tensor,
+get_2d_size_for_tensor(const TensorT &inp_tensor,
                        const int64_t unpacking_ratio = 1) {
   const int64_t dim = inp_tensor.dim();
   std::vector<int64_t> output_size(2);
@@ -576,25 +605,22 @@ get_matmul_and_linear_output_strides(const std::vector<int64_t> &output_size) {
   return output_strides;
 }
 
-inline at::Tensor
-create_linear_and_matmul_output_tensor(const at::Tensor input,
-                                       const at::Tensor weight) {
+template <typename TensorT>
+inline TensorT create_linear_and_matmul_output_tensor(const TensorT &input,
+                                                      const TensorT &weight) {
   auto output_size = get_matmul_and_linear_output_sizes(input, weight);
-  auto output_strides = get_matmul_and_linear_output_strides(output_size);
-
-  // For AOT Inductor compatibility, we need to set the device to CPU
-  c10::Device device = c10::Device(c10::DeviceType::CPU);
-
-  // Create options with explicit device
-  auto options = at::TensorOptions()
-                     .dtype(input.dtype())
-                     .layout(input.layout())
-                     .device(device)
-                     .requires_grad(false);
-
-  at::Tensor result =
-      at::detail::empty_strided_cpu(output_size, output_strides, options);
-  return result;
+  if constexpr (std::is_same_v<std::decay_t<TensorT>, at::Tensor>) {
+    auto output_strides = get_matmul_and_linear_output_strides(output_size);
+    c10::Device device = c10::Device(c10::DeviceType::CPU);
+    auto options = at::TensorOptions()
+                       .dtype(input.dtype())
+                       .layout(input.layout())
+                       .device(device)
+                       .requires_grad(false);
+    return at::detail::empty_strided_cpu(output_size, output_strides, options);
+  } else {
+    return torch::stable::new_empty(input, output_size);
+  }
 }
 
 // Validates a caller-supplied `out` tensor for the linear/matmul `.out`
@@ -623,7 +649,7 @@ inline void check_linear_and_matmul_out_tensor(const at::Tensor &input,
 // TODO
 // Check if this and the is_zendnn_optimized_format function can be merged into
 // one
-inline bool is_transposed(const at::Tensor &t) {
+template <typename TensorT> inline bool is_transposed(const TensorT &t) {
   const auto sizes = t.sizes();
   const auto strides = t.strides();
   // check for transposed tensors
@@ -813,12 +839,13 @@ inline void set_matmul_context_attributes(
   ZENTORCH_CHECK(matmul_context.check(), "matmul context creation failed.");
 }
 
+template <typename TensorT>
 inline void
 set_matmul_operator_attributes(matmul_operator_t &matmul_operator,
                                const matmul_context_t &matmul_context,
                                tensor_t &input_tensor, tensor_t &output_tensor,
                                const std::vector<int64_t> &post_op_ids,
-                               const std::vector<at::Tensor> &post_op_buffers,
+                               const std::vector<TensorT> &post_op_buffers,
                                const std::string &matmul_operator_name) {
 
   matmul_operator.set_name(matmul_operator_name)
@@ -869,7 +896,8 @@ set_matmul_operator_attributes(matmul_operator_t &matmul_operator,
   }
 }
 
-inline void create_zendnnl_quantized_tensor(const at::Tensor &tensor,
+template <typename TensorT>
+inline void create_zendnnl_quantized_tensor(const TensorT &tensor,
                                             tensor_t &z_tensor,
                                             std::string_view name) {
   if (tensor.dim() <= 1) {

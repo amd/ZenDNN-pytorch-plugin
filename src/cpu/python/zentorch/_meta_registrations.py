@@ -814,10 +814,12 @@ def meta_zentorch_fused_moe(
 
 @register_meta("zentorch_woq_repack_weight")
 def meta_zentorch_woq_repack_weight(unpacked_weight):
-    # Returns a packed weight tensor of shape [N, K/8]
+    # Returns int32 packed weights of shape [N, K/8] (8 int4 values per int32).
     K = unpacked_weight.size(1)
     K_packed = K // 8
-    return unpacked_weight.new_empty((unpacked_weight.size(0), K_packed))
+    return unpacked_weight.new_empty(
+        (unpacked_weight.size(0), K_packed), dtype=torch.int32
+    )
 
 
 @register_meta("zentorch_woq_repack_from_int4pack")

@@ -17,6 +17,7 @@
 #include <ATen/core/List.h>
 #include <c10/util/ArrayRef.h>
 #include <c10/util/Optional.h>
+#include <optional>
 #include <torch/csrc/inductor/aoti_torch/c/shim.h>
 #include <torch/csrc/stable/tensor.h>
 
@@ -63,6 +64,15 @@ inline torch::stable::Tensor stable_from_handle(AtenTensorHandle orig_handle) {
   TORCH_ERROR_CODE_CHECK(
       aoti_torch_new_tensor_handle(orig_handle, &new_handle));
   return torch::stable::Tensor(new_handle);
+}
+
+// Overload for optional Tensor? args (C ABI: potentially-null handle pointer).
+inline std::optional<torch::stable::Tensor>
+stable_from_handle(AtenTensorHandle *handle) {
+  if (handle && *handle) {
+    return stable_from_handle(*handle);
+  }
+  return std::nullopt;
 }
 
 // Reverse bridge: return a new caller-owned AtenTensorHandle from a stable
@@ -438,12 +448,11 @@ AOTITorchError aoti_torch_cpu_zentorch_woq_linear(
   AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
     auto tmp_result = zentorch::zentorch_woq_linear_unary<
         zentorch::UNARY_POST_OP::POST_OP_NONE>(
-        *tensor_handle_to_tensor_pointer(X),
-        *tensor_handle_to_tensor_pointer(W),
-        *tensor_handle_to_tensor_pointer(weight_scales),
-        pointer_to_optional<at::Tensor>(weight_zero_points),
-        pointer_to_optional<at::Tensor>(B), zentorch_op_name);
-    *ret0 = new_tensor_handle(std::move(tmp_result));
+        stable_from_handle(X), stable_from_handle(W),
+        stable_from_handle(weight_scales),
+        stable_from_handle(weight_zero_points), stable_from_handle(B),
+        zentorch_op_name);
+    *ret0 = handle_from_stable(tmp_result);
   });
 }
 
@@ -454,12 +463,11 @@ AOTITorchError aoti_torch_cpu_zentorch_woq_linear_relu(
   AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
     auto tmp_result =
         zentorch::zentorch_woq_linear_unary<zentorch::UNARY_POST_OP::RELU>(
-            *tensor_handle_to_tensor_pointer(X),
-            *tensor_handle_to_tensor_pointer(W),
-            *tensor_handle_to_tensor_pointer(weight_scales),
-            pointer_to_optional<at::Tensor>(weight_zero_points),
-            pointer_to_optional<at::Tensor>(B), zentorch_op_name);
-    *ret0 = new_tensor_handle(std::move(tmp_result));
+            stable_from_handle(X), stable_from_handle(W),
+            stable_from_handle(weight_scales),
+            stable_from_handle(weight_zero_points), stable_from_handle(B),
+            zentorch_op_name);
+    *ret0 = handle_from_stable(tmp_result);
   });
 }
 
@@ -470,12 +478,11 @@ AOTITorchError aoti_torch_cpu_zentorch_woq_linear_sigmoid(
   AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
     auto tmp_result =
         zentorch::zentorch_woq_linear_unary<zentorch::UNARY_POST_OP::SIGMOID>(
-            *tensor_handle_to_tensor_pointer(X),
-            *tensor_handle_to_tensor_pointer(W),
-            *tensor_handle_to_tensor_pointer(weight_scales),
-            pointer_to_optional<at::Tensor>(weight_zero_points),
-            pointer_to_optional<at::Tensor>(B), zentorch_op_name);
-    *ret0 = new_tensor_handle(std::move(tmp_result));
+            stable_from_handle(X), stable_from_handle(W),
+            stable_from_handle(weight_scales),
+            stable_from_handle(weight_zero_points), stable_from_handle(B),
+            zentorch_op_name);
+    *ret0 = handle_from_stable(tmp_result);
   });
 }
 
@@ -486,12 +493,11 @@ AOTITorchError aoti_torch_cpu_zentorch_woq_linear_gelu_tanh(
   AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
     auto tmp_result =
         zentorch::zentorch_woq_linear_unary<zentorch::UNARY_POST_OP::GELU_TANH>(
-            *tensor_handle_to_tensor_pointer(X),
-            *tensor_handle_to_tensor_pointer(W),
-            *tensor_handle_to_tensor_pointer(weight_scales),
-            pointer_to_optional<at::Tensor>(weight_zero_points),
-            pointer_to_optional<at::Tensor>(B), zentorch_op_name);
-    *ret0 = new_tensor_handle(std::move(tmp_result));
+            stable_from_handle(X), stable_from_handle(W),
+            stable_from_handle(weight_scales),
+            stable_from_handle(weight_zero_points), stable_from_handle(B),
+            zentorch_op_name);
+    *ret0 = handle_from_stable(tmp_result);
   });
 }
 
@@ -502,12 +508,11 @@ AOTITorchError aoti_torch_cpu_zentorch_woq_linear_gelu_erf(
   AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
     auto tmp_result =
         zentorch::zentorch_woq_linear_unary<zentorch::UNARY_POST_OP::GELU_ERF>(
-            *tensor_handle_to_tensor_pointer(X),
-            *tensor_handle_to_tensor_pointer(W),
-            *tensor_handle_to_tensor_pointer(weight_scales),
-            pointer_to_optional<at::Tensor>(weight_zero_points),
-            pointer_to_optional<at::Tensor>(B), zentorch_op_name);
-    *ret0 = new_tensor_handle(std::move(tmp_result));
+            stable_from_handle(X), stable_from_handle(W),
+            stable_from_handle(weight_scales),
+            stable_from_handle(weight_zero_points), stable_from_handle(B),
+            zentorch_op_name);
+    *ret0 = handle_from_stable(tmp_result);
   });
 }
 
@@ -518,13 +523,11 @@ AOTITorchError aoti_torch_cpu_zentorch_woq_linear_add(
   AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
     auto tmp_result = zentorch::zentorch_woq_linear_unary_binary<
         zentorch::UNARY_POST_OP::POST_OP_NONE, zentorch::BINARY_POST_OP::ADD>(
-        *tensor_handle_to_tensor_pointer(X),
-        *tensor_handle_to_tensor_pointer(W),
-        *tensor_handle_to_tensor_pointer(weight_scales),
-        pointer_to_optional<at::Tensor>(weight_zero_points),
-        *tensor_handle_to_tensor_pointer(add_input),
-        pointer_to_optional<at::Tensor>(B), zentorch_op_name);
-    *ret0 = new_tensor_handle(std::move(tmp_result));
+        stable_from_handle(X), stable_from_handle(W),
+        stable_from_handle(weight_scales),
+        stable_from_handle(weight_zero_points), stable_from_handle(add_input),
+        stable_from_handle(B), zentorch_op_name);
+    *ret0 = handle_from_stable(tmp_result);
   });
 }
 
@@ -536,14 +539,11 @@ AOTITorchError aoti_torch_cpu_zentorch_woq_linear_mul_add(
   AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
     auto tmp_result = zentorch::zentorch_woq_linear_binary_binary<
         zentorch::BINARY_POST_OP::MUL, zentorch::BINARY_POST_OP::ADD>(
-        *tensor_handle_to_tensor_pointer(X),
-        *tensor_handle_to_tensor_pointer(W),
-        *tensor_handle_to_tensor_pointer(weight_scales),
-        pointer_to_optional<at::Tensor>(weight_zero_points),
-        *tensor_handle_to_tensor_pointer(mul_input),
-        *tensor_handle_to_tensor_pointer(add_input),
-        pointer_to_optional<at::Tensor>(B), zentorch_op_name);
-    *ret0 = new_tensor_handle(std::move(tmp_result));
+        stable_from_handle(X), stable_from_handle(W),
+        stable_from_handle(weight_scales),
+        stable_from_handle(weight_zero_points), stable_from_handle(mul_input),
+        stable_from_handle(add_input), stable_from_handle(B), zentorch_op_name);
+    *ret0 = handle_from_stable(tmp_result);
   });
 }
 
@@ -555,14 +555,12 @@ AOTITorchError aoti_torch_cpu_zentorch_woq_linear_add_add(
   AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
     auto tmp_result = zentorch::zentorch_woq_linear_binary_binary<
         zentorch::BINARY_POST_OP::ADD, zentorch::BINARY_POST_OP::ADD>(
-        *tensor_handle_to_tensor_pointer(X),
-        *tensor_handle_to_tensor_pointer(W),
-        *tensor_handle_to_tensor_pointer(weight_scales),
-        pointer_to_optional<at::Tensor>(weight_zero_points),
-        *tensor_handle_to_tensor_pointer(add_input),
-        *tensor_handle_to_tensor_pointer(add_input_2),
-        pointer_to_optional<at::Tensor>(B), zentorch_op_name);
-    *ret0 = new_tensor_handle(std::move(tmp_result));
+        stable_from_handle(X), stable_from_handle(W),
+        stable_from_handle(weight_scales),
+        stable_from_handle(weight_zero_points), stable_from_handle(add_input),
+        stable_from_handle(add_input_2), stable_from_handle(B),
+        zentorch_op_name);
+    *ret0 = handle_from_stable(tmp_result);
   });
 }
 

@@ -126,33 +126,31 @@ inline void set_zendnnl_tensor_attributes(
 }
 
 /**
- * @brief Convenience wrapper that extracts attributes from an aten Tensor
+ * @brief Convenience wrapper that extracts attributes from a PyTorch tensor
  *        and forwards them to the inner variant.
  *
- * This function acts as a bridge between the zentorch frontend (PyTorch) and
- * zendnnl backend. It handles the common case where you have an aten tensor
- * and want to create a corresponding zendnnl tensor with the same properties.
+ * Works with both at::Tensor and torch::stable::Tensor.
  *
- * @param at_tensor           PyTorch aten tensor to extract properties from.
+ * @param tensor              PyTorch tensor to extract properties from.
  * @param zendnnl_tensor      Reference to zendnnl tensor object to configure.
  * @param tensor_name         Name for the tensor (for debugging/logging).
  * @param is_weight_prepacked Whether this is a pre-packed weight.
  *                            (by default false)
  * @param tensor_sizes        Optional override for tensor dimensions.
- *                            Uses at_tensor.sizes() if empty.
+ *                            Uses tensor.sizes() if empty.
  *                            (by default empty)
  * @param tensor_strides      Optional override for strides.
- *                            Uses at_tensor.strides() if empty.
+ *                            Uses tensor.strides() if empty.
  *                            (by default empty)
  * @param tensor_aligned_sizes Optional aligned dimensions for SIMD
  * optimization. (by default empty)
  * @param nbytes              Optional override for byte count.
- *                            Uses at_tensor.nbytes() if -1.
+ *                            Uses tensor.numel() * tensor.element_size() if -1.
  *                            (by default -1)
  * @param scales_opt_ref      Optional reference to the tensor_t object that
- * represents the scales of the incoming aten tensor. (by default std::nullopt)
+ * represents the scales of the incoming tensor. (by default std::nullopt)
  * @param zero_points_opt_ref Optional reference to the tensor_t object that
- * represents the zero points of the incoming aten tensor. (by default
+ * represents the zero points of the incoming tensor. (by default
  * std::nullopt)
  *
  * @see set_zendnnl_tensor_attributes(void*, const data_type_t&, tensor_t&,
@@ -161,8 +159,9 @@ inline void set_zendnnl_tensor_attributes(
  *      const int64_t&, std::optional<std::reference_wrapper<tensor_t>>,
  *      std::optional<std::reference_wrapper<tensor_t>>)
  */
+template <typename TensorT>
 inline void set_zendnnl_tensor_attributes(
-    const at::Tensor &at_tensor, tensor_t &zendnnl_tensor,
+    const TensorT &tensor, tensor_t &zendnnl_tensor,
     const std::string_view &tensor_name,
     const bool &is_weight_prepacked = false,
     const std::vector<unsigned long> &tensor_sizes = {},
@@ -174,24 +173,26 @@ inline void set_zendnnl_tensor_attributes(
     std::optional<std::reference_wrapper<tensor_t>> zero_points_opt_ref =
         std::nullopt) {
 
-  void *at_tensor_ptr = at_tensor.data_ptr();
+  void *tensor_ptr = tensor.data_ptr();
+  const auto sizes_ref = tensor.sizes();
+  const auto strides_ref = tensor.strides();
 
   const std::vector<unsigned long> zendnnl_tensor_sizes =
       tensor_sizes.empty()
-          ? std::vector<unsigned long>(at_tensor.sizes().begin(),
-                                       at_tensor.sizes().end())
+          ? std::vector<unsigned long>(sizes_ref.begin(), sizes_ref.end())
           : tensor_sizes;
   const std::vector<unsigned long> zendnnl_tensor_strides =
       tensor_strides.empty()
-          ? std::vector<unsigned long>(at_tensor.strides().begin(),
-                                       at_tensor.strides().end())
+          ? std::vector<unsigned long>(strides_ref.begin(), strides_ref.end())
           : tensor_strides;
 
-  // Delegate to the inner variant with all extracted/provided parameters
   set_zendnnl_tensor_attributes(
-      at_tensor_ptr, get_zendnnl_dtype(at_tensor), zendnnl_tensor, tensor_name,
+      tensor_ptr, get_zendnnl_dtype(tensor), zendnnl_tensor, tensor_name,
       is_weight_prepacked, zendnnl_tensor_sizes, zendnnl_tensor_strides,
-      tensor_aligned_sizes, nbytes == -1 ? at_tensor.nbytes() : nbytes,
+      tensor_aligned_sizes,
+      nbytes == -1
+          ? static_cast<int64_t>(tensor.numel() * tensor.element_size())
+          : nbytes,
       scales_opt_ref, zero_points_opt_ref);
 }
 
