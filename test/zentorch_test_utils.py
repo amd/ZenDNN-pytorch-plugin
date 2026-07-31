@@ -9,6 +9,7 @@ import copy
 import numpy as np
 import torch
 from torch._inductor import config
+from torch.testing import FileCheck
 from packaging.version import parse
 from torch.testing._internal.common_utils import TestCase, run_tests, SEED  # noqa: F401
 
@@ -337,8 +338,58 @@ def test_with_freeze_opt(compiled_graph, inputs, freeze_opt):
     return compiled_graph(*inputs)
 
 
-# Method to handle test with freezing and cpp_wrapper enabled,
-# parameterized based on both freezing and cpp_wrapper options
+# Runs a backend='zentorch' compiled graph under the given freeze / cpp_wrapper
+# config and returns (output, cpp_code).
+#
+# This is the single entry point for the AOTI (cpp_wrapper) model tests. It
+# supports the two pillars PyTorch uses to test its own AOTI / cpp_wrapper
+# integration (see test/inductor/test_aot_inductor_utils.py):
+#   Pillar 1 (numerical): the caller compares `output` against an eager
+#                         reference (assertEqual / allclose).
+#   Pillar 2 (codegen):   under cpp_wrapper, `cpp_code` is the generated C++
+#                         wrapper source; the caller FileChecks it for the op's
+#                         AOTI C-shim (aoti_torch_cpu_zentorch_*), analogous to
+#                         PyTorch's code_check_count. `cpp_code` is None when
+#                         cpp_wrapper is False (no C++ is generated).
+#
+# ---------------------------------------------------------------------------
+# WHY THE AOTI cpp_wrapper TESTS RAISE THE HYPOTHESIS DEADLINE (time_out)
+# ---------------------------------------------------------------------------
+# This explanation lives here once; the individual tests just pass a large
+# `time_out=...` and point back to it.
+#
+# With cpp_wrapper=True, Inductor does not run a Python wrapper -- it emits a C++
+# wrapper and invokes the system C++ compiler (gcc) to build a shared object.
+# The FIRST cpp_wrapper=True example a test draws is a *cold* compile (the
+# on-disk Inductor/codecache is not yet populated for that graph), and building
+# the wrapper .so takes ~15-20s. That single example therefore blows past
+# Hypothesis's default 10s per-example deadline.
+#
+# It is not enough to just be slow, either: when an example exceeds the
+# deadline, Hypothesis *re-runs* it to check reproducibility. The re-run now
+# hits the warm codecache and finishes in ~ms, so Hypothesis observes wildly
+# inconsistent timings for the "same" example and fails the test with an
+# "unreliable test timings" / flaky-deadline error rather than a clean failure.
+#
+# Passing a raised per-example deadline (time_out=60000, i.e. 60s) makes the
+# deadline reflect the real, one-time cold-compile cost and removes this
+# flakiness. 60s is ~3-4x the measured ~16s cold compile, so it absorbs CI
+# variance without masking a genuine hang. The pre-existing AOTI shim tests
+# (dynamic_qlinear, fused_moe, ...) already do this; every cpp_wrapper test
+# built on this helper should too. (A few TestCase
+# hypothesis iterators -- e.g. hypothesis_params_quant_emb_itr -- do not accept
+# a `time_out` argument and instead use a fixed class-level deadline, so those
+# tests cannot raise it per-test.)
+#
+# To keep this one cold compile from being paid on *every* swept example (it
+# roughly doubled the presub), the strategy wrappers pin cpp_wrapper=True to a
+# single example per test method via pin_cpp_wrapper_once() -- the codegen
+# (Pillar 2) shim check is config-independent, so one build suffices, while the
+# numerical (Pillar 1) sweep keeps running across the full grid on the cheap
+# Python-wrapper path. The raised deadline still applies to that one example.
+#
+# The existing Hypothesis infra is otherwise unchanged -- callers invoke this
+# from inside the same hypothesis_params_*_itr sweeps.
 def test_with_freeze_opt_and_cpp_wrapper(
     compiled_graph, inputs, freeze_opt, cpp_wrapper=False
 ):
@@ -349,21 +400,51 @@ def test_with_freeze_opt_and_cpp_wrapper(
     try:
         config.freezing = freeze_opt
         config.cpp_wrapper = cpp_wrapper
-        return compiled_graph(*inputs)
+        if not cpp_wrapper:
+            return compiled_graph(*inputs), None
+        # Capture the generated C++ wrapper via the "output_code" artifact
+        # logger (torch._inductor.codecache emits it with output_code_log.debug
+        # on every compile). We intentionally do NOT use
+        # torch._inductor.utils.run_and_get_cpp_code here: it sets
+        # config.debug=True, which writes debug artifacts and slows the
+        # cpp_wrapper compile enough to blow Hypothesis's per-example deadline
+        # on tests that use the default deadline. Attaching a handler and
+        # raising the logger level is all we need to capture the code.
+        import io
+        import logging
+        from torch._inductor.codecache import output_code_log
+
+        buf = io.StringIO()
+        handler = logging.StreamHandler(buf)
+        output_code_log.addHandler(handler)
+        prev_level = output_code_log.level
+        output_code_log.setLevel(logging.DEBUG)
+        try:
+            result = compiled_graph(*inputs)
+        finally:
+            output_code_log.setLevel(prev_level)
+            output_code_log.removeHandler(handler)
+        return result, buf.getvalue()
     finally:
         config.cpp_wrapper = prev_cpp_wrapper
         config.freezing = prev_freezing
 
 
 def compare_inductor_vs_zentorch(
-    test_case, model, inputs, freeze_opt, cpp_wrapper, atol=1e-3, rtol=1e-3
+    test_case, model, inputs, freeze_opt, cpp_wrapper, atol=1e-3, rtol=1e-3,
+    shim_name=None,
 ):
     """Compile `model` with backend='inductor' (reference) and
     backend='zentorch' (candidate, under the drawn freeze/cpp_wrapper), and
     assert the outputs match tightly -- they run the same kernel, so the only
     difference is the compile/codegen path (incl. the AOTI shim).
 
-    Shared by the dynamic-qlinear-family model tests (DA8W8, DA8W4)."""
+    Shared by the dynamic-qlinear-family model tests (DA8W8, DA8W4).
+
+    `shim_name` optionally adds the Pillar-2 codegen assertion: under
+    cpp_wrapper the generated C++ must call that AOTI C-shim. Left None the
+    check is skipped, so callers that only want the numerical comparison are
+    unaffected."""
     if not isinstance(inputs, (tuple, list)):
         inputs = (inputs,)
 
@@ -374,7 +455,7 @@ def compare_inductor_vs_zentorch(
 
     reset_dynamo()
     zentorch_graph = torch.compile(model, backend="zentorch")
-    zentorch_out = test_with_freeze_opt_and_cpp_wrapper(
+    zentorch_out, cpp_code = test_with_freeze_opt_and_cpp_wrapper(
         zentorch_graph, inputs, freeze_opt, cpp_wrapper
     )
 
@@ -390,6 +471,11 @@ def compare_inductor_vs_zentorch(
 
     test_case.assertEqual(zentorch_out.dtype, inductor_out.dtype)
     test_case.assertEqual(zentorch_out, inductor_out, atol=atol, rtol=rtol)
+
+    # Pillar 2 (codegen): op lowers to its AOTI C-shim (see the deadline note
+    # above test_with_freeze_opt_and_cpp_wrapper).
+    if cpp_wrapper and shim_name:
+        FileCheck().check(shim_name).run(cpp_code)
 
 
 # Singleton class definition

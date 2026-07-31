@@ -5,6 +5,7 @@
 
 import unittest
 import torch
+from torch.testing import FileCheck
 from torch import nn
 import sys
 import os
@@ -62,7 +63,10 @@ class Test_Linear_Model_AMP(AddmmTestCase):
 
     @AddmmTestCase.hypothesis_params_addmm_itr(
         dtype_list=["float32"], freeze_list=freeze_opt,
-        cpp_wrapper_opt_list=cpp_wrapper_opt
+        cpp_wrapper_opt_list=cpp_wrapper_opt,
+        # cold cpp_wrapper compile exceeds the default deadline; see
+        # test_with_freeze_opt_and_cpp_wrapper in zentorch_test_utils.
+        time_out=60000,
     )
     @torch.inference_mode()
     def test_linear_model_nd_pattern_with_autocast(self, dtype, freeze_opt, cpp_wrapper):
@@ -78,12 +82,15 @@ class Test_Linear_Model_AMP(AddmmTestCase):
         # Compile inside autocast context so FX graph includes convert_element_type operations
         with torch.autocast(device_type="cpu", dtype=torch.bfloat16):
             native_output = native_model(input_3d)
-            compiled_output = test_with_freeze_opt_and_cpp_wrapper(
+            compiled_output, cpp_code = test_with_freeze_opt_and_cpp_wrapper(
                 compiled_graph, (input_3d,), freeze_opt, cpp_wrapper
             )
 
         self.assertEqual(counters["zentorch"]["zentorch_linear"], 3)
         self.assertTrue(torch.allclose(native_output, compiled_output))
+        # Pillar 2 (codegen): op lowers to its AOTI C-shim (see helper docstring).
+        if cpp_wrapper:
+            FileCheck().check("aoti_torch_cpu_zentorch").run(cpp_code)
 
 
 if __name__ == "__main__":

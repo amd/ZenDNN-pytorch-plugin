@@ -957,6 +957,68 @@ class TestInt8TensorHandlers(unittest.TestCase):
         dynamic_qlinear.assert_called_once()
         self.assertEqual(counters["zentorch"]["zentorch_dynamic_qlinear"], 1)
 
+    def test_linear_hands_contiguous_tensors_to_dynamic_qlinear(self):
+        """Regression: the handler must normalize weight/scales/bias to
+        contiguous before calling zentorch_dynamic_qlinear, even when the
+        Int8Tensor is non-contiguous (e.g. a permuted weight). The C++ op reads
+        these through raw data_ptr() with hard-coded leading dims and only
+        asserts contiguity under ZENTORCH_ENABLE_CHECKS (it does not normalize
+        itself), so this boundary normalization is what upholds the contract.
+        """
+        counters.clear()
+        # A permuted Int8Tensor has a transposed (non-contiguous) qdata.
+        _, qt = self._static_qt((8, 6), seed=5)
+        qt_nc = qt.permute(1, 0)  # [6, 8]
+        self.assertFalse(
+            qt_nc.qdata.is_contiguous(),
+            "precondition: the permuted Int8Tensor's qdata is non-contiguous",
+        )
+        x = torch.randn(3, 8, dtype=torch.bfloat16)
+        # Non-contiguous 1-D bias (stride-2 view over a 2x-wide buffer).
+        wide = torch.zeros(12, dtype=torch.bfloat16)
+        wide[::2] = torch.randn(6, dtype=torch.bfloat16)
+        bias_nc = wide[::2]
+        self.assertFalse(bias_nc.is_contiguous())
+
+        captured = {}
+
+        def _capture(activation, weight, scales, bias_arg=None, *args, **kwargs):
+            captured["weight"] = weight
+            captured["scales"] = scales
+            captured["bias"] = bias_arg
+            return torch.zeros(x.shape[0], qt_nc.shape[0], dtype=x.dtype)
+
+        with (
+            mock.patch.object(
+                qt_nc, "act_quant_kwargs", {"dynamic": True}, create=True
+            ),
+            mock.patch.object(
+                torch.ops.zentorch,
+                "zentorch_dynamic_qlinear",
+                side_effect=_capture,
+            ),
+        ):
+            torch.nn.functional.linear(x, qt_nc, bias_nc)
+
+        # Guard the regression signal: if the op was not dispatched the capture
+        # dict stays empty and the contiguity checks below would raise an opaque
+        # KeyError instead of a meaningful failure.
+        self.assertIn(
+            "weight", captured, "zentorch_dynamic_qlinear was not called"
+        )
+        self.assertTrue(
+            captured["weight"].is_contiguous(),
+            "weight_int8 handed to zentorch_dynamic_qlinear must be contiguous",
+        )
+        self.assertTrue(
+            captured["scales"].is_contiguous(),
+            "weight_scales handed to zentorch_dynamic_qlinear must be contiguous",
+        )
+        self.assertTrue(
+            captured["bias"].is_contiguous(),
+            "bias handed to zentorch_dynamic_qlinear must be contiguous",
+        )
+
 
 class TestZentorchOptimizePass(unittest.TestCase):
     """Test that zentorch optimize_pass is available."""

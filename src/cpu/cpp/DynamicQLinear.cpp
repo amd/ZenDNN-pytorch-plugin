@@ -196,20 +196,43 @@ static void dispatch_dynamic_qlinear(const at::Tensor &input,
   check_valid_common_dtypes_for_qlinear(input, weight_scales, bias_t,
                                         /*allow_fp32_input=*/!is_da8w4);
 
-  // weight/weight_scales/bias are read via raw data_ptr(), so must be
-  // contiguous guaranteed by the replacement/lowering; asserted only here.
+  // The impl reads weight / weight_scales / bias through raw data_ptr() with
+  // hardcoded leading dims (weight ldb = K), so they MUST be contiguous. These
+  // are static params, so normalizing them is the caller's responsibility: the
+  // frontends that lower to this op (e.g. the torchao Int8Tensor replacement)
+  // pass contiguous weight/scales/bias, and the Inductor lowering pins the same
+  // contiguity for the compiled / cpp_wrapper path.
+  //
+  // We deliberately do NOT call .contiguous() here. Doing so would silently fix
+  // a non-contiguous tensor coming from a buggy replacement path by copying it
+  // on every call -- correct results, but a per-call copy that surfaces only as
+  // an unexplained throughput drop, traceable solely via profiling (a "silent
+  // performance regression"). Asserting instead makes such a bug fail loudly in
+  // first-level testing.
+  //
+  // Tradeoff: with checks disabled (production default) a non-contiguous static
+  // param that slips past testing is undefined behaviour -- the kernel reads
+  // the wrong strides and produces silently wrong results rather than a slow
+  // but correct one. We accept this because the compiled path is already safe
+  // (lowering require_contiguous) and every frontend is expected to uphold the
+  // contract. NOTE: `input` is intentionally still normalized above -- it is a
+  // dynamic activation that may legitimately be non-contiguous, not a static
+  // param under this contract.
   if (zentorch_checks_enabled()) {
     ZENTORCH_CHECK(weight.is_contiguous(),
-                   "zentorch_dynamic_qlinear: weight must be contiguous");
+                   "zentorch_dynamic_qlinear: weight must be contiguous; "
+                   "the calling replacement path must normalize it");
     ZENTORCH_CHECK(
         weight_scales.is_contiguous(),
-        "zentorch_dynamic_qlinear: weight_scales must be contiguous");
+        "zentorch_dynamic_qlinear: weight_scales must be contiguous; "
+        "the calling replacement path must normalize it");
     if (bias_t.defined()) {
       ZENTORCH_CHECK(bias_t.dim() == 1 && bias_t.size(0) == weight.size(0),
                      "zentorch_dynamic_qlinear: bias must be 1D with size N (",
                      weight.size(0), ")");
       ZENTORCH_CHECK(bias_t.is_contiguous(),
-                     "zentorch_dynamic_qlinear: bias must be contiguous");
+                     "zentorch_dynamic_qlinear: bias must be contiguous; "
+                     "the calling replacement path must normalize it");
     }
   }
 

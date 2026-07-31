@@ -5,6 +5,7 @@
 
 import unittest
 import torch
+from torch.testing import FileCheck
 from torch import nn
 import sys
 from pathlib import Path
@@ -48,7 +49,10 @@ class Test_Linear_Model(AddmmTestCase):
 
     @AddmmTestCase.hypothesis_params_addmm_itr(
         dtype_list=supported_dtypes, freeze_list=freeze_opt,
-        cpp_wrapper_opt_list=cpp_wrapper_opt
+        cpp_wrapper_opt_list=cpp_wrapper_opt,
+        # cold cpp_wrapper compile exceeds the default deadline; see
+        # test_with_freeze_opt_and_cpp_wrapper in zentorch_test_utils.
+        time_out=60000,
     )
     @torch.inference_mode()
     def test_linear_model(self, dtype, freeze_opt, cpp_wrapper):
@@ -60,7 +64,7 @@ class Test_Linear_Model(AddmmTestCase):
         compiled_graph = torch.compile(model, backend="zentorch")
         counters.clear()
         self.assertEqual(counters["zentorch"]["zentorch_linear"], 0)
-        compiled_output = test_with_freeze_opt_and_cpp_wrapper(
+        compiled_output, cpp_code = test_with_freeze_opt_and_cpp_wrapper(
             compiled_graph, (self.data.x), freeze_opt, cpp_wrapper
         )
         self.assertEqual(counters["zentorch"]["zentorch_linear"], 3)
@@ -72,6 +76,9 @@ class Test_Linear_Model(AddmmTestCase):
         self.assertTrue(
             torch.allclose(native_output, compiled_output, atol=tol, rtol=tol)
         )
+        # Pillar 2 (codegen): op lowers to its AOTI C-shim (see helper docstring).
+        if cpp_wrapper:
+            FileCheck().check("aoti_torch_cpu_zentorch").run(cpp_code)
 
 
 if __name__ == "__main__":

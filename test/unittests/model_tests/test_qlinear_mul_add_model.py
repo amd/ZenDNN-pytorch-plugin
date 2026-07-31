@@ -6,6 +6,7 @@
 import copy
 import unittest
 import torch
+from torch.testing import FileCheck
 import sys
 from pathlib import Path
 
@@ -158,7 +159,7 @@ class Test_Qlinear_Mul_Add_Model(QLinearTestCase):
             reset_dynamo()
             zentorch_qmodel = torch.compile(zentorch_qmodel, backend="zentorch")
 
-            zentorch_output = test_with_freeze_opt_and_cpp_wrapper(
+            zentorch_output, cpp_code = test_with_freeze_opt_and_cpp_wrapper(
                 zentorch_qmodel,
                 (inputs, cat_output, add_tensor),
                 freeze_opt,
@@ -172,8 +173,21 @@ class Test_Qlinear_Mul_Add_Model(QLinearTestCase):
             elif dtype == "bfloat16":
                 self.assertEqual(counters["zentorch"]["qlinear_mul_add"], 0)
 
+            # Pillar 1 (numerical): the reference stays inductor-compiled, NOT
+            # eager. The pt2e-quantized model run eagerly uses an unfused
+            # reference path that numerically diverges from zentorch's fused
+            # int8 GEMM, so inductor (onednn.qlinear_pointwise, real int8 GEMM)
+            # is the correct oracle here.
             # TODO: to be aligned with ZenDNN library on tensor generation and tolerances
             self.assertEqual(native_output, zentorch_output, atol=1e-2, rtol=1e-2)
+
+            # Pillar 2 (codegen): under cpp_wrapper the fused float32 path lowers
+            # to the qlinear_mul_add AOTI shim (bfloat16 does not fuse -- see the
+            # counter check above -- so its shim is not asserted here).
+            if cpp_wrapper and dtype == "float32":
+                FileCheck().check(
+                    "aoti_torch_cpu_zentorch_qlinear_mul_add"
+                ).run(cpp_code)
 
 
 if __name__ == "__main__":

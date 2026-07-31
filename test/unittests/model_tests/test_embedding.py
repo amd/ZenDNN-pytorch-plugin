@@ -3,10 +3,10 @@
 # All rights reserved.
 # ******************************************************************************
 
-import copy
 import unittest
 import torch
 from torch import nn
+from torch.testing import FileCheck
 import sys
 from pathlib import Path
 
@@ -66,10 +66,10 @@ class _EmbeddingModule(torch.nn.Module):
     torch.compile places an ``aten.embedding`` in the graph. Under
     ``backend="zentorch"`` it is replaced by ``zentorch_embedding`` and, with
     ``cpp_wrapper``, lowered through the ``aoti_torch_cpu_zentorch_embedding``
-    shim + FallbackKernel; under ``backend="inductor"`` the plain
-    ``aten.embedding`` stays and serves as the reference. The weight is kept
-    trainable (``freeze=False``) so the op is not const-folded away before the
-    zentorch replacement runs.
+    shim + FallbackKernel. The eager forward runs the same nn.Embedding and
+    serves as the numerical reference. The weight is kept trainable
+    (``freeze=False``) so the op is not const-folded away before the zentorch
+    replacement runs.
     """
 
     def __init__(self, weight, padding_idx, scale_grad_by_freq, sparse):
@@ -88,40 +88,53 @@ class _EmbeddingModule(torch.nn.Module):
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class Test_Embedding_Shim_Model(EmbTestCase):
-    """Compiles an nn.Embedding model and checks that the backend='zentorch'
-    output -- where aten.embedding is replaced by zentorch_embedding and, under
-    cpp_wrapper, lowered through the AOTI shim -- matches the backend='inductor'
-    reference (plain aten.embedding), across the Hypothesis-generated
-    (dtype x sparse x scale_grad x freeze x cpp_wrapper) combinations."""
+    """AOTI test for the embedding op, following PyTorch's two pillars:
+      Pillar 1 (numerical): the backend='zentorch' output (where aten.embedding
+                            is replaced by zentorch_embedding) matches the eager
+                            reference.
+      Pillar 2 (codegen):   under cpp_wrapper the op lowers through the
+                            aoti_torch_cpu_zentorch_embedding shim.
+    A Hypothesis test sweeps the (dtype x sparse x scale_grad x freeze x
+    cpp_wrapper) combinations."""
 
     @EmbTestCase.hypothesis_params_emb_itr(
         dtype_list=supported_dtypes,
-        # A fresh cpp_wrapper compile far exceeds the default per-example
-        # deadline; raise it so the deadline reflects compile cost.
-        time_out=300000,
+        # cold cpp_wrapper compile exceeds the default deadline; see
+        # test_with_freeze_opt_and_cpp_wrapper in zentorch_test_utils.
+        time_out=60000,
     )
     @torch.inference_mode()
     def test_embedding_shim_model(
         self, dtype, sprs_opt, scale_opt, freeze_opt, cpp_wrapper
     ):
         padding_idx = -1
-        model = _EmbeddingModule(
-            self.data.embedding_matrix, padding_idx, scale_opt, sprs_opt
-        ).eval()
+        # A real nn.Embedding(padding_idx=k) zeros weight[k] at construction;
+        # from_pretrained does NOT. Mirror that invariant so the padding row is
+        # zero -- otherwise zentorch_embedding (which zeros the padding row in
+        # the forward output regardless of the weight value) would diverge from
+        # eager on any index that lands on the padding row.
+        weight = self.data.embedding_matrix.clone()
+        weight[padding_idx] = 0
+        model = _EmbeddingModule(weight, padding_idx, scale_opt, sprs_opt).eval()
         indices = self.data.emb_input
 
-        reset_dynamo()
-        inductor_graph = torch.compile(copy.deepcopy(model), backend="inductor")
-        inductor_out = inductor_graph(indices)
+        # Pillar 1 reference: eager, the PyTorch oracle (uniform with the other
+        # AOTI tests). Captured before compilation.
+        eager_out = model(indices)
 
         reset_dynamo()
         zentorch_graph = torch.compile(model, backend="zentorch")
-        zentorch_out = test_with_freeze_opt_and_cpp_wrapper(
+        zentorch_out, cpp_code = test_with_freeze_opt_and_cpp_wrapper(
             zentorch_graph, (indices,), freeze_opt, cpp_wrapper
         )
 
-        self.assertEqual(zentorch_out.dtype, inductor_out.dtype)
-        self.assertEqual(zentorch_out, inductor_out, atol=1e-3, rtol=1e-3)
+        # Pillar 1: numerical equivalence vs eager.
+        self.assertEqual(zentorch_out.dtype, eager_out.dtype)
+        self.assertEqual(zentorch_out, eager_out, atol=1e-3, rtol=1e-3)
+
+        # Pillar 2 (codegen): op lowers to its AOTI C-shim (see helper docstring).
+        if cpp_wrapper:
+            FileCheck().check("aoti_torch_cpu_zentorch").run(cpp_code)
 
 
 if __name__ == "__main__":

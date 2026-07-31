@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import unittest  # noqa: E402
 import torch  # noqa: E402
+from torch.testing import FileCheck  # noqa: E402
 from torch import nn  # noqa: E402
 
 from unittest_utils import (  # noqa: E402
@@ -94,7 +95,7 @@ class Test_WOQ_Linear_Binary_Binary_Fusion(WOQTestCase):
         compiled = torch.compile(model, backend="zentorch")
         counters.clear()
         self.assertEqual(counters["zentorch"].get(counter_key, 0), 0)
-        compiled_out = test_with_freeze_opt_and_cpp_wrapper(
+        compiled_out, cpp_code = test_with_freeze_opt_and_cpp_wrapper(
             compiled, x, freeze_opt, cpp_wrapper
         )
         self.assertEqual(
@@ -107,6 +108,9 @@ class Test_WOQ_Linear_Binary_Binary_Fusion(WOQTestCase):
             torch.allclose(compiled_out, eager_out, rtol=1e-2, atol=1e-2),
             f"Compiled {pattern_description} output should match eager.",
         )
+        # Pillar 2 (codegen): op lowers to its AOTI C-shim (see helper docstring).
+        if cpp_wrapper:
+            FileCheck().check("aoti_torch_cpu_zentorch").run(cpp_code)
 
     # Test Fails while generalising test
     # Bug has been reported Jira ID: ZENAI-3716
@@ -130,6 +134,9 @@ class Test_WOQ_Linear_Binary_Binary_Fusion(WOQTestCase):
         bias_opt_list=[True],
         freeze_list=[False],
         cpp_wrapper_opt_list=cpp_wrapper_opt,
+        # cold cpp_wrapper compile exceeds the default deadline; see
+        # test_with_freeze_opt_and_cpp_wrapper in zentorch_test_utils.
+        time_out=60000,
     )
     @torch.inference_mode()
     def test_woq_linear_add_add(self, freeze_opt, cpp_wrapper):
@@ -162,6 +169,9 @@ class Test_WOQ_Linear_Binary_Binary_Fusion(WOQTestCase):
         bias_opt_list=[True],
         freeze_list=freeze_opt,
         cpp_wrapper_opt_list=cpp_wrapper_opt,
+        # cold cpp_wrapper compile exceeds the default deadline; see
+        # test_with_freeze_opt_and_cpp_wrapper in zentorch_test_utils.
+        time_out=60000,
     )
     @torch.inference_mode()
     def test_woq_linear_mul_add(self, freeze_opt, cpp_wrapper):

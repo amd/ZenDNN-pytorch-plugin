@@ -188,6 +188,35 @@ def getRandomSeed():
         return SEED  # Use fixed seed defined in zentorch_test_utils
 
 
+# Tests whose Pillar-2 codegen assertion is gated on a specific dtype (the op
+# only fuses / emits its shim for that dtype). For these, cpp_wrapper must stay
+# swept so the qualifying dtype is guaranteed to hit the FileCheck; a single
+# pinned example could land on the non-emitting dtype and silently skip it.
+_CPP_WRAPPER_FULL_SWEEP = {"test_qlinear_mul_add_model"}
+
+
+def pin_cpp_wrapper_once(obj, fn_name, cpp_wrapper):
+    """Collapse the swept ``cpp_wrapper`` axis to a single example per test.
+
+    The AOTI codegen assertion (Pillar 2) only checks that the op lowers to its
+    C-shim, which is independent of dtype/shape/freeze -- so one cpp_wrapper
+    build per test method fully covers it. The numerical sweep (Pillar 1) keeps
+    running across the whole grid on the (cheap) Python-wrapper path. Pinning
+    cpp_wrapper=True to one example avoids a C++ cold-compile on every swept
+    example (the dominant presub cost) with no loss of coverage.
+
+    Returns True at most once per (test-instance, fn_name); False otherwise.
+    Tests in ``_CPP_WRAPPER_FULL_SWEEP`` keep the original swept value.
+    """
+    if not cpp_wrapper or fn_name in _CPP_WRAPPER_FULL_SWEEP:
+        return cpp_wrapper
+    done = obj.__dict__.setdefault("_cpp_wrapper_done", set())
+    if fn_name in done:
+        return False
+    done.add(fn_name)
+    return True
+
+
 class Zentorch_TestCase(BaseZentorchTestCase):
     _seen_error_test_hashes = set()
     dump_errors = DUMP_ERRORS
@@ -739,6 +768,9 @@ class AddmmTestCase(Zentorch_TestCase):
 
                     obj.createDataFromVal(val)
 
+                    cpp_wrapper = pin_cpp_wrapper_once(
+                        obj, function.__name__, cpp_wrapper
+                    )
                     test_args = {
                         "dtype": dtype,
                         "freeze_opt": freeze,
@@ -1423,6 +1455,9 @@ class GroupMatmulTestCase(Zentorch_TestCase):
 
                     obj.createDataFromVal(val)
 
+                    cpp_wrapper = pin_cpp_wrapper_once(
+                        obj, function.__name__, cpp_wrapper
+                    )
                     test_args = {
                         "dtype": dtype,
                         "num_experts": num_experts,
@@ -1938,6 +1973,9 @@ class EmbTestCase(Zentorch_TestCase):
 
                     obj.createDataFromVal(val)
 
+                    cpp_wrapper = pin_cpp_wrapper_once(
+                        obj, function.__name__, cpp_wrapper
+                    )
                     # Prepare the arguments to pass to the test function
                     test_args = {
                         "dtype": dtype,
@@ -2531,6 +2569,9 @@ class WOQTestCase(Zentorch_TestCase):
 
                     obj.createDataFromVal(val)
 
+                    cpp_wrapper = pin_cpp_wrapper_once(
+                        obj, function.__name__, cpp_wrapper
+                    )
                     test_args = {
                         "dtype": dtype,
                         "freeze_opt": freeze,
@@ -3156,6 +3197,9 @@ class QLinearTestCase(Zentorch_TestCase):
 
                     obj.createDataFromVal(val)
 
+                    cpp_wrapper = pin_cpp_wrapper_once(
+                        obj, function.__name__, cpp_wrapper
+                    )
                     test_args = {
                         "dtype": dtype,
                         "input_dim": input_dim,
@@ -3658,6 +3702,9 @@ class QuantEmbTestCase(Zentorch_TestCase):
 
                     obj.createDataFromVal(val)
 
+                    cpp_wrapper = pin_cpp_wrapper_once(
+                        obj, function.__name__, cpp_wrapper
+                    )
                     # Prepare the arguments to pass to the test function
                     test_args = {
                         "dtype": dtype,

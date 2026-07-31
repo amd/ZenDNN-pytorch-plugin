@@ -3,9 +3,9 @@
 # All rights reserved.
 # ******************************************************************************
 
-import copy
 import unittest
 import torch
+from torch.testing import FileCheck
 import sys
 from pathlib import Path
 
@@ -29,8 +29,8 @@ class _FusedMoeModule(torch.nn.Module):
     void-returning zentorch_fused_moe (which mutates it in place), and returns
     it -- so a torch.compile of this module puts the op into the graph. Under
     backend='zentorch' + cpp_wrapper this exercises the
-    aoti_torch_cpu_zentorch_fused_moe shim + FallbackKernel lowering; under
-    backend='inductor' it provides the reference compiled output."""
+    aoti_torch_cpu_zentorch_fused_moe shim + FallbackKernel lowering. The eager
+    forward runs the same op and serves as the reference."""
 
     def __init__(
         self, w13, w2, w2_bias, topk_weights, topk_id, num_tokens, k_out, act
@@ -66,37 +66,43 @@ class _FusedMoeModule(torch.nn.Module):
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class Test_FusedMoe_Model(GroupMatmulTestCase):
-    """Compiles a zentorch_fused_moe model and checks that the
-    backend='zentorch' output (including the cpp_wrapper AOTI-shim path, which
-    fused_moe routes through a FallbackKernel lowering since it is void-
-    returning and mutates its `output` Tensor(a!)) matches the
-    backend='inductor' reference. A single Hypothesis test sweeps the
-    (dtype x cpp_wrapper) combinations."""
+    """AOTI test for zentorch_fused_moe, following PyTorch's two pillars:
+      Pillar 1 (numerical): backend='zentorch' output matches the eager
+                            reference (the void-returning op mutates `out`).
+      Pillar 2 (codegen):   under cpp_wrapper the generated C++ calls the
+                            aoti_torch_cpu_zentorch_fused_moe shim (routed
+                            through a FallbackKernel since the op is void-
+                            returning and mutates its `output` Tensor(a!)).
+    A single Hypothesis test sweeps the (dtype x cpp_wrapper) combinations."""
 
-    def _compare_inductor_vs_zentorch(self, model, hidden_states, cpp_wrapper):
-        reset_dynamo()
+    def _check_aoti(self, model, hidden_states, cpp_wrapper):
+        # Pillar 1 reference: eager (flush the MoE weight cache first).
         torch.ops.zentorch.zentorch_flush_moe_weight_cache()
-        inductor_graph = torch.compile(copy.deepcopy(model), backend="inductor")
-        inductor_out = inductor_graph(hidden_states)
+        eager_out = model(hidden_states)
 
         reset_dynamo()
         torch.ops.zentorch.zentorch_flush_moe_weight_cache()
         zentorch_graph = torch.compile(model, backend="zentorch")
         # MoE has no weight-prepack/freeze path, so freeze_opt is fixed False;
         # cpp_wrapper is swept by Hypothesis to exercise the AOTI-shim path.
-        zentorch_out = test_with_freeze_opt_and_cpp_wrapper(
+        zentorch_out, cpp_code = test_with_freeze_opt_and_cpp_wrapper(
             zentorch_graph, (hidden_states,), freeze_opt=False,
             cpp_wrapper=cpp_wrapper,
         )
 
-        self.assertEqual(zentorch_out.dtype, inductor_out.dtype)
-        self.assertEqual(zentorch_out, inductor_out, atol=1e-3, rtol=1e-3)
+        # Pillar 1: numerical equivalence vs eager.
+        self.assertEqual(zentorch_out.dtype, eager_out.dtype)
+        self.assertEqual(zentorch_out, eager_out, atol=1e-3, rtol=1e-3)
+
+        # Pillar 2: codegen assertion -- the op must lower to its AOTI shim.
+        if cpp_wrapper:
+            FileCheck().check("aoti_torch_cpu_zentorch_fused_moe").run(cpp_code)
 
     @GroupMatmulTestCase.hypothesis_params_group_matmul_itr(
         dtype_list=supported_dtypes,
-        # A fresh cpp_wrapper compile far exceeds the default 10s per-example
-        # deadline; raise it so the deadline reflects compile cost.
-        time_out=300000,
+        # cold cpp_wrapper compile exceeds the default deadline; see
+        # test_with_freeze_opt_and_cpp_wrapper in zentorch_test_utils.
+        time_out=60000,
     )
     @torch.inference_mode()
     def test_fused_moe_model(self, dtype, cpp_wrapper):
@@ -116,7 +122,7 @@ class Test_FusedMoe_Model(GroupMatmulTestCase):
             num_tokens, K_out, activation,
         ).eval()
 
-        self._compare_inductor_vs_zentorch(model, hidden_states, cpp_wrapper)
+        self._check_aoti(model, hidden_states, cpp_wrapper)
 
 
 if __name__ == "__main__":

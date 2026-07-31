@@ -5,6 +5,7 @@
 
 import unittest
 import torch
+from torch.testing import FileCheck
 from torch import nn
 import sys
 from pathlib import Path
@@ -159,7 +160,7 @@ class Test_WOQ_Embedding_Bag_Group(QuantEmbTestCase):
         reset_dynamo()
         model = Custom_Model_Quant_Embedding_Group()
         compiled_model = torch.compile(model, backend="zentorch")
-        model_result = test_with_freeze_opt_and_cpp_wrapper(
+        model_result, cpp_code = test_with_freeze_opt_and_cpp_wrapper(
             compiled_model,
             (zentorch_packed_weights, indices, offsets, cat_input, torch_type),
             freeze_opt,
@@ -172,6 +173,9 @@ class Test_WOQ_Embedding_Bag_Group(QuantEmbTestCase):
             self.assertEqual(ref_result, model_result, atol=0.04, rtol=0.04)
         else:  # float32
             self.assertEqual(ref_result, model_result, atol=0.01, rtol=0.01)
+        # Pillar 2 (codegen): op lowers to its AOTI C-shim (see helper docstring).
+        if cpp_wrapper:
+            FileCheck().check("aoti_torch_cpu_zentorch").run(cpp_code)
 
     # TODO: Test fails while generalizing the test - tracked in ZENAI-3863.
     # Revert to hypothesis-generated values once the issue is resolved.
@@ -230,7 +234,7 @@ class Test_WOQ_Embedding_Bag_Group(QuantEmbTestCase):
         model = Custom_Model_Quant_Embedding_Group_Out()
         counters.clear()
         compiled_model = torch.compile(model, backend="zentorch")
-        model_result = test_with_freeze_opt_and_cpp_wrapper(
+        model_result, cpp_code = test_with_freeze_opt_and_cpp_wrapper(
             compiled_model,
             (zentorch_packed_weights, indices, offsets, torch_type),
             freeze_opt,
@@ -244,6 +248,9 @@ class Test_WOQ_Embedding_Bag_Group(QuantEmbTestCase):
             self.assertEqual(ref_result, model_result, atol=0.04, rtol=0.04)
         else:  # float32
             self.assertEqual(ref_result, model_result, atol=0.01, rtol=0.01)
+        # Pillar 2 (codegen): op lowers to its AOTI C-shim (see helper docstring).
+        if cpp_wrapper:
+            FileCheck().check("aoti_torch_cpu_zentorch").run(cpp_code)
 
 
 if __name__ == "__main__":

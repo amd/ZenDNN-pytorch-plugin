@@ -5,6 +5,7 @@
 
 import unittest
 import torch
+from torch.testing import FileCheck
 from torch import nn
 import sys
 from pathlib import Path
@@ -114,7 +115,7 @@ class Test_WOQ_Linear_Asymmetric(WOQTestCase):
         compiled = torch.compile(model, backend="zentorch")
         counters.clear()
         self.assertEqual(counters["zentorch"]["zentorch_woq_linear"], 0)
-        compiled_out = test_with_freeze_opt_and_cpp_wrapper(
+        compiled_out, cpp_code = test_with_freeze_opt_and_cpp_wrapper(
             compiled, x, freeze_opt, cpp_wrapper
         )
         self.assertEqual(
@@ -133,6 +134,9 @@ class Test_WOQ_Linear_Asymmetric(WOQTestCase):
             f"Compiled {pattern_description} output should match eager. "
             f"Max diff: {diff.max().item():.6f}",
         )
+        # Pillar 2 (codegen): op lowers to its AOTI C-shim (see helper docstring).
+        if cpp_wrapper:
+            FileCheck().check("aoti_torch_cpu_zentorch").run(cpp_code)
 
     @WOQTestCase.hypothesis_params_woq_itr(
         dtype_opt_list=woq_dtypes,

@@ -106,9 +106,9 @@ class Test_DynamicQLinear_Model(QLinearTestCase):
         cpp_wrapper_opt_list=cpp_wrapper_opt,
         # Constrain K so the drawn value is truncatable to a valid multiple of 4.
         kRange=Range(DYNAMIC_QLINEAR_K_OPT[0], DYNAMIC_QLINEAR_K_OPT[-1]),
-        # A fresh cpp_wrapper compile far exceeds the default 10s per-example
-        # deadline; raise it so the deadline reflects compile cost.
-        time_out=300000,
+        # cold cpp_wrapper compile exceeds the default deadline; see
+        # test_with_freeze_opt_and_cpp_wrapper in zentorch_test_utils.
+        time_out=60000,
     )
     @torch.inference_mode()
     def test_dynamic_qlinear_model(
@@ -132,7 +132,8 @@ class Test_DynamicQLinear_Model(QLinearTestCase):
             weight_int8, weight_scales, bias
         ).eval()
         compare_inductor_vs_zentorch(
-            self, model, (input_nd,), freeze_opt, cpp_wrapper
+            self, model, (input_nd,), freeze_opt, cpp_wrapper,
+            shim_name="aoti_torch_cpu_zentorch_dynamic_qlinear",
         )
 
     @QLinearTestCase.hypothesis_params_qlinear_itr(
@@ -146,7 +147,9 @@ class Test_DynamicQLinear_Model(QLinearTestCase):
         freeze_list=freeze_opt,
         cpp_wrapper_opt_list=cpp_wrapper_opt,
         kRange=Range(DYNAMIC_QLINEAR_K_OPT[0], DYNAMIC_QLINEAR_K_OPT[-1]),
-        time_out=300000,
+        # cold cpp_wrapper compile exceeds the default deadline; see
+        # test_with_freeze_opt_and_cpp_wrapper in zentorch_test_utils.
+        time_out=60000,
     )
     @torch.inference_mode()
     def test_dynamic_qlinear_noncontiguous_model(
@@ -181,7 +184,8 @@ class Test_DynamicQLinear_Model(QLinearTestCase):
             weight_int8, weight_scales, bias
         ).eval()
         compare_inductor_vs_zentorch(
-            self, model, (input_nd,), freeze_opt, cpp_wrapper
+            self, model, (input_nd,), freeze_opt, cpp_wrapper,
+            shim_name="aoti_torch_cpu_zentorch_dynamic_qlinear",
         )
 
 

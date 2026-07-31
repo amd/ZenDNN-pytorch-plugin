@@ -149,10 +149,20 @@ def _register_int8_tensor_handlers(Int8Tensor) -> None:
             isinstance(weight_tensor, Int8Tensor)
             and weight_tensor.act_quant_kwargs is not None
         ):
-            weight_int8 = weight_tensor.qdata
+            # Normalize the tensors handed to zentorch_dynamic_qlinear to
+            # contiguous. For a well-formed Int8Tensor (contiguous qdata /
+            # per-channel scale / 1-D bias) these are no-ops; a non-contiguous
+            # param (e.g. a permuted weight) is copied here -- per-call in
+            # eager, but constant-folded once under torch.compile + freezing.
+            # The C++ op assumes contiguity for weight/scales/bias (and only
+            # asserts it under ZENTORCH_ENABLE_CHECKS -- it no longer calls
+            # .contiguous() itself), so this normalization at the boundary is
+            # what upholds that contract.
+            weight_int8 = weight_tensor.qdata.contiguous()
             weight_scales = weight_tensor.scale.contiguous()
             if weight_scales.dim() == 2 and weight_scales.shape[-1] == 1:
                 weight_scales = weight_scales.squeeze(-1)
+            bias = bias.contiguous() if bias is not None else None
             counters["zentorch"]["zentorch_dynamic_qlinear"] += 1
             return torch.ops.zentorch.zentorch_dynamic_qlinear(
                 activation_tensor,

@@ -6,6 +6,7 @@
 import operator
 import unittest
 import torch
+from torch.testing import FileCheck
 from torch import nn
 from torch._inductor import config as inductor_config
 import sys
@@ -121,7 +122,7 @@ class Test_Linear_Unary_Binary_Model(AddmmTestCase):
             self.assertEqual(
                 counters["zentorch"]["zentorch_linear_unary_binary_out"], 0
             )
-        compiled_output = test_with_freeze_opt_and_cpp_wrapper(
+        compiled_output, cpp_code = test_with_freeze_opt_and_cpp_wrapper(
             compiled_graph,
             (self.data.input, binary_tensor),
             freeze_flag,
@@ -138,6 +139,9 @@ class Test_Linear_Unary_Binary_Model(AddmmTestCase):
             )
         tolerance = LINEAR_TOLERANCES.get(dtype, {"atol": 1e-3, "rtol": 1e-3})
         self.assertEqual(native_output, compiled_output, **tolerance)
+        # Pillar 2 (codegen): op lowers to its AOTI C-shim (see helper docstring).
+        if cpp_wrapper:
+            FileCheck().check("aoti_torch_cpu_zentorch").run(cpp_code)
 
     # The silu_mul case also asserts the linear was lowered to its `.out`
     # variant (via check_out_variant). Caching is disabled since the lowering
@@ -145,7 +149,10 @@ class Test_Linear_Unary_Binary_Model(AddmmTestCase):
     @inductor_config.patch(force_disable_caches=True)
     @AddmmTestCase.hypothesis_params_addmm_itr(
         dtype_list=supported_dtypes, freeze_list=freeze_opt,
-        cpp_wrapper_opt_list=cpp_wrapper_opt, time_out=60000
+        cpp_wrapper_opt_list=cpp_wrapper_opt,
+        # cold cpp_wrapper compile exceeds the default deadline; see
+        # test_with_freeze_opt_and_cpp_wrapper in zentorch_test_utils.
+        time_out=60000,
     )
     @torch.inference_mode()
     def test_linear_silu_mul_model(self, dtype, freeze_opt, cpp_wrapper):

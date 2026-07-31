@@ -6,6 +6,7 @@
 import copy
 import unittest
 import torch
+from torch.testing import FileCheck
 from torch import nn
 import sys
 from pathlib import Path
@@ -83,6 +84,9 @@ class Test_Qlinear_Eltwise_Model(QLinearTestCase):
         ],  # o/p dtype is float only in this case
         freeze_list=freeze_opt,
         cpp_wrapper_opt_list=cpp_wrapper_opt,
+        # cold cpp_wrapper compile exceeds the default deadline; see
+        # test_with_freeze_opt_and_cpp_wrapper in zentorch_test_utils.
+        time_out=60000,
     )
     @torch.inference_mode()
     def test_qlinear_eltwise_model(
@@ -131,7 +135,7 @@ class Test_Qlinear_Eltwise_Model(QLinearTestCase):
         reset_dynamo()
         zentorch_model = torch.compile(zentorch_model, backend="zentorch")
 
-        zentorch_output = test_with_freeze_opt_and_cpp_wrapper(
+        zentorch_output, cpp_code = test_with_freeze_opt_and_cpp_wrapper(
             zentorch_model,
             (
                 self.data.x_for_qlinear[input_dtype][input_dim],
@@ -150,6 +154,9 @@ class Test_Qlinear_Eltwise_Model(QLinearTestCase):
         )
         self.assertEqual(counters["zentorch"][eltwise_op + "_fusion"], 1)
         self.assertEqual(model_output, zentorch_output)
+        # Pillar 2 (codegen): op lowers to its AOTI C-shim (see helper docstring).
+        if cpp_wrapper:
+            FileCheck().check("aoti_torch_cpu_zentorch").run(cpp_code)
 
 
 if __name__ == "__main__":
