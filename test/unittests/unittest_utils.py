@@ -1030,7 +1030,7 @@ class GroupMatmulTestCase(Zentorch_TestCase):
     # failures; tracked in ZENAI-3838. Until that is resolved, keep the
     # default 10000 deadline and a reduced example count.
     time_out = 10000
-    max_example_per_test = 5
+    max_example_per_test = 10
 
     def getData(self):
         return self.data
