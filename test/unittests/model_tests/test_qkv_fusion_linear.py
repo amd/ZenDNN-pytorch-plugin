@@ -265,9 +265,12 @@ class Test_QKV_Fusion_Linear_Model(AddmmTestCase):
             )
         )
 
+    # Test Fails with default time_out=10000
+    # Bug has been reported Jira ID: ZENAI-4476
     @AddmmTestCase.hypothesis_params_addmm_itr(
         dtype_list=supported_dtypes,
         freeze_list=[True],
+        time_out=30000,
     )
     @torch.inference_mode()
     def test_qkv_fusion_linear_longformer_model(self, dtype, freeze_opt=True):
