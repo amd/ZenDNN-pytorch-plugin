@@ -48,7 +48,7 @@ The MicroGemm path requires offline prepacking of weights (and a separate quanti
 ```python
 torch.ops.zentorch.zentorch_fused_moe(
     output,         # Tensor(a!), [T, H], same dtype as input, ZERO-INITIALIZED
-    input,          # Tensor, [T, H], bf16 / f32, contiguous
+    input,          # Tensor, [T, H], bf16 / f32 / fp16, contiguous
     w13,            # Tensor, [E, 2*I, H], same dtype as input (or int8)
     w2,             # Tensor, [E, H, I],   same dtype as input (or int8)
     w13_bias,       # Optional[Tensor], [E, 2*I] or None
@@ -67,18 +67,18 @@ torch.ops.zentorch.zentorch_fused_moe(
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `output` | Tensor (bf16/f32) | `[T, H]`. **Out parameter**: allocated and zero-initialised by the caller. The op accumulates per-token reduced expert outputs into it. |
-| `input` | Tensor (bf16/f32) | `[T, H]` token activations. Contiguous. |
-| `w13` | Tensor (bf16/f32/int8) | `[E, 2*I, H]` gate+up projection weights (concatenated). Sliced per-active-expert via `select(0, e)`. When int8, `w13_scales` is required. |
-| `w2` | Tensor (bf16/f32/int8) | `[E, H, I]` down-projection weights. Sliced per-active-expert via `select(0, e)`. When int8, `w2_scales` is required. |
+| `output` | Tensor (bf16/f32/f16) | `[T, H]`. **Out parameter**: allocated and zero-initialised by the caller. The op accumulates per-token reduced expert outputs into it. |
+| `input` | Tensor (bf16/f32/f16) | `[T, H]` token activations. Contiguous. |
+| `w13` | Tensor (bf16/f32/int8/f16) | `[E, 2*I, H]` gate+up projection weights (concatenated). Sliced per-active-expert via `select(0, e)`. When int8, `w13_scales` is required. |
+| `w2` | Tensor (bf16/f32/int8/f16) | `[E, H, I]` down-projection weights. Sliced per-active-expert via `select(0, e)`. When int8, `w2_scales` is required. |
 | `topk_weights` | Tensor (f32) | `[T, K]` router weights used by the weighted-reduce post-op. |
 | `topk_id` | Tensor (int32) | `[T, K]` expert ids, values in `[0, E)`. |
 | `skip_weighted` | bool | If `true`, the caller has already multiplied `input` by the (K=1) router weight, so the reduce post-op is fed an all-ones weight vector. |
 | `act` | str | Gated activation applied between W13 and W2. One of `'silu'`, `'gelu'`, `'gelu_tanh'`, `'swigluoai'`. Maps to `silu_and_mul`, `gelu_and_mul`, `swiglu_oai_mul` enums internally (`gelu_tanh` aliases `gelu_and_mul`). |
 | `w13_bias` | Tensor? (bf16/f32) | `[E, 2*I]` or `None`. Default `None`. |
 | `w2_bias` | Tensor? (bf16/f32) | `[E, H]` or `None`. Default `None`. |
-| `w13_scales` | Tensor? (f32) | Per-expert quantization scales for int8 `w13`. Shape `[E, N]` (per-channel) or `[E, G, N]` (per-group). Default `None` (for bf16/f32). |
-| `w2_scales` | Tensor? (f32) | Per-expert quantization scales for int8 `w2`. Shape `[E, K_out]` (per-channel) or `[E, G, K_out]` (per-group). Default `None` (for bf16/f32). |
+| `w13_scales` | Tensor? (f32) | Per-expert quantization scales for int8 `w13`. Shape `[E, N]` (per-channel) or `[E, G, N]` (per-group). Default `None` (for bf16). |
+| `w2_scales` | Tensor? (f32) | Per-expert quantization scales for int8 `w2`. Shape `[E, K_out]` (per-channel) or `[E, G, K_out]` (per-group). Default `None` (for bf16). |
 | `zentorch_op_name` | str | Profiling / tracing name. Default `'zentorch::zentorch_fused_moe'`. |
 
 ## 5. Input Contract (Constraints)
@@ -86,12 +86,12 @@ torch.ops.zentorch.zentorch_fused_moe(
 | Constraint | Condition |
 |-----------|-----------|
 | `output` | 2D `[T, H]`, same dtype as `input`, **zero-initialised** by caller |
-| `input` dtype | `torch.bfloat16` or `torch.float32` |
+| `input` dtype | `torch.bfloat16`, `torch.float32`, or `torch.float16` (fp16 requires AVX-512 FP16 hardware support) |
 | `input` layout | 2D `[T, H]`, contiguous |
 | `w13`, `w2` dtype | Same dtype as `input`, or `torch.int8` (dynamic int8 quantization) |
 | `w13`, `w2` shape | 3D, leading dim `E` |
-| `w13_scales` | Required when `w13` is int8. `[E, N]` (per-channel) or `[E, G, N]` (per-group), f32. `None` for bf16/f32. |
-| `w2_scales` | Required when `w2` is int8. `[E, K_out]` (per-channel) or `[E, G, K_out]` (per-group), f32. `None` for bf16/f32. |
+| `w13_scales` | Required when `w13` is int8. `[E, N]` (per-channel) or `[E, G, N]` (per-group), f32. `None` for bf16. |
+| `w2_scales` | Required when `w2` is int8. `[E, K_out]` (per-channel) or `[E, G, K_out]` (per-group), f32. `None` for bf16. |
 | `w13_bias`, `w2_bias` | `None` or 2D `[E, …]`, same dtype as `input` |
 | `topk_weights` | 2D `[T, K]`, `torch.float32`, contiguous |
 | `topk_id` | 2D `[T, K]`, `torch.int32`, contiguous, values in `[0, E)` |
@@ -268,8 +268,9 @@ Tests are **Hypothesis-based**, decorated with
 `tensor_group_matmul_strategy` described in
 [zentorch_group_matmul.md §7.1](./zentorch_group_matmul.md)). Each example draws randomized
 dims plus a reproducible `tensor_seed`; dtype comes from `dtype_list=supported_dtypes`
-(`"float32"`, plus `"bfloat16"` when BF16 is supported). The int8 tests override `k_list` to satisfy their shape
-constraints.
+(`"float32"`, plus `"bfloat16"` when BF16 is supported, plus `"float16"` when AVX-512 FP16
+is supported). The int8 tests override `k_list` to satisfy their shape constraints and exclude
+`"float16"` and `"float32"` (the dynamic-int8 path quantizes activations from bf16 only).
 
 ### 8.2 Test matrix for `zentorch_fused_moe`
 

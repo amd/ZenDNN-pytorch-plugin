@@ -633,14 +633,8 @@ def _do_patch_fused_moe() -> bool:
         return True
 
     CPUFusedMOE._zentorch_forward = _moe_forward_zentorch
-    CPUFusedMOE._original_init = CPUFusedMOE.__init__
 
     def _patched_init(self, layer):
-        # Zentorch does not support fp16 for fused MOE
-        # hence falling back to the native VLLM path
-        if layer.w13_weight.dtype == torch.float16:
-            return self._original_init(layer)
-
         # Skip vLLM's prepacking + grouped-gemm path; we use the standard
         # [E, ...] layout that zentorch_fused_moe expects.
         self.isa = "none"
@@ -675,10 +669,10 @@ def _do_patch_fused_moe() -> bool:
                     weight_scales = w.scale
                     if weight_scales.shape[-1] == 1:
                         weight_scales = weight_scales.squeeze(-1).contiguous()
-                    if weight_scales.dtype not in (torch.float32, torch.bfloat16):
+                    if weight_scales.dtype not in (torch.float32, torch.bfloat16, torch.float16):
                         raise ValueError(
                             f"[zentorch] {weight_attr}.scale must be float32 "
-                            f"or bfloat16, got {weight_scales.dtype}"
+                            f"or bfloat16 or float16, got {weight_scales.dtype}"
                         )
                     setattr(layer, scale_attr, weight_scales)
                     replace_parameter(layer, weight_attr, w.qdata)

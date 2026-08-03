@@ -31,7 +31,8 @@ static bool has_tensor(const c10::optional<at::Tensor> &opt) {
 // us when the expert later fires. Inputs and biases are validated only for
 // the active prefix.
 // Shared validation for per-expert quantization scale lists.
-// Checks list size, per-element presence, dtype (f32/bf16), and dim (1D/2D).
+// Checks list size, per-element presence, dtype (f32/bf16), and dim
+// (1D/2D).
 static void
 validate_weight_scales(const std::vector<c10::optional<at::Tensor>> &scales,
                        int num_ops, const char *param_name) {
@@ -91,9 +92,10 @@ static void validate_dtypes_and_shapes(
   // prepack reorders into a uniform cache layout.
   const auto ref_dtype = inputs[0].scalar_type();
   const int64_t K_ref = inputs[0].size(1);
-  ZENTORCH_CHECK(ref_dtype == c10::kFloat || ref_dtype == c10::kBFloat16,
+  ZENTORCH_CHECK(ref_dtype == c10::kFloat || ref_dtype == c10::kBFloat16 ||
+                     ref_dtype == c10::kHalf,
                  "zentorch_group_matmul: input[0] must be float32 or "
-                 "bfloat16, got ",
+                 "bfloat16 or float16, got ",
                  ref_dtype);
 
   // Validate every weight (active + inactive prepack tail).
@@ -141,10 +143,21 @@ static void validate_dtypes_and_shapes(
     }
   }
 
-  // Validate weight_scales: required when any weight is int8
+  // Validate weight_scales and not fp16 inputs: required when any weight is
+  // int8
   const bool has_int8_weights = w13_weights[0].scalar_type() == c10::kChar;
   if (has_int8_weights) {
+    ZENTORCH_CHECK(ref_dtype == c10::kBFloat16,
+                   "zentorch_group_matmul: input[0] must be bf16 when "
+                   "weights are int8");
     validate_weight_scales(w13_scales, num_active, "weight_scales");
+  }
+
+  // Validate fp16 hardware support in case of fp16 inputs
+  if (ref_dtype == c10::kHalf) {
+    ZENTORCH_CHECK(zendnn_fp16_device_check(),
+                   "zentorch_group_matmul: fp16 path needs the cpu support "
+                   "avx512fp16");
   }
 }
 

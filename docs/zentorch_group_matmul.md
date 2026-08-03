@@ -38,7 +38,7 @@ In MoE models (Mixtral, DeepSeek, etc.), a router assigns each token to its top-
 ```python
 torch.ops.zentorch.zentorch_group_matmul.out(
     gemm_outputs,           # List[Tensor], pre-allocated [M_i, N] per expert (or [] for internal alloc)
-    inputs,                 # List[Tensor], one [M_i, K] per expert (bf16/f32)
+    inputs,                 # List[Tensor], one [M_i, K] per expert (bf16/f32/fp16)
     w13_weights,            # List[Tensor], one [N, K] per expert (w13: gate+up weights)
     w2_weights,             # List[Optional[Tensor]], one [K_out, D] per expert ([] when unused)
     moe_output,             # Optional[Tensor], [num_tokens, hidden_dim] (MoE reduce result)
@@ -61,17 +61,17 @@ torch.ops.zentorch.zentorch_group_matmul.out(
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `gemm_outputs` | `List[Tensor]` (bf16/f32) | Pre-allocated Op1 output tensors, one per expert, shape `[M_i, N]`. Pass `[]` when intermediate GEMM results are not needed — ZenDNN allocates and manages dst buffers internally. |
-| `inputs` | `List[Tensor]` (bf16/f32) | One input tensor per expert, shape `[M_i, K]`. |
-| `w13_weights` | `List[Tensor]` (bf16/f32/int8) | Op1 weight matrices (w13: gate+up), shape `[N, K]` (nn.Linear layout). |
-| `w2_weights` | `List[Optional[Tensor]]` (bf16/f32/int8) | Down projection weights, one `[K_out, D]` per expert. `D = N/2` after gated activation, `D = N` without. Pass `[]` when unused. |
-| `moe_output` | `Optional[Tensor]` (bf16/f32) | Pre-allocated `[num_tokens, hidden_dim]` for weighted-reduce result. |
+| `gemm_outputs` | `List[Tensor]` (bf16/f32/fp16) | Pre-allocated Op1 output tensors, one per expert, shape `[M_i, N]`. Pass `[]` when intermediate GEMM results are not needed — ZenDNN allocates and manages dst buffers internally. |
+| `inputs` | `List[Tensor]` (bf16/f32/fp16) | One input tensor per expert, shape `[M_i, K]`. |
+| `w13_weights` | `List[Tensor]` (bf16/f32/fp16/int8) | Op1 weight matrices (w13: gate+up), shape `[N, K]` (nn.Linear layout). |
+| `w2_weights` | `List[Optional[Tensor]]` (bf16/f32/fp16/int8) | Down projection weights, one `[K_out, D]` per expert. `D = N/2` after gated activation, `D = N` without. Pass `[]` when unused. |
+| `moe_output` | `Optional[Tensor]` (bf16/f32/fp16) | Pre-allocated `[num_tokens, hidden_dim]` for weighted-reduce result. |
 | `topk_weights` | `Optional[Tensor]` (f32) | Routing weights `[num_tokens, topk]`. |
 | `row_ptrs` | `Optional[Tensor]` (int64) | Pre-built pointer table `[num_tokens * topk]` into the final expert output buffers. When fused w2 is active, must point into the input buffers (ZenDNN reuses them for w2 output). |
  | `activation` | `str` | `'none'`, `'silu'`, `'gelu'`, `'gelu_tanh'`, or `'swigluoai'`. Maps to `silu_and_mul`, `gelu_and_mul`, `swiglu_oai_mul` enums internally (`gelu_tanh` aliases `gelu_and_mul`; `gelu`/`gelu_tanh` use tanh-approx GELU in fused kernels). Gated activations require `N = 2*D` (even). || `w13_bias` | `List[Optional[Tensor]]` | Op1 bias, one `[N]` or `None` per expert. |
 | `w2_bias` | `List[Optional[Tensor]]` | Down projection bias, one `[K_out]` or `None` per expert. Pass `[]` when unused. |
-| `w13_scales` | `List[Optional[Tensor]]` (f32/bf16) | Per-expert quantization scales for dynamic int8 w13. Shape `[N]` (per-channel, normalized to `{1,N}`) or `{G, N}` (per-group). Pass `[]` for fp32/bf16 weights. |
-| `w2_scales` | `List[Optional[Tensor]]` (f32/bf16) | Per-expert quantization scales for dynamic int8 w2 weights. Shape `[K_out]` (per-channel) or `{G, K_out}` (per-group). Pass `[]` for fp32/bf16 w2 weights. |
+| `w13_scales` | `List[Optional[Tensor]]` (f32/bf16) | Per-expert quantization scales for dynamic int8 w13. Shape `[N]` (per-channel, normalized to `{1,N}`) or `{G, N}` (per-group). Pass `[]` for fp32/bf16/fp16 weights. |
+| `w2_scales` | `List[Optional[Tensor]]` (f32/bf16) | Per-expert quantization scales for dynamic int8 w2 weights. Shape `[K_out]` (per-channel) or `{G, K_out}` (per-group). Pass `[]` for fp32/bf16/fp16 w2 weights. |
 
 > **Note:** `w2_outputs` is not required — ZenDNN manages the down projection output buffers internally by reusing the input buffers.
 
@@ -80,10 +80,10 @@ torch.ops.zentorch.zentorch_group_matmul.out(
 | Constraint | Condition |
 |-----------|-----------|
 | Execution mode | Parallel only (`len(inputs) > 1`) |
-| Input dtype | `torch.bfloat16` or `torch.float32` |
+| Input dtype | `torch.bfloat16`, `torch.float32`, or `torch.float16` (fp16 requires AVX-512 FP16 hardware support; not supported on the dynamic int8 path) |
 | Weight dtype | Must match input dtype, or `torch.int8` (dynamic int8 quantization) |
-| Dynamic int8 | When `w13_weights[i]` is int8, `w13_scales[i]` is required. Kernel quantizes activations at runtime (`dynamic_quant=true`, `dtypes.compute=s8`) |
-| Dtype consistency (fp) | For fp32/bf16 weights: inputs, w13_weights, w13_bias must share dtype per expert |
+| Dynamic int8 | When `w13_weights[i]` is int8, `w13_scales[i]` is required. Kernel quantizes activations at runtime (`dynamic_quant=true`, `dtypes.compute=s8`). Activations are quantized from bf16/f32 only — fp16 is not supported on this path. |
+| Dtype consistency (fp) | For fp32/bf16/fp16 weights: inputs, w13_weights, w13_bias must share dtype per expert |
 | Weight shape | `[N, K]` (nn.Linear layout) |
 | gemm_outputs | Either empty `[]` (ZenDNN allocates internally) or `len(gemm_outputs) == len(w13_weights)` |
 | Gated activation | Requires `N` to be even (`N = 2 * D`) |
@@ -179,7 +179,9 @@ Dimensions are drawn from the constants in `zentorch_test_utils.py`:
 `K` is drawn with `st.sampled_from(k_list)`; the int8 tests override `k_list` with
 `GROUP_MATMUL_INT8_K_VALUES = [4, 8]` or `GROUP_MATMUL_INT8_GATED_K_VALUES = [8, 16]` to satisfy
 their tighter shape constraints. Dtype is supplied via `dtype_list=supported_dtypes`
-(`"float32"`, plus `"bfloat16"` when BF16 is supported). `GroupMatmulTestCase` sets `max_example_per_test = 5` and
+(`"float32"`, plus `"bfloat16"` when BF16 is supported, plus `"float16"` when AVX-512 FP16 is
+supported; the int8 tests use `supported_dtypes_int8`, which excludes `"float16"`).
+`GroupMatmulTestCase` sets `max_example_per_test = 5` and
 `time_out = 10000` ms — fewer examples and a longer deadline than the default because each
 example builds full per-expert w13/w2 weight, bias, and scale tensors.
 

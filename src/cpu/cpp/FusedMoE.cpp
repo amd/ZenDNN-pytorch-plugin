@@ -454,7 +454,7 @@ build_token_expert_mapping(const at::Tensor &input, const at::Tensor &topk_id) {
 // in `src/cpu/python/zentorch/vllm/__init__.py` (the only producer of calls
 // into this op). The C++ op trusts its inputs and assumes:
 //
-//   input          : 2D [T, H], f32 or bf16, contiguous
+//   input          : 2D [T, H], f32, bf16, or fp16, contiguous
 //   output         : 2D [T, H], same dtype as input, ZERO-INITIALIZED
 //                    (Phase 5 accumulates into it)
 //   w13            : 3D [E, 2*I, H], same dtype as input
@@ -700,7 +700,7 @@ void zentorch_fused_moe(
   // an allocation per active expert. The full chain
   // (W13 -> gated_act -> W2 -> weighted_reduce -> output) runs inside one
   // `group_matmul_direct` call.
-  // This path handles both bf16/f32 weights and int8 weights (with scales).
+  // This path handles bf16/f32/fp16 weights and int8 weights (with scales).
   zentorch_group_matmul_out_impl(
       /*gemm_outputs=*/{},
       /*inputs=*/mapping.grouped_inputs,
