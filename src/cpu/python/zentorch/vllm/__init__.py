@@ -56,6 +56,7 @@ from zentorch.vllm._core import (
     VLLM_V24,
     VLLM_V25,
     VLLM_V25_1,
+    VLLM_V26,
 )
 
 
@@ -276,7 +277,7 @@ class TorchAOPatch:
 # ---------------------------------------------------------------------------
 
 
-@vllm_version(VLLM_V22_1, VLLM_V23, VLLM_V24, VLLM_V25, VLLM_V25_1)
+@vllm_version(VLLM_V22_1, VLLM_V23, VLLM_V24, VLLM_V25, VLLM_V25_1, VLLM_V26)
 class Int8MoEPatch:
     """Route compressed-tensors W8A8 INT8 fused-MoE through zentorch.
 
@@ -290,7 +291,7 @@ class Int8MoEPatch:
         return _apply_int8_moe_patch_impl()
 
 
-@vllm_version(VLLM_V22_1, VLLM_V23, VLLM_V24, VLLM_V25, VLLM_V25_1)
+@vllm_version(VLLM_V22_1, VLLM_V23, VLLM_V24, VLLM_V25, VLLM_V25_1, VLLM_V26)
 class GptOssMoELoaderPatch:
     """GPT-OSS per-expert compressed-tensors W8A8 checkpoint loading (OOT).
 
@@ -304,7 +305,7 @@ class GptOssMoELoaderPatch:
         return _apply_gptoss_loader_patch_impl()
 
 
-@vllm_version(VLLM_V22_1, VLLM_V23, VLLM_V24, VLLM_V25, VLLM_V25_1)
+@vllm_version(VLLM_V22_1, VLLM_V23, VLLM_V24, VLLM_V25, VLLM_V25_1, VLLM_V26)
 class MixtralMoELoaderPatch:
     """Mixtral per-expert compressed-tensors W8A8 checkpoint loading (OOT).
 
@@ -317,7 +318,7 @@ class MixtralMoELoaderPatch:
         return _apply_mixtral_loader_patch_impl()
 
 
-@vllm_version(VLLM_V22_1, VLLM_V23, VLLM_V24, VLLM_V25, VLLM_V25_1)
+@vllm_version(VLLM_V22_1, VLLM_V23, VLLM_V24, VLLM_V25, VLLM_V25_1, VLLM_V26)
 class MoERunnerCompilePatch:
     """Route CPU FusedMoE through the opaque ``moe_forward`` custom op so
     aot_compile treats it as one node (torch.compile-safe). See
@@ -328,7 +329,7 @@ class MoERunnerCompilePatch:
         return _apply_moe_runner_compile_patch_impl()
 
 
-@vllm_version(VLLM_V22_1, VLLM_V23, VLLM_V24, VLLM_V25, VLLM_V25_1)
+@vllm_version(VLLM_V22_1, VLLM_V23, VLLM_V24, VLLM_V25, VLLM_V25_1, VLLM_V26)
 class MoETopkCpuPatch:
     """Register a CPU implementation for the ``_moe_C`` top-k router ops so the
     MoE router works on CPU. See ``_moe_topk_cpu_patch.py``."""
@@ -338,7 +339,7 @@ class MoETopkCpuPatch:
         return _apply_moe_topk_cpu_patch_impl()
 
 
-@vllm_version(VLLM_V22_1, VLLM_V23, VLLM_V24, VLLM_V25, VLLM_V25_1)
+@vllm_version(VLLM_V22_1, VLLM_V23, VLLM_V24, VLLM_V25, VLLM_V25_1, VLLM_V26)
 class CpuWorkerWorkspacePatch:
     """Initialize the modular-kernel workspace manager on the CPU worker so
     modular MoE kernels can allocate scratch. See
@@ -427,6 +428,7 @@ class CompilationConfigReprPatch:
     VLLM_V24,
     VLLM_V25,
     VLLM_V25_1,
+    VLLM_V26,
 )
 class CPUProfilerPatch:
     """Stub: Actual patching happens in platform.py check_and_update_config.
@@ -1258,7 +1260,16 @@ class GptOssMoEWeightRemapPatch:
 # GatedDeltaNet (Qwen3.5 / Qwen3-Next) CPU forward override (vLLM PR #41025).
 
 
-@vllm_version(VLLM_V21, VLLM_V22, VLLM_V22_1, VLLM_V23, VLLM_V24, VLLM_V25, VLLM_V25_1)
+@vllm_version(
+    VLLM_V21,
+    VLLM_V22,
+    VLLM_V22_1,
+    VLLM_V23,
+    VLLM_V24,
+    VLLM_V25,
+    VLLM_V25_1,
+    VLLM_V26,
+)
 class GatedDeltaNetPatch:
     """Override ``GatedDeltaNetAttention.forward_cpu`` with ``forward_cpu_zen``.
 

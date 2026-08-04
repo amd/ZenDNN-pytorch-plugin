@@ -23,7 +23,7 @@ logger = get_logger(__name__)
 # Known vLLM versions retained for family detection and legacy patch gating.
 # Out-of-tree runtime support is enforced separately and starts at vLLM 0.20.0.
 VLLM_MIN_VERSION = "0.15.0"
-VLLM_MAX_VERSION = "0.25.1"
+VLLM_MAX_VERSION = "0.26.0"
 
 VLLM_V15 = "0.15.0"
 VLLM_V15_1 = "0.15.1"
@@ -44,6 +44,7 @@ VLLM_V23 = "0.23.0"
 VLLM_V24 = "0.24.0"
 VLLM_V25 = "0.25.0"
 VLLM_V25_1 = "0.25.1"
+VLLM_V26 = "0.26.0"
 
 # Version -> family mapping
 _VERSION_MAP = {
@@ -66,6 +67,7 @@ _VERSION_MAP = {
     VLLM_V24: "v24",
     VLLM_V25: "v25",
     VLLM_V25_1: "v25",
+    VLLM_V26: "v26",
 }
 
 

@@ -7,14 +7,14 @@
 Unit tests for zentorch.vllm plugin.
 
 Tests verify:
-- Runtime compatibility checks for supported versions (0.20.0 - 0.25.1)
+- Runtime compatibility checks for supported versions (0.20.0 - 0.26.0)
 - Version parsing logic
 - Patch registration and application
 - Individual patch functionality (oneDNN disable, CompilationConfig repr, etc.)
 - Platform configuration
 
 Runtime-supported vLLM versions: 0.20.0, 0.20.1, 0.20.2, 0.21.0, 0.22.0, 0.22.1,
-0.23.0, 0.24.0, 0.25.0, 0.25.1
+0.23.0, 0.24.0, 0.25.0, 0.25.1, 0.26.0
 Retained legacy version map: 0.15.0, 0.15.1, 0.16.0, 0.17.0, 0.17.1, 0.18.0,
 0.18.1, 0.19.0, 0.19.1
 """
@@ -114,6 +114,7 @@ class TestVersionParsing(unittest.TestCase):
             "0.24.0",
             "0.25.0",
             "0.25.1",
+            "0.26.0",
         ]
         for ver in expected_versions:
             self.assertIn(ver, _VERSION_MAP, f"{ver} should be in VERSION_MAP")
@@ -194,6 +195,11 @@ class TestVersionParsing(unittest.TestCase):
         self.assertEqual(_VERSION_MAP.get(_base_version("0.25.1+cpu")), "v25")
         self.assertEqual(_VERSION_MAP.get(_base_version("0.25.1rc1+cpu")), "v25")
 
+        # v26 family
+        self.assertEqual(_VERSION_MAP.get(_base_version("0.26.0")), "v26")
+        self.assertEqual(_VERSION_MAP.get(_base_version("0.26.0+cpu")), "v26")
+        self.assertEqual(_VERSION_MAP.get(_base_version("0.26.0rc1+cpu")), "v26")
+
     def test_version_family_detection_unsupported(self):
         """VERSION_MAP should return None for unsupported versions."""
         from zentorch.vllm._core import _base_version, _VERSION_MAP
@@ -216,6 +222,7 @@ class TestVersionParsing(unittest.TestCase):
             "0.23.1",
             "0.24.1",
             "0.25.2",
+            "0.26.1",
             "1.0.0",
         ]
         for ver in unsupported:
@@ -454,6 +461,33 @@ class TestVllmPluginVersionCheck(unittest.TestCase):
 
             with (
                 mock.patch.object(zv, "get_version_family", return_value="v25"),
+                mock.patch.object(zv, "_apply_faketensor_subclass_patch"),
+                mock.patch.object(zv, "_apply_fxgraphcache_pickle_patch"),
+                mock.patch.object(zv, "_apply_torchao_int8_tensor_patch_impl"),
+                mock.patch.object(zv, "_register_patches") as register_patches,
+                mock.patch.object(zv.manager, "apply_all") as apply_all,
+                mock.patch.object(zv, "_install_pre_v18_dispatch_hooks") as install_hooks,
+                mock.patch("zentorch._C.is_avx512_supported", return_value=True),
+            ):
+                result = zv.register()
+
+            self.assertEqual(result, "zentorch.vllm._platform.ZenCPUPlatform")
+            register_patches.assert_called_once_with()
+            apply_all.assert_called_once_with()
+            install_hooks.assert_not_called()
+
+    def test_register_accepts_v26_runtime(self):
+        """register() should accept vLLM 0.26.0 as a supported runtime version."""
+        spec, zv = _load_source_vllm_module()
+        fake_vllm = types.ModuleType("vllm")
+        fake_vllm.__version__ = "0.26.0"
+
+        with mock.patch.dict(sys.modules, {"zentorch.vllm": zv, "vllm": fake_vllm}):
+            spec.loader.exec_module(zv)
+            zv._INITIALIZED = False
+
+            with (
+                mock.patch.object(zv, "get_version_family", return_value="v26"),
                 mock.patch.object(zv, "_apply_faketensor_subclass_patch"),
                 mock.patch.object(zv, "_apply_fxgraphcache_pickle_patch"),
                 mock.patch.object(zv, "_apply_torchao_int8_tensor_patch_impl"),
@@ -758,6 +792,10 @@ class TestPlatformProfilerPatchVersionRange(unittest.TestCase):
             ("0.25.1+cpu", True),
             ("0.25.1rc1+cpu", True),
             ("0.25.2", False),
+            ("0.26.0", True),
+            ("0.26.0+cpu", True),
+            ("0.26.0rc1+cpu", True),
+            ("0.26.1", False),
         ]
 
         for version_str, expected in cases:
@@ -1201,12 +1239,22 @@ class TestGatedDeltaNetPatch(unittest.TestCase):
             VLLM_V24,
             VLLM_V25,
             VLLM_V25_1,
+            VLLM_V26,
         )
 
         self.assertTrue(hasattr(GatedDeltaNetPatch, "_target_versions"))
         self.assertEqual(
             GatedDeltaNetPatch._target_versions,
-            {VLLM_V21, VLLM_V22, VLLM_V22_1, VLLM_V23, VLLM_V24, VLLM_V25, VLLM_V25_1},
+            {
+                VLLM_V21,
+                VLLM_V22,
+                VLLM_V22_1,
+                VLLM_V23,
+                VLLM_V24,
+                VLLM_V25,
+                VLLM_V25_1,
+                VLLM_V26,
+            },
         )
 
 
