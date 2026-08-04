@@ -11,6 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent))
 
+import copy  # noqa: E402
 import unittest  # noqa: E402
 import torch  # noqa: E402
 from torch.testing import FileCheck  # noqa: E402
@@ -27,6 +28,9 @@ from unittest_utils import (  # noqa: E402
     freeze_opt,
     cpp_wrapper_opt,
     test_with_freeze_opt_and_cpp_wrapper,
+    batch_opt,
+    in_features_opt,
+    out_features_opt,
 )
 from woq_test_utils import WOQ_Linear_Model  # noqa: E402
 
@@ -90,7 +94,11 @@ class Test_WOQ_Linear_Binary_Binary_Fusion(WOQTestCase):
     def _assert_fusion_replaced(
         self, model, x, counter_key, pattern_description, freeze_opt=False, cpp_wrapper=False
     ):
-        eager_out = model(x)
+        # Reference: compile a clone of the model with the inductor backend.
+        reset_dynamo()
+        inductor_graph = torch.compile(copy.deepcopy(model), backend="inductor")
+        inductor_out = inductor_graph(x)
+
         reset_dynamo()
         compiled = torch.compile(model, backend="zentorch")
         counters.clear()
@@ -104,35 +112,27 @@ class Test_WOQ_Linear_Binary_Binary_Fusion(WOQTestCase):
             f"{pattern_description} should be replaced by exactly one "
             f"{counter_key}",
         )
+        self.assertEqual(compiled_out.dtype, inductor_out.dtype)
         self.assertTrue(
-            torch.allclose(compiled_out, eager_out, rtol=1e-2, atol=1e-2),
-            f"Compiled {pattern_description} output should match eager.",
+            torch.allclose(compiled_out, inductor_out, rtol=1e-2, atol=1e-2),
+            f"Compiled {pattern_description} output should match the "
+            f"inductor-compiled reference.",
         )
         # Pillar 2 (codegen): op lowers to its AOTI C-shim (see helper docstring).
         if cpp_wrapper:
             FileCheck().check("aoti_torch_cpu_zentorch").run(cpp_code)
 
-    # Test Fails while generalising test
-    # Bug has been reported Jira ID: ZENAI-3716
-    # @WOQTestCase.hypothesis_params_woq_itr(
-    #     dtype_opt_list=woq_dtypes,
-    #     batch_opt_list=batch_opt,
-    #     in_features_opt_list=in_features_opt,
-    #     out_features_opt_list=out_features_opt,
-    #     bias_opt_list=woq_bias_opt,
-    #     freeze_list=freeze_opt,
-    #     cpp_wrapper_opt_list=cpp_wrapper_opt,
-    # )
-    # TODO: Pass freeze_opt for freeze_list instead of only [False].
-    #       Test fails when freeze_opt is True.
-    #       Bug has been reported Jira ID: ZENAI-3867
+        # Pinned bias_opt_list to [True]: the add-add fusion has no bias check, so bias=False
+        # falls back to plain zentorch_woq_linear and skips the fusion under test.
+        # The bias check was not added since the bias=False pattern was not
+        # observed in any models.
     @WOQTestCase.hypothesis_params_woq_itr(
         dtype_opt_list=woq_dtypes,
-        batch_opt_list=[4],
-        in_features_opt_list=[64],
-        out_features_opt_list=[48],
+        batch_opt_list=batch_opt,
+        in_features_opt_list=in_features_opt,
+        out_features_opt_list=out_features_opt,
         bias_opt_list=[True],
-        freeze_list=[False],
+        freeze_list=freeze_opt,
         cpp_wrapper_opt_list=cpp_wrapper_opt,
         # cold cpp_wrapper compile exceeds the default deadline; see
         # test_with_freeze_opt_and_cpp_wrapper in zentorch_test_utils.
