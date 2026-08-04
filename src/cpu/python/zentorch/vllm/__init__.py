@@ -595,7 +595,7 @@ def _moe_forward_zentorch(
             f"Must be one of {_SUPPORTED_MOE_ACTIVATIONS}"
         )
 
-    # Op accumulates into output -> caller must zero-initialize.
+    # Op's reduce post-op writes every element -> no zero-init needed.
     output = torch.empty_like(input)
 
     if apply_router_weight_on_input:

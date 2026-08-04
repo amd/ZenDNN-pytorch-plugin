@@ -455,8 +455,8 @@ build_token_expert_mapping(const at::Tensor &input, const at::Tensor &topk_id) {
 // into this op). The C++ op trusts its inputs and assumes:
 //
 //   input          : 2D [T, H], f32, bf16, or fp16, contiguous
-//   output         : 2D [T, H], same dtype as input, ZERO-INITIALIZED
-//                    (Phase 5 accumulates into it)
+//   output         : 2D [T, H], same dtype as input, UNINITIALIZED
+//                    (Phase 5's reduce writes every element)
 //   w13            : 3D [E, 2*I, H], same dtype as input
 //   w2             : 3D [E, H, I],   same dtype as input
 //   w13_bias       : None or [E, 2*I] (same dtype as input)

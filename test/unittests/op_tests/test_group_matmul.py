@@ -36,6 +36,17 @@ TOLERANCES = {
 }
 
 
+def moe_output_buffer(num_tokens, hidden_dim, dtype):
+    """NaN-filled MoE output buffer.
+
+    The weighted-reduce post-op overwrites every element, so callers do not need
+    to zero-initialize. Poisoning with NaN makes any element the
+    kernel fails to write surface as a mismatch against the finite reference
+    instead of silently passing on a leftover value.
+    """
+    return torch.full((num_tokens, hidden_dim), float("nan"), dtype=dtype)
+
+
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class Test_GroupMatmul(GroupMatmulTestCase):
     """Hypothesis-based tests for zentorch_group_matmul.out."""
@@ -228,7 +239,7 @@ class Test_GroupMatmul(GroupMatmulTestCase):
             hidden_states, topk_indices, num_experts, K, N
         )
         w13 = self.data.w13_weights
-        moe_output = torch.zeros(num_tokens, N, dtype=torch_dtype)
+        moe_output = moe_output_buffer(num_tokens, N, torch_dtype)
 
         is_reduced_precision = torch_dtype in (torch.bfloat16, torch.float16)
         ref_experts = self._reference_expert_outputs(
@@ -517,7 +528,7 @@ class Test_GroupMatmul(GroupMatmulTestCase):
             ref_act_moe, topk_weights_t, topk_indices, num_tokens, topk
         )
 
-        moe_reduce_act = torch.zeros(num_tokens, K_out, dtype=torch_dtype)
+        moe_reduce_act = moe_output_buffer(num_tokens, K_out, torch_dtype)
 
         torch.ops.zentorch.zentorch_group_matmul.out(
             [],
@@ -565,7 +576,7 @@ class Test_GroupMatmul(GroupMatmulTestCase):
         w2_scales_3d = torch.stack(w2_scales, dim=0)
         w2_bias_3d = torch.stack(w2_bias, dim=0)
 
-        fused_moe_output = torch.zeros(num_tokens, K_out, dtype=torch_dtype)
+        fused_moe_output = moe_output_buffer(num_tokens, K_out, torch_dtype)
         torch.ops.zentorch.zentorch_fused_moe(
             fused_moe_output,
             hidden_states,
@@ -670,7 +681,7 @@ class Test_GroupMatmul(GroupMatmulTestCase):
         w2_scales_3d = torch.stack(w2_scales, dim=0)
         w2_bias_3d = torch.stack(w2_bias, dim=0)
 
-        fused_moe_output = torch.zeros(num_tokens, K_out, dtype=torch_dtype)
+        fused_moe_output = moe_output_buffer(num_tokens, K_out, torch_dtype)
         torch.ops.zentorch.zentorch_fused_moe(
             fused_moe_output,
             hidden_states,
@@ -836,7 +847,7 @@ class Test_GroupMatmul(GroupMatmulTestCase):
         w13_bias_active = [w13_bias[e] for e in active_ids]
         w2_bias_active = [w2_bias[e] for e in active_ids]
 
-        moe_reduce_output = torch.zeros(num_tokens, K_out, dtype=torch_dtype)
+        moe_reduce_output = moe_output_buffer(num_tokens, K_out, torch_dtype)
         gate_up_outputs = [
             torch.empty(t.size(0), N, dtype=torch_dtype) for t in inputs_active
         ]
@@ -863,7 +874,7 @@ class Test_GroupMatmul(GroupMatmulTestCase):
         w2_3d = torch.stack(w2_weights, dim=0)
         w2_bias_3d = torch.stack(w2_bias, dim=0)
 
-        fused_moe_output = torch.zeros(num_tokens, K_out, dtype=torch_dtype)
+        fused_moe_output = moe_output_buffer(num_tokens, K_out, torch_dtype)
         torch.ops.zentorch.zentorch_fused_moe(
             fused_moe_output,
             hidden_states,

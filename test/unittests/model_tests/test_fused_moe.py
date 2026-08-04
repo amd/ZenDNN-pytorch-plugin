@@ -25,7 +25,7 @@ supported_dtypes = update_supported_dtypes(supported_dtypes)
 
 
 class _FusedMoeModule(torch.nn.Module):
-    """Allocates the (zero-init) output inside forward, invokes the
+    """Allocates the (uninitialized) output inside forward, invokes the
     void-returning zentorch_fused_moe (which mutates it in place), and returns
     it -- so a torch.compile of this module puts the op into the graph. Under
     backend='zentorch' + cpp_wrapper this exercises the
@@ -46,7 +46,7 @@ class _FusedMoeModule(torch.nn.Module):
         self.act = act
 
     def forward(self, hidden_states):
-        out = torch.zeros(
+        out = torch.empty(
             self.num_tokens, self.k_out, dtype=hidden_states.dtype
         )
         torch.ops.zentorch.zentorch_fused_moe(

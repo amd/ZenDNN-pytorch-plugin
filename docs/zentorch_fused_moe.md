@@ -20,7 +20,7 @@ The C++ op assembles the per-active-expert input buffers and the routing metadat
 The op is the C++ landing pad for vLLM's `CPUFusedMOE` forward (patched by `src/cpu/python/zentorch/vllm/__init__.py`); its schema mirrors vLLM's `cpu_fused_moe` signature so the patched dispatch can swap the op name without touching call sites.
 
 > **Note:**
-> - The op is an **out variant**: `output` is allocated and zero-initialised by the caller and mutated in place. The schema marks it `Tensor(a!)` and the op returns `()`.
+> - The op is an **out variant**: `output` is allocated by the caller and mutated in place. The schema marks it `Tensor(a!)` and the op returns `()`. The caller does **not** need to zero-initialise it — the weighted-reduce post-op writes every `[T, H]` element (the `k = 0` slot initialises, `k > 0` accumulate).
 > - All shape / dtype / bias validation is performed once in the Python patch layer (`vllm/__init__.py`) — the C++ op trusts its inputs.
 > - Only experts that actually receive at least one routed token are materialised in Phase 1 and forwarded to the backend (the **active set** of size E_a ≤ E).
 
@@ -47,7 +47,7 @@ The MicroGemm path requires offline prepacking of weights (and a separate quanti
 
 ```python
 torch.ops.zentorch.zentorch_fused_moe(
-    output,         # Tensor(a!), [T, H], same dtype as input, ZERO-INITIALIZED
+    output,         # Tensor(a!), [T, H], same dtype as input, uninitialized
     input,          # Tensor, [T, H], bf16 / f32 / fp16, contiguous
     w13,            # Tensor, [E, 2*I, H], same dtype as input (or int8)
     w2,             # Tensor, [E, H, I],   same dtype as input (or int8)
@@ -67,7 +67,7 @@ torch.ops.zentorch.zentorch_fused_moe(
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `output` | Tensor (bf16/f32/f16) | `[T, H]`. **Out parameter**: allocated and zero-initialised by the caller. The op accumulates per-token reduced expert outputs into it. |
+| `output` | Tensor (bf16/f32/f16) | `[T, H]`. **Out parameter**: allocated (uninitialised) by the caller. The op fully overwrites it with the per-token reduced expert outputs. |
 | `input` | Tensor (bf16/f32/f16) | `[T, H]` token activations. Contiguous. |
 | `w13` | Tensor (bf16/f32/int8/f16) | `[E, 2*I, H]` gate+up projection weights (concatenated). Sliced per-active-expert via `select(0, e)`. When int8, `w13_scales` is required. |
 | `w2` | Tensor (bf16/f32/int8/f16) | `[E, H, I]` down-projection weights. Sliced per-active-expert via `select(0, e)`. When int8, `w2_scales` is required. |
@@ -85,7 +85,7 @@ torch.ops.zentorch.zentorch_fused_moe(
 
 | Constraint | Condition |
 |-----------|-----------|
-| `output` | 2D `[T, H]`, same dtype as `input`, **zero-initialised** by caller |
+| `output` | 2D `[T, H]`, same dtype as `input`. Incoming contents are fully overwritten, so zero-init is not required |
 | `input` dtype | `torch.bfloat16`, `torch.float32`, or `torch.float16` (fp16 requires AVX-512 FP16 hardware support) |
 | `input` layout | 2D `[T, H]`, contiguous |
 | `w13`, `w2` dtype | Same dtype as `input`, or `torch.int8` (dynamic int8 quantization) |

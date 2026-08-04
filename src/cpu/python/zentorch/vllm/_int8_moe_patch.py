@@ -120,7 +120,6 @@ def _cpu_int8_moe(
             local_topk_ids_fast = local_topk_ids_raw
             topk_weights_fast = topk_weights
 
-        output.zero_()
         input_for_op = hidden_states
         if apply_router_weight_on_input:
             if top_k != 1:
