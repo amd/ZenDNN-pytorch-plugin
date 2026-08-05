@@ -17,7 +17,6 @@
 #
 #   2. Validate a specific request and emit machine-readable results:
 #        ./check_hardware.sh --mode multi --instances 4 --cpi 32
-#        ./check_hardware.sh --mode single --cpi 64
 #
 # Human-readable summary goes to STDERR. Machine-readable KEY=VALUE lines go to
 # STDOUT so a caller can capture them, e.g.:
@@ -30,27 +29,22 @@
 
 set -uo pipefail
 
-MODE=""          # single | multi | (empty = topology only)
+MODE=""          # multi | (empty = topology only)
 REQ_N=""
 REQ_CPI=""
 QUIET=0
 EXCLUDE=""       # cpuset to remove from the physical-core pool (e.g. nginx cores)
 SLICES=0         # when 1, emit per-instance SLICE_i cpusets from the physical list
-RESERVE_TAIL=0   # reserve the last N physical cores (e.g. for a host GuideLLM client)
 
 usage() {
   cat >&2 <<EOF
-Usage: $0 [--mode single|multi] [--instances N] [--cpi C] [--quiet] [--exclude SET] [--slices] [--reserve-tail N]
-  --mode single    force N=1 (only --cpi is used)
-  --mode multi     N instances of C cores each
+Usage: $0 [--mode multi] [--instances N] [--cpi C] [--quiet] [--exclude SET] [--slices]
+  --mode multi     N instances of C cores each (the only mode; omit for a
+                   topology summary with no request validation)
   -n, --instances N
   -c, --cpi C
   --exclude SET    cpuset removed from the physical-core pool before sizing/slicing
-                   (e.g. reserve nginx/host cores: --exclude 0-7)
-  --reserve-tail N reserve the LAST N physical cores (after --exclude) out of the
-                   pool and emit them as TAIL_CPUSET (e.g. pin a host GuideLLM
-                   client off the vLLM cores). vLLM sizing/slicing uses what is
-                   left after this reservation.
+                   (e.g. reserve the nginx + guidellm bands: --exclude 0-31)
   --slices         also emit per-instance SLICE_1..SLICE_N cpusets (physical cores)
   --quiet          suppress the human summary on stderr
 EOF
@@ -63,13 +57,19 @@ while [[ $# -gt 0 ]]; do
     -n|--instances)  REQ_N="$2"; shift 2 ;;
     -c|--cpi)        REQ_CPI="$2"; shift 2 ;;
     --exclude)       EXCLUDE="$2"; shift 2 ;;
-    --reserve-tail)  RESERVE_TAIL="$2"; shift 2 ;;
     --slices)        SLICES=1; shift ;;
     --quiet)         QUIET=1; shift ;;
     -h|--help)       usage ;;
     *) echo "Unknown arg: $1" >&2; usage ;;
   esac
 done
+
+# `multi` is the only mode this skill supports (N instances behind an NGINX LB);
+# N=1 is a legal multi request, not a separate mode.
+if [[ -n "$MODE" && "$MODE" != "multi" ]]; then
+  echo "ERROR: --mode '$MODE' is not supported; only 'multi' (N>=1) exists." >&2
+  exit 2
+fi
 
 log() { [[ "$QUIET" == "1" ]] || echo "$@" >&2; }
 
@@ -178,22 +178,6 @@ compress_cpuset() {
   compress_ids "${AVAIL_CPUS[@]:0:count}"
 }
 
-# --- reserve tail cores (e.g. for a host GuideLLM client) ---
-# Carve the LAST RESERVE_TAIL physical cores out of AVAIL_CPUS and expose them
-# as TAIL_CPUSET. vLLM sizing/slicing below then only sees the remaining cores.
-TAIL_CPUSET=""
-if [[ "$RESERVE_TAIL" =~ ^[0-9]+$ ]] && (( RESERVE_TAIL > 0 )); then
-  if (( ${#AVAIL_CPUS[@]} > RESERVE_TAIL )); then
-    _tail_ids=( "${AVAIL_CPUS[@]: -RESERVE_TAIL}" )
-    TAIL_CPUSET="$(compress_ids "${_tail_ids[@]}")"
-    AVAIL_CPUS=( "${AVAIL_CPUS[@]:0:${#AVAIL_CPUS[@]}-RESERVE_TAIL}" )
-    AVAIL_CORES="${#AVAIL_CPUS[@]}"
-    log "  Reserved tail cores for host client: $TAIL_CPUSET ($AVAIL_CORES cores left for vLLM)"
-  else
-    log "  WARNING: --reserve-tail $RESERVE_TAIL >= available cores ($AVAIL_CORES); not reserving a tail."
-  fi
-fi
-
 # --- summary ---
 log "==================== hardware ===================="
 log "  Sockets:            $SOCKETS"
@@ -211,7 +195,6 @@ FITS="n/a"
 CPUSET=""
 SLICE_LINES=()
 if [[ -n "$MODE" ]]; then
-  if [[ "$MODE" == "single" ]]; then REQ_N=1; fi
   [[ -z "$REQ_N"   ]] && REQ_N="$REC_N"
   [[ -z "$REQ_CPI" ]] && REQ_CPI="$REC_CPI"
 
@@ -264,7 +247,6 @@ echo "REQ_N=${REQ_N:-}"
 echo "REQ_CPI=${REQ_CPI:-}"
 echo "FITS=$FITS"
 echo "CPUSET=$CPUSET"
-echo "TAIL_CPUSET=$TAIL_CPUSET"
 if ((${#SLICE_LINES[@]})); then for _l in "${SLICE_LINES[@]}"; do echo "$_l"; done; fi
 
 # Exit non-zero when a concrete request was made and does not fit, so callers

@@ -9,3 +9,12 @@ __pycache__
 benchmark/recsys/dlrmv2-mlperf/mlperf.conf
 benchmark/recsys/dlrmv2-mlperf/output
 .hypothesis
+
+# benchmark-vllm skill: vendored external harness clone + run artifacts
+.claude/skills/benchmark-vllm/harness/vllm-cpu-perf-eval/
+.claude/skills/benchmark-vllm/generated/
+.claude/skills/benchmark-vllm/results/
+.claude/skills/benchmark-vllm/tmp/
+.claude/skills/benchmark-vllm/harness/generated/
+.claude/skills/benchmark-vllm/harness/sweep-logs/
+.claude/skills/benchmark-vllm/harness/tmp/

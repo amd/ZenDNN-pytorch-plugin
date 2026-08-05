@@ -40,6 +40,7 @@ source of truth):
 | [`build-vllm-zentorch`](.claude/skills/build-vllm-zentorch/SKILL.md) | Install vLLM (pip CPU wheel or source, optionally with PR cherry-picks) plus zentorch against a local ZenDNN | Read `SKILL.md`: interactive, no single entry point. Delegates the wheel build to `.claude/skills/build-zentorch-from-source/scripts/build.sh --for-vllm` |
 | [`test-zentorch-unit`](.claude/skills/test-zentorch-unit/SKILL.md) | Run tests (unit, op, model, misc, export, vLLM, LLM, pre-trained) | `.claude/skills/test-zentorch-unit/scripts/test.sh [scope]` |
 | [`lint-zentorch-source`](.claude/skills/lint-zentorch-source/SKILL.md) | Lint Python (flake8), C++ (git clang-format), shell (shellcheck) | `.claude/skills/lint-zentorch-source/scripts/lint.sh <python\|cpp\|shell>` |
+| [`benchmark-vllm`](.claude/skills/benchmark-vllm/SKILL.md) | Benchmark vLLM on CPU: N cpuset-pinned `vllm serve` containers behind an NGINX load balancer, driven by GuideLLM (throughput profile at rates 32,64+; latency profile at 1,2,4,8) | `.claude/skills/benchmark-vllm/scripts/setup-harness.sh` once, then `.claude/skills/benchmark-vllm/scripts/bench.sh` |
 
 ## Project overview
 
