@@ -5,26 +5,20 @@
 
 """Model test for the qlinear pattern-matcher pass (`replace_with_zentorch_qops`).
 
-The pass folds a PT2E `dequantize -> zentorch_addmm/mm -> ...` chain into a
-single `zentorch_qlinear`. This drives it through the real compile flow: a Linear
-is X86Inductor-quantized, then run with `backend="inductor"` (the int8-GEMM
-reference) and `backend="zentorch"`. Hypothesis parameterises dtype,
-`input_dim` {2, 3} (2-D addmm/mm roots and 3-D view-wrapped roots), bias,
-freezing, and cpp_wrapper, and each example asserts:
-
-  * exactly one `zentorch_qlinear` replaced the chain (counter),
-  * numeric parity with the inductor reference, and
-  * no `aten.full`-derived `*fused*full*` kernel -- the rewrite interns scalar
-    qparams as `get_attr` constants instead of materialising them per call.
+The pass folds a PT2E `dequantize -> zentorch_addmm/mm` chain into a single
+`zentorch_qlinear`. A Linear is X86Inductor-quantized and run through the real
+compile flow with `backend="inductor"` (int8-GEMM reference) and
+`backend="zentorch"`, asserting the counter, numeric parity (Pillar 1), and --
+on cpp_wrapper runs -- the qlinear AOTI shim with no `aten.full`-derived
+`*full*` kernel (Pillar 2).
 """
 
 import copy
 import unittest
 import torch
+from torch.testing import FileCheck
 import sys
 from pathlib import Path
-
-from torch._inductor.utils import run_and_get_code
 
 sys.path.append(str(Path(__file__).parent.parent))
 from unittest_utils import (  # noqa: 402
@@ -42,9 +36,8 @@ from unittest_utils import (  # noqa: 402
 
 
 def quantize_linear_pt2e(model, example_inputs):
-    """PT2E-quantize `model` with the X86InductorQuantizer (uint8 per-tensor
-    activations, int8 per-channel weights) -- the recipe that produces the
-    `dequantize -> addmm/mm` chain the pass matches."""
+    """PT2E-quantize with the X86InductorQuantizer (uint8 per-tensor activations,
+    int8 per-channel weights) -- the recipe the pass matches."""
     from torchao.quantization.pt2e import move_exported_model_to_eval
     from torchao.quantization.pt2e.quantize_pt2e import prepare_pt2e, convert_pt2e
     from torchao.quantization.pt2e.quantizer.x86_inductor_quantizer import (
@@ -100,7 +93,7 @@ class Test_Qlinear_Pattern_Matcher_Model(QLinearTestCase):
         torch_dtype = self.data.get_torch_type(dtype)
         M, N = max(2, self.data.m), max(2, self.data.n)
         B = max(2, self.data.b)
-        # 3-D adds the view-wrapped roots that fold into the same N-D qlinear.
+        # 3-D exercises the view-wrapped roots.
         shape = (B, M) if input_dim == 2 else (B, max(2, self.data.p), M)
 
         model = Model(M, N, bias=bool(bias_opt_idx))
@@ -124,25 +117,20 @@ class Test_Qlinear_Pattern_Matcher_Model(QLinearTestCase):
 
         reset_dynamo()
         zentorch_compiled = torch.compile(zentorch_qmodel, backend="zentorch")
-        # Apply freezing/cpp_wrapper via the shared helper, wrapped in
-        # run_and_get_code to capture the generated kernels.
-        zentorch_output, codes = run_and_get_code(
-            test_with_freeze_opt_and_cpp_wrapper,
-            zentorch_compiled,
-            (inputs,),
-            freeze_opt,
-            cpp_wrapper,
+        # Helper returns (output, generated C++ or None).
+        zentorch_output, cpp_code = test_with_freeze_opt_and_cpp_wrapper(
+            zentorch_compiled, (inputs,), freeze_opt, cpp_wrapper
         )
 
-        # The dq -> zentorch_addmm/mm chain folds into exactly one qlinear
-        # (bias -> addmm root, no bias -> mm root; 3-D adds the view wrappers).
         self.assertEqual(counters["zentorch"]["zentorch_qlinear"], 1)
-        # Scalar qparams must intern as get_attr constants, never an aten.full
-        # that Inductor fuses into a per-call *full* kernel.
-        self.assertTrue(codes, "no generated code captured")
-        self.assertNotRegex("\n".join(codes), r"fused\w*full")
         # TODO: align with ZenDNN library on tensor gen and tolerances.
         self.assertEqual(native_output, zentorch_output, atol=1e-2, rtol=1e-2)
+
+        # Scalar qparams must stay interned constants, never an aten.full that
+        # Inductor materialises into a per-call *full* kernel.
+        if cpp_wrapper:
+            FileCheck().check("aoti_torch_cpu_zentorch_qlinear").run(cpp_code)
+            self.assertNotRegex(cpp_code, r"fused\w*full")
 
 
 if __name__ == "__main__":
