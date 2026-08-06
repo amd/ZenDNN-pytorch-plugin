@@ -7,6 +7,7 @@ import unittest
 import torch
 from torch import nn
 from torch.testing import FileCheck
+from torch._inductor import config as inductor_config
 import sys
 from pathlib import Path
 
@@ -40,6 +41,9 @@ class Custom_Model_Embedding(nn.Module):
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class Test_Embedding_Model(EmbTestCase):
+    # Caches disabled: the `zentorch_embedding_out` lowering counter asserted
+    # below is short-circuited on an FxGraphCache hit.
+    @inductor_config.patch(force_disable_caches=True)
     @EmbTestCase.hypothesis_params_emb_itr(
         dtype_list=supported_dtypes, freeze_list=freeze_opt
     )
@@ -53,10 +57,12 @@ class Test_Embedding_Model(EmbTestCase):
         compiled_graph = torch.compile(model, backend="zentorch")
         counters.clear()
         self.assertEqual(counters["zentorch"]["zentorch_embedding"], 0)
+        self.assertEqual(counters["zentorch"]["zentorch_embedding_out"], 0)
         compiled_graph_output = test_with_freeze_opt(
             compiled_graph, (input), freeze_opt
         )
         self.assertEqual(counters["zentorch"]["zentorch_embedding"], 1)
+        self.assertEqual(counters["zentorch"]["zentorch_embedding_out"], 1)
         self.assertEqual(model_output, compiled_graph_output)
 
 
@@ -65,11 +71,12 @@ class _EmbeddingModule(torch.nn.Module):
 
     torch.compile places an ``aten.embedding`` in the graph. Under
     ``backend="zentorch"`` it is replaced by ``zentorch_embedding`` and, with
-    ``cpp_wrapper``, lowered through the ``aoti_torch_cpu_zentorch_embedding``
-    shim + FallbackKernel. The eager forward runs the same nn.Embedding and
-    serves as the numerical reference. The weight is kept trainable
-    (``freeze=False``) so the op is not const-folded away before the zentorch
-    replacement runs.
+    ``cpp_wrapper``, lowered through an ``ExternKernelOut`` to the out-variant
+    ``aoti_torch_cpu_zentorch_embedding_out`` shim (Inductor allocates the
+    output buffer and passes it as ``out``). The eager forward runs the same
+    nn.Embedding and serves as the numerical reference. The weight is kept
+    trainable (``freeze=False``) so the op is not const-folded away before the
+    zentorch replacement runs.
     """
 
     def __init__(self, weight, padding_idx, scale_grad_by_freq, sparse):
@@ -93,7 +100,7 @@ class Test_Embedding_Shim_Model(EmbTestCase):
                             is replaced by zentorch_embedding) matches the eager
                             reference.
       Pillar 2 (codegen):   under cpp_wrapper the op lowers through the
-                            aoti_torch_cpu_zentorch_embedding shim.
+                            aoti_torch_cpu_zentorch_embedding_out shim.
     A Hypothesis test sweeps the (dtype x sparse x scale_grad x freeze x
     cpp_wrapper) combinations."""
 
@@ -132,9 +139,11 @@ class Test_Embedding_Shim_Model(EmbTestCase):
         self.assertEqual(zentorch_out.dtype, eager_out.dtype)
         self.assertEqual(zentorch_out, eager_out, atol=1e-3, rtol=1e-3)
 
-        # Pillar 2 (codegen): op lowers to its AOTI C-shim (see helper docstring).
+        # Pillar 2 (codegen): op lowers to its out-variant AOTI C-shim.
         if cpp_wrapper:
-            FileCheck().check("aoti_torch_cpu_zentorch").run(cpp_code)
+            FileCheck().check("aoti_torch_cpu_zentorch_embedding_out").run(
+                cpp_code
+            )
 
 
 if __name__ == "__main__":

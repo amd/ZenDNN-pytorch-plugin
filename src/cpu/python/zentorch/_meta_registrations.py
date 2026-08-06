@@ -274,6 +274,19 @@ def meta_zentorch_embedding(
     return output
 
 
+@register_meta("zentorch_embedding", "out")
+def meta_zentorch_embedding_out(
+    weight,
+    indices,
+    padding_idx=-1,
+    scale_grad_by_freq=False,
+    sparse=False,
+    zentorch_op_name="zentorch::zentorch_embedding_out",
+    out=None,
+):
+    return
+
+
 @register_meta("zentorch_horizontal_embedding_bag_group")
 def meta_zentorch_horizontal_embedding_bag_group(
     weight,

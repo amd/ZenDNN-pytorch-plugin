@@ -266,6 +266,13 @@ AOTI_TORCH_EXPORT AOTITorchError aoti_torch_cpu_zentorch_embedding(
     bool scale_grad_by_freq, bool sparse, const char *zentorch_op_name,
     AtenTensorHandle *ret0);
 
+// Out variant (`zentorch_embedding.out`): void return; writes into the
+// Inductor-allocated `out` buffer passed as the first arg.
+AOTI_TORCH_EXPORT AOTITorchError aoti_torch_cpu_zentorch_embedding_out(
+    AtenTensorHandle out, AtenTensorHandle weight, AtenTensorHandle indices,
+    int64_t padding_idx, bool scale_grad_by_freq, bool sparse,
+    const char *zentorch_op_name);
+
 #ifdef __cplusplus
 } // extern "C"
 #endif

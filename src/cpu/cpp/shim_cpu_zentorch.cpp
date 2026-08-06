@@ -650,6 +650,20 @@ AOTITorchError aoti_torch_cpu_zentorch_embedding(
   });
 }
 
+// Out variant: writes into the Inductor-allocated `out` buffer.
+AOTITorchError aoti_torch_cpu_zentorch_embedding_out(
+    AtenTensorHandle out, AtenTensorHandle weight, AtenTensorHandle indices,
+    int64_t padding_idx, bool scale_grad_by_freq, bool sparse,
+    const char *zentorch_op_name) {
+  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+    zentorch::zendnnl_embedding_impl(*tensor_handle_to_tensor_pointer(weight),
+                                     *tensor_handle_to_tensor_pointer(indices),
+                                     padding_idx, scale_grad_by_freq, sparse,
+                                     zentorch_op_name,
+                                     *tensor_handle_to_tensor_pointer(out));
+  });
+}
+
 // Void-returning, output-mutating op: `input` (Tensor(a!)) and `residual`
 // (Tensor(b!)) are written in place, no return handle.
 AOTITorchError aoti_torch_cpu_zentorch_add_rms_norm_(

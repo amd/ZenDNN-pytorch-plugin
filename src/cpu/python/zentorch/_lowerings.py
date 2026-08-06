@@ -53,13 +53,8 @@ _CACHE_IGNORE_KEY = "aot_inductor.custom_ops_to_c_shims"
 # attribute isn't there we silently skip; the only downside is that
 # FxGraphCache will keep bypassing on every compile (same regression we
 # saw before this knob was added) -- the rest of zentorch still works.
-_cache_ignore_prefix = getattr(
-    _inductor_config, "_cache_config_ignore_prefix", None
-)
-if (
-    _cache_ignore_prefix is not None
-    and _CACHE_IGNORE_KEY not in _cache_ignore_prefix
-):
+_cache_ignore_prefix = getattr(_inductor_config, "_cache_config_ignore_prefix", None)
+if _cache_ignore_prefix is not None and _CACHE_IGNORE_KEY not in _cache_ignore_prefix:
     _cache_ignore_prefix.append(_CACHE_IGNORE_KEY)
 
 add_needs_realized_inputs(
@@ -103,15 +98,55 @@ def _qlinear_codegen_args(self):
         ordered.extend(self.constant_args)
         ordered = list(self.fill_non_provided_args(ordered, self.kwargs))
         return [
-            V.graph.wrapper_code.val_to_arg_str(
-                x, self.arg_properties[i].get("type")
-            )
+            V.graph.wrapper_code.val_to_arg_str(x, self.arg_properties[i].get("type"))
             for i, x in enumerate(ordered)
         ]
     else:
         args = [V.graph.wrapper_code.val_to_arg_str(x) for x in ordered]
         args.extend(self.codegen_const_args())
         return args
+
+
+class _ZentorchExternKernelOut(ExternKernelOut):
+    """Shared base for zentorch out-variant lowerings routed through
+    ``ExternKernelOut``.
+
+    The common ``__init__`` (bind the ``.out`` overload + AOTI out-shim, capture
+    device) and ``codegen`` (make the zentorch shim declarations available, then
+    emit size asserts) live here so each op only declares two class attributes
+    and its own ``create``. Subclasses set:
+
+      * ``_zen_op_overload`` -- the ``torch.ops.zentorch.<op>.out`` OpOverload.
+      * ``_zen_shim_name``   -- the ``aoti_torch_cpu_zentorch_<op>_out`` C-shim.
+    """
+
+    # Subclasses must override both.
+    _zen_op_overload = None
+    _zen_shim_name = ""
+
+    def __init__(
+        self,
+        layout,
+        inputs,
+        constant_args=(),
+        kwargs=None,
+    ) -> None:
+        self.device_type = get_device_type(inputs[0])
+        super().__init__(
+            layout,
+            inputs,
+            constant_args,
+            kwargs,
+            op_overload=self._zen_op_overload,
+            cpp_kernel_name=self._zen_shim_name,
+        )
+
+    def codegen(self, wrapper):
+        wrapper.include_extra_header(_ZENTORCH_HEADER)
+        super().codegen(wrapper)
+
+        if isinstance(self.layout, Layout):
+            self.codegen_size_asserts(wrapper)
 
 
 class zentorch_LinearUnary(ExternKernelOut):
@@ -224,8 +259,9 @@ class zentorch_LinearUnaryBinary(ExternKernelOut):
             self.codegen_size_asserts(wrapper)
 
     @classmethod
-    def create(cls, x, w, binary_input, B, is_weight_prepacked,
-               post_op_1, post_op_2, name):
+    def create(
+        cls, x, w, binary_input, B, is_weight_prepacked, post_op_1, post_op_2, name
+    ):
         x = cls.require_contiguous(cls.realize_input(x))
         w = cls.require_contiguous(cls.realize_input(w))
         binary_input = cls.require_contiguous(cls.realize_input(binary_input))
@@ -315,8 +351,18 @@ class zentorch_LinearBinaryBinary(ExternKernelOut):
             self.codegen_size_asserts(wrapper)
 
     @classmethod
-    def create(cls, x, w, binary_input_1, binary_input_2, B,
-               is_weight_prepacked, post_op_1, post_op_2, name):
+    def create(
+        cls,
+        x,
+        w,
+        binary_input_1,
+        binary_input_2,
+        B,
+        is_weight_prepacked,
+        post_op_1,
+        post_op_2,
+        name,
+    ):
         x = cls.require_contiguous(cls.realize_input(x))
         w = cls.require_contiguous(cls.realize_input(w))
         binary_input_1 = cls.require_contiguous(cls.realize_input(binary_input_1))
@@ -411,9 +457,18 @@ class zentorch_QlinearUnary(ExternKernelAlloc):
 
     @classmethod
     def create(
-        cls, input, weight, input_scales, input_zero_points,
-        weight_scales, weight_zero_points, bias, output_scales,
-        output_zero_points, output_dtype, name,
+        cls,
+        input,
+        weight,
+        input_scales,
+        input_zero_points,
+        weight_scales,
+        weight_zero_points,
+        bias,
+        output_scales,
+        output_zero_points,
+        output_dtype,
+        name,
     ):
         # Pin input contiguity at the IR level so the kernel doesn't pay an
         # internal at::contiguous() copy on every call under cpp_wrapper.
@@ -455,7 +510,10 @@ class zentorch_QlinearUnary(ExternKernelAlloc):
 
         output_stride = FlexibleLayout.contiguous_strides(output_size)
         kernel_layout = FixedLayout(
-            device, input.get_dtype(), output_size, output_stride,
+            device,
+            input.get_dtype(),
+            output_size,
+            output_stride,
         )
         if output_dtype is None:
             kernel_layout.dtype = torch.float32
@@ -464,7 +522,9 @@ class zentorch_QlinearUnary(ExternKernelAlloc):
 
         packed = zentorch_QlinearUnary(
             layout=FixedLayout(
-                device=device, dtype=kernel_layout.dtype, size=output_size,
+                device=device,
+                dtype=kernel_layout.dtype,
+                size=output_size,
             ),
             inputs=inputs,
             constant_args=constant_args,
@@ -494,11 +554,18 @@ class zentorch_QlinearUnaryRelu(ExternKernelAlloc):
     codegen_args = _qlinear_codegen_args
 
     def __init__(
-        self, layout, inputs, constant_args=(), kwargs=None,
+        self,
+        layout,
+        inputs,
+        constant_args=(),
+        kwargs=None,
     ) -> None:
         self.device_type = get_device_type(inputs[0])
         super().__init__(
-            layout, inputs, constant_args, kwargs,
+            layout,
+            inputs,
+            constant_args,
+            kwargs,
             op_overload=torch.ops.zentorch.zentorch_qlinear_relu.default,
             cpp_kernel_name="aoti_torch_cpu_zentorch_qlinear_relu",
         )
@@ -509,9 +576,18 @@ class zentorch_QlinearUnaryRelu(ExternKernelAlloc):
 
     @classmethod
     def create(
-        cls, input, weight, input_scales, input_zero_points,
-        weight_scales, weight_zero_points, bias, output_scales,
-        output_zero_points, output_dtype, name,
+        cls,
+        input,
+        weight,
+        input_scales,
+        input_zero_points,
+        weight_scales,
+        weight_zero_points,
+        bias,
+        output_scales,
+        output_zero_points,
+        output_dtype,
+        name,
     ):
         input = cls.require_contiguous(cls.realize_input(input))
         weight.realize()
@@ -551,7 +627,10 @@ class zentorch_QlinearUnaryRelu(ExternKernelAlloc):
 
         output_stride = FlexibleLayout.contiguous_strides(output_size)
         kernel_layout = FixedLayout(
-            device, input.get_dtype(), output_size, output_stride,
+            device,
+            input.get_dtype(),
+            output_size,
+            output_stride,
         )
         if output_dtype is None:
             kernel_layout.dtype = torch.float32
@@ -560,7 +639,9 @@ class zentorch_QlinearUnaryRelu(ExternKernelAlloc):
 
         packed = zentorch_QlinearUnaryRelu(
             layout=FixedLayout(
-                device=device, dtype=kernel_layout.dtype, size=output_size,
+                device=device,
+                dtype=kernel_layout.dtype,
+                size=output_size,
             ),
             inputs=inputs,
             constant_args=constant_args,
@@ -587,11 +668,18 @@ class zentorch_QlinearUnarySigmoid(ExternKernelAlloc):
     codegen_args = _qlinear_codegen_args
 
     def __init__(
-        self, layout, inputs, constant_args=(), kwargs=None,
+        self,
+        layout,
+        inputs,
+        constant_args=(),
+        kwargs=None,
     ) -> None:
         self.device_type = get_device_type(inputs[0])
         super().__init__(
-            layout, inputs, constant_args, kwargs,
+            layout,
+            inputs,
+            constant_args,
+            kwargs,
             op_overload=torch.ops.zentorch.zentorch_qlinear_sigmoid.default,
             cpp_kernel_name="aoti_torch_cpu_zentorch_qlinear_sigmoid",
         )
@@ -602,9 +690,18 @@ class zentorch_QlinearUnarySigmoid(ExternKernelAlloc):
 
     @classmethod
     def create(
-        cls, input, weight, input_scales, input_zero_points,
-        weight_scales, weight_zero_points, bias, output_scales,
-        output_zero_points, output_dtype, name,
+        cls,
+        input,
+        weight,
+        input_scales,
+        input_zero_points,
+        weight_scales,
+        weight_zero_points,
+        bias,
+        output_scales,
+        output_zero_points,
+        output_dtype,
+        name,
     ):
         input = cls.require_contiguous(cls.realize_input(input))
         weight.realize()
@@ -644,7 +741,10 @@ class zentorch_QlinearUnarySigmoid(ExternKernelAlloc):
 
         output_stride = FlexibleLayout.contiguous_strides(output_size)
         kernel_layout = FixedLayout(
-            device, input.get_dtype(), output_size, output_stride,
+            device,
+            input.get_dtype(),
+            output_size,
+            output_stride,
         )
         if output_dtype is None:
             kernel_layout.dtype = torch.float32
@@ -653,7 +753,9 @@ class zentorch_QlinearUnarySigmoid(ExternKernelAlloc):
 
         packed = zentorch_QlinearUnarySigmoid(
             layout=FixedLayout(
-                device=device, dtype=kernel_layout.dtype, size=output_size,
+                device=device,
+                dtype=kernel_layout.dtype,
+                size=output_size,
             ),
             inputs=inputs,
             constant_args=constant_args,
@@ -680,11 +782,18 @@ class zentorch_QlinearMulAdd(ExternKernelAlloc):
     codegen_args = _qlinear_codegen_args
 
     def __init__(
-        self, layout, inputs, constant_args=(), kwargs=None,
+        self,
+        layout,
+        inputs,
+        constant_args=(),
+        kwargs=None,
     ) -> None:
         self.device_type = get_device_type(inputs[0])
         super().__init__(
-            layout, inputs, constant_args, kwargs,
+            layout,
+            inputs,
+            constant_args,
+            kwargs,
             op_overload=torch.ops.zentorch.zentorch_qlinear_mul_add.default,
             cpp_kernel_name="aoti_torch_cpu_zentorch_qlinear_mul_add",
         )
@@ -695,9 +804,20 @@ class zentorch_QlinearMulAdd(ExternKernelAlloc):
 
     @classmethod
     def create(
-        cls, input, weight, input_scales, input_zero_points,
-        weight_scales, weight_zero_points, mul_input, add_input,
-        bias, output_scales, output_zero_points, output_dtype, name,
+        cls,
+        input,
+        weight,
+        input_scales,
+        input_zero_points,
+        weight_scales,
+        weight_zero_points,
+        mul_input,
+        add_input,
+        bias,
+        output_scales,
+        output_zero_points,
+        output_dtype,
+        name,
     ):
         input = cls.require_contiguous(cls.realize_input(input))
         weight.realize()
@@ -743,7 +863,10 @@ class zentorch_QlinearMulAdd(ExternKernelAlloc):
 
         output_stride = FlexibleLayout.contiguous_strides(output_size)
         kernel_layout = FixedLayout(
-            device, input.get_dtype(), output_size, output_stride,
+            device,
+            input.get_dtype(),
+            output_size,
+            output_stride,
         )
         if output_dtype is None:
             kernel_layout.dtype = torch.float32
@@ -752,7 +875,9 @@ class zentorch_QlinearMulAdd(ExternKernelAlloc):
 
         packed = zentorch_QlinearMulAdd(
             layout=FixedLayout(
-                device=device, dtype=kernel_layout.dtype, size=output_size,
+                device=device,
+                dtype=kernel_layout.dtype,
+                size=output_size,
             ),
             inputs=inputs,
             constant_args=constant_args,
@@ -786,19 +911,26 @@ class _zentorch_QlinearOutBase(ExternKernelAlloc):
     via ``mark_buffer_mutated`` and ``get_mutation_names``.
     """
 
-    _num_required_tensors = 3   # out, input, weight
+    _num_required_tensors = 3  # out, input, weight
     _optional_tensor_presence = [True] * 7
     codegen_args = _qlinear_codegen_args
     _op_overload = None
     _cpp_kernel_name = None
 
     def __init__(
-        self, layout, inputs, constant_args=(), kwargs=None,
+        self,
+        layout,
+        inputs,
+        constant_args=(),
+        kwargs=None,
     ) -> None:
         out = inputs[0]
         self.device_type = get_device_type(out)
         super().__init__(
-            layout, inputs, constant_args, kwargs,
+            layout,
+            inputs,
+            constant_args,
+            kwargs,
             op_overload=self._op_overload,
             cpp_kernel_name=self._cpp_kernel_name,
         )
@@ -832,9 +964,17 @@ class _zentorch_QlinearOutBase(ExternKernelAlloc):
 
     @classmethod
     def _build_inputs(
-        cls, out, input, weight, input_scales, input_zero_points,
-        weight_scales, weight_zero_points, bias,
-        output_scales, output_zero_points,
+        cls,
+        out,
+        input,
+        weight,
+        input_scales,
+        input_zero_points,
+        weight_scales,
+        weight_zero_points,
+        bias,
+        output_scales,
+        output_zero_points,
     ):
         # Pin contiguity on `input` so the kernel takes its `input.view()`
         # fast-path instead of falling into `input.contiguous().view()`.
@@ -846,9 +986,13 @@ class _zentorch_QlinearOutBase(ExternKernelAlloc):
         weight.realize()
         inputs = [out, input, weight]
         optional_tensors = [
-            input_scales, input_zero_points,
-            weight_scales, weight_zero_points,
-            bias, output_scales, output_zero_points,
+            input_scales,
+            input_zero_points,
+            weight_scales,
+            weight_zero_points,
+            bias,
+            output_scales,
+            output_zero_points,
         ]
         for t in optional_tensors:
             if t is not None:
@@ -858,14 +1002,31 @@ class _zentorch_QlinearOutBase(ExternKernelAlloc):
 
     @classmethod
     def create(
-        cls, out, input, weight, input_scales, input_zero_points,
-        weight_scales, weight_zero_points, bias,
-        output_scales, output_zero_points, output_dtype, zentorch_op_name,
+        cls,
+        out,
+        input,
+        weight,
+        input_scales,
+        input_zero_points,
+        weight_scales,
+        weight_zero_points,
+        bias,
+        output_scales,
+        output_zero_points,
+        output_dtype,
+        zentorch_op_name,
     ):
         inputs, presence = cls._build_inputs(
-            out, input, weight, input_scales, input_zero_points,
-            weight_scales, weight_zero_points, bias,
-            output_scales, output_zero_points,
+            out,
+            input,
+            weight,
+            input_scales,
+            input_zero_points,
+            weight_scales,
+            weight_zero_points,
+            bias,
+            output_scales,
+            output_zero_points,
         )
         device = out.get_device()
         assert device is not None
@@ -894,7 +1055,9 @@ class zentorch_QlinearReluOut(_zentorch_QlinearOutBase):
     _cpp_kernel_name = "aoti_torch_cpu_zentorch_qlinear_relu_out"
 
 
-@register_lowering(torch.ops.zentorch.zentorch_qlinear.default, type_promotion_kind=None)
+@register_lowering(
+    torch.ops.zentorch.zentorch_qlinear.default, type_promotion_kind=None
+)
 def zentorch_qlinear_lowering(
     input: TensorBox,
     weight: TensorBox,
@@ -910,15 +1073,24 @@ def zentorch_qlinear_lowering(
 ):
     return TensorBox.create(
         zentorch_QlinearUnary.create(
-            input, weight, input_scales, input_zero_points,
-            weight_scales, weight_zero_points, bias,
-            output_scales, output_zero_points, output_dtype,
+            input,
+            weight,
+            input_scales,
+            input_zero_points,
+            weight_scales,
+            weight_zero_points,
+            bias,
+            output_scales,
+            output_zero_points,
+            output_dtype,
             zentorch_op_name,
         )
     )
 
 
-@register_lowering(torch.ops.zentorch.zentorch_qlinear_relu.default, type_promotion_kind=None)
+@register_lowering(
+    torch.ops.zentorch.zentorch_qlinear_relu.default, type_promotion_kind=None
+)
 def zentorch_qlinear_relu_lowering(
     input: TensorBox,
     weight: TensorBox,
@@ -934,9 +1106,16 @@ def zentorch_qlinear_relu_lowering(
 ):
     return TensorBox.create(
         zentorch_QlinearUnaryRelu.create(
-            input, weight, input_scales, input_zero_points,
-            weight_scales, weight_zero_points, bias,
-            output_scales, output_zero_points, output_dtype,
+            input,
+            weight,
+            input_scales,
+            input_zero_points,
+            weight_scales,
+            weight_zero_points,
+            bias,
+            output_scales,
+            output_zero_points,
+            output_dtype,
             zentorch_op_name,
         )
     )
@@ -960,14 +1139,24 @@ def zentorch_qlinear_out_lowering(
     # Routes to the C++ `.out` shim which writes directly into `out`,
     # avoiding the temp buffer + copy that `realize_into` would generate.
     zentorch_QlinearOut.create(
-        out, input, weight, input_scales, input_zero_points,
-        weight_scales, weight_zero_points, bias,
-        output_scales, output_zero_points, output_dtype,
+        out,
+        input,
+        weight,
+        input_scales,
+        input_zero_points,
+        weight_scales,
+        weight_zero_points,
+        bias,
+        output_scales,
+        output_zero_points,
+        output_dtype,
         zentorch_op_name,
     )
 
 
-@register_lowering(torch.ops.zentorch.zentorch_qlinear_relu.out, type_promotion_kind=None)
+@register_lowering(
+    torch.ops.zentorch.zentorch_qlinear_relu.out, type_promotion_kind=None
+)
 def zentorch_qlinear_relu_out_lowering(
     out: TensorBox,
     input: TensorBox,
@@ -983,14 +1172,24 @@ def zentorch_qlinear_relu_out_lowering(
     zentorch_op_name="zentorch_qlinear_relu.out",
 ):
     zentorch_QlinearReluOut.create(
-        out, input, weight, input_scales, input_zero_points,
-        weight_scales, weight_zero_points, bias,
-        output_scales, output_zero_points, output_dtype,
+        out,
+        input,
+        weight,
+        input_scales,
+        input_zero_points,
+        weight_scales,
+        weight_zero_points,
+        bias,
+        output_scales,
+        output_zero_points,
+        output_dtype,
         zentorch_op_name,
     )
 
 
-@register_lowering(torch.ops.zentorch.zentorch_qlinear_sigmoid.default, type_promotion_kind=None)
+@register_lowering(
+    torch.ops.zentorch.zentorch_qlinear_sigmoid.default, type_promotion_kind=None
+)
 def zentorch_qlinear_sigmoid_lowering(
     input: TensorBox,
     weight: TensorBox,
@@ -1006,15 +1205,24 @@ def zentorch_qlinear_sigmoid_lowering(
 ):
     return TensorBox.create(
         zentorch_QlinearUnarySigmoid.create(
-            input, weight, input_scales, input_zero_points,
-            weight_scales, weight_zero_points, bias,
-            output_scales, output_zero_points, output_dtype,
+            input,
+            weight,
+            input_scales,
+            input_zero_points,
+            weight_scales,
+            weight_zero_points,
+            bias,
+            output_scales,
+            output_zero_points,
+            output_dtype,
             zentorch_op_name,
         )
     )
 
 
-@register_lowering(torch.ops.zentorch.zentorch_qlinear_mul_add.default, type_promotion_kind=None)
+@register_lowering(
+    torch.ops.zentorch.zentorch_qlinear_mul_add.default, type_promotion_kind=None
+)
 def zentorch_qlinear_mul_add_lowering(
     input: TensorBox,
     weight: TensorBox,
@@ -1032,9 +1240,18 @@ def zentorch_qlinear_mul_add_lowering(
 ):
     return TensorBox.create(
         zentorch_QlinearMulAdd.create(
-            input, weight, input_scales, input_zero_points,
-            weight_scales, weight_zero_points, mul_input, add_input,
-            bias, output_scales, output_zero_points, output_dtype,
+            input,
+            weight,
+            input_scales,
+            input_zero_points,
+            weight_scales,
+            weight_zero_points,
+            mul_input,
+            add_input,
+            bias,
+            output_scales,
+            output_zero_points,
+            output_dtype,
             zentorch_op_name,
         )
     )
@@ -1119,7 +1336,9 @@ class _ZentorchEmbBagFallbackOutBase(_ZentorchEmbBagFallbackBase):
         args = [*self.codegen_args(), *self.codegen_kwargs()]
         device = d.type if (d := self.get_device()) else V.graph.device_type
         wrapper.generate_c_shim_extern_kernel_call(
-            self.cpp_kernel_name, args, device,
+            self.cpp_kernel_name,
+            args,
+            device,
             stack_traces=self.get_stack_traces(),
         )
         self.codegen_unbacked_symbol_defs(wrapper)
@@ -1172,16 +1391,48 @@ class _ZentorchAddRmsNorm(_ZentorchVoidShimFallbackOutBase):
     _zen_shim_name = "aoti_torch_cpu_zentorch_add_rms_norm_"
 
 
-class _ZentorchEmbedding(_ZentorchEmbBagFallbackBase):
-    """Lowering for `zentorch_embedding` (returns the gathered output Tensor).
+class zentorch_Embedding(_ZentorchExternKernelOut):
+    """Out-variant lowering for `zentorch_embedding`.
 
-    Routed to the `aoti_torch_cpu_zentorch_embedding` C-shim so cpp_wrapper
-    emits a direct call instead of the slow `custom_op_wrapper` Python path.
-    The `int` padding_idx, two `bool`s and the `str` op-name are codegened in
-    schema order by the FallbackKernel base; there are no optional tensors.
+    Mirrors the linear out-variant path: the functional `.default` op is lowered
+    to an ExternKernelOut bound to `zentorch_embedding.out` /
+    `aoti_torch_cpu_zentorch_embedding_out`, so Inductor allocates and reuses the
+    output buffer and passes it as `out`. The shared `__init__`/`codegen` come from `_ZentorchExternKernelOut`.
     """
 
-    _zen_shim_name = "aoti_torch_cpu_zentorch_embedding"
+    _zen_op_overload = torch.ops.zentorch.zentorch_embedding.out
+    _zen_shim_name = "aoti_torch_cpu_zentorch_embedding_out"
+
+    @classmethod
+    def create(cls, weight, indices, padding_idx, scale_grad_by_freq, sparse, name):
+        weight = cls.require_contiguous(cls.realize_input(weight))
+        indices = cls.require_contiguous(cls.realize_input(indices))
+
+        num_indices = indices.get_size()[0]
+        _num_embeddings, dim_embedding = weight.get_size()
+        output_size = [num_indices, dim_embedding]
+        inputs = [weight, indices]
+
+        kwargs = {
+            "padding_idx": padding_idx,
+            "scale_grad_by_freq": scale_grad_by_freq,
+            "sparse": sparse,
+            "zentorch_op_name": f"{name}_out",
+        }
+
+        device = weight.get_device()
+        assert device is not None
+
+        return zentorch_Embedding(
+            layout=FixedLayout(
+                device=device,
+                dtype=weight.get_dtype(),
+                size=output_size,
+            ),
+            inputs=inputs,
+            constant_args=(),
+            kwargs=kwargs,
+        )
 
 
 # For zentorch_quant_embedding_bag and zentorch_horizontal_quant_embedding_bag_group,
@@ -1189,6 +1440,7 @@ class _ZentorchEmbedding(_ZentorchEmbBagFallbackBase):
 # (`_ZentorchHorizontalQuantEmbBagGroupDefault`) overrides codegen to emit
 # `(handle_array, N)` to the shim instead of Inductor's default
 # `&handle_0, ..., &handle_{N-1}`.
+
 
 class _ZentorchQuantEmbBag(_ZentorchEmbBagFallbackBase):
     _zen_shim_name = "aoti_torch_cpu_zentorch_quant_embedding_bag"
@@ -1199,9 +1451,7 @@ class _ZentorchQuantEmbBagOut(_ZentorchEmbBagFallbackOutBase):
 
 
 class _ZentorchHorizontalQuantEmbBagGroupOut(_ZentorchEmbBagFallbackOutBase):
-    _zen_shim_name = (
-        "aoti_torch_cpu_zentorch_horizontal_quant_embedding_bag_group_out"
-    )
+    _zen_shim_name = "aoti_torch_cpu_zentorch_horizontal_quant_embedding_bag_group_out"
 
 
 class _ZentorchHorizontalQuantEmbBagGroupDefault(_ZentorchEmbBagFallbackBase):
@@ -1224,9 +1474,7 @@ class _ZentorchHorizontalQuantEmbBagGroupDefault(_ZentorchEmbBagFallbackBase):
     so downstream IR can reference it the usual way.
     """
 
-    _zen_shim_name = (
-        "aoti_torch_cpu_zentorch_horizontal_quant_embedding_bag_group"
-    )
+    _zen_shim_name = "aoti_torch_cpu_zentorch_horizontal_quant_embedding_bag_group"
 
     def codegen(self, wrapper):
         if not V.graph.cpp_wrapper:
@@ -1266,7 +1514,9 @@ class _ZentorchHorizontalQuantEmbBagGroupDefault(_ZentorchEmbBagFallbackBase):
 
         device = d.type if (d := self.get_device()) else V.graph.device_type
         wrapper.generate_c_shim_extern_kernel_call(
-            self.cpp_kernel_name, args, device,
+            self.cpp_kernel_name,
+            args,
+            device,
             stack_traces=self.get_stack_traces(),
         )
 
@@ -1293,9 +1543,7 @@ def _shim_routed_handler(kernel, fk_class):
         def wrap_tensors(x):
             return TensorBox.create(x) if isinstance(x, _inductor_ir.IRNode) else x
 
-        return pytree.tree_map(
-            wrap_tensors, fk_class.create(kernel, *args, **kwargs)
-        )
+        return pytree.tree_map(wrap_tensors, fk_class.create(kernel, *args, **kwargs))
 
     handler._is_fallback_handler = True  # type: ignore[attr-defined]
     return handler
@@ -1374,15 +1622,29 @@ register_lowering(
     )
 )
 
-register_lowering(
-    torch.ops.zentorch.zentorch_embedding.default,
-    type_promotion_kind=None,
-)(
-    _shim_routed_handler(
-        torch.ops.zentorch.zentorch_embedding.default,
-        _ZentorchEmbedding,
+
+@register_lowering(torch.ops.zentorch.zentorch_embedding, type_promotion_kind=None)
+def zentorch_embedding_lowering(
+    weight: TensorBox,
+    indices: TensorBox,
+    padding_idx=-1,
+    scale_grad_by_freq=False,
+    sparse=False,
+    zentorch_op_name="zentorch_embedding",
+):
+    # Bumped when lowered to the `.out` variant; lets tests confirm the
+    # compiled/exported graph took the out-variant path.
+    counters["zentorch"]["zentorch_embedding_out"] += 1
+    return TensorBox.create(
+        zentorch_Embedding.create(
+            weight,
+            indices,
+            padding_idx,
+            scale_grad_by_freq,
+            sparse,
+            zentorch_op_name,
+        )
     )
-)
 
 
 # -----------------------------------------------------------------------------
@@ -1418,11 +1680,18 @@ def _make_woq_linear_unary_class(class_name, op_overload, cpp_kernel_name):
         codegen_args = _qlinear_codegen_args
 
         def __init__(
-            self, layout, inputs, constant_args=(), kwargs=None,
+            self,
+            layout,
+            inputs,
+            constant_args=(),
+            kwargs=None,
         ) -> None:
             self.device_type = get_device_type(inputs[0])
             super().__init__(
-                layout, inputs, constant_args, kwargs,
+                layout,
+                inputs,
+                constant_args,
+                kwargs,
                 op_overload=op_overload,
                 cpp_kernel_name=cpp_kernel_name,
             )
@@ -1432,8 +1701,7 @@ def _make_woq_linear_unary_class(class_name, op_overload, cpp_kernel_name):
             super().codegen(wrapper)
 
         @classmethod
-        def create(cls, input, weight, weight_scales, weight_zero_points,
-                   bias, name):
+        def create(cls, input, weight, weight_scales, weight_zero_points, bias, name):
             # Enforce contiguous activations at the IR level so the kernel's
             # get_contiguous_view becomes a no-op. weight is in WOQ packed
             # int32 layout and must NOT be touched.
@@ -1459,7 +1727,9 @@ def _make_woq_linear_unary_class(class_name, op_overload, cpp_kernel_name):
 
             packed = cls(
                 layout=FixedLayout(
-                    device=device, dtype=input.get_dtype(), size=output_size,
+                    device=device,
+                    dtype=input.get_dtype(),
+                    size=output_size,
                 ),
                 inputs=inputs,
                 constant_args=(),
@@ -1517,11 +1787,18 @@ class zentorch_WoqLinearAdd(ExternKernelAlloc):
     codegen_args = _qlinear_codegen_args
 
     def __init__(
-        self, layout, inputs, constant_args=(), kwargs=None,
+        self,
+        layout,
+        inputs,
+        constant_args=(),
+        kwargs=None,
     ) -> None:
         self.device_type = get_device_type(inputs[0])
         super().__init__(
-            layout, inputs, constant_args, kwargs,
+            layout,
+            inputs,
+            constant_args,
+            kwargs,
             op_overload=torch.ops.zentorch.zentorch_woq_linear_add.default,
             cpp_kernel_name="aoti_torch_cpu_zentorch_woq_linear_add",
         )
@@ -1531,8 +1808,9 @@ class zentorch_WoqLinearAdd(ExternKernelAlloc):
         super().codegen(wrapper)
 
     @classmethod
-    def create(cls, input, weight, weight_scales, weight_zero_points,
-               add_input, bias, name):
+    def create(
+        cls, input, weight, weight_scales, weight_zero_points, add_input, bias, name
+    ):
         # Enforce contiguous activations + post-op buffers at the IR level
         # so the kernel's get_contiguous_view becomes a no-op.
         input = cls.require_contiguous(cls.realize_input(input))
@@ -1559,7 +1837,9 @@ class zentorch_WoqLinearAdd(ExternKernelAlloc):
 
         packed = zentorch_WoqLinearAdd(
             layout=FixedLayout(
-                device=device, dtype=input.get_dtype(), size=output_size,
+                device=device,
+                dtype=input.get_dtype(),
+                size=output_size,
             ),
             inputs=inputs,
             constant_args=(),
@@ -1577,8 +1857,7 @@ class zentorch_WoqLinearAdd(ExternKernelAlloc):
         pass
 
 
-def _make_woq_linear_binary_binary_class(class_name, op_overload,
-                                         cpp_kernel_name):
+def _make_woq_linear_binary_binary_class(class_name, op_overload, cpp_kernel_name):
     """Factory for the woq_linear_mul_add and woq_linear_add_add variants."""
 
     class _WoqLinearBinaryBinary(ExternKernelAlloc):
@@ -1587,11 +1866,18 @@ def _make_woq_linear_binary_binary_class(class_name, op_overload,
         codegen_args = _qlinear_codegen_args
 
         def __init__(
-            self, layout, inputs, constant_args=(), kwargs=None,
+            self,
+            layout,
+            inputs,
+            constant_args=(),
+            kwargs=None,
         ) -> None:
             self.device_type = get_device_type(inputs[0])
             super().__init__(
-                layout, inputs, constant_args, kwargs,
+                layout,
+                inputs,
+                constant_args,
+                kwargs,
                 op_overload=op_overload,
                 cpp_kernel_name=cpp_kernel_name,
             )
@@ -1601,19 +1887,24 @@ def _make_woq_linear_binary_binary_class(class_name, op_overload,
             super().codegen(wrapper)
 
         @classmethod
-        def create(cls, input, weight, weight_scales, weight_zero_points,
-                   binary1_input, binary2_input, bias, name):
+        def create(
+            cls,
+            input,
+            weight,
+            weight_scales,
+            weight_zero_points,
+            binary1_input,
+            binary2_input,
+            bias,
+            name,
+        ):
             # Enforce contiguous activations + post-op buffers at the IR level
             # so the kernel's get_contiguous_view becomes a no-op.
             input = cls.require_contiguous(cls.realize_input(input))
             weight.realize()
             weight_scales.realize()
-            binary1_input = cls.require_contiguous(
-                cls.realize_input(binary1_input)
-            )
-            binary2_input = cls.require_contiguous(
-                cls.realize_input(binary2_input)
-            )
+            binary1_input = cls.require_contiguous(cls.realize_input(binary1_input))
+            binary2_input = cls.require_contiguous(cls.realize_input(binary2_input))
 
             *m, _ic = input.get_size()
             # WOQ packed weight is laid out (K_packed, N); out_features = N
@@ -1635,7 +1926,9 @@ def _make_woq_linear_binary_binary_class(class_name, op_overload,
 
             packed = cls(
                 layout=FixedLayout(
-                    device=device, dtype=input.get_dtype(), size=output_size,
+                    device=device,
+                    dtype=input.get_dtype(),
+                    size=output_size,
                 ),
                 inputs=inputs,
                 constant_args=(),
@@ -1684,7 +1977,11 @@ def zentorch_woq_linear_lowering(
 ):
     return TensorBox.create(
         zentorch_WoqLinear.create(
-            input, weight, weight_scales, weight_zero_points, bias,
+            input,
+            weight,
+            weight_scales,
+            weight_zero_points,
+            bias,
             zentorch_op_name,
         )
     )
@@ -1704,7 +2001,11 @@ def zentorch_woq_linear_relu_lowering(
 ):
     return TensorBox.create(
         zentorch_WoqLinearRelu.create(
-            input, weight, weight_scales, weight_zero_points, bias,
+            input,
+            weight,
+            weight_scales,
+            weight_zero_points,
+            bias,
             zentorch_op_name,
         )
     )
@@ -1724,7 +2025,11 @@ def zentorch_woq_linear_sigmoid_lowering(
 ):
     return TensorBox.create(
         zentorch_WoqLinearSigmoid.create(
-            input, weight, weight_scales, weight_zero_points, bias,
+            input,
+            weight,
+            weight_scales,
+            weight_zero_points,
+            bias,
             zentorch_op_name,
         )
     )
@@ -1744,7 +2049,11 @@ def zentorch_woq_linear_gelu_tanh_lowering(
 ):
     return TensorBox.create(
         zentorch_WoqLinearGeluTanh.create(
-            input, weight, weight_scales, weight_zero_points, bias,
+            input,
+            weight,
+            weight_scales,
+            weight_zero_points,
+            bias,
             zentorch_op_name,
         )
     )
@@ -1764,7 +2073,11 @@ def zentorch_woq_linear_gelu_erf_lowering(
 ):
     return TensorBox.create(
         zentorch_WoqLinearGeluErf.create(
-            input, weight, weight_scales, weight_zero_points, bias,
+            input,
+            weight,
+            weight_scales,
+            weight_zero_points,
+            bias,
             zentorch_op_name,
         )
     )
@@ -1785,7 +2098,12 @@ def zentorch_woq_linear_add_lowering(
 ):
     return TensorBox.create(
         zentorch_WoqLinearAdd.create(
-            input, weight, weight_scales, weight_zero_points, add_input, bias,
+            input,
+            weight,
+            weight_scales,
+            weight_zero_points,
+            add_input,
+            bias,
             zentorch_op_name,
         )
     )
@@ -1807,8 +2125,13 @@ def zentorch_woq_linear_mul_add_lowering(
 ):
     return TensorBox.create(
         zentorch_WoqLinearMulAdd.create(
-            input, weight, weight_scales, weight_zero_points,
-            mul_input, add_input, bias,
+            input,
+            weight,
+            weight_scales,
+            weight_zero_points,
+            mul_input,
+            add_input,
+            bias,
             zentorch_op_name,
         )
     )
@@ -1830,8 +2153,13 @@ def zentorch_woq_linear_add_add_lowering(
 ):
     return TensorBox.create(
         zentorch_WoqLinearAddAdd.create(
-            input, weight, weight_scales, weight_zero_points,
-            add_input, add_input_2, bias,
+            input,
+            weight,
+            weight_scales,
+            weight_zero_points,
+            add_input,
+            add_input_2,
+            bias,
             zentorch_op_name,
         )
     )
@@ -1865,11 +2193,18 @@ def zentorch_woq_linear_add_add_lowering(
 
 class zentorch_DynamicQlinear(ExternKernelOut):
     def __init__(
-        self, layout, inputs, constant_args=(), kwargs=None,
+        self,
+        layout,
+        inputs,
+        constant_args=(),
+        kwargs=None,
     ) -> None:
         self.device_type = get_device_type(inputs[0])
         super().__init__(
-            layout, inputs, constant_args, kwargs,
+            layout,
+            inputs,
+            constant_args,
+            kwargs,
             op_overload=torch.ops.zentorch.zentorch_dynamic_qlinear.out,
             cpp_kernel_name="aoti_torch_cpu_zentorch_dynamic_qlinear_out",
         )
@@ -1903,7 +2238,9 @@ class zentorch_DynamicQlinear(ExternKernelOut):
 
         return zentorch_DynamicQlinear(
             layout=FixedLayout(
-                device=device, dtype=input.get_dtype(), size=output_size,
+                device=device,
+                dtype=input.get_dtype(),
+                size=output_size,
             ),
             inputs=inputs,
             constant_args=(),
@@ -1930,6 +2267,10 @@ def zentorch_dynamic_qlinear_lowering(
     counters["zentorch"]["zentorch_dynamic_qlinear_out"] += 1
     return TensorBox.create(
         zentorch_DynamicQlinear.create(
-            input, weight, weight_scales, bias, zentorch_op_name,
+            input,
+            weight,
+            weight_scales,
+            bias,
+            zentorch_op_name,
         )
     )

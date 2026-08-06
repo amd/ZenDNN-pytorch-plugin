@@ -18,4 +18,12 @@ at::Tensor zentorch_embedding(const at::Tensor &weight,
                               bool scale_grad_by_freq, bool sparse,
                               std::string zentorch_op_name);
 
+// zendnnl execution: writes the lookup result into `output` instead of
+// allocating. Registered directly for `zentorch_embedding.out` and reused by
+// the AOTI shim.
+void zendnnl_embedding_impl(const at::Tensor &weight, const at::Tensor &indices,
+                            int64_t padding_idx, bool scale_grad_by_freq,
+                            bool sparse, std::string zentorch_op_name,
+                            at::Tensor &output);
+
 } // namespace zentorch

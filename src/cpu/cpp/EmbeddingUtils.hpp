@@ -4,11 +4,47 @@
  ******************************************************************************/
 #pragma once
 
+#include "EnvReader.hpp"
 #include "Memory.hpp"
 
 using namespace zendnnl::interface;
 
 namespace zentorch {
+
+// Allocates the dense [num_indices, dim_embedding] output for the embedding
+// lookup. empty_strided_cpu (not at::zeros) since the kernel writes every row.
+inline at::Tensor create_embedding_output_tensor(const at::Tensor &weight,
+                                                 const at::Tensor &indices) {
+  const int64_t dim_embedding = weight.sizes()[1];
+  const int64_t num_indices = indices.sizes()[0];
+  return at::detail::empty_strided_cpu({num_indices, dim_embedding},
+                                       {dim_embedding, 1}, weight.options());
+}
+
+// Validates a caller-supplied `out` (shape/dtype/contiguity) for the embedding
+// `.out` variant. Guards non-Inductor callers. Gated by ZENTORCH_ENABLE_CHECKS.
+inline void check_embedding_out_tensor(const at::Tensor &weight,
+                                       const at::Tensor &indices,
+                                       const at::Tensor &out) {
+  const bool enable_checks = static_cast<bool>(
+      EnvReader::getEnvVariableAsInt("ZENTORCH_ENABLE_CHECKS"));
+  if (!enable_checks)
+    return;
+  ZENTORCH_CHECK(out.defined(),
+                 "'out' tensor in the embedding out variant must be defined");
+  const std::vector<int64_t> expected_sizes = {indices.sizes()[0],
+                                               weight.sizes()[1]};
+  ZENTORCH_CHECK(out.sizes() == c10::IntArrayRef(expected_sizes),
+                 "unsupported shape for 'out' tensor in the embedding out "
+                 "variant, expected ",
+                 c10::IntArrayRef(expected_sizes), " but got ", out.sizes());
+  ZENTORCH_CHECK(
+      out.is_contiguous(),
+      "'out' tensor in the embedding out variant must be contiguous");
+  ZENTORCH_CHECK(out.scalar_type() == weight.scalar_type(),
+                 "'out' tensor dtype must match weight dtype in the embedding "
+                 "out variant");
+}
 
 inline void zen_embedding_weight_check(const at::Tensor &weight) {
   const bool is_weight_bf16 =
