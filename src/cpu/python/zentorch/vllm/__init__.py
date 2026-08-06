@@ -79,9 +79,6 @@ from zentorch.vllm._gptoss_moe_loader_patch import (  # noqa: E402, F401
 from zentorch.vllm._mixtral_moe_loader_patch import (  # noqa: E402, F401
     _apply_mixtral_loader_patch_impl,
 )
-from zentorch.vllm._moe_runner_compile_patch import (  # noqa: E402, F401
-    _apply_moe_runner_compile_patch_impl,
-)
 from zentorch.vllm._moe_topk_cpu_patch import (  # noqa: E402, F401
     _apply_moe_topk_cpu_patch_impl,
 )
@@ -316,17 +313,6 @@ class MixtralMoELoaderPatch:
     @classmethod
     def apply(cls) -> bool:
         return _apply_mixtral_loader_patch_impl()
-
-
-@vllm_version(VLLM_V22_1, VLLM_V23, VLLM_V24, VLLM_V25, VLLM_V25_1, VLLM_V26)
-class MoERunnerCompilePatch:
-    """Route CPU FusedMoE through the opaque ``moe_forward`` custom op so
-    aot_compile treats it as one node (torch.compile-safe). See
-    ``_moe_runner_compile_patch.py``."""
-
-    @classmethod
-    def apply(cls) -> bool:
-        return _apply_moe_runner_compile_patch_impl()
 
 
 @vllm_version(VLLM_V22_1, VLLM_V23, VLLM_V24, VLLM_V25, VLLM_V25_1, VLLM_V26)
@@ -1688,7 +1674,6 @@ def _register_patches():
     manager.register("Int8MoE", Int8MoEPatch)
     manager.register("GptOssMoELoader", GptOssMoELoaderPatch)
     manager.register("MixtralMoELoader", MixtralMoELoaderPatch)
-    manager.register("MoERunnerCompile", MoERunnerCompilePatch)
     manager.register("MoETopkCpu", MoETopkCpuPatch)
     manager.register("CpuWorkerWorkspace", CpuWorkerWorkspacePatch)
     manager.register("RMSNorm", RMSNormPatch)
