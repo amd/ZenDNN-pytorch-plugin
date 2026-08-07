@@ -17,7 +17,7 @@
 #include <torch/csrc/stable/ops.h>
 
 using namespace zendnnl::interface;
-
+// TODO: remove tensor based template parameters and use stable::Tensor instead
 namespace zentorch {
 
 // Map from post-op enum values to their corresponding post_op_type_t
@@ -53,6 +53,9 @@ inline TensorT view_tensor(const TensorT &tensor,
   }
 }
 
+// TODO
+// Remove this helper once all ops are migrated to the stable ABI. It only
+// exists to bridge at::IntArrayRef and the stable IntHeaderOnlyArrayRef.
 template <typename SizesT>
 inline std::vector<int64_t> sizes_to_int64_vec(const SizesT &sizes) {
   return std::vector<int64_t>(sizes.begin(), sizes.end());
@@ -138,10 +141,11 @@ get_matmul_and_linear_output_sizes(const TensorT &tensor1,
   return output_size;
 }
 
+template <typename TensorT>
 inline void
-check_valid_sizes_for_matmul(const at::Tensor &mat1, const at::Tensor &mat2,
-                             const at::Tensor &bias, const at::Tensor &result,
-                             const std::vector<at::Tensor> &post_op_buffers) {
+check_valid_sizes_for_matmul(const TensorT &mat1, const TensorT &mat2,
+                             const TensorT &bias, const TensorT &result,
+                             const std::vector<TensorT> &post_op_buffers) {
 
   // The flow of this check is as follows:
   // -> Generic dim check for the mat1 and mat2. The functionality of aten::mv
@@ -232,11 +236,12 @@ check_valid_sizes_for_matmul(const at::Tensor &mat1, const at::Tensor &mat2,
   bool are_postops_dim_compatible = true;
   bool are_postops_shape_compatible = true;
 
-  for (const at::Tensor &buffer : post_op_buffers) {
+  for (const TensorT &buffer : post_op_buffers) {
     are_postops_dim_compatible =
         are_postops_dim_compatible && (buffer.dim() == mat1_dim);
     are_postops_shape_compatible =
-        are_postops_shape_compatible && (buffer.sizes() == result.sizes());
+        are_postops_shape_compatible && (sizes_to_int64_vec(buffer.sizes()) ==
+                                         sizes_to_int64_vec(result.sizes()));
   }
 
   ZENTORCH_CHECK(are_postops_dim_compatible,
@@ -351,13 +356,14 @@ check_valid_dtypes_for_matmul(const at::Tensor &mat1, const at::Tensor &mat2,
   }
 }
 
+template <typename TensorT>
 inline void check_valid_dtypes_for_quantized_matmul(
-    const at::Tensor &bias, const at::Tensor &input, const at::Tensor weight,
-    const at::Tensor &result, const at::Tensor &input_scales,
-    const at::Tensor &input_zero_points, const at::Tensor &weight_scales,
-    const at::Tensor &weight_zero_points, const at::Tensor &output_scales,
-    const at::Tensor &output_zero_points,
-    const std::vector<at::Tensor> &post_op_buffers) {
+    const TensorT &bias, const TensorT &input, const TensorT &weight,
+    const TensorT &result, const TensorT &input_scales,
+    const TensorT &input_zero_points, const TensorT &weight_scales,
+    const TensorT &weight_zero_points, const TensorT &output_scales,
+    const TensorT &output_zero_points,
+    const std::vector<TensorT> &post_op_buffers) {
   // fp32 and bf16 inputs are supported by quantizing it to int8(s8) or
   // uint8(u8).
   const bool is_input_fp32 = (input.scalar_type() == c10::kFloat);
@@ -447,7 +453,7 @@ inline void check_valid_dtypes_for_quantized_matmul(
     bool are_postops_fp32 = true;
     bool are_postops_bf16 = true;
 
-    for (const at::Tensor &buffer : post_op_buffers) {
+    for (const TensorT &buffer : post_op_buffers) {
       are_postops_fp32 =
           are_postops_fp32 && (buffer.scalar_type() == c10::ScalarType::Float);
       are_postops_bf16 = are_postops_bf16 &&
@@ -461,13 +467,14 @@ inline void check_valid_dtypes_for_quantized_matmul(
   }
 }
 
+template <typename TensorT>
 inline void check_valid_sizes_for_quantized_matmul(
-    const at::Tensor &bias, const at::Tensor &input, const at::Tensor weight,
-    const at::Tensor &result, const at::Tensor &input_scales,
-    const at::Tensor &input_zero_points, const at::Tensor &weight_scales,
-    const at::Tensor &weight_zero_points, const at::Tensor &output_scales,
-    const at::Tensor &output_zero_points,
-    const std::vector<at::Tensor> &post_op_buffers) {
+    const TensorT &bias, const TensorT &input, const TensorT &weight,
+    const TensorT &result, const TensorT &input_scales,
+    const TensorT &input_zero_points, const TensorT &weight_scales,
+    const TensorT &weight_zero_points, const TensorT &output_scales,
+    const TensorT &output_zero_points,
+    const std::vector<TensorT> &post_op_buffers) {
   check_valid_sizes_for_matmul(input, weight, bias, result, post_op_buffers);
 
   // Size checks specfic for quantized matmul.
@@ -529,13 +536,13 @@ inline void check_valid_sizes_for_quantized_matmul(
     bool are_postops_dim_compatible = true;
     bool are_postops_shape_compatible = true;
 
-    for (const at::Tensor &buffer : post_op_buffers) {
+    for (const TensorT &buffer : post_op_buffers) {
       are_postops_dim_compatible =
           are_postops_dim_compatible && (buffer.dim() == input.dim());
       are_postops_shape_compatible =
           are_postops_shape_compatible &&
-          (buffer.sizes() ==
-           c10::IntArrayRef(get_matmul_and_linear_output_sizes(input, weight)));
+          (sizes_to_int64_vec(buffer.sizes()) ==
+           get_matmul_and_linear_output_sizes(input, weight));
     }
 
     ZENTORCH_CHECK(are_postops_dim_compatible,
@@ -662,7 +669,7 @@ template <typename TensorT> inline bool is_transposed(const TensorT &t) {
   }
 }
 
-inline bool is_stride_valid(const at::Tensor &t) {
+template <typename TensorT> inline bool is_stride_valid(const TensorT &t) {
   const auto sizes = t.sizes();
   const auto strides = t.strides();
   if (t.dim() == 2) {
@@ -720,11 +727,12 @@ inline bool validate_zendnnl_direct_kernel_usage(
   return true;
 }
 
+template <typename TensorT>
 inline void zendnnl_direct_kernel(
-    const at::Tensor &input, const at::Tensor &weight, const at::Tensor &bias,
-    const at::Tensor &result, const float &alpha,
+    const TensorT &input, const TensorT &weight, const TensorT &bias,
+    const TensorT &result, const float &alpha,
     const std::vector<int64_t> &post_op_ids,
-    const std::vector<at::Tensor> &post_op_buffers, const bool is_weight_const,
+    const std::vector<TensorT> &post_op_buffers, const bool is_weight_const,
     const bool is_weight_prepacked, const std::string &zentorch_op_name,
     std::optional<std::reference_wrapper<
         zendnnl::lowoha::matmul::matmul_quantization_params_t>>
@@ -735,9 +743,8 @@ inline void zendnnl_direct_kernel(
 
   // TODO
   // Check if we can use contiguous irrespective of the condition
-  at::Tensor input_ =
-      is_stride_valid(input) ? input : get_contiguous_view(input);
-  at::Tensor weight_ =
+  TensorT input_ = is_stride_valid(input) ? input : get_contiguous_view(input);
+  TensorT weight_ =
       is_stride_valid(weight) ? weight : get_contiguous_view(weight);
 
   // By the time the control comes to this function, we are working with tensors

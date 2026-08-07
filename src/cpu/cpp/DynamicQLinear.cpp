@@ -291,7 +291,7 @@ void zentorch_dynamic_qlinear_out(const at::Tensor &input,
                    out.scalar_type(), ") must match input dtype (",
                    input.scalar_type(), ")");
     ZENTORCH_CHECK(
-        out.sizes() == c10::IntArrayRef(output_sz),
+        out.sizes().vec() == output_sz,
         "zentorch_dynamic_qlinear.out: out shape must be [*, N] with "
         "N = weight.size(0)");
     ZENTORCH_CHECK(out.is_contiguous(),

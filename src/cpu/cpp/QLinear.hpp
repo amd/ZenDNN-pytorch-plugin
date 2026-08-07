@@ -6,38 +6,52 @@
 #pragma once
 
 #include "Utils.hpp"
-#include <ATen/ATen.h>
 #include <c10/core/ScalarType.h>
-#include <c10/util/Optional.h>
+#include <optional>
 #include <string>
+#include <torch/csrc/stable/tensor.h>
 
 namespace zentorch {
 template <UNARY_POST_OP fuse>
-at::Tensor zentorch_qlinear_unary(
-    const at::Tensor &input, const at::Tensor &weight,
-    const at::Tensor &input_scales, const at::Tensor &input_zero_points,
-    const at::Tensor &weight_scales, const at::Tensor &weight_zero_points,
-    std::optional<at::Tensor> bias, std::optional<at::Tensor> output_scales,
-    std::optional<at::Tensor> output_zero_points,
-    std::optional<c10::ScalarType> output_dtype, std::string zentorch_op_name);
+torch::stable::Tensor zentorch_qlinear_unary(
+    const torch::stable::Tensor &input, const torch::stable::Tensor &weight,
+    const torch::stable::Tensor &input_scales,
+    const torch::stable::Tensor &input_zero_points,
+    const torch::stable::Tensor &weight_scales,
+    const torch::stable::Tensor &weight_zero_points,
+    const std::optional<torch::stable::Tensor> &bias,
+    const std::optional<torch::stable::Tensor> &output_scales,
+    const std::optional<torch::stable::Tensor> &output_zero_points,
+    const std::optional<c10::ScalarType> &output_dtype,
+    std::string zentorch_op_name);
 
 template <UNARY_POST_OP fuse>
 void zentorch_qlinear_out_unary(
-    at::Tensor &result, const at::Tensor &input, const at::Tensor &weight,
-    const at::Tensor &input_scales, const at::Tensor &input_zero_points,
-    const at::Tensor &weight_scales, const at::Tensor &weight_zero_points,
-    std::optional<at::Tensor> bias, std::optional<at::Tensor> output_scales,
-    std::optional<at::Tensor> output_zero_points,
-    std::optional<c10::ScalarType> output_dtype, std::string zentorch_op_name);
+    torch::stable::Tensor &result, const torch::stable::Tensor &input,
+    const torch::stable::Tensor &weight,
+    const torch::stable::Tensor &input_scales,
+    const torch::stable::Tensor &input_zero_points,
+    const torch::stable::Tensor &weight_scales,
+    const torch::stable::Tensor &weight_zero_points,
+    const std::optional<torch::stable::Tensor> &bias,
+    const std::optional<torch::stable::Tensor> &output_scales,
+    const std::optional<torch::stable::Tensor> &output_zero_points,
+    const std::optional<c10::ScalarType> &output_dtype,
+    std::string zentorch_op_name);
 
 template <BINARY_POST_OP fuse1, BINARY_POST_OP fuse2>
-at::Tensor zentorch_qlinear_binary_binary(
-    const at::Tensor &input, const at::Tensor &weight,
-    const at::Tensor &input_scales, const at::Tensor &input_zero_points,
-    const at::Tensor &weight_scales, const at::Tensor &weight_zero_points,
-    const at::Tensor &binary1_input, const at::Tensor &binary2_input,
-    std::optional<at::Tensor> bias, std::optional<at::Tensor> output_scales,
-    std::optional<at::Tensor> output_zero_points,
-    std::optional<c10::ScalarType> output_dtype, std::string zentorch_op_name);
+torch::stable::Tensor zentorch_qlinear_binary_binary(
+    const torch::stable::Tensor &input, const torch::stable::Tensor &weight,
+    const torch::stable::Tensor &input_scales,
+    const torch::stable::Tensor &input_zero_points,
+    const torch::stable::Tensor &weight_scales,
+    const torch::stable::Tensor &weight_zero_points,
+    const torch::stable::Tensor &binary1_input,
+    const torch::stable::Tensor &binary2_input,
+    const std::optional<torch::stable::Tensor> &bias,
+    const std::optional<torch::stable::Tensor> &output_scales,
+    const std::optional<torch::stable::Tensor> &output_zero_points,
+    const std::optional<c10::ScalarType> &output_dtype,
+    std::string zentorch_op_name);
 
 } // namespace zentorch

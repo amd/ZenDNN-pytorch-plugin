@@ -40,13 +40,11 @@ void zentorch_woq_linear_impl(
 
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
-  LOG(INFO) << "input sizes: [" << c10::Join(", ", input.sizes().vec()) << "]";
-  LOG(INFO) << "weight sizes: [" << c10::Join(", ", weight.sizes().vec())
-            << "]";
+  LOG(INFO) << "input sizes: [" << c10::Join(", ", input.sizes()) << "]";
+  LOG(INFO) << "weight sizes: [" << c10::Join(", ", weight.sizes()) << "]";
   LOG(INFO) << "weight_scales sizes: ["
-            << c10::Join(", ", weight_scales.sizes().vec()) << "]";
-  LOG(INFO) << "result sizes: [" << c10::Join(", ", result.sizes().vec())
-            << "]";
+            << c10::Join(", ", weight_scales.sizes()) << "]";
+  LOG(INFO) << "result sizes: [" << c10::Join(", ", result.sizes()) << "]";
   LOG(INFO) << "post_op_ids size: " << post_op_ids.size();
   LOG(INFO) << "post_op_buffers size: " << post_op_buffers.size();
 
