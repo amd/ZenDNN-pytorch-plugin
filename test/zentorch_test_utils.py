@@ -255,6 +255,9 @@ num_heads_opt = [12, 16]
 NUM_HEADS_OPT_DEF = [12]
 head_dim_opt = [32, 64]
 HEAD_DIM_OPT_DEF = [32]
+# (num_heads, kv_num_heads) pairs, kv_num_heads must divide num_heads
+gqa_head_config_opt = [(8, 1), (8, 2), (8, 4), (12, 2), (12, 4), (16, 4), (16, 8)]
+gqa_mask_type_opt = ["none", "float", "causal"]
 
 at_ops = torch.ops.aten
 zt_ops = torch.ops.zentorch

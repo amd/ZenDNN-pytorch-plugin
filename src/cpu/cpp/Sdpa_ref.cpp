@@ -27,6 +27,7 @@ zendnnl_sdpa_direct_kernel(const at::Tensor &query, const at::Tensor &key,
   zendnnl::lowoha::sdpa::sdpa_params fp{};
   fp.batch = query.size(0);
   fp.num_heads = query.size(1);
+  fp.kv_num_heads = key.size(1);
   fp.seq_len = query.size(2);
   fp.kv_seq_len = key.size(2);
   fp.head_dim = query.size(3);
@@ -99,6 +100,17 @@ std::tuple<at::Tensor, at::Tensor> zentorch_scaled_dot_product_attention_impl(
       (query.size(3) == value.size(3)) && (key.size(3) == value.size(3)),
       "zentorch_scaled_dot_product_attention_flash_attention: Q/K/V should "
       "have the same head size");
+  const bool is_gqa = query.size(1) != key.size(1);
+  if (is_gqa) {
+    ZENTORCH_CHECK(
+        key.size(1) == value.size(1),
+        "zentorch_scaled_dot_product_attention_flash_attention: K/V must "
+        "have the same number of heads");
+    ZENTORCH_CHECK(
+        query.size(1) % key.size(1) == 0,
+        "zentorch_scaled_dot_product_attention_flash_attention: The number of "
+        "heads in query must be divisible by the number of heads in key/value");
+  }
   ZENTORCH_CHECK(!attn_mask.has_value() ||
                      attn_mask.value().scalar_type() == at::kFloat ||
                      dtype == attn_mask.value().scalar_type(),
@@ -136,11 +148,17 @@ std::tuple<at::Tensor, at::Tensor> zentorch_scaled_dot_product_attention_impl(
         attn_mask->stride(-1) != 1) {
       attn_mask = attn_mask->contiguous();
     }
-    const bool use_zendnnl_direct_sdpa = (int_env_value == 1) && !requires_lse;
+    const bool has_additive_mask =
+        attn_mask.has_value() && attn_mask->defined() && attn_mask->numel() > 0;
+    // ZenDNN sdpa_direct does not include the fully-masked K/V block NaN guard
+    // in zen_Sdpa.cpp (needed for sliding-window masks on long sequences).
+    // Route additive-mask cases through the in-plugin flash kernel instead.
+    const bool use_zendnnl_direct_sdpa =
+        (int_env_value == 1) && !requires_lse && !is_gqa && !has_additive_mask;
     if (use_zendnnl_direct_sdpa) {
       // ZenDNN flash SDPA is inference-only and does not compute logsumexp.
-      // We bypass this path when autograd is engaged (see
-      // use_zendnnl_direct_sdpa above).
+      // We bypass this path when autograd is engaged, for GQA, or when an
+      // additive attn_mask is present (see above).
       zendnnl_sdpa_direct_kernel(query, key, value, output, dropout_p,
                                  is_causal, attn_mask, scale);
     } else if (query.scalar_type() == at::kBFloat16) {

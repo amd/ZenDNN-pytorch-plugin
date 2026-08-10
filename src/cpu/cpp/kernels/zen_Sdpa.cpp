@@ -65,7 +65,9 @@ inline void zendnn_gemm(int64_t m, int64_t n, int64_t k, float alpha,
 }
 
 // out = val * a + b
-template <typename T1, typename T2>
+// is_b_stride_zero: If the stride of b is 0 (mask broadcasting case),
+//                take b as a scalar pointer.
+template <bool is_b_stride_zero, typename T1, typename T2>
 inline void _scale_attn_mask_fusion_kernel(T1 *a, T2 *b, const int &size,
                                            T1 *out, T1 &val) {
   const auto vec_size1 = at::vec::Vectorized<T1>::size();
@@ -77,14 +79,24 @@ inline void _scale_attn_mask_fusion_kernel(T1 *a, T2 *b, const int &size,
   int64_t i = 0;
   for (; i < size - (size % vec_size2); i += vec_size2) {
     auto a_n = at::vec::VectorizedN<T1, T1_n>::loadu(a + i);
-    auto b_n = at::vec::VectorizedN<T2, T2_n>::loadu(b + i);
+    at::vec::VectorizedN<T2, T2_n> b_n;
+    if constexpr (is_b_stride_zero) {
+      b_n = at::vec::VectorizedN<T2, T2_n>((T1)b[0]);
+    } else {
+      b_n = at::vec::VectorizedN<T2, T2_n>::loadu(b + i);
+    }
     auto b_n_convert = at::vec::convert<T1, T1_n, T2, T2_n, true>(b_n);
     auto res = a_n * vec_scale + b_n_convert;
     res.store(out + i);
   }
   for (; i < size; i++) {
     auto tmp0 = a[i];
-    auto tmp1 = (T1)b[i];
+    T1 tmp1;
+    if constexpr (is_b_stride_zero) {
+      tmp1 = (T1)b[0];
+    } else {
+      tmp1 = (T1)b[i];
+    }
     out[i] = tmp0 * val + tmp1;
   }
 }
@@ -294,12 +306,15 @@ _mul_reduce_max_fusion_kernel(const scalar_t *a, const scalar_t &scale,
     tmp_max = std::max(tmp_max, tmp1);
     out[i] = tmp1;
   }
-  max = std::max(tmp_max, at::vec::vec_reduce_all<scalar_t>(
-                              [](at::vec::Vectorized<scalar_t> &x,
-                                 at::vec::Vectorized<scalar_t> &y) {
-                                return at::vec::maximum(x, y);
-                              },
-                              vec_tmp_max));
+  auto reduced_tmp_max = at::vec::vec_reduce_all<scalar_t>(
+      [](at::vec::Vectorized<scalar_t> &x, at::vec::Vectorized<scalar_t> &y) {
+        return at::vec::maximum(x, y);
+      },
+      vec_tmp_max);
+  // at::vec::maximum does not propagate NaN, so a NaN in q @ k.T would
+  // otherwise be reduced away and yield a finite (wrong) result.
+  max = std::isnan(reduced_tmp_max) ? std::numeric_limits<scalar_t>::quiet_NaN()
+                                    : std::max(tmp_max, reduced_tmp_max);
 }
 
 template <typename scalar_t>
@@ -351,6 +366,12 @@ void reshape_attn_mask_to_4d(at::Tensor &attn_mask, int64_t batchSize,
                   .view({attn_mask_size_0, attn_mask_size_1, attn_mask.size(-2),
                          attn_mask.size(-1)})
                   .expand({attn_mask_size_0, attn_mask_size_1, qSize, kvSize});
+  // The expand above can leave the KV axis strided. A stride of 0 is the
+  // broadcast case and is handled by the mask fusion kernel; anything else
+  // must be materialized since that kernel loads the KV axis contiguously.
+  if (attn_mask.sym_stride(-1) != 1 && attn_mask.sym_stride(-1) != 0) {
+    attn_mask = attn_mask.contiguous();
+  }
 }
 
 inline c10::SymFloat calculate_scale(const at::Tensor &query,
@@ -371,13 +392,19 @@ void cpu_flash_attention(const at::Tensor &output, const at::Tensor &logsumexp,
                          std::optional<double> scale) {
   // Query (Batch x Num_heads  x Q_seq_len  x Dim_per_head)
   //    -> (Batch x Q_seq_len  x Num_heads  x Dim_per_head)
-  // Key   (Batch x Num_heads  x KV_seq_len x Dim_per_head)
-  //    -> (Batch x KV_seq_len x Num_heads  x Dim_per_head)
-  // Value (Batch x Num_heads  x KV_seq_len x Dim_per_head)
-  //    -> (Batch x KV_seq_len x Num_heads  x Dim_per_head)
-  at::Tensor query = q.transpose(1, 2);
-  at::Tensor key = k.transpose(1, 2);
-  at::Tensor value = v.transpose(1, 2);
+  // Key   (Batch x KV_num_heads x KV_seq_len x Dim_per_head)
+  //    -> (Batch x KV_seq_len x KV_num_heads x Dim_per_head)
+  // Value (Batch x KV_num_heads x KV_seq_len x Dim_per_head)
+  //    -> (Batch x KV_seq_len x KV_num_heads x Dim_per_head)
+  // The GEMMs below address Q/K/V with a row stride and assume the head
+  // dimension is contiguous, so materialize inputs whose innermost dim is
+  // strided.
+  const at::Tensor query =
+      q.stride(-1) == 1 ? q.transpose(1, 2) : q.transpose(1, 2).contiguous();
+  const at::Tensor key =
+      k.stride(-1) == 1 ? k.transpose(1, 2) : k.transpose(1, 2).contiguous();
+  const at::Tensor value =
+      v.stride(-1) == 1 ? v.transpose(1, 2) : v.transpose(1, 2).contiguous();
 
   constexpr bool is_reduced_type = is_reduced_floating_point_v<scalar_t>;
   using accum_t = at::opmath_type<scalar_t>;
@@ -394,7 +421,13 @@ void cpu_flash_attention(const at::Tensor &output, const at::Tensor &logsumexp,
   int64_t qSize = query.size(1);
   int64_t kvSize = value.size(1);
   int64_t num_head = query.size(2);
+  int64_t kv_num_head = key.size(2);
+  int64_t repeat_factor = num_head / kv_num_head;
   int64_t headSize = query.size(3);
+  ZENTORCH_CHECK(
+      num_head % kv_num_head == 0,
+      "zentorch_scaled_dot_product_attention_flash_attention: The number of "
+      "heads in query must be divisible by the number of heads in key/value");
 
   bool has_attn_mask = attn_mask.has_value() && attn_mask.value().numel();
   if (has_attn_mask) {
@@ -424,7 +457,12 @@ void cpu_flash_attention(const at::Tensor &output, const at::Tensor &logsumexp,
   int64_t mStrideH = (has_attn_mask && attn_mask.value().size(1) > 1)
                          ? attn_mask.value().stride(1)
                          : 0;
-  int64_t mStrideM = has_attn_mask ? attn_mask.value().stride(2) : 0;
+  int64_t mStrideM = (has_attn_mask && attn_mask.value().size(2) > 1)
+                         ? attn_mask.value().stride(2)
+                         : 0;
+  int64_t mStrideN = (has_attn_mask && attn_mask.value().size(3) > 1)
+                         ? attn_mask.value().stride(3)
+                         : 0;
 
   // TODO: Generate more heuristics based on bs, seq_len
   // and device cache capacity. Decide more fine grain
@@ -487,6 +525,9 @@ void cpu_flash_attention(const at::Tensor &output, const at::Tensor &logsumexp,
           (void)z; // Suppress unused variable
           int64_t m = k * qSplitSize;
           int64_t qBlockSize = std::min(qSplitSize, qSize - m);
+          // For GQA/MQA, each K/V head is shared by repeat_factor query
+          // heads, so map the query head j to its K/V head.
+          int64_t kv_j = j / repeat_factor;
           // Initialize max and sum
           fill_stub(qk_max_data, -std::numeric_limits<accum_t>::infinity(),
                     qBlockSize);
@@ -501,9 +542,9 @@ void cpu_flash_attention(const at::Tensor &output, const at::Tensor &logsumexp,
             zendnn_gemm<scalar_t>(
                 qBlockSize, kvBlockSize, headSize, 1.0 /* alpha */,
                 q_data + i * qStrideB + j * qStrideH + m * qStrideM, qStrideM,
-                k_data + i * kStrideB + j * kStrideH + n * kStrideN, kStrideN,
-                0.0 /* beta */, qk_data, kvBlockSize, false /* transA */,
-                true /* transB */);
+                k_data + i * kStrideB + kv_j * kStrideH + n * kStrideN,
+                kStrideN, 0.0 /* beta */, qk_data, kvBlockSize,
+                false /* transA */, true /* transB */);
             // Apply causal mask, fill unused with -inf
             if (is_causal && num_keys - n <= kvSplitSize) {
               for (const auto row : c10::irange(qBlockSize)) {
@@ -519,12 +560,20 @@ void cpu_flash_attention(const at::Tensor &output, const at::Tensor &logsumexp,
             // qk <- qk * scaling + attn_mask
             if (has_attn_mask) {
               for (int64_t row = 0; row < qBlockSize; ++row) {
-                // TODO Reuse of buffer based on mask_data  with mStrideN
-                _scale_attn_mask_fusion_kernel(
-                    qk_data + row * kvBlockSize,
-                    mask_data + i * mStrideB + j * mStrideH +
-                        (m + row) * mStrideM + n,
-                    kvBlockSize, qk_data + row * kvBlockSize, scaling_factor);
+                if (mStrideN == 0) {
+                  // Mask is broadcast along the KV axis: read a single element.
+                  _scale_attn_mask_fusion_kernel</*is_b_stride_zero*/ true>(
+                      qk_data + row * kvBlockSize,
+                      mask_data + i * mStrideB + j * mStrideH +
+                          (m + row) * mStrideM,
+                      kvBlockSize, qk_data + row * kvBlockSize, scaling_factor);
+                } else {
+                  _scale_attn_mask_fusion_kernel</*is_b_stride_zero*/ false>(
+                      qk_data + row * kvBlockSize,
+                      mask_data + i * mStrideB + j * mStrideH +
+                          (m + row) * mStrideM + n,
+                      kvBlockSize, qk_data + row * kvBlockSize, scaling_factor);
+                }
               }
             }
             // Update coefficients with Softmax
@@ -542,25 +591,34 @@ void cpu_flash_attention(const at::Tensor &output, const at::Tensor &logsumexp,
                     qk_data + row * kvBlockSize, tmp_max);
               }
               tmp_max = qk_max_data[row] > tmp_max ? qk_max_data[row] : tmp_max;
-              // qk <- exp(qk - max) and sum per row
-              tmp_sum = tmp_max;
-              _exp_reduce_sum_fusion_kernel(
-                  qk_data + row * kvBlockSize, kvBlockSize,
-                  conditional_data_ptr(qk_data, qk_reduced_data) +
-                      row * kvBlockSize,
-                  tmp_sum);
-              // exp_tmp <- exp(max[row] - max)
-              exp_tmp = std::exp(qk_max_data[row] - tmp_max);
-              // sum[row] <- sum + exp_tmp * sum[row]
-              qk_sum_data[row] = tmp_sum + exp_tmp * qk_sum_data[row];
-              // max[row] <- max
-              qk_max_data[row] = tmp_max;
-              // dst <- dst * exp_tmp
-              if (n > 0) {
-                at::vec::map<accum_t>(
-                    [exp_tmp](Vec x) { return x * Vec(exp_tmp); },
-                    dst_data + row * headSize, dst_data + row * headSize,
-                    headSize);
+              if (tmp_max == -std::numeric_limits<accum_t>::infinity()) {
+                // Every key seen so far in this row is masked out, so the
+                // lazy softmax update would compute exp(-inf - (-inf)) and
+                // (+/-inf) * 0, both nan. Contribute zeros instead.
+                fill_stub(conditional_data_ptr(qk_data, qk_reduced_data) +
+                              row * kvBlockSize,
+                          static_cast<scalar_t>(0), kvBlockSize);
+              } else {
+                // qk <- exp(qk - max) and sum per row
+                tmp_sum = tmp_max;
+                _exp_reduce_sum_fusion_kernel(
+                    qk_data + row * kvBlockSize, kvBlockSize,
+                    conditional_data_ptr(qk_data, qk_reduced_data) +
+                        row * kvBlockSize,
+                    tmp_sum);
+                // exp_tmp <- exp(max[row] - max)
+                exp_tmp = std::exp(qk_max_data[row] - tmp_max);
+                // sum[row] <- sum + exp_tmp * sum[row]
+                qk_sum_data[row] = tmp_sum + exp_tmp * qk_sum_data[row];
+                // max[row] <- max
+                qk_max_data[row] = tmp_max;
+                // dst <- dst * exp_tmp
+                if (n > 0) {
+                  at::vec::map<accum_t>(
+                      [exp_tmp](Vec x) { return x * Vec(exp_tmp); },
+                      dst_data + row * headSize, dst_data + row * headSize,
+                      headSize);
+                }
               }
             }
             // Calculate Softmax(q @ k.T) @ v
@@ -569,13 +627,22 @@ void cpu_flash_attention(const at::Tensor &output, const at::Tensor &logsumexp,
             zendnn_gemm<scalar_t>(
                 qBlockSize, headSize, kvBlockSize, 1.0 /* alpha */,
                 conditional_data_ptr(qk_data, qk_reduced_data), kvBlockSize,
-                v_data + i * vStrideB + j * vStrideH + n * vStrideN, vStrideN,
-                n == 0 ? 0.0 : 1.0 /* beta */, dst_data, headSize,
+                v_data + i * vStrideB + kv_j * vStrideH + n * vStrideN,
+                vStrideN, n == 0 ? 0.0 : 1.0 /* beta */, dst_data, headSize,
                 false /* transA */, false /* transB */);
           }
           // dst <- dst / sum[row]
           // reorder MHA output with strides
           for (int64_t row = 0; row < qBlockSize; ++row) {
+            // Row sums for fully masked out rows are 0, we set them to 1
+            // in order to avoid NaNs in the output and instead set fully
+            // masked out rows to 0. The max is reset for the same reason,
+            // so logsumexp stays finite.
+            qk_max_data[row] =
+                qk_max_data[row] == -std::numeric_limits<accum_t>::infinity()
+                    ? 0
+                    : qk_max_data[row];
+            qk_sum_data[row] = qk_sum_data[row] == 0 ? 1 : qk_sum_data[row];
             accum_t sum_reciprocal = 1 / qk_sum_data[row];
             at::vec::map<scalar_t>(
                 [sum_reciprocal](Vec x) { return x * Vec(sum_reciprocal); },

@@ -91,6 +91,8 @@ from zentorch_test_utils import (  # noqa: 402 # noqa: F401
     NUM_HEADS_OPT_DEF,
     head_dim_opt,
     HEAD_DIM_OPT_DEF,
+    gqa_head_config_opt,
+    gqa_mask_type_opt,
     torch,
     DataTypes,
     Range,
@@ -3297,6 +3299,7 @@ class SDPATestCase(Zentorch_TestCase):
         mask_opt_list=MASK_OPT_DEF,
         num_heads_opt_list=NUM_HEADS_OPT_DEF,
         head_dim_opt_list=HEAD_DIM_OPT_DEF,
+        gqa_head_config_opt_list=None,
         tensor_seed=0,
     ):
         hypStr = ""
@@ -3315,8 +3318,17 @@ class SDPATestCase(Zentorch_TestCase):
         hypStr += f"batch_size_opt_list=[{batch_size}], "
         mask = draw(st.sampled_from(mask_opt_list))
         hypStr += f"mask_opt_list=[{mask!r}], "
-        num_heads = draw(st.sampled_from(num_heads_opt_list))
-        hypStr += f"num_heads_opt_list=[{num_heads}], "
+        # GQA draws query and key/value head counts as a pair, plain SDPA
+        # shares a single head count across query, key and value.
+        if gqa_head_config_opt_list:
+            num_heads, kv_num_heads = draw(st.sampled_from(gqa_head_config_opt_list))
+            hypStr += (
+                f"gqa_head_config_opt_list=[({num_heads}, {kv_num_heads})], "
+            )
+        else:
+            num_heads = draw(st.sampled_from(num_heads_opt_list))
+            kv_num_heads = num_heads
+            hypStr += f"num_heads_opt_list=[{num_heads}], "
         head_dim = draw(st.sampled_from(head_dim_opt_list))
         hypStr += f"head_dim_opt_list=[{head_dim}], "
 
@@ -3333,7 +3345,7 @@ class SDPATestCase(Zentorch_TestCase):
 
         sdpa_key = torch.randn(
             batch_size,
-            num_heads,
+            kv_num_heads,
             seq_length,
             head_dim,
             device="cpu",
@@ -3342,7 +3354,7 @@ class SDPATestCase(Zentorch_TestCase):
 
         sdpa_value = torch.randn(
             batch_size,
-            num_heads,
+            kv_num_heads,
             seq_length,
             head_dim,
             device="cpu",
@@ -3376,6 +3388,7 @@ class SDPATestCase(Zentorch_TestCase):
         mask_opt_list=MASK_OPT_DEF,
         num_heads_opt_list=NUM_HEADS_OPT_DEF,
         head_dim_opt_list=HEAD_DIM_OPT_DEF,
+        gqa_head_config_opt_list=None,
         tensor_seed=0,
     ):
         skip_reason = None
@@ -3401,6 +3414,7 @@ class SDPATestCase(Zentorch_TestCase):
                     mask_opt_list=mask_opt_list,
                     num_heads_opt_list=num_heads_opt_list,
                     head_dim_opt_list=head_dim_opt_list,
+                    gqa_head_config_opt_list=gqa_head_config_opt_list,
                     tensor_seed=tensor_seed,
                 ),
             )
