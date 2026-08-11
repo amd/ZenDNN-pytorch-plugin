@@ -248,8 +248,23 @@ _lib.impl("gdn_attention_core_cpu", _gdn_attention_core_cpu_fake, "Meta")
 make_fallback(torch.ops.zentorch.gdn_attention_core_cpu)
 
 
-def forward_cpu_zen(self, hidden_states: torch.Tensor, output: torch.Tensor) -> None:
-    """Drop-in replacement for ``GatedDeltaNetAttention.forward_cpu``."""
+def forward_cpu_zen(
+    self, hidden_states: torch.Tensor, output: torch.Tensor | None = None
+) -> torch.Tensor | None:
+    """Drop-in replacement for ``GatedDeltaNetAttention.forward_cpu``.
+
+    Supports both vLLM ``forward_cpu`` contracts so the override works across
+    versions (the plugin's version gate is intentionally kept narrow):
+
+    - **Legacy (<= 0.23):** called as ``forward_cpu(hidden_states, output)`` —
+      writes the result into the caller-provided ``output`` buffer and returns
+      ``None``.
+    - **New (>= PR #46998):** called as ``forward_cpu(hidden_states)`` —
+      allocates and returns the projected output tensor. The decoder layer
+      consumes the return value (it no longer pre-allocates the buffer).
+
+    The two are distinguished purely by whether ``output`` is passed.
+    """
     # Explicit runtime check (not ``assert``) so the guard survives ``python -O``.
     if hasattr(self, "in_proj_qkv"):
         raise NotImplementedError(
@@ -298,4 +313,12 @@ def forward_cpu_zen(self, hidden_states: torch.Tensor, output: torch.Tensor) -> 
     core_attn_out = core_attn_out.reshape(z_shape_og)
 
     core_attn_out = rearrange(core_attn_out, "... h d -> ... (h d)")
-    output[:num_tokens], _ = self.out_proj(core_attn_out)
+    proj, _ = self.out_proj(core_attn_out)
+
+    if output is None:
+        # New (>= PR #46998) contract: return the projected output directly.
+        return proj
+
+    # Legacy contract: write into the caller-provided buffer.
+    output[:num_tokens] = proj
+    return None

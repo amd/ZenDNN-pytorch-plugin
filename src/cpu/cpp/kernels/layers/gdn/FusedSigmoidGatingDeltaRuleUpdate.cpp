@@ -5,6 +5,7 @@
 
 #include "../../../Utils.hpp"
 
+#include <ATen/Parallel.h>
 #include <ATen/ops/empty.h>
 #include <ATen/ops/exp.h>
 #include <ATen/ops/repeat_interleave.h>
@@ -149,70 +150,72 @@ at::Tensor zentorch_gdn_fused_sigmoid_gating_delta_rule_update(
           ? num_accepted_contig->const_data_ptr<int32_t>()
           : nullptr;
 
-  for (int64_t n = 0; n < N; ++n) {
-    const int64_t bos = cu_seqlens_p[n];
-    const int64_t eos = cu_seqlens_p[n + 1];
-    const int64_t T_n = eos - bos;
-    if (T_n <= 0)
-      continue;
+  at::parallel_for(0, N, /*grain_size=*/1, [&](int64_t n_begin, int64_t n_end) {
+    for (int64_t n = n_begin; n < n_end; ++n) {
+      const int64_t bos = cu_seqlens_p[n];
+      const int64_t eos = cu_seqlens_p[n + 1];
+      const int64_t T_n = eos - bos;
+      if (T_n <= 0)
+        continue;
 
-    const int64_t i_t0 =
-        num_accepted_p ? static_cast<int64_t>(num_accepted_p[n]) - 1 : 0;
-    const int64_t init_idx = lookup_state_index(ssm_idx, n, i_t0);
-    if (init_idx <= kNullBlockId) {
-      // Null-slot contract: output is zero for this sequence's token range
-      // (mirrors gdn_fused_recurrent_gated_delta_rule_packed_decode). Without
-      // the explicit zero-fill the o = at::empty(...) allocation above would
-      // leak uninitialised values for any non-empty skipped sequence.
-      o.select(0, 0).narrow(0, bos, T_n).zero_();
-      continue;
-    }
-
-    // Working state for this sequence (clone so cache aliasing is safe).
-    at::Tensor h = initial_state.select(0, init_idx).to(c10::kFloat).clone();
-
-    for (int64_t t = 0; t < T_n; ++t) {
-      const int64_t pos = bos + t;
-
-      at::Tensor a_t = a_f.select(0, 0).select(0, pos);
-      at::Tensor b_t = b_f.select(0, 0).select(0, pos);
-      at::Tensor q_t = q_f.select(0, 0).select(0, pos);
-      at::Tensor k_t = k_f.select(0, 0).select(0, pos);
-      at::Tensor v_t = v_f.select(0, 0).select(0, pos);
-
-      // Gating.
-      at::Tensor x = a_t + dt_bias_f;
-      at::Tensor sp = at::softplus(x, /*beta=*/static_cast<double>(beta_temp),
-                                   /*threshold=*/threshold_f);
-      at::Tensor g_t = -at::exp(A_log_f) * sp;
-      at::Tensor beta_out = at::sigmoid(b_t);
-
-      if (use_qk_l2norm_in_kernel) {
-        q_t =
-            q_t * at::rsqrt(q_t.pow(2).sum(-1, /*keepdim=*/true) + kL2NormEps);
-        k_t =
-            k_t * at::rsqrt(k_t.pow(2).sum(-1, /*keepdim=*/true) + kL2NormEps);
+      // Guard num_accepted_p[n] == 0: without the >0 check this would be -1,
+      // which the 2-D (spec-decode) lookup_state_index reads as p[n*stride0-1]
+      // -- an out-of-bounds access. Clamp to 0; the init_idx <= kNullBlockId
+      // check below then handles a null/invalid slot by zeroing the output.
+      const int64_t i_t0 = (num_accepted_p && num_accepted_p[n] > 0)
+                               ? static_cast<int64_t>(num_accepted_p[n]) - 1
+                               : 0;
+      const int64_t init_idx = lookup_state_index(ssm_idx, n, i_t0);
+      if (init_idx <= kNullBlockId) {
+        o.select(0, 0).narrow(0, bos, T_n).zero_();
+        continue;
       }
-      q_t = q_t * scale_f;
 
-      // GQA expansion (H, K) → (HV, K).
-      at::Tensor q_e = q_t.repeat_interleave(/*repeats=*/r, /*dim=*/0);
-      at::Tensor k_e = k_t.repeat_interleave(/*repeats=*/r, /*dim=*/0);
+      at::Tensor h = initial_state.select(0, init_idx).to(c10::kFloat).clone();
 
-      // Recurrence in (HV, V, K) state layout.
-      h = h * at::exp(g_t).reshape({HV, 1, 1});
-      at::Tensor kv_mem = (h * k_e.unsqueeze(-2)).sum(-1);
-      at::Tensor delta = (v_t - kv_mem) * beta_out.unsqueeze(-1);
-      h = h + delta.unsqueeze(-1) * k_e.unsqueeze(-2);
-      at::Tensor o_pos = (h * q_e.unsqueeze(-2)).sum(-1);
-      o.select(0, 0).select(0, pos).copy_(o_pos.to(out_dtype));
+      for (int64_t t = 0; t < T_n; ++t) {
+        const int64_t pos = bos + t;
 
-      const int64_t final_idx = lookup_state_index(ssm_idx, n, t);
-      if (final_idx > kNullBlockId) {
-        initial_state.select(0, final_idx).copy_(h.to(state_dtype));
+        at::Tensor a_t = a_f.select(0, 0).select(0, pos);
+        at::Tensor b_t = b_f.select(0, 0).select(0, pos);
+        at::Tensor q_t = q_f.select(0, 0).select(0, pos);
+        at::Tensor k_t = k_f.select(0, 0).select(0, pos);
+        at::Tensor v_t = v_f.select(0, 0).select(0, pos);
+
+        // Gating.
+        at::Tensor x = a_t + dt_bias_f;
+        at::Tensor sp = at::softplus(x, /*beta=*/static_cast<double>(beta_temp),
+                                     /*threshold=*/threshold_f);
+        at::Tensor g_t = -at::exp(A_log_f) * sp;
+        at::Tensor beta_out = at::sigmoid(b_t);
+
+        if (use_qk_l2norm_in_kernel) {
+          q_t = q_t *
+                at::rsqrt(q_t.pow(2).sum(-1, /*keepdim=*/true) + kL2NormEps);
+          k_t = k_t *
+                at::rsqrt(k_t.pow(2).sum(-1, /*keepdim=*/true) + kL2NormEps);
+        }
+        q_t = q_t * scale_f;
+
+        // GQA expansion (H, K) → (HV, K).
+        at::Tensor q_e = q_t.repeat_interleave(/*repeats=*/r, /*dim=*/0);
+        at::Tensor k_e = k_t.repeat_interleave(/*repeats=*/r, /*dim=*/0);
+
+        // Recurrence in (HV, V, K) state layout.
+        h = h * at::exp(g_t).reshape({HV, 1, 1});
+        at::Tensor kv_mem = (h * k_e.unsqueeze(-2)).sum(-1);
+        at::Tensor delta = (v_t - kv_mem) * beta_out.unsqueeze(-1);
+        h = h + delta.unsqueeze(-1) * k_e.unsqueeze(-2);
+        at::Tensor o_pos = (h * q_e.unsqueeze(-2)).sum(-1);
+        o.select(0, 0).select(0, pos).copy_(o_pos.to(out_dtype));
+
+        const int64_t final_idx = lookup_state_index(ssm_idx, n, t);
+        if (final_idx > kNullBlockId) {
+          initial_state.select(0, final_idx).copy_(h.to(state_dtype));
+        }
       }
     }
-  }
+  });
 
   return o;
 }

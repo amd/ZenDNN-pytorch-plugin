@@ -7,10 +7,7 @@
 
 #include <ATen/EmptyTensor.h>
 #include <ATen/Parallel.h>
-#include <ATen/ops/arange.h>
-#include <ATen/ops/exp.h>
-#include <ATen/ops/eye.h>
-#include <ATen/ops/linalg_solve_triangular.h>
+#include <ATen/cpu/vec/vec.h>
 #include <ATen/record_function.h>
 #include <c10/util/BFloat16.h>
 #include <c10/util/Half.h>
@@ -18,16 +15,14 @@
 #include <torch/all.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <string>
 #include <tuple>
 #include <vector>
 
 namespace zentorch {
-
-// Defined in `Matmul.cpp`; both end up in libzentorch.so.
-at::Tensor zentorch_bmm(const at::Tensor &self, const at::Tensor &mat2,
-                        std::string zentorch_op_name);
 
 namespace {
 
@@ -42,18 +37,67 @@ inline at::Tensor empty_contiguous_cpu(at::IntArrayRef sizes,
   return at::detail::empty_strided_cpu(sizes, strides, options);
 }
 
-inline at::Tensor gqa_expand_chunk_3d(const at::Tensor &src_b, int64_t cs_start,
-                                      int64_t BT_eff, int64_t r) {
-  at::Tensor sliced_t = src_b.narrow(0, cs_start, BT_eff).transpose(0, 1);
-  if (r == 1) {
-    return sliced_t;
-  }
-  return sliced_t.repeat_interleave(r, /*dim=*/0);
+using FVec = at::vec::Vectorized<float>;
+
+// Returns sum_i a[i] * b[i].
+inline float vec_dot(const float *a, const float *b, int64_t n) {
+  FVec acc(0.0f);
+  const int64_t vlen = FVec::size();
+  int64_t i = 0;
+  for (; i + vlen <= n; i += vlen)
+    acc = acc + FVec::loadu(a + i) * FVec::loadu(b + i);
+  alignas(64) float buf[FVec::size()];
+  acc.store(buf);
+  float s = 0.0f;
+  for (int64_t l = 0; l < vlen; ++l)
+    s += buf[l];
+  for (; i < n; ++i)
+    s += a[i] * b[i];
+  return s;
 }
 
-inline at::Tensor slice_per_head_2d(const at::Tensor &src_b, int64_t cs_start,
-                                    int64_t BT_eff) {
-  return src_b.narrow(0, cs_start, BT_eff).transpose(0, 1);
+// y[i] = scale * x[i].
+inline void vec_scale(float *y, const float *x, float scale, int64_t n) {
+  const FVec vs(scale);
+  const int64_t vlen = FVec::size();
+  int64_t i = 0;
+  for (; i + vlen <= n; i += vlen)
+    (FVec::loadu(x + i) * vs).store(y + i);
+  for (; i < n; ++i)
+    y[i] = scale * x[i];
+}
+
+// y[i] -= a * x[i].
+inline void vec_axpy_neg(float *y, const float *x, float a, int64_t n) {
+  const FVec va(a);
+  const int64_t vlen = FVec::size();
+  int64_t i = 0;
+  for (; i + vlen <= n; i += vlen)
+    (FVec::loadu(y + i) - va * FVec::loadu(x + i)).store(y + i);
+  for (; i < n; ++i)
+    y[i] -= a * x[i];
+}
+
+// y[i] += a * x[i].
+inline void vec_axpy_pos(float *y, const float *x, float a, int64_t n) {
+  const FVec va(a);
+  const int64_t vlen = FVec::size();
+  int64_t i = 0;
+  for (; i + vlen <= n; i += vlen)
+    (FVec::loadu(y + i) + va * FVec::loadu(x + i)).store(y + i);
+  for (; i < n; ++i)
+    y[i] += a * x[i];
+}
+
+// y[i] *= a.
+inline void vec_scale_inplace(float *y, float a, int64_t n) {
+  const FVec va(a);
+  const int64_t vlen = FVec::size();
+  int64_t i = 0;
+  for (; i + vlen <= n; i += vlen)
+    (FVec::loadu(y + i) * va).store(y + i);
+  for (; i < n; ++i)
+    y[i] *= a;
 }
 
 template <typename g_t>
@@ -100,7 +144,6 @@ void run_g_cumsum(const at::Tensor &g, const at::Tensor &cu_seqlens,
   });
 }
 
-// Fused: chunk_scaled_dot_kkt_fwd → solve_tril → recompute_w_u_fwd.
 void run_recompute_w_u_fused(const at::Tensor &k_f, const at::Tensor &v_f,
                              const at::Tensor &beta_f, const at::Tensor &g_cum,
                              const at::Tensor &cu_seqlens,
@@ -109,61 +152,69 @@ void run_recompute_w_u_fused(const at::Tensor &k_f, const at::Tensor &v_f,
                              at::Tensor &u_f) {
   const int64_t NT = chunk_indices.size(0);
   const int32_t *cu_seqlens_p = cu_seqlens.const_data_ptr<int32_t>();
-  const int32_t *chunk_indices_p = chunk_indices.const_data_ptr<int32_t>();
+  const int32_t *ci_p = chunk_indices.const_data_ptr<int32_t>();
 
-  at::Tensor I_max = at::eye(BT, k_f.options());
+  const int64_t K_dim = k_f.size(3);
+  const int64_t V_dim = v_f.size(3);
 
-  at::Tensor k_b = k_f.select(0, 0);
-  at::Tensor v_b = v_f.select(0, 0);
-  at::Tensor beta_b = beta_f.select(0, 0);
-  at::Tensor g_b = g_cum.select(0, 0);
-  at::Tensor w_b = w_f.select(0, 0);
-  at::Tensor u_b = u_f.select(0, 0);
+  const float *k_base = k_f.const_data_ptr<float>();       // [1, T, Hg, K]
+  const float *v_base = v_f.const_data_ptr<float>();       // [1, T, H,  V]
+  const float *beta_base = beta_f.const_data_ptr<float>(); // [1, T, H]
+  const float *g_base = g_cum.const_data_ptr<float>();     // [1, T, H]
+  float *w_base = w_f.data_ptr<float>();                   // [1, T, H, K]
+  float *u_base = u_f.data_ptr<float>();                   // [1, T, H, V]
 
-  for (int64_t row = 0; row < NT; ++row) {
-    const int32_t seq_idx = chunk_indices_p[2 * row + 0];
-    const int32_t chunk_idx = chunk_indices_p[2 * row + 1];
-    const int64_t bos = cu_seqlens_p[seq_idx];
-    const int64_t eos = cu_seqlens_p[seq_idx + 1];
-    const int64_t cs_start = bos + chunk_idx * BT;
-    const int64_t cs_end = std::min(cs_start + BT, eos);
-    const int64_t BT_eff = cs_end - cs_start;
-    if (BT_eff <= 0)
-      continue;
+  const int64_t k_st = k_f.stride(1), k_sh = k_f.stride(2);
+  const int64_t v_st = v_f.stride(1), v_sh = v_f.stride(2);
+  const int64_t b_st = beta_f.stride(1), b_sh = beta_f.stride(2);
+  const int64_t g_st = g_cum.stride(1), g_sh = g_cum.stride(2);
+  const int64_t w_st = w_f.stride(1), w_sh = w_f.stride(2);
+  const int64_t u_st = u_f.stride(1), u_sh = u_f.stride(2);
 
-    at::Tensor k_h = gqa_expand_chunk_3d(k_b, cs_start, BT_eff, r);
-    at::Tensor v_h = gqa_expand_chunk_3d(v_b, cs_start, BT_eff, /*r=*/1);
-    at::Tensor beta_h = slice_per_head_2d(beta_b, cs_start, BT_eff);
-    at::Tensor g_h = slice_per_head_2d(g_b, cs_start, BT_eff);
+  at::parallel_for(
+      0, NT * H, /*grain_size=*/1, [&](int64_t begin, int64_t end) {
+        for (int64_t unit = begin; unit < end; ++unit) {
+          const int64_t row = unit / H;
+          const int64_t h = unit % H;
+          const int64_t kh = h / r;
+          const int32_t seq_idx = ci_p[2 * row + 0];
+          const int32_t chunk_idx = ci_p[2 * row + 1];
+          const int64_t bos = cu_seqlens_p[seq_idx];
+          const int64_t eos = cu_seqlens_p[seq_idx + 1];
+          const int64_t cs_start = bos + chunk_idx * BT;
+          const int64_t cs_end = std::min(cs_start + BT, eos);
+          const int64_t BT_eff = cs_end - cs_start;
+          if (BT_eff <= 0)
+            continue;
 
-    // (1, BT_eff, BT_eff) broadcasts against A_batch's H batch dim.
-    at::Tensor I_eff_batch =
-        I_max.narrow(0, 0, BT_eff).narrow(1, 0, BT_eff).unsqueeze(0);
+          for (int64_t i = 0; i < BT_eff; ++i) {
+            const int64_t ti = cs_start + i;
+            const float beta_i = beta_base[ti * b_st + h * b_sh];
+            const float g_i = g_base[ti * g_st + h * g_sh];
+            const float *k_i = k_base + ti * k_st + kh * k_sh;
+            const float *v_i = v_base + ti * v_st + h * v_sh;
+            float *u_i = u_base + ti * u_st + h * u_sh;
+            float *w_i = w_base + ti * w_st + h * w_sh;
 
-    // A_batch = bmm(β · k, k.T) with exp(g[i] - g[j]) decay.
-    at::Tensor kb_batch = k_h * beta_h.unsqueeze(-1);
-    at::Tensor A_batch =
-        zentorch_bmm(kb_batch, k_h.transpose(-1, -2), "zentorch::zentorch_bmm");
-    A_batch = A_batch * at::exp(g_h.unsqueeze(-1) - g_h.unsqueeze(-2));
+            // RHS: u_i = β·v_i ; w_i = β·exp(g_i)·k_i.
+            const float exp_gi = std::exp(g_i);
+            vec_scale(u_i, v_i, beta_i, V_dim);
+            vec_scale(w_i, k_i, beta_i * exp_gi, K_dim);
 
-    // solve_tril via unit-triangular solve.
-    at::Tensor A_solved =
-        at::linalg_solve_triangular(A_batch, I_eff_batch,
-                                    /*upper=*/false, /*left=*/true,
-                                    /*unitriangular=*/true);
-
-    // u = A_solved @ (β · v);  w = A_solved @ (β · exp(g) · k).
-    at::Tensor vb_batch = v_h * beta_h.unsqueeze(-1);
-    at::Tensor u_batch =
-        zentorch_bmm(A_solved, vb_batch, "zentorch::zentorch_bmm");
-    at::Tensor kb2_batch =
-        k_h * beta_h.unsqueeze(-1) * at::exp(g_h).unsqueeze(-1);
-    at::Tensor w_batch =
-        zentorch_bmm(A_solved, kb2_batch, "zentorch::zentorch_bmm");
-
-    u_b.narrow(0, cs_start, BT_eff).copy_(u_batch.transpose(0, 1));
-    w_b.narrow(0, cs_start, BT_eff).copy_(w_batch.transpose(0, 1));
-  }
+            // Subtract strictly-lower contributions:
+            //   L[i,j] = β_i · exp(g_i − g_j) · (k_i · k_j),  j < i.
+            for (int64_t j = 0; j < i; ++j) {
+              const int64_t tj = cs_start + j;
+              const float g_j = g_base[tj * g_st + h * g_sh];
+              const float *k_j = k_base + tj * k_st + kh * k_sh;
+              const float L_ij =
+                  beta_i * std::exp(g_i - g_j) * vec_dot(k_i, k_j, K_dim);
+              vec_axpy_neg(u_i, u_base + tj * u_st + h * u_sh, L_ij, V_dim);
+              vec_axpy_neg(w_i, w_base + tj * w_st + h * w_sh, L_ij, K_dim);
+            }
+          }
+        }
+      });
 }
 
 void run_chunk_recurrent_state(const at::Tensor &k_f, const at::Tensor &w_f,
@@ -179,129 +230,235 @@ void run_chunk_recurrent_state(const at::Tensor &k_f, const at::Tensor &w_f,
   const int32_t *cu_seqlens_p = cu_seqlens.const_data_ptr<int32_t>();
   const int64_t *co_p = chunk_offsets_long.const_data_ptr<int64_t>();
 
-  at::Tensor k_b = k_f.select(0, 0);
-  at::Tensor w_b = w_f.select(0, 0);
-  at::Tensor u_b = u_f.select(0, 0);
-  at::Tensor g_b = g_cum.select(0, 0);
-  at::Tensor h_b = h_out_f.select(0, 0);
-  at::Tensor vn_b = v_new_f.select(0, 0);
+  const float *k_base = k_f.const_data_ptr<float>();   // [1, T, Hg, K]
+  const float *w_base = w_f.const_data_ptr<float>();   // [1, T, H,  K]
+  const float *u_base = u_f.const_data_ptr<float>();   // [1, T, H,  V]
+  const float *g_base = g_cum.const_data_ptr<float>(); // [1, T, H]
+  float *hout_base = h_out_f.data_ptr<float>();        // [1, NT_total, H, V, K]
+  float *vnew_base = v_new_f.data_ptr<float>();        // [1, T, H, V]
+  float *fs_base =
+      output_final_state ? final_state.data_ptr<float>() : nullptr; // [N,H,V,K]
+  const bool has_init =
+      initial_state_f.has_value() && initial_state_f->numel() > 0;
+  const float *is_base = has_init ? initial_state_f->const_data_ptr<float>()
+                                  : nullptr; // [N,H,V,K]
 
-  for (int64_t n = 0; n < N; ++n) {
-    const int64_t bos = cu_seqlens_p[n];
-    const int64_t eos = cu_seqlens_p[n + 1];
-    const int64_t boh = co_p[n];
-    const int64_t chunks_in_seq = co_p[n + 1] - boh;
+  const int64_t k_st = k_f.stride(1), k_sh = k_f.stride(2);
+  const int64_t w_st = w_f.stride(1), w_sh = w_f.stride(2);
+  const int64_t u_st = u_f.stride(1), u_sh = u_f.stride(2);
+  const int64_t g_st = g_cum.stride(1), g_sh = g_cum.stride(2);
+  const int64_t ho_sc = h_out_f.stride(1), ho_sh = h_out_f.stride(2);
+  const int64_t vn_st = v_new_f.stride(1), vn_sh = v_new_f.stride(2);
+  const int64_t is_sn = has_init ? initial_state_f->stride(0) : 0;
+  const int64_t is_sh = has_init ? initial_state_f->stride(1) : 0;
+  const int64_t fs_sn = fs_base ? final_state.stride(0) : 0;
+  const int64_t fs_sh = fs_base ? final_state.stride(1) : 0;
+  const int64_t VK = V_dim * K_dim;
 
-    at::Tensor state_batch;
-    if (initial_state_f.has_value()) {
-      state_batch = initial_state_f->select(0, n).clone();
-    } else {
-      state_batch = empty_contiguous_cpu({H, V_dim, K_dim}, k_f.options());
-      state_batch.zero_();
+  // TODO(perf): same pattern as run_chunk_output -- the state/vcorr scratch
+  // buffers are allocated inside the parallel_for lambda, so they are
+  // re-allocated once per task chunk (~once per thread on the native/OpenMP
+  // backends; potentially many more under TBB, where grain_size=1 lets the
+  // scheduler over-decompose). These are sizeable (state is V_dim*K_dim,
+  // vcorr is BT*V_dim -- tens of KB each), so this adds avoidable malloc/free
+  // traffic and allocator contention in the hot region. Prefer per-thread
+  // reusable scratch (e.g. thread_local vectors resized on demand) and/or a
+  // tuned grain_size. Deferred: perf-only change (numerically identical,
+  // buffers are fully overwritten before use) but should be re-benchmarked
+  // before landing.
+  at::parallel_for(0, N * H, /*grain_size=*/1, [&](int64_t begin, int64_t end) {
+    std::vector<float> state(VK);
+    std::vector<float> vcorr(BT * V_dim);
+    for (int64_t unit = begin; unit < end; ++unit) {
+      const int64_t n = unit / H;
+      const int64_t h = unit % H;
+      const int64_t kh = h / r;
+      const int64_t bos = cu_seqlens_p[n];
+      const int64_t eos = cu_seqlens_p[n + 1];
+      const int64_t boh = co_p[n];
+      const int64_t chunks_in_seq = co_p[n + 1] - boh;
+
+      if (is_base) {
+        std::memcpy(state.data(), is_base + n * is_sn + h * is_sh,
+                    sizeof(float) * VK);
+      } else {
+        std::fill(state.begin(), state.end(), 0.0f);
+      }
+
+      for (int64_t i_t = 0; i_t < chunks_in_seq; ++i_t) {
+        const int64_t chunk_start = bos + i_t * BT;
+        const int64_t chunk_end = std::min(chunk_start + BT, eos);
+        const int64_t BT_eff = chunk_end - chunk_start;
+        if (BT_eff <= 0)
+          continue;
+
+        // Snapshot pre-update state into h_out[boh + i_t, h].
+        std::memcpy(hout_base + (boh + i_t) * ho_sc + h * ho_sh, state.data(),
+                    sizeof(float) * VK);
+
+        const float g_last =
+            g_base[(chunk_start + BT_eff - 1) * g_st + h * g_sh];
+
+        // v_corr[t, v] = u[t, v] - sum_k w[t, k] * state[v, k]
+        for (int64_t t = 0; t < BT_eff; ++t) {
+          const float *w_t = w_base + (chunk_start + t) * w_st + h * w_sh;
+          const float *u_t = u_base + (chunk_start + t) * u_st + h * u_sh;
+          float *vc_t = vcorr.data() + t * V_dim;
+          for (int64_t v = 0; v < V_dim; ++v)
+            vc_t[v] = u_t[v] - vec_dot(w_t, state.data() + v * K_dim, K_dim);
+        }
+
+        // Save pre-decay v_new[chunk_start + t, h] for the output stage.
+        for (int64_t t = 0; t < BT_eff; ++t) {
+          std::memcpy(vnew_base + (chunk_start + t) * vn_st + h * vn_sh,
+                      vcorr.data() + t * V_dim, sizeof(float) * V_dim);
+        }
+
+        // Per-token decay: v_corr[t, v] *= exp(g_last - g[t]).
+        for (int64_t t = 0; t < BT_eff; ++t) {
+          const float g_t = g_base[(chunk_start + t) * g_st + h * g_sh];
+          vec_scale_inplace(vcorr.data() + t * V_dim, std::exp(g_last - g_t),
+                            V_dim);
+        }
+
+        // Bulk decay: state *= exp(g_last).
+        vec_scale_inplace(state.data(), std::exp(g_last), VK);
+
+        // state[v, k] += sum_t v_corr[t, v] * k[t, k].
+        for (int64_t t = 0; t < BT_eff; ++t) {
+          const float *k_t = k_base + (chunk_start + t) * k_st + kh * k_sh;
+          const float *vc_t = vcorr.data() + t * V_dim;
+          for (int64_t v = 0; v < V_dim; ++v)
+            vec_axpy_pos(state.data() + v * K_dim, k_t, vc_t[v], K_dim);
+        }
+      }
+
+      if (fs_base) {
+        std::memcpy(fs_base + n * fs_sn + h * fs_sh, state.data(),
+                    sizeof(float) * VK);
+      }
     }
+  });
+}
 
-    for (int64_t i_t = 0; i_t < chunks_in_seq; ++i_t) {
-      const int64_t chunk_start = bos + i_t * BT;
-      const int64_t chunk_end = std::min(chunk_start + BT, eos);
-      const int64_t BT_eff = chunk_end - chunk_start;
-      if (BT_eff <= 0)
-        continue;
-
-      // Snapshot state into h_out[boh + i_t].
-      h_b.select(0, boh + i_t).copy_(state_batch);
-
-      at::Tensor w_h = gqa_expand_chunk_3d(w_b, chunk_start, BT_eff, /*r=*/1);
-      at::Tensor u_h = gqa_expand_chunk_3d(u_b, chunk_start, BT_eff, /*r=*/1);
-      at::Tensor k_h = gqa_expand_chunk_3d(k_b, chunk_start, BT_eff, r);
-      at::Tensor g_h = slice_per_head_2d(g_b, chunk_start, BT_eff);
-
-      // v_corr = u - bmm(w, state.T)
-      at::Tensor state_T = state_batch.transpose(-1, -2);
-      at::Tensor v_corr_batch =
-          u_h - zentorch_bmm(w_h, state_T, "zentorch::zentorch_bmm");
-
-      // Save pre-decay v_new for chunk_fwd_o.
-      vn_b.narrow(0, chunk_start, BT_eff).copy_(v_corr_batch.transpose(0, 1));
-
-      // Per-token + bulk decay.
-      at::Tensor g_last_h = g_h.select(-1, BT_eff - 1);
-      v_corr_batch =
-          v_corr_batch * at::exp(g_last_h.unsqueeze(-1) - g_h).unsqueeze(-1);
-      state_batch = state_batch * at::exp(g_last_h).unsqueeze(-1).unsqueeze(-1);
-
-      // state += bmm(v_corr.T, k_h).
-      state_batch = state_batch + zentorch_bmm(v_corr_batch.transpose(-1, -2),
-                                               k_h, "zentorch::zentorch_bmm");
-    }
-
-    if (output_final_state) {
-      final_state.select(0, n).copy_(state_batch);
-    }
+// Stores one fp32 value into `o` (contiguous [1, T, H, V]) at byte-typed `base`
+// with element index `idx`, casting to the output dtype.
+inline void store_out(void *base, c10::ScalarType out_dtype, int64_t idx,
+                      float val) {
+  switch (out_dtype) {
+  case c10::ScalarType::Float:
+    static_cast<float *>(base)[idx] = val;
+    break;
+  case c10::ScalarType::BFloat16:
+    static_cast<c10::BFloat16 *>(base)[idx] = static_cast<c10::BFloat16>(val);
+    break;
+  case c10::ScalarType::Half:
+    static_cast<c10::Half *>(base)[idx] = static_cast<c10::Half>(val);
+    break;
+  default:
+    ZENTORCH_CHECK(false, "unsupported output dtype in gdn chunk output");
   }
 }
 
 void run_chunk_output(const at::Tensor &q_f, const at::Tensor &k_f,
                       const at::Tensor &v_new_f, const at::Tensor &h_out_f,
                       const at::Tensor &g_cum, const at::Tensor &cu_seqlens,
+                      const at::Tensor &chunk_indices,
                       const at::Tensor &chunk_offsets_long, int64_t BT,
                       int64_t H, int64_t r, float scale_f, at::Tensor &o,
                       c10::ScalarType out_dtype) {
-  const int64_t N = cu_seqlens.size(0) - 1;
+  const int64_t NT = chunk_indices.size(0);
   const int32_t *cu_seqlens_p = cu_seqlens.const_data_ptr<int32_t>();
+  const int32_t *ci_p = chunk_indices.const_data_ptr<int32_t>();
   const int64_t *co_p = chunk_offsets_long.const_data_ptr<int64_t>();
+  // NT == chunk_offsets[-1] is validated at the entry point before any kernel
+  // runs (fail-fast), so it is not re-checked here.
 
-  at::Tensor q_b = q_f.select(0, 0);
-  at::Tensor k_b = k_f.select(0, 0);
-  at::Tensor v_b = v_new_f.select(0, 0);
-  at::Tensor h_b = h_out_f.select(0, 0);
-  at::Tensor g_b = g_cum.select(0, 0);
-  at::Tensor o_b = o.select(0, 0);
+  const float *q_base = q_f.const_data_ptr<float>();      // [1, T, Hg, K]
+  const float *k_base = k_f.const_data_ptr<float>();      // [1, T, Hg, K]
+  const float *vn_base = v_new_f.const_data_ptr<float>(); // [1, T, H,  V]
+  const float *ho_base = h_out_f.const_data_ptr<float>(); // [1, NT_total,H,V,K]
+  const float *g_base = g_cum.const_data_ptr<float>();    // [1, T, H]
+  void *o_base = o.data_ptr();                            // [1, T, H, V]
 
-  at::Tensor idx_max = at::arange(BT, q_f.options().dtype(c10::kLong));
-  at::Tensor causal_max = idx_max.unsqueeze(-1).ge(idx_max.unsqueeze(0));
+  const int64_t K_dim = q_f.size(3);
+  const int64_t V_dim = v_new_f.size(3);
 
-  for (int64_t n = 0; n < N; ++n) {
-    const int64_t bos = cu_seqlens_p[n];
-    const int64_t eos = cu_seqlens_p[n + 1];
-    const int64_t boh = co_p[n];
-    const int64_t chunks_in_seq = co_p[n + 1] - boh;
+  const int64_t q_st = q_f.stride(1), q_sh = q_f.stride(2);
+  const int64_t k_st = k_f.stride(1), k_sh = k_f.stride(2);
+  const int64_t vn_st = v_new_f.stride(1), vn_sh = v_new_f.stride(2);
+  const int64_t ho_sc = h_out_f.stride(1), ho_sh = h_out_f.stride(2);
+  const int64_t g_st = g_cum.stride(1), g_sh = g_cum.stride(2);
+  const int64_t o_st = o.stride(1), o_sh = o.stride(2);
 
-    for (int64_t i_t = 0; i_t < chunks_in_seq; ++i_t) {
-      const int64_t chunk_start = bos + i_t * BT;
-      const int64_t chunk_end = std::min(chunk_start + BT, eos);
-      const int64_t BT_eff = chunk_end - chunk_start;
-      if (BT_eff <= 0)
-        continue;
+  // TODO(perf): the A/expg/oacc scratch buffers are allocated inside the
+  // parallel_for lambda, so they are re-allocated once per task chunk (~once
+  // per thread for the native/OpenMP backends; potentially many more under the
+  // TBB backend, where grain_size=1 lets the scheduler over-decompose). A is
+  // BT*BT floats (~16KB at BT=64), so this adds avoidable malloc/free traffic
+  // and allocator contention in the hot region. Prefer per-thread reusable
+  // scratch (e.g. thread_local vectors resized on demand) and/or a tuned
+  // grain_size. Deferred: this is a perf-only change (numerically identical,
+  // buffers are fully overwritten before use) but should be re-benchmarked
+  // before landing.
+  at::parallel_for(
+      0, NT * H, /*grain_size=*/1, [&](int64_t begin, int64_t end) {
+        std::vector<float> A(BT * BT);
+        std::vector<float> expg(BT);
+        std::vector<float> oacc(V_dim);
+        for (int64_t unit = begin; unit < end; ++unit) {
+          const int64_t row = unit / H;
+          const int64_t h = unit % H;
+          const int64_t kh = h / r;
+          const int64_t seq_idx = ci_p[2 * row + 0];
+          const int64_t chunk_idx = ci_p[2 * row + 1];
+          const int64_t bos = cu_seqlens_p[seq_idx];
+          const int64_t eos = cu_seqlens_p[seq_idx + 1];
+          const int64_t chunk_start = bos + chunk_idx * BT;
+          const int64_t chunk_end = std::min(chunk_start + BT, eos);
+          const int64_t BT_eff = chunk_end - chunk_start;
+          if (BT_eff <= 0)
+            continue;
+          const int64_t boh = co_p[seq_idx];
+          const float *h_chunk =
+              ho_base + (boh + chunk_idx) * ho_sc + h * ho_sh; // [V, K]
 
-      at::Tensor q_h = gqa_expand_chunk_3d(q_b, chunk_start, BT_eff, r);
-      at::Tensor k_h = gqa_expand_chunk_3d(k_b, chunk_start, BT_eff, r);
-      at::Tensor v_h = gqa_expand_chunk_3d(v_b, chunk_start, BT_eff, /*r=*/1);
-      at::Tensor g_h = slice_per_head_2d(g_b, chunk_start, BT_eff);
-      at::Tensor h_chunk_batch = h_b.select(0, boh + i_t);
+          for (int64_t t = 0; t < BT_eff; ++t)
+            expg[t] = std::exp(g_base[(chunk_start + t) * g_st + h * g_sh]);
 
-      // History contribution with per-head bulk decay exp(g_h).
-      at::Tensor o_history_batch = zentorch_bmm(
-          q_h, h_chunk_batch.transpose(-1, -2), "zentorch::zentorch_bmm");
-      o_history_batch = o_history_batch * at::exp(g_h).unsqueeze(-1);
+          // A[t, s] = (sum_k q[t, k] * k[s, k]) * exp(g[t] - g[s]) for s <= t
+          // else 0.
+          for (int64_t t = 0; t < BT_eff; ++t) {
+            const float *q_t = q_base + (chunk_start + t) * q_st + kh * q_sh;
+            const float gt = g_base[(chunk_start + t) * g_st + h * g_sh];
+            float *A_t = A.data() + t * BT_eff;
+            for (int64_t s = 0; s <= t; ++s) {
+              const float *k_s = k_base + (chunk_start + s) * k_st + kh * k_sh;
+              const float gs = g_base[(chunk_start + s) * g_st + h * g_sh];
+              A_t[s] = vec_dot(q_t, k_s, K_dim) * std::exp(gt - gs);
+            }
+          }
 
-      // In-chunk attention with exp(g[i] - g[j]) decay and causal mask.
-      at::Tensor A_batch =
-          zentorch_bmm(q_h, k_h.transpose(-1, -2), "zentorch::zentorch_bmm");
-      A_batch = A_batch * at::exp(g_h.unsqueeze(-1) - g_h.unsqueeze(-2));
-
-      at::Tensor causal_eff =
-          causal_max.narrow(0, 0, BT_eff).narrow(1, 0, BT_eff);
-      A_batch = at::where(causal_eff, A_batch, A_batch.new_zeros({}));
-
-      at::Tensor o_in_chunk_batch =
-          zentorch_bmm(A_batch, v_h, "zentorch::zentorch_bmm");
-
-      at::Tensor o_block_batch = (o_history_batch + o_in_chunk_batch) * scale_f;
-
-      o_b.narrow(0, chunk_start, BT_eff)
-          .copy_(o_block_batch.transpose(0, 1).to(out_dtype));
-    }
-  }
+          // o[t, v] = ((sum_k q[t,k]*h_chunk[v,k]) * expg[t]
+          //            + sum_{s<=t} A[t,s]*v_new[s,v]) * scale
+          for (int64_t t = 0; t < BT_eff; ++t) {
+            const float *q_t = q_base + (chunk_start + t) * q_st + kh * q_sh;
+            // History contribution.
+            const float expg_t = expg[t];
+            for (int64_t v = 0; v < V_dim; ++v)
+              oacc[v] = vec_dot(q_t, h_chunk + v * K_dim, K_dim) * expg_t;
+            // In-chunk contribution.
+            const float *A_t = A.data() + t * BT_eff;
+            for (int64_t s = 0; s <= t; ++s)
+              vec_axpy_pos(oacc.data(),
+                           vn_base + (chunk_start + s) * vn_st + h * vn_sh,
+                           A_t[s], V_dim);
+            const int64_t o_off = (chunk_start + t) * o_st + h * o_sh;
+            for (int64_t v = 0; v < V_dim; ++v)
+              store_out(o_base, out_dtype, o_off + v, oacc[v] * scale_f);
+          }
+        }
+      });
 }
 
 } // namespace
@@ -414,6 +571,14 @@ std::tuple<at::Tensor, at::Tensor> zentorch_gdn_chunk_gated_delta_rule_fwd(
   const int64_t *co_p = chunk_offsets_long.const_data_ptr<int64_t>();
   const int64_t NT_total = co_p[N];
 
+  // Fail fast BEFORE the compute kernels run: chunk_indices (NT rows) must
+  // match chunk_offsets[-1] (NT_total). NT_total sizes h_out_f and drives the
+  // per-chunk iteration in run_chunk_recurrent_state; a mismatch would let the
+  // kernels read uninitialized g_cum/w_f/u_f for the missing chunks (UB /
+  // incorrect output) before any later validation could catch it.
+  ZENTORCH_CHECK(NT == NT_total, "chunk_indices.size(0)=", NT,
+                 " must equal chunk_offsets[-1]=", NT_total);
+
   at::Tensor h_out_f =
       empty_contiguous_cpu({B, NT_total, H, V_dim, K_dim}, fp32_options);
   at::Tensor v_new_f = empty_contiguous_cpu({B, T, H, V_dim}, v_fp32_options);
@@ -429,15 +594,20 @@ std::tuple<at::Tensor, at::Tensor> zentorch_gdn_chunk_gated_delta_rule_fwd(
     ZENTORCH_CHECK(false, "g dtype must be fp32 or bf16 or fp16; got ", g_dt);
   }
 
-  at::Tensor k_f = k.to(c10::kFloat);
-  at::Tensor v_f = v.to(c10::kFloat);
-  at::Tensor beta_f = beta.to(c10::kFloat);
-  at::Tensor q_f = q.to(c10::kFloat);
+  at::Tensor k_f = k.to(c10::kFloat).contiguous();
+  at::Tensor v_f = v.to(c10::kFloat).contiguous();
+  at::Tensor beta_f = beta.to(c10::kFloat).contiguous();
+  at::Tensor q_f = q.to(c10::kFloat).contiguous();
   c10::optional<at::Tensor> initial_state_f;
   if (initial_state.has_value() && initial_state->numel() > 0) {
+    // Force contiguity: run_chunk_recurrent_state memcpy's VK = V_dim*K_dim
+    // floats as one contiguous block (strides are only tracked for the outer
+    // N/H dims), so a non-contiguous initial_state would be read with the wrong
+    // layout and corrupt the recurrence. contiguous() is a no-op when already
+    // contiguous; the tensor is read-only here, so a copy is harmless.
     initial_state_f = (initial_state->scalar_type() == c10::ScalarType::Float)
-                          ? *initial_state
-                          : initial_state->to(c10::kFloat);
+                          ? initial_state->contiguous()
+                          : initial_state->to(c10::kFloat).contiguous();
   }
 
   run_recompute_w_u_fused(k_f, v_f, beta_f, g_cum, cu_seqlens, chunk_indices,
@@ -448,7 +618,7 @@ std::tuple<at::Tensor, at::Tensor> zentorch_gdn_chunk_gated_delta_rule_fwd(
                             output_final_state, h_out_f, v_new_f, final_state);
 
   const float scale_f = static_cast<float>(scale);
-  run_chunk_output(q_f, k_f, v_new_f, h_out_f, g_cum, cu_seqlens,
+  run_chunk_output(q_f, k_f, v_new_f, h_out_f, g_cum, cu_seqlens, chunk_indices,
                    chunk_offsets_long, BT, H, r, scale_f, o, v.scalar_type());
 
   return std::make_tuple(o, final_state);
