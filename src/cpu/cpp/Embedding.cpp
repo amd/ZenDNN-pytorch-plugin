@@ -7,25 +7,29 @@
 #include "EmbeddingUtils.hpp"
 #include "EnvReader.hpp"
 
+#include <torch/csrc/stable/library.h>
+#include <torch/csrc/stable/ops.h>
+
 using namespace zendnnl::interface;
 
 namespace zentorch {
 
 // Core compute: writes the gathered rows into `output`. Shared by the
 // allocating impl and the `.out` variant.
-void zendnnl_embedding_impl(const at::Tensor &weight, const at::Tensor &indices,
+void zendnnl_embedding_impl(const torch::stable::Tensor &weight,
+                            const torch::stable::Tensor &indices,
                             int64_t padding_idx, bool scale_grad_by_freq,
                             bool sparse, std::string zentorch_op_name,
-                            at::Tensor &output) {
+                            torch::stable::Tensor &output) {
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
 
   zen_embedding_weight_check(weight);
   check_embedding_out_tensor(weight, indices, output);
 
-  LOG(INFO) << "Embedding matrix dimensions: " << weight.sizes()[0] << "x"
-            << weight.sizes()[1];
-  LOG(INFO) << "Number of indices: " << indices.sizes()[0];
+  LOG(INFO) << "Embedding matrix dimensions: " << weight.size(0) << "x"
+            << weight.size(1);
+  LOG(INFO) << "Number of indices: " << indices.size(0);
 
   tensor_t table = tensor_t();
   set_zendnnl_tensor_attributes(weight, table, "table");
@@ -56,55 +60,63 @@ void zendnnl_embedding_impl(const at::Tensor &weight, const at::Tensor &indices,
   LOG(INFO) << "Finished executing: " << __FUNCTION__ << "!\n";
 }
 
-at::Tensor zentorch_embedding(const at::Tensor &weight,
-                              const at::Tensor &indices, int64_t padding_idx,
-                              bool scale_grad_by_freq, bool sparse,
-                              std::string zentorch_op_name) {
-  at::Tensor output = create_embedding_output_tensor(weight, indices);
+torch::stable::Tensor zentorch_embedding(const torch::stable::Tensor &weight,
+                                         const torch::stable::Tensor &indices,
+                                         int64_t padding_idx,
+                                         bool scale_grad_by_freq, bool sparse,
+                                         std::string zentorch_op_name) {
+  torch::stable::Tensor output =
+      create_embedding_output_tensor(weight, indices);
   zendnnl_embedding_impl(weight, indices, padding_idx, scale_grad_by_freq,
                          sparse, zentorch_op_name, output);
   return output;
 }
 
-std::vector<at::Tensor> zendnnl_group_embedding_impl(
-    at::TensorList weight, at::TensorList indices, at::IntArrayRef padding_idx,
-    at::IntArrayRef scale_grad_by_freq, at::IntArrayRef sparse,
-    std::string zentorch_op_name) {
+static std::vector<torch::stable::Tensor>
+zendnnl_group_embedding_impl(const std::vector<torch::stable::Tensor> &weight,
+                             const std::vector<torch::stable::Tensor> &indices,
+                             const std::vector<int64_t> &padding_idx,
+                             const std::vector<int64_t> &scale_grad_by_freq,
+                             const std::vector<int64_t> &sparse,
+                             std::string zentorch_op_name) {
 
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
-  int num_embedding_ops = weight.size();
-  std::vector<at::Tensor> output(num_embedding_ops);
+  const int num_embedding_ops = static_cast<int>(weight.size());
+  std::vector<torch::stable::Tensor> output(num_embedding_ops);
 
   LOG(INFO) << "GroupEmbedding compute in progress...";
 
   // TODO
   // As soon as the support for optimized kernel is added at the library side,
-  // This aten parallel will be removed.
-  at::parallel_for(0, num_embedding_ops, 0, [&](int64_t start, int64_t end) {
-    for (auto i = start; i < end; i++) {
-      output[i] = zentorch_embedding(weight[i], indices[i], padding_idx[i],
-                                     scale_grad_by_freq[i], sparse[i],
-                                     zentorch_op_name);
-    }
-  });
+  // This parallel loop will be removed.
+  torch::stable::parallel_for(
+      0, num_embedding_ops, 0, [&](int64_t start, int64_t end) {
+        for (auto i = start; i < end; i++) {
+          output[i] = zentorch_embedding(
+              weight[i], indices[i], padding_idx[i],
+              static_cast<bool>(scale_grad_by_freq[i]),
+              static_cast<bool>(sparse[i]), zentorch_op_name);
+        }
+      });
 
   LOG(INFO) << "Finished executing: " << __FUNCTION__ << "!\n";
 
   return output;
 }
 
-std::vector<at::Tensor> zentorch_horizontal_embedding_group(
-    at::TensorList weight, at::TensorList indices, at::IntArrayRef padding_idx,
-    at::IntArrayRef scale_grad_by_freq, at::IntArrayRef sparse,
-    std::string zentorch_op_name) {
+std::vector<torch::stable::Tensor> zentorch_horizontal_embedding_group(
+    std::vector<torch::stable::Tensor> weight,
+    std::vector<torch::stable::Tensor> indices,
+    std::vector<int64_t> padding_idx, std::vector<int64_t> scale_grad_by_freq,
+    std::vector<int64_t> sparse, std::string zentorch_op_name) {
 
   return zendnnl_group_embedding_impl(weight, indices, padding_idx,
                                       scale_grad_by_freq, sparse,
                                       zentorch_op_name);
 }
 
-TORCH_LIBRARY_FRAGMENT(zentorch, m) {
+STABLE_TORCH_LIBRARY_FRAGMENT(zentorch, m) {
   m.def("zentorch_embedding(Tensor weight, Tensor indices, "
         "int padding_idx=-1, bool scale_grad_by_freq=False, "
         "bool sparse=False, str "
@@ -122,10 +134,11 @@ TORCH_LIBRARY_FRAGMENT(zentorch, m) {
       "'zentorch::zentorch_horizontal_embedding_group') -> Tensor[]");
 }
 
-TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
-  m.impl("zentorch_embedding", zentorch_embedding);
-  m.impl("zentorch_embedding.out", zendnnl_embedding_impl);
+STABLE_TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
+  m.impl("zentorch_embedding", TORCH_BOX(&zentorch::zentorch_embedding));
+  m.impl("zentorch_embedding.out",
+         TORCH_BOX(&zentorch::zendnnl_embedding_impl));
   m.impl("zentorch_horizontal_embedding_group",
-         zentorch_horizontal_embedding_group);
+         TORCH_BOX(&zentorch::zentorch_horizontal_embedding_group));
 }
 } // namespace zentorch

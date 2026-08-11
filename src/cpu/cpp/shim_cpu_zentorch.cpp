@@ -618,10 +618,9 @@ AOTITorchError aoti_torch_cpu_zentorch_embedding(
     AtenTensorHandle *ret0) {
   AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
     auto tmp_result = zentorch::zentorch_embedding(
-        *tensor_handle_to_tensor_pointer(weight),
-        *tensor_handle_to_tensor_pointer(indices), padding_idx,
+        stable_from_handle(weight), stable_from_handle(indices), padding_idx,
         scale_grad_by_freq, sparse, zentorch_op_name);
-    *ret0 = new_tensor_handle(std::move(tmp_result));
+    *ret0 = handle_from_stable(tmp_result);
   });
 }
 
@@ -631,11 +630,10 @@ AOTITorchError aoti_torch_cpu_zentorch_embedding_out(
     int64_t padding_idx, bool scale_grad_by_freq, bool sparse,
     const char *zentorch_op_name) {
   AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
-    zentorch::zendnnl_embedding_impl(*tensor_handle_to_tensor_pointer(weight),
-                                     *tensor_handle_to_tensor_pointer(indices),
-                                     padding_idx, scale_grad_by_freq, sparse,
-                                     zentorch_op_name,
-                                     *tensor_handle_to_tensor_pointer(out));
+    auto out_stable = stable_from_handle(out);
+    zentorch::zendnnl_embedding_impl(
+        stable_from_handle(weight), stable_from_handle(indices), padding_idx,
+        scale_grad_by_freq, sparse, zentorch_op_name, out_stable);
   });
 }
 

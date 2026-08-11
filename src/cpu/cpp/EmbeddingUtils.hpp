@@ -7,37 +7,42 @@
 #include "EnvReader.hpp"
 #include "Memory.hpp"
 
+#include <c10/util/StringUtil.h>
+#include <torch/csrc/stable/ops.h>
+#include <torch/csrc/stable/tensor.h>
+
 using namespace zendnnl::interface;
 
 namespace zentorch {
 
 // Allocates the dense [num_indices, dim_embedding] output for the embedding
-// lookup. empty_strided_cpu (not at::zeros) since the kernel writes every row.
-inline at::Tensor create_embedding_output_tensor(const at::Tensor &weight,
-                                                 const at::Tensor &indices) {
-  const int64_t dim_embedding = weight.sizes()[1];
-  const int64_t num_indices = indices.sizes()[0];
-  return at::detail::empty_strided_cpu({num_indices, dim_embedding},
-                                       {dim_embedding, 1}, weight.options());
+// lookup. new_empty (not zeros) since the kernel writes every row.
+inline torch::stable::Tensor
+create_embedding_output_tensor(const torch::stable::Tensor &weight,
+                               const torch::stable::Tensor &indices) {
+  const int64_t dim_embedding = weight.size(1);
+  const int64_t num_indices = indices.size(0);
+  return torch::stable::new_empty(weight, {num_indices, dim_embedding});
 }
 
 // Validates a caller-supplied `out` (shape/dtype/contiguity) for the embedding
 // `.out` variant. Guards non-Inductor callers. Gated by ZENTORCH_ENABLE_CHECKS.
-inline void check_embedding_out_tensor(const at::Tensor &weight,
-                                       const at::Tensor &indices,
-                                       const at::Tensor &out) {
+inline void check_embedding_out_tensor(const torch::stable::Tensor &weight,
+                                       const torch::stable::Tensor &indices,
+                                       const torch::stable::Tensor &out) {
   const bool enable_checks = static_cast<bool>(
       EnvReader::getEnvVariableAsInt("ZENTORCH_ENABLE_CHECKS"));
   if (!enable_checks)
     return;
   ZENTORCH_CHECK(out.defined(),
                  "'out' tensor in the embedding out variant must be defined");
-  const std::vector<int64_t> expected_sizes = {indices.sizes()[0],
-                                               weight.sizes()[1]};
-  ZENTORCH_CHECK(out.sizes() == c10::IntArrayRef(expected_sizes),
+  const std::vector<int64_t> expected_sizes = {indices.size(0), weight.size(1)};
+  const auto out_sizes = out.sizes();
+  ZENTORCH_CHECK(out_sizes.equals(expected_sizes),
                  "unsupported shape for 'out' tensor in the embedding out "
-                 "variant, expected ",
-                 c10::IntArrayRef(expected_sizes), " but got ", out.sizes());
+                 "variant, expected [",
+                 c10::Join(", ", expected_sizes), "] but got [",
+                 c10::Join(", ", out_sizes), "]");
   ZENTORCH_CHECK(
       out.is_contiguous(),
       "'out' tensor in the embedding out variant must be contiguous");
@@ -46,7 +51,7 @@ inline void check_embedding_out_tensor(const at::Tensor &weight,
                  "out variant");
 }
 
-inline void zen_embedding_weight_check(const at::Tensor &weight) {
+inline void zen_embedding_weight_check(const torch::stable::Tensor &weight) {
   const bool is_weight_bf16 =
       (weight.scalar_type() == c10::ScalarType::BFloat16);
   const bool is_weight_fp16 = (weight.scalar_type() == c10::ScalarType::Half);
