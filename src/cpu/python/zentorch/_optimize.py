@@ -31,7 +31,6 @@ from ._prepack_pass import add_zentorch_weight_prepack_ops
 from ._eltwise_unary_fusions import zentorch_eltwise_unary_fusions
 from ._eltwise_binary_fusions import zentorch_eltwise_binary_fusions
 from ._graph_preprocess_matcher import preprocess_graph_pass
-from ._fusion_matcher import fusions_graph_pass
 from ._woq_linear_binary_binary_fusion import woq_linear_binary_binary_post_op_fusions
 from ._woq_linear_unary_fusion import woq_linear_unary_post_op_fusions
 from ._qlinear_fusion import qlinear_fusion_pass
@@ -158,9 +157,6 @@ def optimize(fx_graph):
 
     # unary fusions happen after binary
     optimized_graph = zentorch_eltwise_unary_fusions(optimized_graph)
-
-    # eltwise fusion replacements
-    optimized_graph = fusions_graph_pass(optimized_graph)
 
     # Reorder optimization for serialized qlinear_* ops.
     optimized_graph = qlinear_reorder_optimizations(optimized_graph)

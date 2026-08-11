@@ -3,9 +3,6 @@
 # All rights reserved.
 # ******************************************************************************
 
-# Todo: This file can be removed later when mm pattern is cleaned up
-# since similar testcase is handled in test_linear_unary.py and test_linear_binary.py.
-
 import unittest
 import torch
 from torch import nn
@@ -27,12 +24,12 @@ from unittest_utils import (  # noqa: 402
     test_with_freeze_opt,
 )
 
-supported_dtypes = update_supported_dtypes(supported_dtypes, "zentorch_mm")
+supported_dtypes = update_supported_dtypes(supported_dtypes, "zentorch_linear")
 
 
-class Custom_Model_MM_Silu_Mul(nn.Module):
+class Custom_Model_Linear_Silu_Mul(nn.Module):
     def __init__(self, data, bias):
-        super(Custom_Model_MM_Silu_Mul, self).__init__()
+        super(Custom_Model_Linear_Silu_Mul, self).__init__()
         self.m = data.m
         self.n = data.n
         self.k = data.k
@@ -54,14 +51,14 @@ class Custom_Model_MM_Silu_Mul(nn.Module):
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 @unittest.skipIf(skip_test_pt_2_1, "Pattern matcher disabled for Torch < 2.2")
-class Test_MM_SiLU_Mul_Model(MMTestCase):
+class Test_Linear_SiLU_Mul_Model(MMTestCase):
 
     @MMTestCase.hypothesis_params_mm_itr(
-        dtype_list=supported_dtypes, freeze_list=freeze_opt
+        dtype_list=supported_dtypes, freeze_list=freeze_opt,
     )
     @torch.inference_mode()
-    def test_mm_silu_mul_with_bias_model(self, dtype, freeze_opt):
-        model = Custom_Model_MM_Silu_Mul(self.data, bias=True)
+    def test_linear_silu_mul_with_bias_model(self, dtype, freeze_opt):
+        model = Custom_Model_Linear_Silu_Mul(self.data, bias=True)
         model_input = self.data.input.view(1, self.data.m, self.data.n)
         if dtype == "bfloat16":
             model = model.to(torch.bfloat16)
@@ -89,8 +86,8 @@ class Test_MM_SiLU_Mul_Model(MMTestCase):
         dtype_list=supported_dtypes, freeze_list=freeze_opt
     )
     @torch.inference_mode()
-    def test_mm_silu_mul_without_bias_model(self, dtype, freeze_opt):
-        model = Custom_Model_MM_Silu_Mul(self.data, bias=False)
+    def test_linear_silu_mul_without_bias_model(self, dtype, freeze_opt):
+        model = Custom_Model_Linear_Silu_Mul(self.data, bias=False)
         model_input = self.data.input.view(1, self.data.m, self.data.n)
         if dtype == "bfloat16":
             model = model.to(torch.bfloat16)

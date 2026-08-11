@@ -35,38 +35,6 @@ class Custom_Model_Addmm(nn.Module):
         return addmm_res
 
 
-class Custom_Model_Addmm_1D(nn.Module):
-    def __init__(self):
-        super(Custom_Model_Addmm_1D, self).__init__()
-
-    def forward(self, input, batch1, batch2):
-        mm = torch.mm(input, batch1)
-        view = torch.ops.aten.view.default(mm, [1, mm.shape[0], mm.shape[1]])
-        add_res = torch.add(view, batch2)
-        return add_res
-
-
-class Custom_Model_Addmm_2D(nn.Module):
-    def __init__(self):
-        super(Custom_Model_Addmm_2D, self).__init__()
-
-    def forward(self, input, batch1, batch2):
-        mm = torch.mm(input, batch1)
-        add_res = torch.add(mm, batch2)
-        return add_res
-
-
-class Custom_Model_Addmm_3D(nn.Module):
-    def __init__(self):
-        super(Custom_Model_Addmm_3D, self).__init__()
-
-    def forward(self, input, batch1, batch2):
-        mm = torch.mm(input, batch1)
-        view = torch.ops.aten.view.default(mm, batch2.size())
-        add_res = torch.add(view, batch2)
-        return add_res
-
-
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class Test_Addmm_Model(AddmmTestCase):
 
@@ -197,59 +165,6 @@ class Test_Addmm_Model(AddmmTestCase):
         )
         self.assertEqual(counters["zentorch"]["zentorch_addmm"], 1)
         self.assertEqual(model_output, compiled_graph_output)
-
-    @AddmmTestCase.hypothesis_params_add_xD_itr(dtype_list=supported_dtypes)
-    @torch.inference_mode()
-    def test_addmm_variable_add_1D_model(self, dtype):
-        model = Custom_Model_Addmm_1D().eval()
-        model_output = model(
-            self.data.mm_add_1D[0], self.data.mm_add_1D[1], self.data.mm_add_1D[2]
-        )
-        reset_dynamo()
-        counters.clear()
-        self.assertEqual(counters["zentorch"]["pattern_matcher_mm_view_add"], 0)
-        compiled_graph = torch.compile(model, backend="zentorch")
-        compiled_graph_output = compiled_graph(
-            self.data.mm_add_1D[0], self.data.mm_add_1D[1], self.data.mm_add_1D[2]
-        )
-        self.assertEqual(model_output, compiled_graph_output)
-        self.assertEqual(counters["zentorch"]["pattern_matcher_mm_view_add"], 0)
-
-    @AddmmTestCase.hypothesis_params_add_xD_itr(dtype_list=supported_dtypes)
-    @torch.inference_mode()
-    def test_addmm_variable_add_2D_model(self, dtype):
-        tol = 1e-2 if dtype == "float16" else 1e-5
-        model = Custom_Model_Addmm_2D().eval()
-        model_output = model(
-            self.data.mm_add_2D[0], self.data.mm_add_2D[1], self.data.mm_add_2D[2]
-        )
-        reset_dynamo()
-        counters.clear()
-        self.assertEqual(counters["zentorch"]["pattern_matcher_mm_add"], 0)
-        compiled_graph = torch.compile(model, backend="zentorch")
-        compiled_graph_output = compiled_graph(
-            self.data.mm_add_2D[0], self.data.mm_add_2D[1], self.data.mm_add_2D[2]
-        )
-        self.assertEqual(model_output, compiled_graph_output, atol=tol, rtol=1e-2)
-        self.assertEqual(counters["zentorch"]["pattern_matcher_mm_add"], 0)
-
-    @AddmmTestCase.hypothesis_params_add_xD_itr(dtype_list=supported_dtypes)
-    @torch.inference_mode()
-    def test_addmm_variable_add_3D_model(self, dtype):
-        tol = 1e-2 if dtype == "float16" else 1e-5
-        model = Custom_Model_Addmm_3D().eval()
-        model_output = model(
-            self.data.mm_add_3D[0], self.data.mm_add_3D[1], self.data.mm_add_3D[2]
-        )
-        reset_dynamo()
-        counters.clear()
-        self.assertEqual(counters["zentorch"]["pattern_matcher_mm_add"], 0)
-        compiled_graph = torch.compile(model, backend="zentorch")
-        compiled_graph_output = compiled_graph(
-            self.data.mm_add_3D[0], self.data.mm_add_3D[1], self.data.mm_add_3D[2]
-        )
-        self.assertEqual(model_output, compiled_graph_output, atol=tol, rtol=1e-2)
-        self.assertEqual(counters["zentorch"]["pattern_matcher_mm_add"], 1)
 
 
 if __name__ == "__main__":

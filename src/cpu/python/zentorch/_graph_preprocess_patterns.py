@@ -5,7 +5,6 @@
 
 import torch
 from ._utils import counters, is_version_compatible_import
-from ._fusion_patterns import _matmul_dtypes_check
 import functools
 from functools import partial
 
@@ -74,6 +73,17 @@ def _bmm_to_mm_replacement_1(arg_0, arg_1):
 
 
 # adding patterns completed #
+
+
+def _matmul_dtypes_check(match):
+    # All tensor arguments of the matmul must share one supported dtype.
+    supported = (torch.float, torch.bfloat16, torch.float16)
+    dtypes = {
+        v.meta["val"].dtype
+        for v in match.kwargs.values()
+        if not isinstance(v, (int, float)) and torch.is_tensor(v.meta["val"])
+    }
+    return len(dtypes) == 1 and dtypes.pop() in supported
 
 
 # Checks for ChatGLM pattern

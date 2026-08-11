@@ -73,10 +73,10 @@ class Custom_Model_BMM3(nn.Module):
         return bmm_0
 
 
-# add a pattern for mm split
-class Custom_Model_MM_Silu(torch.nn.Module):
+# add a pattern for linear split
+class Custom_Model_Linear_Split_Silu_Mul(torch.nn.Module):
     def __init__(self, batch_size, seq_len, dim: int = 30):
-        super(Custom_Model_MM_Silu, self).__init__()
+        super(Custom_Model_Linear_Split_Silu_Mul, self).__init__()
         self.batch_size = batch_size
         self.seq_len = seq_len
         self.linear = torch.nn.Linear(dim, 40, bias=False)
@@ -191,13 +191,13 @@ class Test_Pattern_Matcher_Model(Zentorch_TestCase):
         )
 
     @parameterized.expand(
-        product(update_supported_dtypes(supported_dtypes, "zentorch_mm"), freeze_opt)
+        product(update_supported_dtypes(supported_dtypes, "zentorch_linear"), freeze_opt)
     )
     @torch.inference_mode()
-    def test_mm_silu_pattern_model(self, dtype, freeze_opt):
+    def test_linear_split_silu_mul_pattern_model(self, dtype, freeze_opt):
         reset_dynamo()
-        mm_split_model = Custom_Model_MM_Silu(4, 64, 30)
-        model = mm_split_model.to("cpu").eval()
+        linear_split_model = Custom_Model_Linear_Split_Silu_Mul(4, 64, 30)
+        model = linear_split_model.to("cpu").eval()
         if dtype == "bfloat16":
             model = model.to(torch.bfloat16)
         elif dtype == "float16":

@@ -150,38 +150,6 @@ def meta_zentorch_mm(
     return input.new_empty((input.shape[0], weight.shape[-1]))
 
 
-@register_meta("zentorch_mm_relu")
-def meta_zentorch_mm_relu(
-    input,
-    weight,
-):
-    return input.new_empty((input.shape[0], weight.shape[-1]))
-
-
-@register_meta("zentorch_mm_silu")
-def meta_zentorch_mm_silu(
-    input,
-    weight,
-):
-    return input.new_empty((input.shape[0], weight.shape[-1]))
-
-
-@register_meta("zentorch_mm_gelu_tanh")
-def meta_zentorch_mm_gelu_tanh(
-    input,
-    weight,
-):
-    return input.new_empty((input.shape[0], weight.shape[-1]))
-
-
-@register_meta("zentorch_mm_gelu_erf")
-def meta_zentorch_mm_gelu_erf(
-    input,
-    weight,
-):
-    return input.new_empty((input.shape[0], weight.shape[-1]))
-
-
 @register_meta("zentorch_bmm")
 def meta_zentorch_bmm(input, weight):
     return input.new_empty((input.shape[0], input.shape[1], weight.shape[-1]))
@@ -232,11 +200,6 @@ if hasattr(torch.ops.zentorch, "zentorch_sdpa"):
             attention,
             logsumexp,
         )
-
-
-@register_meta("zentorch_mm_silu_mul")
-def meta_zentorch_mm_silu_mul(input, weight, mul_tensor):
-    return mul_tensor.new_empty(mul_tensor.size())
 
 
 @register_meta("zentorch_embedding_bag")
@@ -445,10 +408,6 @@ zentorch_addmm_1dbias_mappings = {
 
 zentorch_mm_mappings = {
     0: meta_zentorch_mm,
-    1: meta_zentorch_mm_relu,
-    2: meta_zentorch_mm_gelu_tanh,
-    3: meta_zentorch_mm_gelu_erf,
-    4: meta_zentorch_mm_silu,
 }
 
 
@@ -849,16 +808,11 @@ def meta_zentorch_woq_repack_from_int4pack(
 
 make_fallback(torch.ops.zentorch.zentorch_addmm)
 make_fallback(torch.ops.zentorch.zentorch_addmm_1dbias)
-make_fallback(torch.ops.zentorch.zentorch_mm_silu_mul)
 make_fallback(torch.ops.zentorch.zentorch_embedding_bag)
 make_fallback(torch.ops.zentorch.zentorch_bmm)
 make_fallback(torch.ops.zentorch.zentorch_bmm.out)
 make_fallback(torch.ops.zentorch.zentorch_baddbmm)
 make_fallback(torch.ops.zentorch.zentorch_mm)
-make_fallback(torch.ops.zentorch.zentorch_mm_relu)
-make_fallback(torch.ops.zentorch.zentorch_mm_silu)
-make_fallback(torch.ops.zentorch.zentorch_mm_gelu_tanh)
-make_fallback(torch.ops.zentorch.zentorch_mm_gelu_erf)
 make_fallback(torch.ops.zentorch.zentorch_horizontal_embedding_bag_group)
 make_fallback(torch.ops.zentorch.zentorch_horizontal_embedding_group)
 # `zentorch_rms_norm`, `zentorch_add_rms_norm_`, (`zentorch_quant_embedding_bag.{default,out}`, `zentorch_embedding`,

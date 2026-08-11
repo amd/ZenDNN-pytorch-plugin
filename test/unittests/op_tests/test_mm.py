@@ -86,17 +86,6 @@ class Test_MM_Op(MMTestCase):
             in str(context.exception)
         )
 
-    @MMTestCase.hypothesis_params_mm_itr(dtype_list=supported_dtypes)
-    def test_mm_relu(self, dtype):
-
-        # mm->relu
-        self.assertEqual(
-            torch._C._VariableFunctions.relu(
-                torch._C._VariableFunctions.mm(self.data.x, self.data.y)
-            ),
-            torch.ops.zentorch.zentorch_mm_relu(self.data.x, self.data.y),
-        )
-
 
 if __name__ == "__main__":
     run_tests()

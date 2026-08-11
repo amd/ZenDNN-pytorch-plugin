@@ -383,40 +383,9 @@ at::Tensor zentorch_bmm(const at::Tensor &self, const at::Tensor &mat2,
   return result;
 }
 
-template <UNARY_POST_OP fuse1, BINARY_POST_OP fuse2>
-at::Tensor zentorch_mm_unary_binary(const at::Tensor &mat1,
-                                    const at::Tensor &mat2,
-                                    const at::Tensor &binary_input,
-                                    std::string zentorch_op_name) {
-
-  LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
-            << "Executing function: " << __FUNCTION__;
-  ZENTORCH_CHECK((mat1.dim() == 2 && mat2.dim() == 2),
-                 "unsupported dims for mat1 and mat2")
-
-  at::Tensor result = create_linear_and_matmul_output_tensor(mat1, mat2);
-
-  at::Tensor empty_bias;
-  std::vector<int64_t> post_op_ids = {fuse1, fuse2};
-  std::vector<at::Tensor> post_op_buffers = {binary_input};
-  return zentorch_matmul_impl(mat1, mat2, empty_bias, result, post_op_ids,
-                              post_op_buffers, 0.0f /* beta */,
-                              1.0f /* alpha */, zentorch_op_name);
-}
-
 TORCH_LIBRARY(zentorch, m) {
   m.def("zentorch_mm(Tensor self, Tensor mat2, *, str "
         "zentorch_op_name='zentorch::zentorch_mm') -> Tensor");
-  m.def("zentorch_mm_relu(Tensor self, Tensor mat2, *, str "
-        "zentorch_op_name='zentorch::zentorch_mm_relu') -> Tensor");
-  m.def("zentorch_mm_gelu_tanh(Tensor self, Tensor mat2, *, str "
-        "zentorch_op_name='zentorch::zentorch_mm_gelu_tanh') -> Tensor");
-  m.def("zentorch_mm_gelu_erf(Tensor self, Tensor mat2, *, str "
-        "zentorch_op_name='zentorch::zentorch_mm_gelu_erf') -> Tensor");
-  m.def("zentorch_mm_silu(Tensor self, Tensor mat2, *, str "
-        "zentorch_op_name='zentorch::zentorch_mm_silu') -> Tensor");
-  m.def("zentorch_mm_tanh(Tensor self, Tensor mat2, *, str "
-        "zentorch_op_name='zentorch::zentorch_mm_tanh') -> Tensor");
   m.def("zentorch_bmm(Tensor self, Tensor mat2, str "
         "zentorch_op_name='zentorch::zentorch_bmm') -> Tensor",
         {at::Tag::needs_contiguous_strides});
@@ -437,25 +406,15 @@ TORCH_LIBRARY(zentorch, m) {
         "beta=1, Scalar alpha=1, str "
         "zentorch_op_name='zentorch::zentorch_baddbmm') -> "
         "Tensor");
-  m.def("zentorch_mm_silu_mul(Tensor mat1, Tensor mat2, Tensor mul_input,"
-        "str zentorch_op_name='zentorch::zentorch_mm_silu_mul') -> "
-        "Tensor");
 }
 
 TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
   m.impl("zentorch_mm", zentorch_mm<UNARY_POST_OP::POST_OP_NONE>);
-  m.impl("zentorch_mm_relu", zentorch_mm<UNARY_POST_OP::RELU>);
-  m.impl("zentorch_mm_gelu_tanh", zentorch_mm<UNARY_POST_OP::GELU_TANH>);
-  m.impl("zentorch_mm_gelu_erf", zentorch_mm<UNARY_POST_OP::GELU_ERF>);
-  m.impl("zentorch_mm_silu", zentorch_mm<UNARY_POST_OP::SILU>);
-  m.impl("zentorch_mm_tanh", zentorch_mm<UNARY_POST_OP::TANH>);
   m.impl("zentorch_bmm", zentorch_bmm);
   m.impl("zentorch_bmm.out", zentorch_bmm_out);
   m.impl("zentorch_addmm", zentorch_addmm<UNARY_POST_OP::POST_OP_NONE>);
   m.impl("zentorch_addmm_1dbias",
          zentorch_addmm_1dbias<UNARY_POST_OP::POST_OP_NONE>);
   m.impl("zentorch_baddbmm", zentorch_baddbmm);
-  m.impl("zentorch_mm_silu_mul",
-         zentorch_mm_unary_binary<UNARY_POST_OP::SILU, BINARY_POST_OP::MUL>);
 }
 } // namespace zentorch
