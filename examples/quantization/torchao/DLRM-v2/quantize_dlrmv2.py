@@ -22,8 +22,6 @@ import torch.nn as nn
 import torch._inductor.config as inductor_config
 from torch.profiler import profile, ProfilerActivity
 
-import zentorch
-
 # Add DLRMv2 model directory to Python path
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_DIR = os.path.join(SCRIPT_DIR, "model")
@@ -438,7 +436,7 @@ def _modify_buffers_and_params_in_exported_module(
             zp_key = "_zero_point_" + name[13:]
             scale_buffer = exported_module._buffers[scale_key]
             zp_buffer = exported_module._buffers[zp_key]
-            packed_buffer = zentorch._C.zentorch_get_packed_embedding_weight(
+            packed_buffer = torch.ops.zentorch.zentorch_get_packed_embedding_weight(
                 packed_buffer, scale_buffer, zp_buffer
             )
             # directly overwrite _buffers

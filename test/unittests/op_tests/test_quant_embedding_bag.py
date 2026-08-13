@@ -51,7 +51,7 @@ class Test_WOQ_Embedding_Bag(QuantEmbTestCase):
             include_last_offset=include_last_offset
         ).to(torch_type)
 
-        zentorch_packed_weights = zentorch._C.zentorch_get_packed_embedding_weight(
+        zentorch_packed_weights = torch.ops.zentorch.zentorch_get_packed_embedding_weight(
             packed_weight, scales, zero_points
         )
         op_result = torch.ops.zentorch.zentorch_quant_embedding_bag(
@@ -103,7 +103,7 @@ class Test_WOQ_Embedding_Bag(QuantEmbTestCase):
             include_last_offset=include_last_offset
         ).to(torch_type)
 
-        zentorch_packed_weights = zentorch._C.zentorch_get_packed_embedding_weight(
+        zentorch_packed_weights = torch.ops.zentorch.zentorch_get_packed_embedding_weight(
             packed_weight, scales, zero_points
         )
 

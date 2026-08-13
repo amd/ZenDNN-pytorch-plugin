@@ -73,16 +73,15 @@ inline void zen_embedding_weight_check(const torch::stable::Tensor &weight) {
       "zentorch_embedding only supports Float32, BFloat16 and Float16");
 }
 
-inline void zen_quant_embed_tensor_check(const at::Tensor &weight,
-                                         const at::Tensor &indices,
-                                         const at::Tensor &offsets) {
+inline void zen_quant_embed_tensor_check(const torch::stable::Tensor &weight,
+                                         const torch::stable::Tensor &indices,
+                                         const torch::stable::Tensor &offsets) {
   ZENTORCH_CHECK((weight.scalar_type() == c10::ScalarType::Int),
                  "zentorch_embedding_bag only supports int4 weights packed "
                  "into int32_t");
 
   // check if all the input tensors are on cpu device
-  ZENTORCH_CHECK(weight.device().is_cpu() && indices.device().is_cpu() &&
-                     offsets.device().is_cpu(),
+  ZENTORCH_CHECK(weight.is_cpu() && indices.is_cpu() && offsets.is_cpu(),
                  "ZenDNN EmbeddingBag expects CPU tensor inputs!");
   // check if all the input tensors are dense format
   ZENTORCH_CHECK((weight.layout() == c10::Layout::Strided) &&

@@ -61,17 +61,6 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         "Returns:\n"
         "    Bool: True if FP16 is supported, False otherwise.");
 
-  m.def("zentorch_get_packed_embedding_weight",
-        &zentorch::zentorch_get_packed_embedding_weight, py::arg("weight"),
-        py::arg("weight_scales"), py::arg("weight_zero_points"),
-        "Get packed embedding weights for ZenTorch.\n\n"
-        "Args:\n"
-        "    weight (torch.Tensor): The weight tensor.\n"
-        "    weight_scales (List[float]): The weight scales.\n"
-        "    weight_zero_points (List[int]): The weight zero points."
-        "Returns:\n"
-        "    Tensor: Packed embedding weights.");
-
   m.def("thread_bind", &zentorch::thread_bind, py::arg("core_ids"),
         "Bind threads to specified CPU cores.\n\n"
         "Args:\n"

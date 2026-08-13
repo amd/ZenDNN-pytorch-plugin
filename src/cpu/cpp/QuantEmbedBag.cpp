@@ -7,26 +7,28 @@
 #include "EmbeddingUtils.hpp"
 #include "EnvReader.hpp"
 #include "Memory.hpp"
-#include "Ops.hpp"
 
-#include <ATen/ParallelOpenMP.h>
+#include <torch/csrc/stable/library.h>
+#include <torch/csrc/stable/ops.h>
+#include <torch/headeronly/util/Half.h>
 
 using namespace zendnnl::interface;
 
 namespace zentorch {
 
 std::tuple<int, int, int, int>
-compute_quantized_embedding_dims(const at::Tensor &weight,
+compute_quantized_embedding_dims(const torch::stable::Tensor &weight,
                                  int64_t num_bits_per_weight) {
-  int dim_embedding = weight.sizes()[1];
+  int dim_embedding = weight.size(1);
+  const int element_size = static_cast<int>(weight.element_size());
 
   // Currently assumes scale and zero point to be of type BFloat16 each
   int num_dim_scale_zp =
-      (sizeof(at::Half) + sizeof(at::Half)) / weight.element_size();
+      static_cast<int>(2 * sizeof(torch::headeronly::Half)) / element_size;
 
   int packed_weight_dim = dim_embedding - (num_dim_scale_zp);
-  const int64_t bits_in_1_byte = 8;
-  int num_bits_per_packed_weight = weight.element_size() * bits_in_1_byte;
+  const int bits_in_1_byte = 8;
+  int num_bits_per_packed_weight = element_size * bits_in_1_byte;
 
   // to retreive original embedding dim before int4 was packed into int32
   // packed_weight_dim * (32 / 4) (int32/int4)
@@ -39,12 +41,13 @@ compute_quantized_embedding_dims(const at::Tensor &weight,
 }
 
 void zendnnl_quant_embedding_bag_out(
-    const at::Tensor &output, const at::Tensor &weight,
-    const at::Tensor &indices, const at::Tensor &offsets,
+    torch::stable::Tensor &output, const torch::stable::Tensor &weight,
+    const torch::stable::Tensor &indices, const torch::stable::Tensor &offsets,
     int64_t num_bits_per_weight, c10::ScalarType output_dtype,
     bool scale_grad_by_freq, int64_t mode, bool sparse,
-    c10::optional<at::Tensor> per_sample_weights_opt, bool include_last_offset,
-    int64_t padding_idx, std::string zentorch_op_name) {
+    const std::optional<torch::stable::Tensor> &per_sample_weights_opt,
+    bool include_last_offset, int64_t padding_idx,
+    std::string zentorch_op_name) {
 
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
@@ -63,7 +66,7 @@ void zendnnl_quant_embedding_bag_out(
         num_bits_per_packed_weight] =
       compute_quantized_embedding_dims(weight, num_bits_per_weight);
 
-  int num_bags = offsets.sizes()[0];
+  int num_bags = offsets.size(0);
   if (include_last_offset) {
     num_bags -= 1;
   }
@@ -74,22 +77,19 @@ void zendnnl_quant_embedding_bag_out(
   unsigned long num_int4_elements_without_scale_zp =
       packed_weight_dim * (num_bits_per_packed_weight / num_bits_per_weight);
 
-  LOG(INFO) << "Embedding matrix dimensions: " << weight.sizes()[0] << "x"
+  LOG(INFO) << "Embedding matrix dimensions: " << weight.size(0) << "x"
             << dim_embedding;
 
-  LOG(INFO) << "Int4 weight matrix dimensions: " << weight.sizes()[0] << "x"
+  LOG(INFO) << "Int4 weight matrix dimensions: " << weight.size(0) << "x"
             << embedding_dim;
 
-  LOG(INFO) << "Int4 weights with scale and zp dimensions: "
-            << weight.sizes()[0] << "x" << num_int4_elem;
+  LOG(INFO) << "Int4 weights with scale and zp dimensions: " << weight.size(0)
+            << "x" << num_int4_elem;
 
   LOG(INFO) << "Output dimensions: " << num_bags << "x" << embedding_dim;
 
-  c10::MaybeOwned<at::Tensor> per_sample_weights_opt_maybe_owned =
-      at::borrow_from_optional_tensor(per_sample_weights_opt);
-  [[maybe_unused]] const at::Tensor &per_sample_weights =
-      *per_sample_weights_opt_maybe_owned;
-  const auto per_sample_weights_defined = per_sample_weights.defined();
+  const bool per_sample_weights_defined =
+      per_sample_weights_opt.has_value() && per_sample_weights_opt->defined();
 
   const int int_env_value =
       EnvReader::getEnvVariableAsInt("USE_ZENDNN_EMBBAG_DIRECT");
@@ -106,23 +106,23 @@ void zendnnl_quant_embedding_bag_out(
     params.algo = mode_to_embag_algo(mode);
 
     // Set dimensions
-    params.num_embeddings = weight.sizes()[0];
+    params.num_embeddings = weight.size(0);
     params.embedding_dim = embedding_dim;
-    params.num_indices = indices.sizes()[0];
-    params.num_bags =
-        include_last_offset ? offsets.sizes()[0] - 1 : offsets.sizes()[0];
+    params.num_indices = indices.size(0);
+    params.num_bags = num_bags;
     params.is_weights = per_sample_weights_defined;
     params.include_last_offset = include_last_offset;
     params.padding_idx = padding_idx;
     params.num_threads = 0; // Use default (omp_get_max_threads)
     params.fp16_scale_bias = true;
-    params.dst_stride = output.strides()[0];
+    params.dst_stride = output.stride(0);
 
     // Call LOWOHA embedding_bag_direct API
     status_t status = zendnnl::lowoha::embag::embedding_bag_direct(
         weight.data_ptr(), indices.data_ptr(), offsets.data_ptr(),
-        per_sample_weights_defined ? per_sample_weights.data_ptr<float>()
-                                   : nullptr,
+        per_sample_weights_defined
+            ? per_sample_weights_opt->const_data_ptr<float>()
+            : nullptr,
         output.data_ptr(), params);
     ZENTORCH_CHECK(status == status_t::success,
                    "LOA-operator for quant embedding bag failed.");
@@ -130,12 +130,12 @@ void zendnnl_quant_embedding_bag_out(
   }
 
   tensor_t table = tensor_t();
-  set_zendnnl_tensor_attributes(weight.data_ptr(), data_type_t::u4, table,
-                                "table", false,
-                                {static_cast<unsigned long>(weight.sizes()[0]),
-                                 num_int4_elements_without_scale_zp},
-                                {num_int4_elements_without_scale_zp, 1},
-                                {} /* tensor_aligned_sizes */, weight.nbytes());
+  set_zendnnl_tensor_attributes(
+      weight.data_ptr(), data_type_t::u4, table, "table", false,
+      {static_cast<unsigned long>(weight.size(0)),
+       num_int4_elements_without_scale_zp},
+      {num_int4_elements_without_scale_zp, 1}, {} /* tensor_aligned_sizes */,
+      weight.numel() * static_cast<int64_t>(weight.element_size()));
 
   tensor_t indices_tensor = tensor_t();
   set_zendnnl_tensor_attributes(indices, indices_tensor, "indices");
@@ -147,8 +147,8 @@ void zendnnl_quant_embedding_bag_out(
                                           output.sizes().end());
   std::vector<unsigned long> output_strides(output.strides().begin(),
                                             output.strides().end());
-  int64_t output_nbytes = c10::elementSize(output.scalar_type()) *
-                          output_sizes[0] * output_strides[0];
+  int64_t output_nbytes = static_cast<int64_t>(
+      output.element_size() * output_sizes[0] * output_strides[0]);
   std::vector<unsigned long> tensor_aligned_sizes = {output_sizes[0],
                                                      output_strides[0]};
   tensor_t output_tensor = tensor_t();
@@ -159,7 +159,8 @@ void zendnnl_quant_embedding_bag_out(
   [[maybe_unused]] tensor_t per_sample_weights_tensor = tensor_t();
   if (per_sample_weights_defined) {
     LOG(INFO) << "Using the per-sample weights tensor!";
-    set_zendnnl_tensor_attributes(per_sample_weights, per_sample_weights_tensor,
+    set_zendnnl_tensor_attributes(*per_sample_weights_opt,
+                                  per_sample_weights_tensor,
                                   "per_sample_weights");
   }
 
@@ -193,11 +194,12 @@ void zendnnl_quant_embedding_bag_out(
   LOG(INFO) << "Finished executing: " << __FUNCTION__ << "!\n";
 }
 
-at::Tensor zendnnl_quant_embedding_bag(
-    const at::Tensor &weight, const at::Tensor &indices,
-    const at::Tensor &offsets, int64_t num_bits_per_weight,
+torch::stable::Tensor zendnnl_quant_embedding_bag(
+    const torch::stable::Tensor &weight, const torch::stable::Tensor &indices,
+    const torch::stable::Tensor &offsets, int64_t num_bits_per_weight,
     c10::ScalarType output_dtype, bool scale_grad_by_freq, int64_t mode,
-    bool sparse, c10::optional<at::Tensor> per_sample_weights_opt,
+    bool sparse,
+    const std::optional<torch::stable::Tensor> &per_sample_weights_opt,
     bool include_last_offset, int64_t padding_idx,
     std::string zentorch_op_name) {
 
@@ -207,15 +209,16 @@ at::Tensor zendnnl_quant_embedding_bag(
   auto [dim_embedding, packed_weight_dim, embedding_dim,
         num_bits_per_packed_weight] =
       compute_quantized_embedding_dims(weight, num_bits_per_weight);
-  int num_bags = offsets.sizes()[0];
+  int num_bags = offsets.size(0);
 
   if (include_last_offset) {
     num_bags -= 1;
   }
 
-  // at::detail::empty_strided_cpu instead of at::zero is more efficient
-  at::Tensor output = at::detail::empty_strided_cpu(
-      {num_bags, embedding_dim}, {embedding_dim, 1}, output_dtype);
+  // new_empty instead of zeros is more efficient, since the kernel writes
+  // every element of the output.
+  torch::stable::Tensor output =
+      torch::stable::new_empty(weight, {num_bags, embedding_dim}, output_dtype);
 
   zendnnl_quant_embedding_bag_out(
       output, weight, indices, offsets, num_bits_per_weight, output_dtype,
@@ -228,21 +231,22 @@ at::Tensor zendnnl_quant_embedding_bag(
 }
 
 void zendnnl_horizontal_quant_embedding_bag_group_out(
-    at::TensorList outputs, at::TensorList weight, at::TensorList indices,
-    at::TensorList offsets, int64_t num_bits_per_weight,
-    c10::ScalarType output_dtype, at::IntArrayRef scale_grad_by_freq,
-    at::IntArrayRef mode, at::IntArrayRef sparse,
-    c10::List<c10::optional<at::Tensor>> per_sample_weights_opt,
-    at::IntArrayRef include_last_offset, at::IntArrayRef padding_idx,
-    std::string zentorch_op_name) {
+    const std::vector<torch::stable::Tensor> &outputs,
+    const std::vector<torch::stable::Tensor> &weight,
+    const std::vector<torch::stable::Tensor> &indices,
+    const std::vector<torch::stable::Tensor> &offsets,
+    int64_t num_bits_per_weight, c10::ScalarType output_dtype,
+    const std::vector<int64_t> &scale_grad_by_freq,
+    const std::vector<int64_t> &mode, const std::vector<int64_t> &sparse,
+    const std::vector<std::optional<torch::stable::Tensor>>
+        &per_sample_weights_opt,
+    const std::vector<int64_t> &include_last_offset,
+    const std::vector<int64_t> &padding_idx, std::string zentorch_op_name) {
 
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
 
-  int num_eb_ops = weight.size();
-  std::vector<c10::MaybeOwned<at::Tensor>> per_sample_weights_opt_maybe_owned(
-      num_eb_ops);
-  std::vector<at::Tensor> per_sample_weights(num_eb_ops);
+  const int num_eb_ops = static_cast<int>(weight.size());
 
   std::vector<const void *> tables_vector(num_eb_ops);
   std::vector<const void *> indices_vector(num_eb_ops);
@@ -251,44 +255,46 @@ void zendnnl_horizontal_quant_embedding_bag_group_out(
   std::vector<void *> dsts_vector(num_eb_ops);
   std::vector<zendnnl::lowoha::embag::embag_params_t> params_vector(num_eb_ops);
 
-  // If TORCH_CHECK() fails, then the pragma omp parallel for cannot be used
-  // we will use at::parallel_for from pytorch instead
-  at::parallel_for(0, num_eb_ops, 0, [&](int64_t start, int64_t end) {
-    for (auto i = start; i < end; i++) {
-      tables_vector[i] = weight[i].data_ptr();
-      indices_vector[i] = indices[i].data_ptr();
-      offsets_vector[i] = offsets[i].data_ptr();
-      per_sample_weights_opt_maybe_owned[i] =
-          at::borrow_from_optional_tensor(per_sample_weights_opt[i]);
-      per_sample_weights[i] = *per_sample_weights_opt_maybe_owned[i];
-      weights_vector[i] = per_sample_weights[i].defined()
-                              ? per_sample_weights[i].data_ptr<float>()
-                              : nullptr;
-      dsts_vector[i] = outputs[i].data_ptr();
-      params_vector[i].dtypes.table = data_type_t::u4;
-      params_vector[i].dtypes.output = get_zendnnl_dtype(outputs[i]);
-      params_vector[i].dtypes.indices = get_zendnnl_dtype(indices[i]);
-      params_vector[i].dtypes.offsets = get_zendnnl_dtype(offsets[i]);
-      params_vector[i].algo = mode_to_embag_algo(mode[i]);
-      params_vector[i].num_embeddings = weight[i].sizes()[0];
+  torch::stable::parallel_for(
+      0, num_eb_ops, 0, [&](int64_t start, int64_t end) {
+        for (auto i = start; i < end; i++) {
+          const bool per_sample_weights_defined =
+              per_sample_weights_opt[i].has_value() &&
+              per_sample_weights_opt[i]->defined();
+          tables_vector[i] = weight[i].data_ptr();
+          indices_vector[i] = indices[i].data_ptr();
+          offsets_vector[i] = offsets[i].data_ptr();
+          weights_vector[i] =
+              per_sample_weights_defined
+                  ? per_sample_weights_opt[i]->const_data_ptr<float>()
+                  : nullptr;
+          dsts_vector[i] = outputs[i].data_ptr();
+          params_vector[i].dtypes.table = data_type_t::u4;
+          params_vector[i].dtypes.output = get_zendnnl_dtype(outputs[i]);
+          params_vector[i].dtypes.indices = get_zendnnl_dtype(indices[i]);
+          params_vector[i].dtypes.offsets = get_zendnnl_dtype(offsets[i]);
+          params_vector[i].algo = mode_to_embag_algo(mode[i]);
+          params_vector[i].num_embeddings = weight[i].size(0);
 
-      [[maybe_unused]] auto [_unused_0, _unused_1, embedding_dim, _unused_2] =
-          compute_quantized_embedding_dims(weight[i], num_bits_per_weight);
+          [[maybe_unused]] auto [_unused_0, _unused_1, embedding_dim,
+                                 _unused_2] =
+              compute_quantized_embedding_dims(weight[i], num_bits_per_weight);
 
-      params_vector[i].embedding_dim = embedding_dim;
-      params_vector[i].num_indices = indices[i].sizes()[0];
-      int num_bags = offsets[i].sizes()[0];
-      if (include_last_offset[i]) {
-        num_bags -= 1;
-      }
-      params_vector[i].num_bags = num_bags;
-      params_vector[i].is_weights = per_sample_weights[i].defined();
-      params_vector[i].include_last_offset = include_last_offset[i];
-      params_vector[i].padding_idx = padding_idx[i];
-      params_vector[i].fp16_scale_bias = true;
-      params_vector[i].dst_stride = outputs[i].strides()[0];
-    }
-  });
+          params_vector[i].embedding_dim = embedding_dim;
+          params_vector[i].num_indices = indices[i].size(0);
+          int num_bags = offsets[i].size(0);
+          if (include_last_offset[i]) {
+            num_bags -= 1;
+          }
+          params_vector[i].num_bags = num_bags;
+          params_vector[i].is_weights = per_sample_weights_defined;
+          params_vector[i].include_last_offset =
+              static_cast<bool>(include_last_offset[i]);
+          params_vector[i].padding_idx = padding_idx[i];
+          params_vector[i].fp16_scale_bias = true;
+          params_vector[i].dst_stride = outputs[i].stride(0);
+        }
+      });
 
   status_t status = zendnnl::lowoha::embag::group_embedding_bag_direct(
       tables_vector, indices_vector, offsets_vector, weights_vector,
@@ -300,32 +306,37 @@ void zendnnl_horizontal_quant_embedding_bag_group_out(
   LOG(INFO) << "Finished executing: " << __FUNCTION__ << "!\n";
 }
 
-std::vector<at::Tensor> zendnnl_horizontal_quant_embedding_bag_group_impl(
-    at::TensorList weight, at::TensorList indices, at::TensorList offsets,
+std::vector<torch::stable::Tensor>
+zendnnl_horizontal_quant_embedding_bag_group_impl(
+    const std::vector<torch::stable::Tensor> &weight,
+    const std::vector<torch::stable::Tensor> &indices,
+    const std::vector<torch::stable::Tensor> &offsets,
     int64_t num_bits_per_weight, c10::ScalarType output_dtype,
-    at::IntArrayRef scale_grad_by_freq, at::IntArrayRef mode,
-    at::IntArrayRef sparse,
-    c10::List<c10::optional<at::Tensor>> per_sample_weights_opt,
-    at::IntArrayRef include_last_offset, at::IntArrayRef padding_idx,
-    std::string zentorch_op_name) {
-  int num_eb_ops = weight.size();
-  std::vector<at::Tensor> outputs(num_eb_ops);
+    const std::vector<int64_t> &scale_grad_by_freq,
+    const std::vector<int64_t> &mode, const std::vector<int64_t> &sparse,
+    const std::vector<std::optional<torch::stable::Tensor>>
+        &per_sample_weights_opt,
+    const std::vector<int64_t> &include_last_offset,
+    const std::vector<int64_t> &padding_idx, std::string zentorch_op_name) {
+  const int num_eb_ops = static_cast<int>(weight.size());
+  std::vector<torch::stable::Tensor> outputs(num_eb_ops);
 
-  at::parallel_for(0, num_eb_ops, 0, [&](int64_t start, int64_t end) {
-    for (auto i = start; i < end; i++) {
-      int num_bags = offsets[i].sizes()[0];
-      if (include_last_offset[i]) {
-        num_bags -= 1;
-      }
+  torch::stable::parallel_for(
+      0, num_eb_ops, 0, [&](int64_t start, int64_t end) {
+        for (auto i = start; i < end; i++) {
+          int num_bags = offsets[i].size(0);
+          if (include_last_offset[i]) {
+            num_bags -= 1;
+          }
 
-      [[maybe_unused]] auto [_unused_0, _unused_1, embedding_dim, _unused_2] =
-          compute_quantized_embedding_dims(weight[i], num_bits_per_weight);
+          [[maybe_unused]] auto [_unused_0, _unused_1, embedding_dim,
+                                 _unused_2] =
+              compute_quantized_embedding_dims(weight[i], num_bits_per_weight);
 
-      outputs[i] = at::detail::empty_strided_cpu(
-          {num_bags, embedding_dim}, {embedding_dim, 1},
-          weight[i].options().dtype(output_dtype));
-    }
-  });
+          outputs[i] = torch::stable::new_empty(
+              weight[i], {num_bags, embedding_dim}, output_dtype);
+        }
+      });
 
   zendnnl_horizontal_quant_embedding_bag_group_out(
       outputs, weight, indices, offsets, num_bits_per_weight, output_dtype,
@@ -337,10 +348,10 @@ std::vector<at::Tensor> zendnnl_horizontal_quant_embedding_bag_group_impl(
   return outputs;
 }
 
-at::Tensor
-zentorch_get_packed_embedding_weight(at::Tensor &weight,
-                                     at::Tensor &weight_scales,
-                                     at::Tensor &weight_zero_points) {
+torch::stable::Tensor zendnnl_get_packed_embedding_weight(
+    const torch::stable::Tensor &weight,
+    const torch::stable::Tensor &weight_scales,
+    const torch::stable::Tensor &weight_zero_points) {
 
   uint32_t num_eb_rows = weight.size(0);
   uint32_t num_eb_cols = weight.size(1);
@@ -351,65 +362,65 @@ zentorch_get_packed_embedding_weight(at::Tensor &weight,
   ZENTORCH_CHECK(!(weight.scalar_type() == c10::ScalarType::QInt32 &&
                    weight_scales.scalar_type() == c10::ScalarType::Float),
                  "Weight and scales support only int32 and float dtype ");
-  weight = weight.contiguous();
-  weight_scales = weight_scales.contiguous();
-  weight_zero_points = weight_zero_points.contiguous();
+  const torch::stable::Tensor weight_contiguous =
+      torch::stable::contiguous(weight);
+  const torch::stable::Tensor weight_scales_contiguous =
+      torch::stable::contiguous(weight_scales);
+  const torch::stable::Tensor weight_zero_points_contiguous =
+      torch::stable::contiguous(weight_zero_points);
 
-  std::vector<float> weight_scales_vec(weight_scales.data_ptr<float>(),
-                                       weight_scales.data_ptr<float>() +
-                                           num_eb_rows);
+  std::vector<float> weight_scales_vec(
+      weight_scales_contiguous.const_data_ptr<float>(),
+      weight_scales_contiguous.const_data_ptr<float>() + num_eb_rows);
   std::vector<int32_t> weight_zero_points_vec(
-      weight_zero_points.data_ptr<int32_t>(),
-      weight_zero_points.data_ptr<int32_t>() + num_eb_rows);
+      weight_zero_points_contiguous.const_data_ptr<int32_t>(),
+      weight_zero_points_contiguous.const_data_ptr<int32_t>() + num_eb_rows);
 
-  int32_t *weight_ptr = static_cast<int32_t *>(weight.data_ptr());
+  const int32_t *weight_ptr = weight_contiguous.const_data_ptr<int32_t>();
 
   std::vector<float> weight_bias(num_eb_rows);
-
   for (const auto i : c10::irange(num_eb_rows)) {
     weight_bias[i] = weight_zero_points_vec[i] * weight_scales_vec[i] * -1;
   }
 
-  std::vector<int64_t> output_shape = {
-      num_eb_rows,
-      static_cast<std::int32_t>(
-          (num_eb_cols +
-           1))}; // Hard coding for int32 weights and Half dtype of scales
+  // Hard coding for int32 weights and Half dtype of scales
+  const int64_t num_output_cols = num_eb_cols + 1;
+  torch::stable::Tensor output_tensor = torch::stable::new_empty(
+      weight_contiguous, {num_eb_rows, num_output_cols});
+  int32_t *output_ptr = output_tensor.mutable_data_ptr<int32_t>();
 
-  size_t num_output_cols = output_shape[1];
-  at::Tensor output_tensor = at::empty(output_shape, weight.options());
-  int32_t *output_ptr = output_tensor.data_ptr<int32_t>();
-
-  at::parallel_for(
-      0, num_eb_rows, 1, [&](uint32_t start_idx, uint32_t end_idx) {
-        for (const uint32_t row : c10::irange(start_idx, end_idx)) {
-          int32_t *input_row =
-              reinterpret_cast<int32_t *>(weight_ptr + row * num_eb_cols);
-          int32_t *output_row =
-              reinterpret_cast<int32_t *>(output_ptr + row * num_output_cols);
+  torch::stable::parallel_for(
+      0, num_eb_rows, 1, [&](int64_t start_idx, int64_t end_idx) {
+        for (int64_t row = start_idx; row < end_idx; row++) {
+          const int32_t *input_row = weight_ptr + row * num_eb_cols;
+          int32_t *output_row = output_ptr + row * num_output_cols;
           auto output_row_scale_bias =
-              reinterpret_cast<at::Half *>(output_row + num_eb_cols);
+              reinterpret_cast<torch::headeronly::Half *>(output_row +
+                                                          num_eb_cols);
 
           // Ensure weight_scale and weight_bias_half are within the range of
-          // at::Half
+          // Half
 
-          at::Half weight_scale = weight_scales_vec[row];
+          torch::headeronly::Half weight_scale = weight_scales_vec[row];
 
-          at::Half weight_bias_half = weight_bias[row];
+          torch::headeronly::Half weight_bias_half = weight_bias[row];
 
           std::memcpy(output_row_scale_bias, &weight_scale,
-                      sizeof(at::Half)); // append weight scale to m/r with size
-                                         // of fp16/half
-          std::memcpy(output_row_scale_bias + 1, &weight_bias_half,
-                      sizeof(at::Half)); // append weight bias to m/r just after
-                                         // scale with size of fp16/half
+                      sizeof(torch::headeronly::Half)); // append weight scale
+                                                        // to m/r with size of
+                                                        // fp16/half
+          std::memcpy(
+              output_row_scale_bias + 1, &weight_bias_half,
+              sizeof(torch::headeronly::Half)); // append weight bias to
+                                                // m/r just after scale
+                                                // with size of fp16/half
           std::memcpy(output_row, input_row, sizeof(int32_t) * (num_eb_cols));
         }
       });
   return output_tensor;
 }
 
-TORCH_LIBRARY_FRAGMENT(zentorch, m) {
+STABLE_TORCH_LIBRARY_FRAGMENT(zentorch, m) {
   m.def("zentorch_quant_embedding_bag(Tensor weight, Tensor indices, Tensor "
         "offsets,"
         " int num_bits_per_weight, ScalarType output_dtype,"
@@ -444,15 +455,23 @@ TORCH_LIBRARY_FRAGMENT(zentorch, m) {
         "zentorch_op_name = "
         "'zentorch::zentorch_horizontal_quant_embedding_bag_group.out') -> "
         "()");
+  m.def("zentorch_get_packed_embedding_weight(Tensor weight, "
+        "Tensor weight_scales, Tensor weight_zero_points) -> Tensor");
 }
 
-TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
-  m.impl("zentorch_quant_embedding_bag", zendnnl_quant_embedding_bag);
-  m.impl("zentorch_quant_embedding_bag.out", zendnnl_quant_embedding_bag_out);
-  m.impl("zentorch_horizontal_quant_embedding_bag_group",
-         zendnnl_horizontal_quant_embedding_bag_group_impl);
-  m.impl("zentorch_horizontal_quant_embedding_bag_group.out",
-         zendnnl_horizontal_quant_embedding_bag_group_out);
+STABLE_TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
+  m.impl("zentorch_quant_embedding_bag",
+         TORCH_BOX(&zentorch::zendnnl_quant_embedding_bag));
+  m.impl("zentorch_quant_embedding_bag.out",
+         TORCH_BOX(&zentorch::zendnnl_quant_embedding_bag_out));
+  m.impl(
+      "zentorch_horizontal_quant_embedding_bag_group",
+      TORCH_BOX(&zentorch::zendnnl_horizontal_quant_embedding_bag_group_impl));
+  m.impl(
+      "zentorch_horizontal_quant_embedding_bag_group.out",
+      TORCH_BOX(&zentorch::zendnnl_horizontal_quant_embedding_bag_group_out));
+  m.impl("zentorch_get_packed_embedding_weight",
+         TORCH_BOX(&zentorch::zendnnl_get_packed_embedding_weight));
 }
 
 } // namespace zentorch

@@ -536,7 +536,6 @@ inline torch::stable::Tensor zentorch_qlinear_binary_binary(
   return result;
 }
 
-#ifndef ZENTORCH_RMS_NORM_IMPL_ONLY
 // TODO: Explore the possibility of making output_dtype as kwarg with
 // a default value.
 STABLE_TORCH_LIBRARY_FRAGMENT(zentorch, m) {
@@ -610,6 +609,5 @@ STABLE_TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
       "zentorch_qlinear_relu.out",
       TORCH_BOX((&zentorch::zentorch_qlinear_out_unary<UNARY_POST_OP::RELU>)));
 }
-#endif // ZENTORCH_RMS_NORM_IMPL_ONLY
 
 } // namespace zentorch

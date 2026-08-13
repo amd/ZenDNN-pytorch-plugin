@@ -133,7 +133,7 @@ class Test_WOQ_Embedding_Bag_Group(QuantEmbTestCase):
             (weight.to(torch.int32)), False, transpose=False
         )
 
-        zentorch_packed_weights = zentorch._C.zentorch_get_packed_embedding_weight(
+        zentorch_packed_weights = torch.ops.zentorch.zentorch_get_packed_embedding_weight(
             packed_weight, scales, zero_points
         )
 
@@ -210,7 +210,7 @@ class Test_WOQ_Embedding_Bag_Group(QuantEmbTestCase):
             (weight.to(torch.int32)), False, transpose=False
         )
 
-        zentorch_packed_weights = zentorch._C.zentorch_get_packed_embedding_weight(
+        zentorch_packed_weights = torch.ops.zentorch.zentorch_get_packed_embedding_weight(
             packed_weight, scales, zero_points
         )
 

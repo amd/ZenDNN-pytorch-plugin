@@ -14,45 +14,61 @@
 #include "WOQ_Linear.hpp"
 #include <ATen/ops/native_layer_norm.h>
 
-#include <ATen/core/List.h>
-#include <c10/util/ArrayRef.h>
 #include <c10/util/Optional.h>
 #include <optional>
 #include <torch/csrc/inductor/aoti_torch/c/shim.h>
 #include <torch/csrc/stable/tensor.h>
+#include <vector>
 
 using namespace torch::aot_inductor;
 
 namespace {
 
-// Build a `c10::List<c10::optional<at::Tensor>>` from a (potentially-null)
-// array of (potentially-null) AtenTensorHandle pointers. The C ABI
-// representation of `Tensor?[]` is a contiguous array where each entry is
-// either a non-null handle or nullptr (== std::nullopt).
-inline c10::List<c10::optional<at::Tensor>>
-build_optional_tensor_list(const AtenTensorHandle **handles, int64_t len) {
-  c10::List<c10::optional<at::Tensor>> out;
+// Declared ahead of the list builders below, which are defined in terms of
+// them.
+inline torch::stable::Tensor stable_from_handle(AtenTensorHandle orig_handle);
+inline std::optional<torch::stable::Tensor>
+stable_from_handle(AtenTensorHandle *handle);
+
+// Build a `std::vector<torch::stable::Tensor>` from a contiguous array of
+// non-null AtenTensorHandles -- the C ABI representation of `Tensor[]`.
+inline std::vector<torch::stable::Tensor>
+build_stable_tensor_vector(const AtenTensorHandle *handles, int64_t len) {
+  std::vector<torch::stable::Tensor> out;
+  out.reserve(len);
+  for (int64_t i = 0; i < len; ++i) {
+    out.emplace_back(stable_from_handle(handles[i]));
+  }
+  return out;
+}
+
+// Build a `std::vector<std::optional<torch::stable::Tensor>>` from a
+// (potentially-null) array of (potentially-null) AtenTensorHandle pointers.
+// The C ABI representation of `Tensor?[]` is a contiguous array where each
+// entry is either a non-null handle or nullptr (== std::nullopt).
+inline std::vector<std::optional<torch::stable::Tensor>>
+build_stable_optional_tensor_vector(const AtenTensorHandle **handles,
+                                    int64_t len) {
+  std::vector<std::optional<torch::stable::Tensor>> out;
   out.reserve(len);
   for (int64_t i = 0; i < len; ++i) {
     if (handles && handles[i]) {
-      out.push_back(*tensor_handle_to_tensor_pointer(*handles[i]));
+      out.emplace_back(stable_from_handle(*handles[i]));
     } else {
-      out.push_back(c10::nullopt);
+      out.emplace_back(std::nullopt);
     }
   }
   return out;
 }
 
-// Build a `std::vector<at::Tensor>` from a contiguous array of non-null
-// AtenTensorHandles -- the C ABI representation of `Tensor[]`.
-inline std::vector<at::Tensor>
-build_tensor_vector(const AtenTensorHandle *handles, int64_t len) {
-  std::vector<at::Tensor> out;
-  out.reserve(len);
-  for (int64_t i = 0; i < len; ++i) {
-    out.emplace_back(*tensor_handle_to_tensor_pointer(handles[i]));
+// The C ABI representation of a schema `int[]` arg. An empty list may arrive
+// as (nullptr, 0), so the pointer range is only formed once there is data.
+inline std::vector<int64_t> build_int_vector(const int64_t *values,
+                                             int64_t len) {
+  if (!values || len <= 0) {
+    return {};
   }
-  return out;
+  return std::vector<int64_t>(values, values + len);
 }
 
 // Bridge an AOTI caller-owned handle to torch::stable::Tensor without stealing
@@ -319,13 +335,12 @@ AOTITorchError aoti_torch_cpu_zentorch_quant_embedding_bag(
     AtenTensorHandle *ret0) {
   AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
     auto tmp_result = zentorch::zendnnl_quant_embedding_bag(
-        *tensor_handle_to_tensor_pointer(weight),
-        *tensor_handle_to_tensor_pointer(indices),
-        *tensor_handle_to_tensor_pointer(offsets), num_bits_per_weight,
+        stable_from_handle(weight), stable_from_handle(indices),
+        stable_from_handle(offsets), num_bits_per_weight,
         static_cast<c10::ScalarType>(output_dtype), scale_grad_by_freq, mode,
-        sparse, pointer_to_optional<at::Tensor>(per_sample_weights),
-        include_last_offset, padding_idx, zentorch_op_name);
-    *ret0 = new_tensor_handle(std::move(tmp_result));
+        sparse, stable_from_handle(per_sample_weights), include_last_offset,
+        padding_idx, zentorch_op_name);
+    *ret0 = handle_from_stable(tmp_result);
   });
 }
 
@@ -336,14 +351,13 @@ AOTITorchError aoti_torch_cpu_zentorch_quant_embedding_bag_out(
     AtenTensorHandle *per_sample_weights, bool include_last_offset,
     int64_t padding_idx, const char *zentorch_op_name) {
   AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+    auto output_stable = stable_from_handle(output);
     zentorch::zendnnl_quant_embedding_bag_out(
-        *tensor_handle_to_tensor_pointer(output),
-        *tensor_handle_to_tensor_pointer(weight),
-        *tensor_handle_to_tensor_pointer(indices),
-        *tensor_handle_to_tensor_pointer(offsets), num_bits_per_weight,
+        output_stable, stable_from_handle(weight), stable_from_handle(indices),
+        stable_from_handle(offsets), num_bits_per_weight,
         static_cast<c10::ScalarType>(output_dtype), scale_grad_by_freq, mode,
-        sparse, pointer_to_optional<at::Tensor>(per_sample_weights),
-        include_last_offset, padding_idx, zentorch_op_name);
+        sparse, stable_from_handle(per_sample_weights), include_last_offset,
+        padding_idx, zentorch_op_name);
   });
 }
 
@@ -366,21 +380,22 @@ AOTITorchError aoti_torch_cpu_zentorch_horizontal_quant_embedding_bag_group(
     AtenTensorHandle *ret0_handles, int64_t ret0_len_) {
   AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
     auto outs = zentorch::zendnnl_horizontal_quant_embedding_bag_group_impl(
-        build_tensor_vector(weight, weight_len_),
-        build_tensor_vector(indices, indices_len_),
-        build_tensor_vector(offsets, offsets_len_), num_bits_per_weight,
+        build_stable_tensor_vector(weight, weight_len_),
+        build_stable_tensor_vector(indices, indices_len_),
+        build_stable_tensor_vector(offsets, offsets_len_), num_bits_per_weight,
         static_cast<c10::ScalarType>(output_dtype),
-        c10::IntArrayRef(scale_grad_by_freq, scale_grad_by_freq_len_),
-        c10::IntArrayRef(mode, mode_len_),
-        c10::IntArrayRef(sparse, sparse_len_),
-        build_optional_tensor_list(per_sample_weights, per_sample_weights_len_),
-        c10::IntArrayRef(include_last_offset, include_last_offset_len_),
-        c10::IntArrayRef(padding_idx, padding_idx_len_), zentorch_op_name);
+        build_int_vector(scale_grad_by_freq, scale_grad_by_freq_len_),
+        build_int_vector(mode, mode_len_),
+        build_int_vector(sparse, sparse_len_),
+        build_stable_optional_tensor_vector(per_sample_weights,
+                                            per_sample_weights_len_),
+        build_int_vector(include_last_offset, include_last_offset_len_),
+        build_int_vector(padding_idx, padding_idx_len_), zentorch_op_name);
     TORCH_CHECK(static_cast<int64_t>(outs.size()) == ret0_len_,
                 "horizontal_quant_embedding_bag_group: kernel returned ",
                 outs.size(), " tensors but caller asked for ", ret0_len_);
     for (int64_t i = 0; i < ret0_len_; ++i) {
-      ret0_handles[i] = new_tensor_handle(std::move(outs[i]));
+      ret0_handles[i] = handle_from_stable(outs[i]);
     }
   });
 }
@@ -398,21 +413,22 @@ AOTITorchError aoti_torch_cpu_zentorch_horizontal_quant_embedding_bag_group_out(
     int64_t include_last_offset_len_, const int64_t *padding_idx,
     int64_t padding_idx_len_, const char *zentorch_op_name) {
   AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
-    // The kernel mutates the user-provided `outputs` buffers in place. We
-    // materialize them as a vector of `at::Tensor` (still aliasing the
-    // user's storage) and pass that as a `TensorList`.
-    auto outs_vec = build_tensor_vector(outputs, outputs_len_);
+    // The kernel mutates the user-provided `outputs` buffers in place. The
+    // stable tensors built here reference the same storage, so the writes
+    // land in the caller's buffers.
     zentorch::zendnnl_horizontal_quant_embedding_bag_group_out(
-        outs_vec, build_tensor_vector(weight, weight_len_),
-        build_tensor_vector(indices, indices_len_),
-        build_tensor_vector(offsets, offsets_len_), num_bits_per_weight,
+        build_stable_tensor_vector(outputs, outputs_len_),
+        build_stable_tensor_vector(weight, weight_len_),
+        build_stable_tensor_vector(indices, indices_len_),
+        build_stable_tensor_vector(offsets, offsets_len_), num_bits_per_weight,
         static_cast<c10::ScalarType>(output_dtype),
-        c10::IntArrayRef(scale_grad_by_freq, scale_grad_by_freq_len_),
-        c10::IntArrayRef(mode, mode_len_),
-        c10::IntArrayRef(sparse, sparse_len_),
-        build_optional_tensor_list(per_sample_weights, per_sample_weights_len_),
-        c10::IntArrayRef(include_last_offset, include_last_offset_len_),
-        c10::IntArrayRef(padding_idx, padding_idx_len_), zentorch_op_name);
+        build_int_vector(scale_grad_by_freq, scale_grad_by_freq_len_),
+        build_int_vector(mode, mode_len_),
+        build_int_vector(sparse, sparse_len_),
+        build_stable_optional_tensor_vector(per_sample_weights,
+                                            per_sample_weights_len_),
+        build_int_vector(include_last_offset, include_last_offset_len_),
+        build_int_vector(padding_idx, padding_idx_len_), zentorch_op_name);
   });
 }
 
