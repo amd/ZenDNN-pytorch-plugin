@@ -60,12 +60,16 @@ static void check_valid_common_dtypes_for_qlinear(
 
 bool check_weight_and_infer_is_da8w4(const at::Tensor &input,
                                      const at::Tensor &weight) {
+  const auto wdt = weight.scalar_type();
+  if (wdt != c10::kChar && wdt != c10::kInt) {
+    return false;
+  }
+
   const int64_t K = input.size(input.dim() - 1);
   const int64_t wk = weight.size(1);
   ZENTORCH_CHECK(wk > 0 && K % wk == 0,
                  "zentorch_dynamic_qlinear: weight dim 1 (", wk,
                  ") must divide the input K (", K, ")");
-  const auto wdt = weight.scalar_type();
 
   switch (K / wk) {
   case 1: // DA8W8

@@ -11,9 +11,10 @@
 
 namespace zentorch {
 
-// Infer the weight-quant mode from input/weight shapes+dtype: returns true for
-// DA8W4 (packed s4), false for DA8W8 (s8). Assumes input.dim() >= 1 and
-// weight.dim() == 2. Shared so other ops/PRs can reuse the same inference.
+// Infers the weight-quant mode from the input/weight shapes and weight dtype:
+// true for DA8W4 (s4 packed 2-per-int8 or 8-per-int32), false for DA8W8 (s8) or
+// a non-int8/int32 weight. Expects a 2D [N, K-dim] weight; K-dim is the
+// contraction dim, packed or not.
 bool check_weight_and_infer_is_da8w4(const at::Tensor &input,
                                      const at::Tensor &weight);
 

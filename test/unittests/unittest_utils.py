@@ -152,6 +152,13 @@ from zentorch_test_utils import (  # noqa: 402 # noqa: F401
     GROUP_MATMUL_NUM_TOKENS_VALUES,
     GROUP_MATMUL_INT8_K_VALUES,
     GROUP_MATMUL_INT8_GATED_K_VALUES,
+    GROUP_MATMUL_BIAS_OPTIONS,
+    GROUP_MATMUL_HIDDEN_VALUES_DEF,
+    GROUP_MATMUL_INTER_VALUES_DEF,
+    GROUP_MATMUL_GROUP_SIZE_VALUES_DEF,
+    GROUP_MATMUL_DA8W4_HIDDEN_VALUES,
+    GROUP_MATMUL_DA8W4_INTER_VALUES,
+    GROUP_MATMUL_DA8W4_GROUP_SIZE_VALUES,
     # add_xD variables
     MM_ADD_1D_M_RANGE,
     MM_ADD_1D_K_RANGE,
@@ -217,6 +224,115 @@ def pin_cpp_wrapper_once(obj, fn_name, cpp_wrapper):
         return False
     done.add(fn_name)
     return True
+
+
+# DA8W4 quantization helpers, shared by the DA8W4 op tests so the
+# symmetric-int4 / dynamic-s8 reference math lives in one place.
+def quantize_weight_per_group(weight, group_size):
+    """Symmetric per-group int4 quantization of a [N, K] weight.
+
+    Returns:
+        q      : int8 [N, K] with values in [-8, 7]
+        scale  : float32 [num_groups, N] (group-major, as the op expects)
+    """
+    n, k = weight.shape
+    assert k % group_size == 0
+    num_groups = k // group_size
+    wr = weight.reshape(n, num_groups, group_size).float()
+    amax = wr.abs().amax(dim=2, keepdim=True).clamp(min=1e-8)
+    scale = amax / 8.0  # s4 symmetric: |max| level == 8
+    q = torch.clamp(torch.round(wr / scale), -8, 7).reshape(n, k).to(torch.int8)
+    # [N, num_groups] -> [num_groups, N] (op / zentorch_woq_linear layout)
+    scale = scale.reshape(n, num_groups).transpose(0, 1).contiguous()
+    return q, scale
+
+
+def dequantize_weight_per_group(q, scale_gm, group_size):
+    """Dequantize int8 [N, K] weights given group-major scale [num_groups, N]."""
+    n, k = q.shape
+    num_groups = k // group_size
+    scale_ng = scale_gm.transpose(0, 1)  # [N, num_groups]
+    qf = q.float().reshape(n, num_groups, group_size)
+    dq = qf * scale_ng.reshape(n, num_groups, 1)
+    return dq.reshape(n, k)
+
+
+def dynamic_quant_dequant_per_token(x):
+    """Emulate the kernel's per-token dynamic s8 activation quantization."""
+    xf = x.float()
+    amax = xf.abs().amax(dim=1, keepdim=True).clamp(min=1e-8)
+    scale = amax / 127.0
+    xq = torch.clamp(torch.round(xf / scale), -128, 127)
+    return xq * scale
+
+
+def build_quant_moe_data(
+    generator, num_experts, M, hidden, inter, group_size, num_tokens, topk,
+    torch_dtype,
+):
+    """Build everything which one quantized MoE FFN test case needs: per-expert
+    packed s4 w13/w2 weights, per-group scales, dequantized references to check
+    against, biases, activations and MoE routing. All randomness flows through
+    ``generator`` so the data is reproducible from the ``tensor_seed`` alone.
+    """
+    n13 = 2 * inter  # gate+up out-features
+    inputs, w13_packed, w13_scales, dq_w13, w13_bias = [], [], [], [], []
+    w2_packed, w2_scales, dq_w2, w2_bias = [], [], [], []
+    for _ in range(num_experts):
+        w13 = torch.randn(n13, hidden, generator=generator) * 0.1
+        q13, s13 = quantize_weight_per_group(w13, group_size)
+        w13_packed.append(torch.ops.zentorch.zentorch_woq_repack_weight(q13))
+        w13_scales.append(s13)
+        dq_w13.append(dequantize_weight_per_group(q13, s13, group_size))
+        w13_bias.append(
+            (torch.randn(n13, generator=generator) * 0.1).to(torch_dtype)
+        )
+
+        w2 = torch.randn(hidden, inter, generator=generator) * 0.1
+        q2, s2 = quantize_weight_per_group(w2, group_size)
+        w2_packed.append(torch.ops.zentorch.zentorch_woq_repack_weight(q2))
+        w2_scales.append(s2)
+        dq_w2.append(dequantize_weight_per_group(q2, s2, group_size))
+        w2_bias.append(
+            (torch.randn(hidden, generator=generator) * 0.1).to(torch_dtype)
+        )
+
+        inputs.append(
+            (torch.randn(M, hidden, generator=generator) * 0.5).to(torch_dtype)
+        )
+
+    hidden_states = (
+        torch.randn(num_tokens, hidden, generator=generator) * 0.5
+    ).to(torch_dtype)
+    topk_indices = torch.randint(
+        0, num_experts, (num_tokens, topk), generator=generator
+    ).to(torch.int64)
+    topk_weights = torch.rand(
+        num_tokens, topk, generator=generator
+    ).to(torch.float32)
+
+    return {
+        "num_experts": num_experts,
+        "M": M,
+        "hidden": hidden,
+        "inter": inter,
+        "n13": n13,
+        "group_size": group_size,
+        "num_tokens": num_tokens,
+        "topk": topk,
+        "inputs": inputs,
+        "w13_packed": w13_packed,
+        "w13_scales": w13_scales,
+        "dq_w13": dq_w13,
+        "w13_bias": w13_bias,
+        "w2_packed": w2_packed,
+        "w2_scales": w2_scales,
+        "dq_w2": dq_w2,
+        "w2_bias": w2_bias,
+        "hidden_states": hidden_states,
+        "topk_indices": topk_indices,
+        "topk_weights": topk_weights,
+    }
 
 
 class Zentorch_TestCase(BaseZentorchTestCase):
@@ -1069,6 +1185,7 @@ class GroupMatmulTestCase(Zentorch_TestCase):
         hidden_states,
         topk_indices,
         topk_weights_routing,
+        quant_moe_data,
     ):
         self.data.create_data_group_matmul(
             dtype=dtype,
@@ -1101,6 +1218,7 @@ class GroupMatmulTestCase(Zentorch_TestCase):
             hidden_states=hidden_states,
             topk_indices=topk_indices,
             topk_weights_routing=topk_weights_routing,
+            quant_moe_data=quant_moe_data,
         )
 
     def createDataFromVal(self, val):
@@ -1109,6 +1227,7 @@ class GroupMatmulTestCase(Zentorch_TestCase):
             tensor_seed,
             dtype,
             cpp_wrapper,
+            with_bias,
             num_experts,
             M,
             K,
@@ -1138,6 +1257,7 @@ class GroupMatmulTestCase(Zentorch_TestCase):
             hidden_states,
             topk_indices,
             topk_weights_routing,
+            quant_moe_data,
         ) = val
         self.createData(
             dtype=dtype,
@@ -1170,6 +1290,7 @@ class GroupMatmulTestCase(Zentorch_TestCase):
             hidden_states=hidden_states,
             topk_indices=topk_indices,
             topk_weights_routing=topk_weights_routing,
+            quant_moe_data=quant_moe_data,
         )
 
     @seed(seed=SEED)
@@ -1179,6 +1300,7 @@ class GroupMatmulTestCase(Zentorch_TestCase):
         draw,
         dtype_list=supported_dtypes_def,
         cpp_wrapper_opt_list=cpp_wrapper_def_opt,
+        bias_opt_list=GROUP_MATMUL_BIAS_OPTIONS,
         num_experts_Range=GROUP_MATMUL_NUM_EXPERTS,
         m_Range=GROUP_MATMUL_M_VALUES,
         k_list=GROUP_MATMUL_K_VALUES,
@@ -1187,6 +1309,9 @@ class GroupMatmulTestCase(Zentorch_TestCase):
         k_out_list=GROUP_MATMUL_K_OUT_VALUES,
         topk_list=GROUP_MATMUL_TOPK_VALUES,
         num_tokens_list=GROUP_MATMUL_NUM_TOKENS_VALUES,
+        hidden_list=GROUP_MATMUL_HIDDEN_VALUES_DEF,
+        inter_list=GROUP_MATMUL_INTER_VALUES_DEF,
+        group_size_list=GROUP_MATMUL_GROUP_SIZE_VALUES_DEF,
         tensor_seed=0,
     ):
         hypStr = ""
@@ -1219,6 +1344,26 @@ class GroupMatmulTestCase(Zentorch_TestCase):
             f"d_list=[{D}], k_out_list=[{K_out}], "
             f"topk_list=[{topk}], num_tokens_list=[{num_tokens}]"
         )
+
+        # Drawn after the shapes above so adding it left them unchanged for
+        # tests that ignore it.
+        with_bias = draw(st.sampled_from(bias_opt_list))
+        hypStr += f", bias_opt_list=[{with_bias}]"
+
+        # Packed-s4 contraction dims, drawn only when the caller supplies them:
+        # int32-packed s4 requires K divisible by 8 and by the group size
+        # (>= 2 groups), which the tiny k_list/n_Range above cannot express. The
+        # expert count, M, topk and token count are shared with the plain draws.
+        hidden = inter = group_size = None
+        if hidden_list and inter_list and group_size_list:
+            hidden = draw(st.sampled_from(hidden_list))
+            inter = draw(st.sampled_from(inter_list))
+            group_size = draw(st.sampled_from(group_size_list))
+            hypStr += (
+                f", hidden_list=[{hidden}], "
+                f"inter_list=[{inter}], "
+                f"group_size_list=[{group_size}]"
+            )
 
         torch_type = DataTypes.get_torch_type(dtype)
 
@@ -1334,11 +1479,27 @@ class GroupMatmulTestCase(Zentorch_TestCase):
             num_tokens, topk, generator=generator
         )
 
+        # ---- Quantized MoE data, built only for the tests that asked for one ----
+        quant_moe_data = None
+        if torch_type == torch.bfloat16 and group_size is not None:
+            quant_moe_data = build_quant_moe_data(
+                generator=generator,
+                num_experts=num_experts,
+                M=M,
+                hidden=hidden,
+                inter=inter,
+                group_size=group_size,
+                num_tokens=num_tokens,
+                topk=topk,
+                torch_dtype=torch_type,
+            )
+
         return (
             hypStr,
             tensor_seed,
             dtype,
             cpp_wrapper,
+            with_bias,
             num_experts,
             M,
             K,
@@ -1368,11 +1529,13 @@ class GroupMatmulTestCase(Zentorch_TestCase):
             hidden_states,
             topk_indices,
             topk_weights_routing,
+            quant_moe_data,
         )
 
     @staticmethod
     def hypothesis_params_group_matmul_itr(
         dtype_list=supported_dtypes_def,
+        bias_opt_list=GROUP_MATMUL_BIAS_OPTIONS,
         num_experts_Range=GROUP_MATMUL_NUM_EXPERTS,
         m_Range=GROUP_MATMUL_M_VALUES,
         k_list=GROUP_MATMUL_K_VALUES,
@@ -1381,6 +1544,9 @@ class GroupMatmulTestCase(Zentorch_TestCase):
         k_out_list=GROUP_MATMUL_K_OUT_VALUES,
         topk_list=GROUP_MATMUL_TOPK_VALUES,
         num_tokens_list=GROUP_MATMUL_NUM_TOKENS_VALUES,
+        hidden_list=GROUP_MATMUL_HIDDEN_VALUES_DEF,
+        inter_list=GROUP_MATMUL_INTER_VALUES_DEF,
+        group_size_list=GROUP_MATMUL_GROUP_SIZE_VALUES_DEF,
         cpp_wrapper_opt_list=cpp_wrapper_def_opt,
         time_out=None,
         tensor_seed=0,
@@ -1410,6 +1576,7 @@ class GroupMatmulTestCase(Zentorch_TestCase):
                 val=GroupMatmulTestCase.tensor_group_matmul_strategy(
                     dtype_list=dtype_list,
                     cpp_wrapper_opt_list=cpp_wrapper_opt_list,
+                    bias_opt_list=bias_opt_list,
                     num_experts_Range=num_experts_Range,
                     m_Range=m_Range,
                     k_list=k_list,
@@ -1418,6 +1585,9 @@ class GroupMatmulTestCase(Zentorch_TestCase):
                     k_out_list=k_out_list,
                     topk_list=topk_list,
                     num_tokens_list=num_tokens_list,
+                    hidden_list=hidden_list,
+                    inter_list=inter_list,
+                    group_size_list=group_size_list,
                     tensor_seed=tensor_seed,
                 ),
             )
@@ -1436,6 +1606,7 @@ class GroupMatmulTestCase(Zentorch_TestCase):
                         tensor_seed_val,
                         dtype,
                         cpp_wrapper,
+                        with_bias,
                         num_experts,
                         M,
                         K,
@@ -1471,6 +1642,7 @@ class GroupMatmulTestCase(Zentorch_TestCase):
                         "topk": topk,
                         "num_tokens": num_tokens,
                         "cpp_wrapper": cpp_wrapper,
+                        "with_bias": with_bias,
                     }
 
                     required_args = (

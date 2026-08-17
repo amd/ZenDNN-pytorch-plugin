@@ -162,6 +162,20 @@ GROUP_MATMUL_TOPK_VALUES = [2, 4]
 GROUP_MATMUL_NUM_TOKENS_VALUES = [8, 16]
 GROUP_MATMUL_INT8_K_VALUES = [4, 8]
 GROUP_MATMUL_INT8_GATED_K_VALUES = [8, 16]
+GROUP_MATMUL_BIAS_OPTIONS = [True, False]
+
+# Packed-s4 contraction dims, drawn only when a test supplies them, so the
+# strategy defaults are empty and cost nothing for the other precisions.
+GROUP_MATMUL_HIDDEN_VALUES_DEF = []
+GROUP_MATMUL_INTER_VALUES_DEF = []
+GROUP_MATMUL_GROUP_SIZE_VALUES_DEF = []
+
+# DA8W4 contraction dims only: int32-packed s4 needs every K dim to be a
+# multiple of 8 and of the group size, with >= 2 groups. Expert count, M, topk
+# and token count carry no such constraint and reuse the GROUP_MATMUL_* lists.
+GROUP_MATMUL_DA8W4_HIDDEN_VALUES = [64, 128]
+GROUP_MATMUL_DA8W4_INTER_VALUES = [64, 128]
+GROUP_MATMUL_DA8W4_GROUP_SIZE_VALUES = [32]
 
 MM_ADD_1D_M_RANGE = Range(148, 148)
 MM_ADD_1D_K_RANGE = Range(384, 384)
@@ -1020,6 +1034,7 @@ class Test_Data(metaclass=Singleton):
         hidden_states,
         topk_indices,
         topk_weights_routing,
+        quant_moe_data=None,
     ):
         self.num_experts = num_experts
         self.M = M
@@ -1033,17 +1048,17 @@ class Test_Data(metaclass=Singleton):
         self.inputs = inputs
         self.w13_bias_none = w13_bias_none
         self.w13_weights = w13_weights
-        # Primary-shape int8 w13 + scales
+        # Primary-shape DA8W8 w13 + scales
         self.w13_weights_int8 = w13_weights_int8
         self.w13_scales = w13_scales
-        # Raw int8 w13 (negative test)
+        # Raw DA8W8 w13 (negative test)
         self.w13_int8_raw = w13_int8_raw
         # Gated-shape floating weights / biases
         self.w13_weights_gated = w13_weights_gated
         self.w13_bias_gated = w13_bias_gated
         self.w2_weights_gated = w2_weights_gated
         self.w2_bias_gated = w2_bias_gated
-        # Gated-shape int8 weights + scales
+        # Gated-shape DA8W8 weights + scales
         self.w13_weights_int8_gated = w13_weights_int8_gated
         self.w13_scales_gated = w13_scales_gated
         self.w2_weights_int8_gated = w2_weights_int8_gated
@@ -1056,6 +1071,11 @@ class Test_Data(metaclass=Singleton):
         self.hidden_states = hidden_states
         self.topk_indices = topk_indices
         self.topk_weights_routing = topk_weights_routing
+        # Everything needed to run one quantized MoE FFN and reference-check it:
+        # packed s4 weights, per-group scales, dequantized references, biases,
+        # activations and routing (see build_quant_moe_data). None unless the
+        # test asked for it by supplying the packed-s4 contraction dims.
+        self.group_matmul_quant_moe_data = quant_moe_data
 
     # Create data for quantized embedding tests
     def create_data_quant_emb(

@@ -4,6 +4,7 @@
  ******************************************************************************/
 
 #include "GroupMatmul.hpp"
+#include "DynamicQLinear.hpp"
 #include "EnvReader.hpp"
 #include "MatmulUtils.hpp"
 #include "Memory.hpp"
@@ -30,15 +31,19 @@ static bool has_tensor(const c10::optional<at::Tensor> &opt) {
 // module — a malformed inactive weight would corrupt that cache and bite
 // us when the expert later fires. Inputs and biases are validated only for
 // the active prefix.
+
+static bool checks_enabled() {
+  return static_cast<bool>(
+      EnvReader::getEnvVariableAsInt("ZENTORCH_ENABLE_CHECKS"));
+}
+
 // Shared validation for per-expert quantization scale lists.
 // Checks list size, per-element presence, dtype (f32/bf16), and dim
 // (1D/2D).
 static void
 validate_weight_scales(const std::vector<c10::optional<at::Tensor>> &scales,
                        int num_ops, const char *param_name) {
-  const bool enable_checks = static_cast<bool>(
-      EnvReader::getEnvVariableAsInt("ZENTORCH_ENABLE_CHECKS"));
-  if (!enable_checks)
+  if (!checks_enabled())
     return;
   ZENTORCH_CHECK(scales.size() == static_cast<size_t>(num_ops),
                  "zentorch_group_matmul: ", param_name, ".size() (",
@@ -57,6 +62,29 @@ validate_weight_scales(const std::vector<c10::optional<at::Tensor>> &scales,
                    "zentorch_group_matmul: ", param_name, "[", op_idx,
                    "] must be 1D or 2D, got ", ws.dim(), "D");
   }
+}
+
+// DA8W4 needs true per-group scales: 2D [G, N] with G > 1 (G == 1 is the
+// per-channel case) and G dividing the unpacked contraction dim K.
+static void validate_da8w4_weight_scale(const at::Tensor &ws, int64_t N,
+                                        int64_t unpacked_K, int op_idx,
+                                        const char *param_name) {
+  if (!checks_enabled())
+    return;
+  ZENTORCH_CHECK(ws.dim() == 2, "zentorch_group_matmul: DA8W4 ", param_name,
+                 "[", op_idx, "] must be 2D per-group [G, N], got ", ws.dim(),
+                 "D");
+  const int64_t G = ws.size(0);
+  ZENTORCH_CHECK(G > 1, "zentorch_group_matmul: DA8W4 ", param_name, "[",
+                 op_idx,
+                 "] must have more than one quantization group (got G=", G,
+                 "); per-channel (single-group) scales are not supported");
+  ZENTORCH_CHECK(ws.size(1) == N, "zentorch_group_matmul: DA8W4 ", param_name,
+                 "[", op_idx, "] N (", ws.size(1),
+                 ") must match the weight rows N (", N, ")");
+  ZENTORCH_CHECK(unpacked_K % G == 0, "zentorch_group_matmul: DA8W4 ",
+                 param_name, "[", op_idx, "] group count G (", G,
+                 ") must divide the contraction dim K (", unpacked_K, ")");
 }
 
 // Validates per-expert input/weight/bias dtypes, shapes, K-compatibility,
@@ -92,6 +120,7 @@ static void validate_dtypes_and_shapes(
   // prepack reorders into a uniform cache layout.
   const auto ref_dtype = inputs[0].scalar_type();
   const int64_t K_ref = inputs[0].size(1);
+  const auto w13_ref_dtype = w13_weights[0].scalar_type();
   ZENTORCH_CHECK(ref_dtype == c10::kFloat || ref_dtype == c10::kBFloat16 ||
                      ref_dtype == c10::kHalf,
                  "zentorch_group_matmul: input[0] must be float32 or "
@@ -103,17 +132,48 @@ static void validate_dtypes_and_shapes(
     const auto &w13_weight = w13_weights[op_idx];
     ZENTORCH_CHECK(w13_weight.dim() == 2, "zentorch_group_matmul: weight[",
                    op_idx, "] must be 2D, got ", w13_weight.dim(), "D");
+    const bool w13_s4_packed =
+        check_weight_and_infer_is_da8w4(inputs[0], w13_weight);
     ZENTORCH_CHECK(w13_weight.scalar_type() == ref_dtype ||
-                       w13_weight.scalar_type() == c10::kChar,
+                       w13_weight.scalar_type() == c10::kChar || w13_s4_packed,
                    "zentorch_group_matmul: weight[", op_idx, "] dtype (",
                    w13_weight.scalar_type(), ") must match input[0] dtype (",
-                   ref_dtype, ") or be int8");
-    ZENTORCH_CHECK(w13_weight.size(1) == K_ref,
-                   "zentorch_group_matmul: weight[", op_idx, "] K (",
-                   w13_weight.size(1), ") must match input[0] K (", K_ref, ")");
+                   ref_dtype,
+                   "), be int8, or be packed s4 (DA8W4: int32 [N,K/8] or int8 "
+                   "[N,K/2])");
+    ZENTORCH_CHECK(w13_weight.scalar_type() == w13_ref_dtype,
+                   "zentorch_group_matmul: weight[", op_idx, "] dtype (",
+                   w13_weight.scalar_type(), ") must match weight[0] dtype (",
+                   w13_ref_dtype,
+                   "); all experts must share one weight regime because the "
+                   "op infers fp/DA8W8/DA8W4 from weight[0]");
+    ZENTORCH_CHECK(w13_weight.is_contiguous(), "zentorch_group_matmul: weight[",
+                   op_idx, "] must be contiguous");
+    // A packed s4 weight carries K/2 or K/8 columns, so it is exempt from the
+    // K match; its ldb comes from the activation's contraction dim instead.
+    if (!w13_s4_packed) {
+      ZENTORCH_CHECK(
+          w13_weight.size(1) == K_ref, "zentorch_group_matmul: weight[", op_idx,
+          "] K (", w13_weight.size(1), ") must match input[0] K (", K_ref, ")");
+    }
   }
 
-  // Validate active-only inputs and biases.
+  // weight_scales are required for int8 (dynamic-A8W8) and DA8W4 weights.
+  // DA8W8 (s8) is a full-width int8 weight; an int8 DA8W4 container (size(1) ==
+  // K/2) is packed s4, not DA8W8, so exclude it here.
+  const bool has_s4_weights =
+      check_weight_and_infer_is_da8w4(inputs[0], w13_weights[0]);
+  const bool has_s8_weights =
+      w13_weights[0].scalar_type() == c10::kChar && !has_s4_weights;
+  if (has_s8_weights || has_s4_weights) {
+    validate_weight_scales(w13_scales, num_active, "weight_scales");
+  }
+  // Gate the per-expert DA8W4 scale checks once: validate_weight_scales above
+  // is what guarantees the list is sized and populated, and it only runs with
+  // checks enabled, so the loop must not index the list otherwise.
+  const bool check_da8w4_scales = has_s4_weights && checks_enabled();
+
+  // Validate active-only inputs, biases, and DA8W4 weight scales.
   for (int op_idx = 0; op_idx < num_active; ++op_idx) {
     const auto &input = inputs[op_idx];
     const auto &w13_weight = w13_weights[op_idx];
@@ -141,16 +201,29 @@ static void validate_dtypes_and_shapes(
                      "dtype (",
                      ref_dtype, ")");
     }
+
+    // DA8W4 requires per-group [G, N] weight scales; K_ref is the shared
+    // unpacked contraction dim for every W13 expert.
+    if (check_da8w4_scales) {
+      validate_da8w4_weight_scale(*w13_scales[op_idx], w13_weight.size(0),
+                                  K_ref, op_idx, "weight_scales");
+    }
   }
 
-  // Validate weight_scales and not fp16 inputs: required when any weight is
-  // int8
-  const bool has_int8_weights = w13_weights[0].scalar_type() == c10::kChar;
-  if (has_int8_weights) {
+  if (has_s8_weights) {
     ZENTORCH_CHECK(ref_dtype == c10::kBFloat16,
                    "zentorch_group_matmul: input[0] must be bf16 when "
                    "weights are int8");
-    validate_weight_scales(w13_scales, num_active, "weight_scales");
+  }
+
+  if (has_s4_weights) {
+    // DA8W4 is bf16-only: the AOCL-DLP s4->s8 sym-quant kernel rejects f32
+    // and fp16 activations. Fail fast here rather than deep in the backend
+    ZENTORCH_CHECK(ref_dtype == c10::kBFloat16,
+                   "zentorch_group_matmul: DA8W4 (int32-packed s4) weights "
+                   "require a bfloat16 activation (the AOCL-DLP DA8W4 kernel "
+                   "supports neither float32 nor float16), got input[0] dtype ",
+                   ref_dtype);
   }
 
   // Validate fp16 hardware support in case of fp16 inputs
@@ -203,12 +276,32 @@ validate_w2_params(const std::vector<at::Tensor> &inputs,
   const int num_total = static_cast<int>(w2_weights.size());
   const auto ref_dtype = inputs[0].scalar_type();
 
-  const bool has_int8_w2 =
-      has_tensor(w2_weights[0]) && w2_weights[0]->scalar_type() == c10::kChar;
+  ZENTORCH_CHECK(has_tensor(w2_weights[0]),
+                 "zentorch_group_matmul: w2_weights[0] must not be None when "
+                 "fused w2 is enabled");
+  const auto w2_ref_dtype = w2_weights[0]->scalar_type();
 
-  if (has_int8_w2) {
+  // Op2 inherits its quant/dtype config from Op1, so the two must share a
+  // container.
+  ZENTORCH_CHECK(w2_ref_dtype == w13_weights[0].scalar_type(),
+                 "zentorch_group_matmul: w2 weight regime (dtype ",
+                 w2_ref_dtype, ") must match the w13 weight regime (dtype ",
+                 w13_weights[0].scalar_type(),
+                 "); mixing dtypes across Op1/Op2 misconfigures the shared "
+                 "quantization scheme");
+  // w2 is therefore packed s4 exactly when w13 is. We deliberately do NOT
+  // re-derive the packing from w2's own last dim. We assume that the pack
+  // factor is the same for w13 and w2.
+  const bool has_s4_w2 =
+      check_weight_and_infer_is_da8w4(inputs[0], w13_weights[0]);
+  const bool has_s8_w2 = w2_ref_dtype == c10::kChar && !has_s4_w2;
+
+  if (has_s8_w2 || has_s4_w2) {
     validate_weight_scales(w2_scales, num_active, "w2_scales");
   }
+  // Gate the per-expert DA8W4 scale checks once, as on the w13 side: the scale
+  // list is only known to be sized and populated when the checks are enabled.
+  const bool check_da8w4_w2_scales = has_s4_w2 && checks_enabled();
 
   // Validate every w2 weight (active + inactive prepack tail).
   for (int op_idx = 0; op_idx < num_total; ++op_idx) {
@@ -220,21 +313,35 @@ validate_w2_params(const std::vector<at::Tensor> &inputs,
     const int64_t w2_input_dim = use_gated_act ? w13_weights[op_idx].size(0) / 2
                                                : w13_weights[op_idx].size(0);
 
-    const auto w2_dtype = w2_weights[op_idx]->scalar_type();
-    ZENTORCH_CHECK(w2_weights[op_idx]->dim() == 2 &&
-                       w2_weights[op_idx]->size(1) == w2_input_dim &&
-                       (w2_dtype == ref_dtype || w2_dtype == c10::kChar),
-                   "zentorch_group_matmul: w2_weights[", op_idx,
-                   "] must be 2D [K_out, ", w2_input_dim, "] with dtype ",
-                   ref_dtype, " or int8, got ", w2_weights[op_idx]->dim(),
-                   "D [", w2_weights[op_idx]->size(0), ", ",
-                   w2_weights[op_idx]->size(1), "] dtype ", w2_dtype);
+    const auto &w2_w = *w2_weights[op_idx];
+    ZENTORCH_CHECK(w2_w.dim() == 2, "zentorch_group_matmul: w2_weights[",
+                   op_idx, "] must be 2D, got ", w2_w.dim(), "D");
+    ZENTORCH_CHECK(w2_w.is_contiguous(), "zentorch_group_matmul: w2_weights[",
+                   op_idx, "] must be contiguous");
+    const auto w2_dtype = w2_w.scalar_type();
+    // has_s4_w2 applies to every expert: w2 weights are per-expert slices of
+    // one stacked tensor, so they share w2_weights[0]'s dtype, and the regime
+    // is decided by w13. As on the w13 side, a packed s4 w2 is exempt from the
+    // K_in match; its ldb_down comes from the down-projection input dim.
+    if (!has_s4_w2) {
+      ZENTORCH_CHECK(w2_w.size(1) == w2_input_dim,
+                     "zentorch_group_matmul: w2_weights[", op_idx, "] K_in (",
+                     w2_w.size(1),
+                     ") must match the down-projection input "
+                     "dim (",
+                     w2_input_dim, ")");
+    }
+    ZENTORCH_CHECK(
+        w2_dtype == ref_dtype || w2_dtype == c10::kChar || has_s4_w2,
+        "zentorch_group_matmul: w2_weights[", op_idx, "] dtype (", w2_dtype,
+        ") must be ", ref_dtype,
+        ", int8 (DA8W8), or packed s4 (DA8W4: int32 [N,K/8] or int8 [N,K/2])");
   }
 
-  // Validate active-only w2 biases.
+  // Validate active-only w2 biases and DA8W4 w2 scales.
   for (int op_idx = 0; op_idx < num_active; ++op_idx) {
+    const int64_t K_out = w2_weights[op_idx]->size(0);
     if (has_tensor(w2_bias[op_idx])) {
-      const int64_t K_out = w2_weights[op_idx]->size(0);
       ZENTORCH_CHECK(
           w2_bias[op_idx]->dim() == 1 && w2_bias[op_idx]->size(0) == K_out &&
               w2_bias[op_idx]->scalar_type() == ref_dtype,
@@ -242,6 +349,17 @@ validate_w2_params(const std::vector<at::Tensor> &inputs,
           K_out, " and dtype ", ref_dtype, ", got ", w2_bias[op_idx]->dim(),
           "D, size ", w2_bias[op_idx]->size(0), ", dtype ",
           w2_bias[op_idx]->scalar_type());
+    }
+
+    // DA8W4 down-projection scales must be per-group [G, K_out]; the unpacked
+    // contraction dim is the down-projection input dim (N/2 gated, N
+    // otherwise).
+    if (check_da8w4_w2_scales) {
+      const int64_t w2_input_dim = use_gated_act
+                                       ? w13_weights[op_idx].size(0) / 2
+                                       : w13_weights[op_idx].size(0);
+      validate_da8w4_weight_scale(*w2_scales[op_idx], K_out, w2_input_dim,
+                                  op_idx, "w2_scales");
     }
   }
 }
@@ -358,10 +476,19 @@ void zentorch_group_matmul_out_impl(
   std::vector<const void *> bias_ptrs(num_active, nullptr);
   std::vector<void *> dst_ptrs(num_active, nullptr);
   std::vector<int> ldc_vec(num_active);
-  // Holds src_scale tensors for dynamic int8 (keeps them alive until kernel
+  // Holds src_scale tensors for dynamic DA8W8 (keeps them alive until kernel
   // returns)
   std::vector<at::Tensor> temp_src_scales;
-  const bool has_int8_weights = w13_weights[0].scalar_type() == c10::kChar;
+  // DA8W4: packed s4 weights (int32 [N,K/8] or int8 [N,K/2]) + dynamic
+  // per-token s8 activation quant. Shares the dynamic-quant wiring with the
+  // DA8W8 path but forces dtypes.wei = s4 and derives K/ldb from the
+  // activation's contraction dim (independent of the packing container).
+  const int64_t unpacked_K_w13 = inputs[0].size(1);
+  const bool has_s4_weights =
+      check_weight_and_infer_is_da8w4(inputs[0], w13_weights[0]);
+  // Full-width int8 is DA8W8 (s8); an int8 DA8W4 container is excluded here.
+  const bool has_s8_weights =
+      w13_weights[0].scalar_type() == c10::kChar && !has_s4_weights;
 
   // Weight-side metadata vectors (sized to the total count). The library's
   // prepack-extras contract requires the six vectors below to be
@@ -389,10 +516,17 @@ void zentorch_group_matmul_out_impl(
   for (int op_idx = 0; op_idx < num_total; ++op_idx) {
     const auto &w13_weight = w13_weights[op_idx];
     N_vec[op_idx] = w13_weight.size(0);
-    K_vec[op_idx] = w13_weight.size(1);
     weight_ptrs[op_idx] = w13_weight.data_ptr();
-    ldb_vec[op_idx] = w13_weight.stride(0);
-    params[op_idx].dtypes.wei = get_zendnnl_dtype(w13_weight);
+    if (has_s4_weights) {
+      // Packed [N, K/8] int32: logical K and ldb are both the unpacked K.
+      K_vec[op_idx] = static_cast<int>(unpacked_K_w13);
+      ldb_vec[op_idx] = static_cast<int>(unpacked_K_w13);
+      params[op_idx].dtypes.wei = data_type_t::s4;
+    } else {
+      K_vec[op_idx] = w13_weight.size(1);
+      ldb_vec[op_idx] = w13_weight.stride(0);
+      params[op_idx].dtypes.wei = get_zendnnl_dtype(w13_weight);
+    }
   }
 
   // Input + per-op-params population: active experts only.
@@ -423,8 +557,10 @@ void zentorch_group_matmul_out_impl(
         bias_defined ? get_zendnnl_dtype(*w13_bias[op_idx]) : data_type_t::none;
     params[op_idx].plugin_op = zentorch_op_name;
 
-    // Dynamic int8: bf16/fp32 input × s8 weight, kernel quantizes activations
-    if (has_int8_weights) {
+    // Dynamic quant paths (both quantize the activation to s8 per token):
+    //   * dynamic-A8W8: s8 weight, per-channel {1, N} scale.
+    //   * dynamic-A8W4: s4 weight, per-group {G, N} scale.
+    if (has_s8_weights || has_s4_weights) {
       params[op_idx].dtypes.compute = data_type_t::s8;
       params[op_idx].dynamic_quant = true;
       zendnnl::lowoha::matmul::matmul_quantization_params_t qparams{};
@@ -443,7 +579,8 @@ void zentorch_group_matmul_out_impl(
       // Source scale: caller-allocated buffer, kernel fills it at runtime.
       // Granularity determined by weight scale shape:
       //   wei_scale {1, N} (per-channel) → src_scale {M, 1} (per-token)
-      //   wei_scale {G, N} (per-group)   → src_scale {M, G} (per-group)
+      //   wei_scale {G, N} (per-group)   → src_scale {M, 1} (per-token,
+      //                                    broadcast across the G groups)
       const int64_t M = input.size(0);
       auto src_scale_tensor =
           at::detail::empty_strided_cpu({M, 1}, {1, 1}, ws.scalar_type());
@@ -519,7 +656,16 @@ void zentorch_group_matmul_out_impl(
     for (int op_idx = 0; op_idx < num_total; ++op_idx) {
       fused_moe.down_weight[op_idx] = w2_weights[op_idx]->data_ptr();
       fused_moe.N_down[op_idx] = w2_weights[op_idx]->size(0);
-      fused_moe.ldb_down[op_idx] = w2_weights[op_idx]->stride(0);
+      if (has_s4_weights) {
+        // ldb_down is the unpacked K_down (down-proj input dim: N/2 gated, N
+        // otherwise), mirroring the W13 metadata above.
+        const int64_t unpacked_K_down = use_gated_act
+                                            ? w13_weights[op_idx].size(0) / 2
+                                            : w13_weights[op_idx].size(0);
+        fused_moe.ldb_down[op_idx] = static_cast<int>(unpacked_K_down);
+      } else {
+        fused_moe.ldb_down[op_idx] = w2_weights[op_idx]->stride(0);
+      }
     }
 
     for (int op_idx = 0; op_idx < num_active; ++op_idx) {
@@ -531,7 +677,7 @@ void zentorch_group_matmul_out_impl(
       }
     }
 
-    // Populate Op2 weight scales when w2 weights are int8.
+    // Populate Op2 weight scales when w2 weights are quantized (DA8W8/DA8W4).
     // Op2 inherits dynamic_quant, dtypes.compute, and src_scale.dims
     // from params[i] — only the weight scale is per-pass.
     if (!w2_scales.empty()) {

@@ -70,8 +70,8 @@ public:
       return;
     }
     void *new_ptr = std::aligned_alloc(kAlignment, bytes);
-    TORCH_CHECK(new_ptr != nullptr, "FusedMoEScratchpad: aligned_alloc(", bytes,
-                ") failed");
+    ZENTORCH_CHECK(new_ptr != nullptr, "FusedMoEScratchpad: aligned_alloc(",
+                   bytes, ") failed");
     if (ptr_ != nullptr) {
       std::free(ptr_);
     }
@@ -449,18 +449,33 @@ build_token_expert_mapping(const at::Tensor &input, const at::Tensor &topk_id) {
 //
 // `output` is mutated in place (Tensor(a!)). Returns ().
 //
-// ----------------------------- Input contract ------------------------------
-// All shape/dtype/bias validation is performed once, at patch-install time
-// in `src/cpu/python/zentorch/vllm/__init__.py` (the only producer of calls
-// into this op). The C++ op trusts its inputs and assumes:
+// This single op serves three weight regimes, dispatched by weight dtype
+// inside `zentorch_group_matmul_out_impl` (see GroupMatmul.cpp):
+//   * bf16 / f32 weights            — plain grouped GEMM (no scales).
+//   * DA8W8 weights + scales        — dynamic per-token s8 activation quant.
+//   * packed-s4 weights (DA8W4) + per-group scales — bf16 activation
+//     dynamically quantized to s8 per token against symmetric int4 weights.
+//     Packed weights come in either container, `[E, N, K/8]` int32 or
+//     `[E, N, K/2]` int8, and are selected by the packed last dim (a
+//     full-width int8 weight is DA8W8, not DA8W4).
+//     See docs/zentorch_fused_moe.md §"DA8W4 weights".
 //
-//   input          : 2D [T, H], f32, bf16, or fp16, contiguous
+// ----------------------------- Input contract ------------------------------
+// Shape/dtype/bias validation is performed once by the producing Python layer.
+// The C++ op trusts its inputs and assumes:
+//
+//   input          : 2D [T, H], contiguous. f32, bf16, or fp16 (bf16 ONLY
+//                    for the quantized regimes: DA8W8 and DA8W4).
 //   output         : 2D [T, H], same dtype as input, UNINITIALIZED
 //                    (Phase 5's reduce writes every element)
-//   w13            : 3D [E, 2*I, H], same dtype as input
-//   w2             : 3D [E, H, I],   same dtype as input
+//   w13            : 3D [E, 2*I, H] (input dtype or int8) or, for DA8W4,
+//                    [E, 2*I, H/8] int32 / [E, 2*I, H/2] int8
+//   w2             : 3D [E, H, I]   (input dtype or int8) or, for DA8W4,
+//                    [E, H, I/8]   int32 / [E, H, I/2]   int8
 //   w13_bias       : None or [E, 2*I] (same dtype as input)
 //   w2_bias        : None or [E, H]   (same dtype as input)
+//   w13_scales     : None (float), per-channel (DA8W8), or per-group (DA8W4)
+//   w2_scales      : as w13_scales for the down projection
 //   topk_weights   : 2D [T, K], f32, contiguous
 //   topk_id        : 2D [T, K], int32, contiguous, values in [0, E)
 //   skip_weighted  : bool; if true, requires K == 1
@@ -495,7 +510,7 @@ void zentorch_fused_moe(
   // path). Rather than letting the call reach group_matmul_direct and crash
   // on its inputs.size() > 1 assertion, fail here with a clear, actionable
   // message.
-  TORCH_CHECK(
+  ZENTORCH_CHECK(
       E_a > 1, "zentorch_fused_moe: only ", E_a,
       " expert(s) received tokens. "
       "zentorch_group_matmul_out_impl requires at least 2 active experts. "
@@ -700,7 +715,8 @@ void zentorch_fused_moe(
   // an allocation per active expert. The full chain
   // (W13 -> gated_act -> W2 -> weighted_reduce -> output) runs inside one
   // `group_matmul_direct` call.
-  // This path handles bf16/f32/fp16 weights and int8 weights (with scales).
+  // Handles bf16/f32/fp16, DA8W8, and DA8W4 weights — GroupMatmul selects the
+  // kernel from the weight dtype.
   zentorch_group_matmul_out_impl(
       /*gemm_outputs=*/{},
       /*inputs=*/mapping.grouped_inputs,

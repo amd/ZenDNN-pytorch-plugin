@@ -18,7 +18,9 @@ When all three are combined, the entire MoE FFN block (gate+up → activation �
 
 > **Note:**
 > - Only **parallel mode** is supported. Sequential mode (chained matmuls) is not implemented.
-> - Weight tensors follow `nn.Linear` layout `[N, K]` and need not be contiguous.
+> - Weight tensors follow `nn.Linear` layout `[N, K]` and **must be contiguous**. For packed-s4 weights the requirement is load-bearing in either container, since the packed metadata takes `ldb`(`K`) from the activation's contraction dim rather than `stride(0)`.
+> - Weights may be `bf16`/`f32`, full-width `int8` (dynamic-A8W8, per-channel scale), or **packed `s4` (DA8W4)** with per-group scales, in either of two byte-identical containers: `int32 [N, K/8]` (8 nibbles per int32) or `int8 [N, K/2]` (2 nibbles per byte). The DA8W8 and DA8W4 paths share the dynamic per-token activation-quant wiring; see [§6.4](#64-dynamic-quantization--da8w8-and-da8w4).
+> - `int8` therefore serves both quantized regimes and is disambiguated by its last dim against the unpacked `K`: full width is DA8W8, half width is packed s4.
 
 ## 2. Motivation
 
@@ -39,7 +41,8 @@ In MoE models (Mixtral, DeepSeek, etc.), a router assigns each token to its top-
 torch.ops.zentorch.zentorch_group_matmul.out(
     gemm_outputs,           # List[Tensor], pre-allocated [M_i, N] per expert (or [] for internal alloc)
     inputs,                 # List[Tensor], one [M_i, K] per expert (bf16/f32/fp16)
-    w13_weights,            # List[Tensor], one [N, K] per expert (w13: gate+up weights)
+    w13_weights,            # List[Tensor], one [N, K] per expert (w13: gate+up; bf16/f32/fp16,
+                            #   int8 DA8W8, or packed s4: int32 [N, K/8] / int8 [N, K/2])
     w2_weights,             # List[Optional[Tensor]], one [K_out, D] per expert ([] when unused)
     moe_output,             # Optional[Tensor], [num_tokens, hidden_dim] (MoE reduce result)
     topk_weights,           # Optional[Tensor], [num_tokens, topk] routing weights (f32)
@@ -47,15 +50,16 @@ torch.ops.zentorch.zentorch_group_matmul.out(
     activation,             # str: 'none', 'silu', 'gelu', 'gelu_tanh', 'swigluoai'
     w13_bias,               # List[Optional[Tensor]], one [N] or None per expert
     w2_bias,                # List[Optional[Tensor]], one [K_out] or None per expert ([] when unused)
-    w13_scales,      # List[Optional[Tensor]], per-expert scales ([] for fp32/bf16, required for int8)
-    w2_scales,       # List[Optional[Tensor]], per-expert scales for int8 w2 ([] for fp32/bf16)
+    w13_scales,      # List[Optional[Tensor]], per-expert scales ([] for fp32/bf16, required for DA8W8 / DA8W4 s4)
+    w2_scales,       # List[Optional[Tensor]], per-expert scales for DA8W8 / DA8W4 s4 w2 ([] for fp32/bf16)
     *, zentorch_op_name='zentorch::zentorch_group_matmul.out'
 ) -> None
 ```
 
-> **Note:** All parameters are required positional parameters. Pass `[]` for unused list parameters
+> **Note:** All positional parameters are required. Pass `[]` for unused list parameters
 > (`w2_weights`, `w2_bias`, `w13_bias`, `w13_scales`, `w2_scales`) and `None` for
 > unused optional parameters (`moe_output`, `topk_weights`, `row_ptrs`).
+> `zentorch_op_name` is keyword-only with a default.
 
 ## 4. Parameters
 
@@ -63,15 +67,19 @@ torch.ops.zentorch.zentorch_group_matmul.out(
 |-----------|------|-------------|
 | `gemm_outputs` | `List[Tensor]` (bf16/f32/fp16) | Pre-allocated Op1 output tensors, one per expert, shape `[M_i, N]`. Pass `[]` when intermediate GEMM results are not needed — ZenDNN allocates and manages dst buffers internally. |
 | `inputs` | `List[Tensor]` (bf16/f32/fp16) | One input tensor per expert, shape `[M_i, K]`. |
-| `w13_weights` | `List[Tensor]` (bf16/f32/fp16/int8) | Op1 weight matrices (w13: gate+up), shape `[N, K]` (nn.Linear layout). |
-| `w2_weights` | `List[Optional[Tensor]]` (bf16/f32/fp16/int8) | Down projection weights, one `[K_out, D]` per expert. `D = N/2` after gated activation, `D = N` without. Pass `[]` when unused. |
+| `w13_weights` | `List[Tensor]` (bf16/f32/fp16/int8/int32) | Op1 weight matrices (w13: gate+up), shape `[N, K]` (nn.Linear layout). For **DA8W4** the tensor is packed s4 — `[N, K/8]` int32 or `[N, K/2]` int8 — and the logical `K` is the activation's last dim (`size(1) * pack_factor`). |
+| `w2_weights` | `List[Optional[Tensor]]` (bf16/f32/fp16/int8/int32) | Down projection weights, one `[K_out, D]` per expert. `D = N/2` after gated activation, `D = N` without. For **DA8W4** the tensor is packed s4 in the same container as `w13` — `[K_out, D/8]` int32 or `[K_out, D/2]` int8 — and `D` is taken from `w13`, not from `size(1)`. Pass `[]` when unused. |
 | `moe_output` | `Optional[Tensor]` (bf16/f32/fp16) | Pre-allocated `[num_tokens, hidden_dim]` for weighted-reduce result. |
 | `topk_weights` | `Optional[Tensor]` (f32) | Routing weights `[num_tokens, topk]`. |
 | `row_ptrs` | `Optional[Tensor]` (int64) | Pre-built pointer table `[num_tokens * topk]` into the final expert output buffers. When fused w2 is active, must point into the input buffers (ZenDNN reuses them for w2 output). |
  | `activation` | `str` | `'none'`, `'silu'`, `'gelu'`, `'gelu_tanh'`, or `'swigluoai'`. Maps to `silu_and_mul`, `gelu_and_mul`, `swiglu_oai_mul` enums internally (`gelu_tanh` aliases `gelu_and_mul`; `gelu`/`gelu_tanh` use tanh-approx GELU in fused kernels). Gated activations require `N = 2*D` (even). || `w13_bias` | `List[Optional[Tensor]]` | Op1 bias, one `[N]` or `None` per expert. |
 | `w2_bias` | `List[Optional[Tensor]]` | Down projection bias, one `[K_out]` or `None` per expert. Pass `[]` when unused. |
-| `w13_scales` | `List[Optional[Tensor]]` (f32/bf16) | Per-expert quantization scales for dynamic int8 w13. Shape `[N]` (per-channel, normalized to `{1,N}`) or `{G, N}` (per-group). Pass `[]` for fp32/bf16/fp16 weights. |
-| `w2_scales` | `List[Optional[Tensor]]` (f32/bf16) | Per-expert quantization scales for dynamic int8 w2 weights. Shape `[K_out]` (per-channel) or `{G, K_out}` (per-group). Pass `[]` for fp32/bf16/fp16 w2 weights. |
+| `w13_scales` | `List[Optional[Tensor]]` (f32/bf16) | Per-expert weight scales for dynamic A8W8 / A8W4 w13. Dynamic-A8W8: `[N]` (per-channel, normalized to `{1, N}`). **Dynamic-A8W4**: `{G, N}` per-group, passed through unchanged (same for either container). Pass `[]` for fp32/bf16/fp16 weights. |
+| `w2_scales` | `List[Optional[Tensor]]` (f32/bf16) | Per-expert weight scales for dynamic A8W8 / A8W4 w2. Dynamic-A8W8: `[K_out]` (per-channel). **Dynamic-A8W4**: `{G, K_out}` per-group, passed through unchanged. Pass `[]` for fp32/bf16/fp16 w2 weights. |
+
+> **DA8W4 detection.** The regime is inferred from `w13_weights[0]` by the shared classifier `check_weight_and_infer_is_da8w4` (`DynamicQLinear.hpp`), with no extra schema arg: it divides the unpacked `K` (`inputs[0].size(1)`) by the weight's last dim and reads the pack factor — `1` → DA8W8 (full-width int8), `2` → DA8W4 int8 container, `8` → DA8W4 int32 container. Any other ratio, or a pack factor paired with the wrong dtype, is rejected; a floating-point weight is classified as unquantized and its `K` checked separately.
+>
+> `w2_weights` inherit the regime rather than re-deriving it: they are packed s4 exactly when `w13` is and their dtype matches. Their own packed density is **not** checked, because the down-projection input dim (`N/2` with gated act, `N` without) need not be a multiple of the pack factor even for a validly packed weight. `ldb_down` still comes from that dim, so a packed `w2` must be contiguous. See [§6.4](#64-dynamic-quantization--da8w8-and-da8w4).
 
 > **Note:** `w2_outputs` is not required — ZenDNN manages the down projection output buffers internally by reusing the input buffers.
 
@@ -80,18 +88,21 @@ torch.ops.zentorch.zentorch_group_matmul.out(
 | Constraint | Condition |
 |-----------|-----------|
 | Execution mode | Parallel only (`len(inputs) > 1`) |
-| Input dtype | `torch.bfloat16`, `torch.float32`, or `torch.float16` (fp16 requires AVX-512 FP16 hardware support; not supported on the dynamic int8 path) |
-| Weight dtype | Must match input dtype, or `torch.int8` (dynamic int8 quantization) |
-| Dynamic int8 | When `w13_weights[i]` is int8, `w13_scales[i]` is required. Kernel quantizes activations at runtime (`dynamic_quant=true`, `dtypes.compute=s8`). Activations are quantized from bf16/f32 only — fp16 is not supported on this path. |
+| Input dtype | `torch.bfloat16`, `torch.float32`, or `torch.float16` (fp16 requires AVX-512 FP16 hardware support; DA8W8 and DA8W4 are **bf16-only** — see the rows below) |
+| Weight dtype | Must match input dtype, `torch.int8` at full `K` (dynamic A8W8), or packed s4 (`torch.int32` at `K/8`, `torch.int8` at `K/2`) |
+| Dynamic A8W8 | When `w13_weights[i]` is full-width int8, `w13_scales[i]` is required and the activation **must be `torch.bfloat16`**. Kernel quantizes activations at runtime (`dynamic_quant=true`, `dtypes.compute=s8`), per-channel `{1, N}` weight scale |
+| Dynamic A8W4 | When `w13_weights[i]` is packed s4 (`int32` at `K/8` or `int8` at `K/2`), `w13_scales[i]` is required (per-group `{G, N}`), and the activation **must be `torch.bfloat16`** (the ZenDNN DA8W4 kernel rejects `float32` and `float16`). The wrapper sets `dtypes.wei=s4`, `dynamic_quant=true`, `dtypes.compute=s8`; ZenDNN backend then selects the s4 kernel from `dtypes.wei=s4`. Logical `K` is the input's last dim (`ldb = K`, in nibble units, identical for both containers). See [§6.4](#64-dynamic-quantization--da8w8-and-da8w4) |
+| Weight regime consistency | All `w13_weights` must share one dtype (the op infers the fp/DA8W8/DA8W4 regime from `w13_weights[0]`); all `w2_weights` must share one dtype, which must equal the `w13` dtype — so an int32-packed `w13` cannot pair with an int8-packed `w2`, and vice versa |
+| Contiguity | All `w13` and `w2` weights must be **contiguous**. For packed s4 (either container) this is load-bearing: `ldb`/`ldb_down` derive from the activation's contraction dim, not `stride(0)` |
 | Dtype consistency (fp) | For fp32/bf16/fp16 weights: inputs, w13_weights, w13_bias must share dtype per expert |
-| Weight shape | `[N, K]` (nn.Linear layout) |
+| Weight shape | `[N, K]` (nn.Linear layout); DA8W4 packed weights are `[N, K/8]` int32 or `[N, K/2]` int8, with logical `K = size(1) * pack_factor` |
 | gemm_outputs | Either empty `[]` (ZenDNN allocates internally) or `len(gemm_outputs) == len(w13_weights)` |
 | Gated activation | Requires `N` to be even (`N = 2 * D`) |
 | MoE params | When `topk_weights` is provided, `row_ptrs` and `moe_output` must also be provided |
 | Fused w2 params | `w2_weights` and `w2_bias` must both be provided or both be `[]` |
-| w2 inner dim | `w2_weights[i].size(1)` must equal `N/2` (with gated act) or `N` (without) |
+| w2 inner dim | For fp and DA8W8: `w2_weights[i].size(1)` must equal `N/2` (with gated act) or `N` (without). For DA8W4 this is **not** checked — the logical inner dim is taken from `w13` and `w2`'s packed last dim is left alone |
 | w2 list lengths | Must equal `len(w13_weights)` (one per expert) |
-| w2 dtype | `w2_weights[i]` must match input dtype or be int8 (with `w2_scales`). `w2_bias[i]` must match input dtype |
+| w2 dtype | `w2_weights[i]` must match input dtype, be full-width int8 (with `w2_scales`), or be packed s4 in `w13`'s container (with per-group `w2_scales`). `w2_bias[i]` must match input dtype |
 | Buffer reuse (K==K_out) | When fused w2 is active, `K_out` must equal `K` for the kernel to safely write w2 output back into input buffers |
 
 ## 6. Implementation Details
@@ -110,10 +121,17 @@ zentorch_group_matmul_out_impl()
   │     └─ validate_moe_params (topk_weights → row_ptrs + moe_output required)
   ├─ Single-pass loop: extract dimensions, pointers, dtypes for Op1
   │     ├─ If gemm_outputs empty: dst_ptrs stays nullptr (ZenDNN allocates internally)
-  │     └─ If weight is int8: set dynamic_quant=true, compute=s8, populate quant_params
+  │     ├─ If weight is packed s4 (DA8W4, int32 [N,K/8] or int8 [N,K/2]):
+  │     │     dtypes.wei=s4, K=ldb=input's last dim (pack factor validated by
+  │     │     check_weight_and_infer_is_da8w4; else: dtypes.wei from tensor dtype,
+  │     │     K=size(1), ldb=stride(0))
+  │     └─ If weight is full-width int8 OR DA8W4: set dynamic_quant=true, compute=s8,
+  │           populate quant_params
   ├─ Configure gated activation post-op
   ├─ If MoE: populate group_matmul_moe_postop_params
   ├─ If fused w2: populate grp_matmul_fused_moe_params
+  │     ├─ DA8W4: ldb_down = down-proj input dim K_down (taken from w13, not validated
+  │     │     against w2's last dim); else ldb_down = stride(0)
   │     └─ If w2_scales non-empty: populate fused_moe.down_scale (Op2 weight scale)
   └─ Call group_matmul_direct(... moe_params, gated_act, fused_moe)
        ├─ Op1: Parallel expert GEMMs (gate+up) → gemm_outputs (or internal buffers)
@@ -149,6 +167,25 @@ Hardcoded defaults for Op1:
 | `beta` | `0.0` |
 | `is_weights_const` | `true` |
 
+### 6.4 Dynamic quantization — DA8W8 and DA8W4
+
+Two weight types drive the dynamic-quant path, where the bf16/fp32 activation is quantized to `s8` **per token at runtime** (`dynamic_quant = true`, `dtypes.compute = s8`) rather than offline. They are detected from the Op1 weight and share most of the wiring; the differences are summarized below.
+
+| Aspect | Dynamic-A8W8 (`s8` weight) | Dynamic-A8W4 (packed `s4` weight) |
+|--------|----------------------------|-----------------------------------|
+| Detection | pack factor `unpacked_K / size(1) == 1` with `kChar` | pack factor `2` with `kChar` (int8 container) or `8` with `kInt` (int32 container) |
+| `dtypes.wei` | `s8` (from tensor dtype) | `s4` — set **explicitly** (`get_zendnnl_dtype` would return `s32` / `s8` for the packed buffer) |
+| Weight buffer | `[N, K]` int8, `ldb = stride(0)` | `[N, K/8]` int32 or `[N, K/2]` int8 — the same nibble stream either way; logical `K` = input's last dim, `ldb = K` (the unpacked K nibble-stream leading dim), `transB = true`, contiguous required |
+| Weight scale | `[N]` → normalized to per-channel `{1, N}` | per-group `{G, N}` — **passed through unchanged** (the ZenDNN's sym-quant kernel derives the source group size from the `G` scale rows) |
+| Source scale | `{M, 1}` per-token (the wrapper always allocates `src_scale.dims = {M, 1}`) | `{M, 1}` per-token; ZenDNN's DA8W4 path broadcasts it across the `G` weight-scale groups internally |
+| Kernel / algo | LowOHA default | LowOHA default |
+
+Because the compute-side sizing is all in nibble units, the container affects nothing past detection: `K`, `ldb`, `dtypes.wei`, and the scales are identical for an int32-packed and an int8-packed weight built from the same quantized values. The int8 container only relaxes the shape requirement, needing `K % 2 == 0` instead of `K % 8 == 0`.
+
+**Op2 (fused w2).** When `w2_weights` are packed s4, `fused_moe.ldb_down[i]` is set to the unpacked `K_down` — the down-projection input dim (`N/2` with gated act, `N` without), derived from `w13_weights[i]`. Unlike the W13 metadata this is **not** cross-checked against `w2_weights[i].size(1)`: `K_down` need not be a multiple of the pack factor, so the regime is inherited from `w13` (same dtype ⇒ same container) instead. Op2 inherits `dynamic_quant`, `dtypes.compute`, `dtypes.wei`, and `src_scale.dims` from `params[i]`; only its per-group weight scale (`fused_moe.down_scale`) is per-pass.
+
+The int4 weight layout and per-group scales handed in here are identical to the single-matmul WOQ path (`zentorch_woq_linear_impl`); only the dispatch (grouped vs. single matmul) differs. This is the path the DA8W4 regime of the fused-MoE op relies on — see [zentorch_fused_moe.md](./zentorch_fused_moe.md) §9.
+
 ## 7. Test Plan
 
 Tests live in `test/unittests/op_tests/test_group_matmul.py`. The class `Test_GroupMatmul` extends `GroupMatmulTestCase`.
@@ -176,7 +213,7 @@ Dimensions are drawn from the constants in `zentorch_test_utils.py`:
 | `topk` | `GROUP_MATMUL_TOPK_VALUES`|
 | `num_tokens` | `GROUP_MATMUL_NUM_TOKENS_VALUES`|
 
-`K` is drawn with `st.sampled_from(k_list)`; the int8 tests override `k_list` with
+`K` is drawn with `st.sampled_from(k_list)`; the DA8W8 tests override `k_list` with
 `GROUP_MATMUL_INT8_K_VALUES = [4, 8]` or `GROUP_MATMUL_INT8_GATED_K_VALUES = [8, 16]` to satisfy
 their tighter shape constraints. Dtype is supplied via `dtype_list=supported_dtypes`
 (`"float32"`, plus `"bfloat16"` when BF16 is supported, plus `"float16"` when AVX-512 FP16 is
@@ -184,6 +221,21 @@ supported; the int8 tests use `supported_dtypes_int8`, which excludes `"float16"
 `GroupMatmulTestCase` sets `max_example_per_test = 5` and
 `time_out = 10000` ms — fewer examples and a longer deadline than the default because each
 example builds full per-expert w13/w2 weight, bias, and scale tensors.
+
+The DA8W4 tests reuse `num_experts`, `M`, `topk` and `num_tokens` from the table above
+and draw only their own contraction dims, since int32-packed s4 needs every K dim to be
+a multiple of 8 and of the group size (>= 2 groups). These draws default to empty and are
+skipped entirely unless a test supplies them, so only `Test_FusedMoEDA8W4`
+(`test/unittests/op_tests/test_fused_moe_da8w4.py`) pays for them — it passes:
+
+| Draw | Value supplied by the test |
+|------|----------------------------|
+| `hidden` | `hidden_list=GROUP_MATMUL_DA8W4_HIDDEN_VALUES` |
+| `inter` | `inter_list=GROUP_MATMUL_DA8W4_INTER_VALUES` |
+| `group_size` | `group_size_list=GROUP_MATMUL_DA8W4_GROUP_SIZE_VALUES` |
+
+When those dims are drawn, the example's packed weights are built once by
+`build_quant_moe_data`; otherwise `group_matmul_quant_moe_data` is `None`.
 
 
 ### 7.2 Test matrix for `zentorch_group_matmul.out`
@@ -193,11 +245,11 @@ example builds full per-expert w13/w2 weight, bias, and scale tensors.
 | `test_plain_gemm` | None (bare GEMM) | Parallel expert GEMMs only |
 | `test_moe_weighted_reduce` | MoE weighted-reduce | GEMM + per-token reduce |
 | `test_gated_activations` | Gated activation (silu, gelu, swigluoai) | Loops over all activations per example |
-| `test_int8_w13` | Dynamic int8 w13 (bare GEMM) | `k_list = [4, 8]`; needs AVX512 + bf16 |
-| `test_int8_w13_and_w2_single_pass` | Dynamic int8 w13 + w2, 3 sub-tests (see below) | `k_list = [4, 8]`, `K == K_out == N` |
-| `test_int8_w13_and_w2_two_pass` | int8 w13 + silu + w2 + MoE reduce via `zentorch_fused_moe` | `k_list = [8, 16]`, `K == K_out`; exercises the `ZENTORCH_TWO_PASS` split path when run with `ZENTORCH_TWO_PASS=1`|
+| `test_int8_w13` | Dynamic A8W8 w13 (bare GEMM) | `k_list = [4, 8]`; needs AVX512 + bf16 |
+| `test_int8_w13_and_w2_single_pass` | Dynamic A8W8 w13 + w2, 3 sub-tests (see below) | `k_list = [4, 8]`, `K == K_out == N` |
+| `test_int8_w13_and_w2_two_pass` | DA8W8 w13 + silu + w2 + MoE reduce via `zentorch_fused_moe` | `k_list = [8, 16]`, `K == K_out`; exercises the `ZENTORCH_TWO_PASS` split path when run with `ZENTORCH_TWO_PASS=1`|
 | `test_unsupported_activation` | Invalid activation strings | Expects `RuntimeError` |
-| `test_int8_missing_scales` | int8 weights with None scales (negative) | Requires `ZENTORCH_ENABLE_CHECKS=1` set before process start (`@unittest.skipUnless`); `k_list = [4, 8]` |
+| `test_int8_missing_scales` | DA8W8 weights with None scales (negative) | Requires `ZENTORCH_ENABLE_CHECKS=1` set before process start (`@unittest.skipUnless`); `k_list = [4, 8]` |
 | `test_empty_gemm_outputs_fused_w2` | Fused w2 with gemm_outputs=[] | Backend allocates dst internally |
 | `test_fused_moe_pipeline` | Full pipeline: w13 → act → w2 → MoE reduce | Verifies both `zentorch_group_matmul.out` and `zentorch_fused_moe` paths |
 
@@ -205,18 +257,32 @@ example builds full per-expert w13/w2 weight, bias, and scale tensors.
 
 | Sub-test | API | Post-ops | Detail |
 |----------|-----|----------|--------|
-| 1 | `zentorch_group_matmul.out` | No activation, no MoE reduce | Per-expert int8 w13 + int8 w2. Kernel writes w2 output back into inputs. |
+| 1 | `zentorch_group_matmul.out` | No activation, no MoE reduce | Per-expert DA8W8 w13 + DA8W8 w2. Kernel writes w2 output back into inputs. |
 | 2 | `zentorch_group_matmul.out` | silu activation + MoE weighted reduce | Uses `row_ptrs` into the input buffers for fused w2 buffer reuse |
-| 3 | `zentorch_fused_moe` | No activation + MoE weighted reduce | High-level fused_moe op with int8 weights + scales |
+| 3 | `zentorch_fused_moe` | No activation + MoE weighted reduce | High-level fused_moe op with DA8W8 weights + scales |
 
 All sub-tests use `K == K_out == N` (buffer reuse constraint).
+
+
+#### DA8W4 coverage
+
+The packed-s4 (DA8W4) grouped path has no dedicated `zentorch_group_matmul` test; it
+is covered end-to-end through the DA8W4 regime of the fused-MoE op in
+`test/unittests/op_tests/test_fused_moe_da8w4.py`
+(see [zentorch_fused_moe.md](./zentorch_fused_moe.md) §9).
+
+| Test | Post-ops | Covers |
+|------|----------|--------|
+| `test_fused_moe_da8w4_accuracy` | silu + fused w2 + MoE reduce (optional bias) | Op1 and Op2 DA8W4 branches: bf16 activations × packed s4 with per-group scales |
+| `test_fused_moe_da8w4_requires_bf16` | — | DA8W4 rejects non-bf16 activations |
 
 
 ### 7.3 Known limitations
 
 | Limitation | Detail |
 |------------|--------|
-| Mixed bf16-Op1 / int8-Op2 | Unsupported — LowOHA enforces one quant scheme for both passes |
+| Mixed DA8W8 / DA8W4 across Op1/Op2 | Unsupported — Op2 inherits Op1’s quantization configuration, so `w13` and `w2` must use the same quantization regime |
+| Mixed packed-s4 containers across Op1/Op2 | Unsupported — the dtype-equality check rejects an int32-packed `w13` with an int8-packed `w2` (and vice versa), even though the two byte streams are identical |
 
 ## 8. Reference
 
@@ -225,3 +291,7 @@ This operator wraps the `group_matmul_direct` API from the [LowOHA Group MatMul 
 - Optional `group_matmul_moe_postop_params` for weighted-reduce
 - Optional `grp_matmul_gated_act_params` for gated activations
 - Optional `grp_matmul_fused_moe_params` for fused down projection (Op2)
+
+Related operators:
+- Fused MoE consumer (bf16 / DA8W8 / DA8W4): [zentorch_fused_moe.md](./zentorch_fused_moe.md) (DA8W4 details in §9).
+- Single-matmul WOQ / DA8W4 linear op sharing the packed-s4 layout(dynamic BF16→s8 activation × symmetric s4 weight).
