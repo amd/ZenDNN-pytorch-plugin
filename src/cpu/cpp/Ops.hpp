@@ -17,4 +17,6 @@ at::Tensor zentorch_matmul_impl(
     const bool is_const = true, const bool is_weight_prepacked = false);
 
 std::string show_config();
+
+void clear_zendnn_weight_caches();
 } // namespace zentorch

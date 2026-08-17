@@ -8,9 +8,24 @@
 
 #include <algorithm>
 
+namespace zendnnl::lowoha::matmul {
+namespace native {
+void clear_all_weight_caches();
+} // namespace native
+void clear_aocl_matmul_weight_caches();
+void clear_onednn_matmul_weight_cache();
+} // namespace zendnnl::lowoha::matmul
+
 namespace zentorch {
 
 using namespace zendnnl::interface;
+
+// Clears all ZenDNN matmul weight-reorder caches.
+void clear_zendnn_weight_caches() {
+  zendnnl::lowoha::matmul::native::clear_all_weight_caches();
+  zendnnl::lowoha::matmul::clear_aocl_matmul_weight_caches();
+  zendnnl::lowoha::matmul::clear_onednn_matmul_weight_cache();
+}
 
 at::Tensor
 zentorch_weight_prepack_for_linear(const at::Tensor &weight,

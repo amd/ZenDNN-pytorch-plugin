@@ -43,6 +43,12 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
            py::return_value_policy::reference)
       .def("clear", &zentorch::DataPointerManager::clear);
 
+  m.def("clear_weight_cache", &zentorch::clear_zendnn_weight_caches,
+        "Clear ZenDNN matmul weight-reorder caches.\n\n"
+        "Call between tests or on model swap to avoid stale, pointer-keyed "
+        "reorder hits when a freed weight buffer's address is reused by a new "
+        "same-shaped weight.");
+
   m.def("show_config", &zentorch::show_config,
         "Show the current configuration of ZenTorch.");
 

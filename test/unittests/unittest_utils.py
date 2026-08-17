@@ -204,6 +204,12 @@ def getRandomSeed():
 _CPP_WRAPPER_FULL_SWEEP = {"test_qlinear_mul_add_model"}
 
 
+def _clear_weight_cache():
+    """Clear ZenDNN's matmul weight-reorder caches (no-op if zentorch missing)."""
+    if has_zentorch:
+        zentorch._C.clear_weight_cache()
+
+
 def pin_cpp_wrapper_once(obj, fn_name, cpp_wrapper):
     """Collapse the swept ``cpp_wrapper`` axis to a single example per test.
 
@@ -347,6 +353,7 @@ class Zentorch_TestCase(BaseZentorchTestCase):
 
     def tearDown(self):
         del self.data
+        super().tearDown()
 
     @classmethod
     def create_error_test_hash(cls, outstr):
@@ -875,6 +882,7 @@ class AddmmTestCase(Zentorch_TestCase):
             )
             def wrapper(obj, val, *args, **kwargs):
                 try:
+                    _clear_weight_cache()
                     hypStr, tensor_seed, dtype, freeze, cpp_wrapper, *_ = val
 
                     if not hasattr(obj, "getData") or not isinstance(
@@ -1078,6 +1086,7 @@ class AddmmTestCase(Zentorch_TestCase):
             def wrapper(obj, val, *args, **kwargs):
 
                 try:
+                    _clear_weight_cache()
                     if not hasattr(obj, "getData") or not isinstance(
                         obj.getData(), Test_Data
                     ):
@@ -1593,6 +1602,7 @@ class GroupMatmulTestCase(Zentorch_TestCase):
             )
             def wrapper(obj, val, *args, **kwargs):
                 try:
+                    _clear_weight_cache()
                     if not hasattr(obj, "getData") or not isinstance(
                         obj.getData(), Test_Data
                     ):
@@ -1903,6 +1913,7 @@ class ConvTestCase(Zentorch_TestCase):
             )
             def wrapper(obj, val, *args, **kwargs):
                 try:
+                    _clear_weight_cache()
                     hypStr, tensor_seed, dtype, freeze, cpp_wrapper, stride, padding, *_ = val
 
                     if not hasattr(obj, "getData") or not isinstance(
@@ -2125,6 +2136,7 @@ class EmbTestCase(Zentorch_TestCase):
             )
             def wrapper(obj, val, *args, **kwargs):
                 try:
+                    _clear_weight_cache()
                     if not hasattr(obj, "getData") or not isinstance(
                         obj.getData(), Test_Data
                     ):
@@ -2429,6 +2441,7 @@ class MMTestCase(Zentorch_TestCase):
             )
             def wrapper(obj, val, *args, **kwargs):
                 try:
+                    _clear_weight_cache()
                     hypStr, updated_tensor_seed, dtype, freeze, cpp_wrapper, *_ = val
 
                     if not hasattr(obj, "getData") or not isinstance(
@@ -2739,6 +2752,7 @@ class WOQTestCase(Zentorch_TestCase):
             )
             def wrapper(obj, val, *args, **kwargs):
                 try:
+                    _clear_weight_cache()
                     hypStr, _, _, _, _, _, dtype, _, _, freeze, cpp_wrapper, *_ = val
 
                     obj.createDataFromVal(val)
@@ -3339,6 +3353,7 @@ class QLinearTestCase(Zentorch_TestCase):
             )
             def wrapper(obj, val, *args, **kwargs):
                 try:
+                    _clear_weight_cache()
                     (
                         hypStr,
                         tensor_seed,
@@ -3592,6 +3607,7 @@ class SDPATestCase(Zentorch_TestCase):
             )
             def wrapper(obj, val, *args, **kwargs):
                 try:
+                    _clear_weight_cache()
                     if not hasattr(obj, "getData") or not isinstance(
                         obj.getData(), Test_Data
                     ):
@@ -3865,6 +3881,7 @@ class QuantEmbTestCase(Zentorch_TestCase):
             )
             def wrapper(obj, val, *args, **kwargs):
                 try:
+                    _clear_weight_cache()
                     if not hasattr(obj, "getData") or not isinstance(
                         obj.getData(), Test_Data
                     ):
@@ -4078,6 +4095,7 @@ class RmsNormTestCase(Zentorch_TestCase):
             )
             def wrapper(obj, val, *args, **kwargs):
                 try:
+                    _clear_weight_cache()
                     (
                         hypStr,
                         tensor_seed,

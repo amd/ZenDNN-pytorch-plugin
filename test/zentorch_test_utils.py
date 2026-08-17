@@ -510,6 +510,12 @@ class BaseZentorchTestCase(TestCase):
     def setUp(self):
         set_seed()
 
+    def tearDown(self):
+        # Clear ZenDNN's matmul weight-reorder caches after every test.
+        if has_zentorch:
+            zentorch._C.clear_weight_cache()
+        super().tearDown()
+
     def skip_if_bfloat16_path_issue(self, dtype):
         if dtype == "bfloat16":
             self.skipTest("Skipping it due to issue with BF16 path.")
