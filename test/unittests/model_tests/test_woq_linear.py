@@ -7,6 +7,7 @@ import unittest
 import torch
 from torch.testing import FileCheck
 from torch import nn
+from torch._inductor import config as inductor_config
 import sys
 from pathlib import Path
 
@@ -142,12 +143,15 @@ class Test_WOQ_Linear(WOQTestCase):
         cpp_wrapper=False,
         rtol=1e-2,
         atol=1e-2,
+        check_out_variant=False,
     ):
         eager_out = model(x)
         reset_dynamo()
         compiled = torch.compile(model, backend="zentorch")
         counters.clear()
         self.assertEqual(counters["zentorch"]["zentorch_woq_linear"], 0)
+        if check_out_variant:
+            self.assertEqual(counters["zentorch"]["zentorch_woq_linear_out"], 0)
         compiled_out, cpp_code = test_with_freeze_opt_and_cpp_wrapper(
             compiled, x, freeze_opt, cpp_wrapper
         )
@@ -157,14 +161,24 @@ class Test_WOQ_Linear(WOQTestCase):
             f"{pattern_description} should be replaced by exactly one "
             "zentorch_woq_linear",
         )
+        # Assert the op took the `.out` lowering path (cache-sensitive; only
+        # checked by callers that disable caches).
+        if check_out_variant:
+            self.assertEqual(
+                counters["zentorch"]["zentorch_woq_linear_out"],
+                1,
+                f"{pattern_description} should lower to the woq_linear out variant",
+            )
         self.assertTrue(
             torch.allclose(compiled_out, eager_out, rtol=1e-2, atol=1e-2),
             f"Compiled {pattern_description} output should match eager.",
         )
-        # Pillar 2 (codegen): op lowers to its AOTI C-shim (see helper docstring).
+        # Pillar 2 (codegen): op lowers to its AOTI out C-shim (see docstring).
         if cpp_wrapper:
-            FileCheck().check("aoti_torch_cpu_zentorch").run(cpp_code)
+            FileCheck().check("aoti_torch_cpu_zentorch_woq_linear_out").run(cpp_code)
 
+    # Caches off: the `.out` lowering counter is skipped on an FxGraphCache hit.
+    @inductor_config.patch(force_disable_caches=True)
     @WOQTestCase.hypothesis_params_woq_itr(
         dtype_opt_list=woq_dtypes,
         batch_opt_list=batch_opt,
@@ -185,7 +199,7 @@ class Test_WOQ_Linear(WOQTestCase):
         x = self.data.woq_input
         self._assert_woq_pattern_replaced(
             model, x, "WOQ per-channel mm",
-            freeze_opt=freeze_opt, cpp_wrapper=cpp_wrapper
+            freeze_opt=freeze_opt, cpp_wrapper=cpp_wrapper, check_out_variant=True
         )
 
     @WOQTestCase.hypothesis_params_woq_itr(

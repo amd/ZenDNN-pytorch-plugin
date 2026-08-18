@@ -13,6 +13,7 @@ import unittest  # noqa: E402
 import torch  # noqa: E402
 from torch.testing import FileCheck  # noqa: E402
 from torch import nn  # noqa: E402
+from torch._inductor import config as inductor_config  # noqa: E402
 
 from unittest_utils import (  # noqa: E402
     WOQTestCase,
@@ -52,13 +53,16 @@ class Test_WOQ_Linear_Unary_Fusion(WOQTestCase):
     """Test that WOQ linear + unary patterns are matched and replaced by fused ops."""
 
     def _assert_fusion_replaced(
-        self, model, x, counter_key, pattern_description, freeze_opt=False, cpp_wrapper=False
+        self, model, x, counter_key, pattern_description, freeze_opt=False,
+        cpp_wrapper=False, check_out_variant=False
     ):
         eager_out = model(x)
         reset_dynamo()
         compiled = torch.compile(model, backend="zentorch")
         counters.clear()
         self.assertEqual(counters["zentorch"].get(counter_key, 0), 0)
+        if check_out_variant:
+            self.assertEqual(counters["zentorch"].get(f"{counter_key}_out", 0), 0)
         compiled_out, cpp_code = test_with_freeze_opt_and_cpp_wrapper(
             compiled, x, freeze_opt, cpp_wrapper
         )
@@ -68,14 +72,22 @@ class Test_WOQ_Linear_Unary_Fusion(WOQTestCase):
             f"{pattern_description} should be replaced by exactly one "
             f"{counter_key}",
         )
+        if check_out_variant:
+            self.assertEqual(
+                counters["zentorch"][f"{counter_key}_out"],
+                1,
+                f"{pattern_description} should lower to the {counter_key} out variant",
+            )
         self.assertTrue(
             torch.allclose(compiled_out, eager_out, rtol=1e-2, atol=1e-2),
             f"Compiled {pattern_description} output should match eager.",
         )
-        # Pillar 2 (codegen): op lowers to its AOTI C-shim (see helper docstring).
+        # Pillar 2 (codegen): op lowers to its AOTI out C-shim (see docstring).
         if cpp_wrapper:
-            FileCheck().check("aoti_torch_cpu_zentorch").run(cpp_code)
+            FileCheck().check(f"aoti_torch_cpu_{counter_key}_out").run(cpp_code)
 
+    # Caches off: the `.out` lowering counter is skipped on an FxGraphCache hit.
+    @inductor_config.patch(force_disable_caches=True)
     @WOQTestCase.hypothesis_params_woq_itr(
         dtype_opt_list=woq_dtypes,
         batch_opt_list=batch_opt,
@@ -96,7 +108,7 @@ class Test_WOQ_Linear_Unary_Fusion(WOQTestCase):
         x = self.data.woq_input
         self._assert_fusion_replaced(
             model, x, "zentorch_woq_linear_gelu_erf", "WOQ linear + GELU_ERF (no bias)",
-            freeze_opt=freeze_opt, cpp_wrapper=cpp_wrapper
+            freeze_opt=freeze_opt, cpp_wrapper=cpp_wrapper, check_out_variant=True
         )
 
     @WOQTestCase.hypothesis_params_woq_itr(

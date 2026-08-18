@@ -16,6 +16,7 @@ import unittest  # noqa: E402
 import torch  # noqa: E402
 from torch.testing import FileCheck  # noqa: E402
 from torch import nn  # noqa: E402
+from torch._inductor import config as inductor_config  # noqa: E402
 
 from unittest_utils import (  # noqa: E402
     WOQTestCase,
@@ -92,7 +93,8 @@ class Test_WOQ_Linear_Binary_Binary_Fusion(WOQTestCase):
     """Test that WOQ linear + binary-binary patterns are fused."""
 
     def _assert_fusion_replaced(
-        self, model, x, counter_key, pattern_description, freeze_opt=False, cpp_wrapper=False
+        self, model, x, counter_key, pattern_description, freeze_opt=False,
+        cpp_wrapper=False, check_out_variant=False
     ):
         # Reference: compile a clone of the model with the inductor backend.
         reset_dynamo()
@@ -103,6 +105,8 @@ class Test_WOQ_Linear_Binary_Binary_Fusion(WOQTestCase):
         compiled = torch.compile(model, backend="zentorch")
         counters.clear()
         self.assertEqual(counters["zentorch"].get(counter_key, 0), 0)
+        if check_out_variant:
+            self.assertEqual(counters["zentorch"].get(f"{counter_key}_out", 0), 0)
         compiled_out, cpp_code = test_with_freeze_opt_and_cpp_wrapper(
             compiled, x, freeze_opt, cpp_wrapper
         )
@@ -112,15 +116,21 @@ class Test_WOQ_Linear_Binary_Binary_Fusion(WOQTestCase):
             f"{pattern_description} should be replaced by exactly one "
             f"{counter_key}",
         )
+        if check_out_variant:
+            self.assertEqual(
+                counters["zentorch"][f"{counter_key}_out"],
+                1,
+                f"{pattern_description} should lower to the {counter_key} out variant",
+            )
         self.assertEqual(compiled_out.dtype, inductor_out.dtype)
         self.assertTrue(
             torch.allclose(compiled_out, inductor_out, rtol=1e-2, atol=1e-2),
             f"Compiled {pattern_description} output should match the "
             f"inductor-compiled reference.",
         )
-        # Pillar 2 (codegen): op lowers to its AOTI C-shim (see helper docstring).
+        # Pillar 2 (codegen): op lowers to its AOTI out C-shim (see docstring).
         if cpp_wrapper:
-            FileCheck().check("aoti_torch_cpu_zentorch").run(cpp_code)
+            FileCheck().check(f"aoti_torch_cpu_{counter_key}_out").run(cpp_code)
 
         # Pinned bias_opt_list to [True]: the add-add fusion has no bias check, so bias=False
         # falls back to plain zentorch_woq_linear and skips the fusion under test.
@@ -161,6 +171,9 @@ class Test_WOQ_Linear_Binary_Binary_Fusion(WOQTestCase):
     #     out_features_opt_list=out_features_opt,
     #     bias_opt_list=woq_bias_opt,
     # )
+    # Caches off: the `.out` lowering counter is skipped on an FxGraphCache hit.
+    # Smallest sweep, so it carries the counter check for the binary-binary family.
+    @inductor_config.patch(force_disable_caches=True)
     @WOQTestCase.hypothesis_params_woq_itr(
         dtype_opt_list=woq_dtypes,
         batch_opt_list=[4],
@@ -185,6 +198,7 @@ class Test_WOQ_Linear_Binary_Binary_Fusion(WOQTestCase):
             "WOQ linear + mul + add",
             freeze_opt=freeze_opt,
             cpp_wrapper=cpp_wrapper,
+            check_out_variant=True,
         )
 
 

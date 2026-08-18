@@ -1672,9 +1672,14 @@ def zentorch_embedding_lowering(
 
 def _make_woq_linear_unary_class(class_name, op_overload, cpp_kernel_name):
     """Factory for the 5 woq_linear unary variants. They differ only in the
-    op_overload and cpp_kernel_name; the create() body is identical."""
+    op_overload and cpp_kernel_name; the create() body is identical.
 
-    class _WoqLinearUnary(ExternKernelAlloc):
+    Routed through ``ExternKernelOut`` bound to the ``.out`` overload / out
+    C-shim so Inductor allocates and reuses the output buffer and passes it as
+    ``out``. The interleaved optional ``weight_zero_points`` is placed back in
+    its schema slot by ``_qlinear_codegen_args``."""
+
+    class _WoqLinearUnary(ExternKernelOut):
         _num_required_tensors = 2
         _optional_tensor_presence = [True, True, True]
         codegen_args = _qlinear_codegen_args
@@ -1699,6 +1704,9 @@ def _make_woq_linear_unary_class(class_name, op_overload, cpp_kernel_name):
         def codegen(self, wrapper):
             wrapper.include_extra_header(_ZENTORCH_HEADER)
             super().codegen(wrapper)
+
+            if isinstance(self.layout, Layout):
+                self.codegen_size_asserts(wrapper)
 
         @classmethod
         def create(cls, input, weight, weight_scales, weight_zero_points, bias, name):
@@ -1733,7 +1741,7 @@ def _make_woq_linear_unary_class(class_name, op_overload, cpp_kernel_name):
                 ),
                 inputs=inputs,
                 constant_args=(),
-                kwargs={"zentorch_op_name": name},
+                kwargs={"zentorch_op_name": f"{name}_out"},
             )
             packed._optional_tensor_presence = [
                 True,
@@ -1752,36 +1760,36 @@ def _make_woq_linear_unary_class(class_name, op_overload, cpp_kernel_name):
 
 zentorch_WoqLinear = _make_woq_linear_unary_class(
     "zentorch_WoqLinear",
-    torch.ops.zentorch.zentorch_woq_linear.default,
-    "aoti_torch_cpu_zentorch_woq_linear",
+    torch.ops.zentorch.zentorch_woq_linear.out,
+    "aoti_torch_cpu_zentorch_woq_linear_out",
 )
 
 zentorch_WoqLinearRelu = _make_woq_linear_unary_class(
     "zentorch_WoqLinearRelu",
-    torch.ops.zentorch.zentorch_woq_linear_relu.default,
-    "aoti_torch_cpu_zentorch_woq_linear_relu",
+    torch.ops.zentorch.zentorch_woq_linear_relu.out,
+    "aoti_torch_cpu_zentorch_woq_linear_relu_out",
 )
 
 zentorch_WoqLinearSigmoid = _make_woq_linear_unary_class(
     "zentorch_WoqLinearSigmoid",
-    torch.ops.zentorch.zentorch_woq_linear_sigmoid.default,
-    "aoti_torch_cpu_zentorch_woq_linear_sigmoid",
+    torch.ops.zentorch.zentorch_woq_linear_sigmoid.out,
+    "aoti_torch_cpu_zentorch_woq_linear_sigmoid_out",
 )
 
 zentorch_WoqLinearGeluTanh = _make_woq_linear_unary_class(
     "zentorch_WoqLinearGeluTanh",
-    torch.ops.zentorch.zentorch_woq_linear_gelu_tanh.default,
-    "aoti_torch_cpu_zentorch_woq_linear_gelu_tanh",
+    torch.ops.zentorch.zentorch_woq_linear_gelu_tanh.out,
+    "aoti_torch_cpu_zentorch_woq_linear_gelu_tanh_out",
 )
 
 zentorch_WoqLinearGeluErf = _make_woq_linear_unary_class(
     "zentorch_WoqLinearGeluErf",
-    torch.ops.zentorch.zentorch_woq_linear_gelu_erf.default,
-    "aoti_torch_cpu_zentorch_woq_linear_gelu_erf",
+    torch.ops.zentorch.zentorch_woq_linear_gelu_erf.out,
+    "aoti_torch_cpu_zentorch_woq_linear_gelu_erf_out",
 )
 
 
-class zentorch_WoqLinearAdd(ExternKernelAlloc):
+class zentorch_WoqLinearAdd(ExternKernelOut):
     _num_required_tensors = 2
     _optional_tensor_presence = [True, True, True, True]
     codegen_args = _qlinear_codegen_args
@@ -1799,13 +1807,16 @@ class zentorch_WoqLinearAdd(ExternKernelAlloc):
             inputs,
             constant_args,
             kwargs,
-            op_overload=torch.ops.zentorch.zentorch_woq_linear_add.default,
-            cpp_kernel_name="aoti_torch_cpu_zentorch_woq_linear_add",
+            op_overload=torch.ops.zentorch.zentorch_woq_linear_add.out,
+            cpp_kernel_name="aoti_torch_cpu_zentorch_woq_linear_add_out",
         )
 
     def codegen(self, wrapper):
         wrapper.include_extra_header(_ZENTORCH_HEADER)
         super().codegen(wrapper)
+
+        if isinstance(self.layout, Layout):
+            self.codegen_size_asserts(wrapper)
 
     @classmethod
     def create(
@@ -1843,7 +1854,7 @@ class zentorch_WoqLinearAdd(ExternKernelAlloc):
             ),
             inputs=inputs,
             constant_args=(),
-            kwargs={"zentorch_op_name": name},
+            kwargs={"zentorch_op_name": f"{name}_out"},
         )
         packed._optional_tensor_presence = [
             True,
@@ -1858,9 +1869,13 @@ class zentorch_WoqLinearAdd(ExternKernelAlloc):
 
 
 def _make_woq_linear_binary_binary_class(class_name, op_overload, cpp_kernel_name):
-    """Factory for the woq_linear_mul_add and woq_linear_add_add variants."""
+    """Factory for the woq_linear_mul_add and woq_linear_add_add variants.
 
-    class _WoqLinearBinaryBinary(ExternKernelAlloc):
+    Routed through ``ExternKernelOut`` bound to the ``.out`` overload / out
+    C-shim so Inductor allocates and reuses the output buffer and passes it as
+    ``out``."""
+
+    class _WoqLinearBinaryBinary(ExternKernelOut):
         _num_required_tensors = 2
         _optional_tensor_presence = [True, True, True, True, True]
         codegen_args = _qlinear_codegen_args
@@ -1885,6 +1900,9 @@ def _make_woq_linear_binary_binary_class(class_name, op_overload, cpp_kernel_nam
         def codegen(self, wrapper):
             wrapper.include_extra_header(_ZENTORCH_HEADER)
             super().codegen(wrapper)
+
+            if isinstance(self.layout, Layout):
+                self.codegen_size_asserts(wrapper)
 
         @classmethod
         def create(
@@ -1932,7 +1950,7 @@ def _make_woq_linear_binary_binary_class(class_name, op_overload, cpp_kernel_nam
                 ),
                 inputs=inputs,
                 constant_args=(),
-                kwargs={"zentorch_op_name": name},
+                kwargs={"zentorch_op_name": f"{name}_out"},
             )
             packed._optional_tensor_presence = [
                 True,
@@ -1953,14 +1971,14 @@ def _make_woq_linear_binary_binary_class(class_name, op_overload, cpp_kernel_nam
 
 zentorch_WoqLinearMulAdd = _make_woq_linear_binary_binary_class(
     "zentorch_WoqLinearMulAdd",
-    torch.ops.zentorch.zentorch_woq_linear_mul_add.default,
-    "aoti_torch_cpu_zentorch_woq_linear_mul_add",
+    torch.ops.zentorch.zentorch_woq_linear_mul_add.out,
+    "aoti_torch_cpu_zentorch_woq_linear_mul_add_out",
 )
 
 zentorch_WoqLinearAddAdd = _make_woq_linear_binary_binary_class(
     "zentorch_WoqLinearAddAdd",
-    torch.ops.zentorch.zentorch_woq_linear_add_add.default,
-    "aoti_torch_cpu_zentorch_woq_linear_add_add",
+    torch.ops.zentorch.zentorch_woq_linear_add_add.out,
+    "aoti_torch_cpu_zentorch_woq_linear_add_add_out",
 )
 
 
@@ -1975,6 +1993,9 @@ def zentorch_woq_linear_lowering(
     bias: TensorBox = None,
     zentorch_op_name="zentorch_woq_linear",
 ):
+    # Bumped when lowered to the `.out` variant; lets tests confirm the
+    # compiled/exported graph took the out-variant path.
+    counters["zentorch"]["zentorch_woq_linear_out"] += 1
     return TensorBox.create(
         zentorch_WoqLinear.create(
             input,
@@ -1999,6 +2020,7 @@ def zentorch_woq_linear_relu_lowering(
     bias: TensorBox = None,
     zentorch_op_name="zentorch_woq_linear_relu",
 ):
+    counters["zentorch"]["zentorch_woq_linear_relu_out"] += 1
     return TensorBox.create(
         zentorch_WoqLinearRelu.create(
             input,
@@ -2023,6 +2045,7 @@ def zentorch_woq_linear_sigmoid_lowering(
     bias: TensorBox = None,
     zentorch_op_name="zentorch_woq_linear_sigmoid",
 ):
+    counters["zentorch"]["zentorch_woq_linear_sigmoid_out"] += 1
     return TensorBox.create(
         zentorch_WoqLinearSigmoid.create(
             input,
@@ -2047,6 +2070,7 @@ def zentorch_woq_linear_gelu_tanh_lowering(
     bias: TensorBox = None,
     zentorch_op_name="zentorch_woq_linear_gelu_tanh",
 ):
+    counters["zentorch"]["zentorch_woq_linear_gelu_tanh_out"] += 1
     return TensorBox.create(
         zentorch_WoqLinearGeluTanh.create(
             input,
@@ -2071,6 +2095,7 @@ def zentorch_woq_linear_gelu_erf_lowering(
     bias: TensorBox = None,
     zentorch_op_name="zentorch_woq_linear_gelu_erf",
 ):
+    counters["zentorch"]["zentorch_woq_linear_gelu_erf_out"] += 1
     return TensorBox.create(
         zentorch_WoqLinearGeluErf.create(
             input,
@@ -2096,6 +2121,7 @@ def zentorch_woq_linear_add_lowering(
     bias: TensorBox = None,
     zentorch_op_name="zentorch_woq_linear_add",
 ):
+    counters["zentorch"]["zentorch_woq_linear_add_out"] += 1
     return TensorBox.create(
         zentorch_WoqLinearAdd.create(
             input,
@@ -2123,6 +2149,7 @@ def zentorch_woq_linear_mul_add_lowering(
     bias: TensorBox = None,
     zentorch_op_name="zentorch_woq_linear_mul_add",
 ):
+    counters["zentorch"]["zentorch_woq_linear_mul_add_out"] += 1
     return TensorBox.create(
         zentorch_WoqLinearMulAdd.create(
             input,
@@ -2151,6 +2178,7 @@ def zentorch_woq_linear_add_add_lowering(
     bias: TensorBox = None,
     zentorch_op_name="zentorch_woq_linear_add_add",
 ):
+    counters["zentorch"]["zentorch_woq_linear_add_add_out"] += 1
     return TensorBox.create(
         zentorch_WoqLinearAddAdd.create(
             input,

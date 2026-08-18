@@ -199,6 +199,38 @@ void zentorch_woq_linear_impl(
   LOG(INFO) << "Finished executing: " << __FUNCTION__ << "!\n";
 }
 
+// Core compute for the unary variants: writes the result into `out`. Shared by
+// the allocating impl and the `.out` variant.
+template <UNARY_POST_OP fuse>
+void zentorch_woq_linear_unary_out(
+    const torch::stable::Tensor &input, const torch::stable::Tensor &weight,
+    const torch::stable::Tensor &weight_scales,
+    const std::optional<torch::stable::Tensor> &weight_zero_points,
+    const std::optional<torch::stable::Tensor> &bias,
+    std::string zentorch_op_name, torch::stable::Tensor &out) {
+
+  LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
+            << "Executing function: " << __FUNCTION__;
+
+  // Validate the caller-supplied `out` (shape/contiguity) before viewing it;
+  // gated behind ZENTORCH_ENABLE_CHECKS.
+  check_linear_and_matmul_out_tensor(input, weight, out);
+
+  // `input` is viewed as 2d for matmul computation.
+  auto input_2d_view =
+      view_tensor(get_contiguous_view(input), get_2d_size_for_tensor(input));
+  // `out` is viewed as 2d for matmul computation.
+  auto out_2d = view_tensor(out, get_2d_size_for_tensor(out));
+
+  // Set unary post ops.
+  std::vector<torch::stable::Tensor> post_op_buffers = {};
+  std::vector<int64_t> post_op_ids = {fuse};
+
+  zentorch_woq_linear_impl(input_2d_view, weight, bias, out_2d, weight_scales,
+                           weight_zero_points, post_op_ids, post_op_buffers,
+                           zentorch_op_name);
+}
+
 template <UNARY_POST_OP fuse>
 torch::stable::Tensor zentorch_woq_linear_unary(
     const torch::stable::Tensor &input, const torch::stable::Tensor &weight,
@@ -210,24 +242,49 @@ torch::stable::Tensor zentorch_woq_linear_unary(
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
 
-  // `input` is viewed as 2d for matmul computation.
-  auto input_2d_view =
-      view_tensor(get_contiguous_view(input), get_2d_size_for_tensor(input));
   // `result` tensor's dtype will be same as input dtype.
   torch::stable::Tensor result =
       create_linear_and_matmul_output_tensor(input, weight);
-  // `result` is viewed as 2d for matmul computation.
-  auto result_2d = view_tensor(result, get_2d_size_for_tensor(result));
 
-  // Set unary post ops.
-  std::vector<torch::stable::Tensor> post_op_buffers = {};
-  std::vector<int64_t> post_op_ids = {fuse};
-
-  zentorch_woq_linear_impl(input_2d_view, weight, bias, result_2d,
-                           weight_scales, weight_zero_points, post_op_ids,
-                           post_op_buffers, zentorch_op_name);
+  zentorch_woq_linear_unary_out<fuse>(input, weight, weight_scales,
+                                      weight_zero_points, bias,
+                                      zentorch_op_name, result);
 
   return result;
+}
+
+// Core compute for the unary+binary variants: writes the result into `out`.
+// Shared by the allocating impl and the `.out` variant.
+template <UNARY_POST_OP fuse1, BINARY_POST_OP fuse2>
+void zentorch_woq_linear_unary_binary_out(
+    const torch::stable::Tensor &input, const torch::stable::Tensor &weight,
+    const torch::stable::Tensor &weight_scales,
+    const std::optional<torch::stable::Tensor> &weight_zero_points,
+    const torch::stable::Tensor &binary_input,
+    const std::optional<torch::stable::Tensor> &bias,
+    std::string zentorch_op_name, torch::stable::Tensor &out) {
+  LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
+            << "Executing function: " << __FUNCTION__;
+
+  check_linear_and_matmul_out_tensor(input, weight, out);
+
+  // `input` is viewed as 2d for matmul computation.
+  auto input_2d_view =
+      view_tensor(get_contiguous_view(input), get_2d_size_for_tensor(input));
+  auto binary_input_2d_view = view_tensor(get_contiguous_view(binary_input),
+                                          get_2d_size_for_tensor(binary_input));
+  // `out` is viewed as 2d for matmul computation.
+  auto out_2d = view_tensor(out, get_2d_size_for_tensor(out));
+
+  std::vector<torch::stable::Tensor> post_op_buffers = {binary_input_2d_view};
+  std::vector<int64_t> post_op_ids = {fuse1, fuse2};
+
+  LOG(INFO) << "Calling  zentorch_woq_linear_impl from " << __FUNCTION__
+            << "!\n";
+
+  zentorch_woq_linear_impl(input_2d_view, weight, bias, out_2d, weight_scales,
+                           weight_zero_points, post_op_ids, post_op_buffers,
+                           zentorch_op_name);
 }
 
 template <UNARY_POST_OP fuse1, BINARY_POST_OP fuse2>
@@ -241,27 +298,54 @@ inline torch::stable::Tensor zentorch_woq_linear_unary_binary(
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
 
-  // `input` is viewed as 2d for matmul computation.
-  auto input_2d_view =
-      view_tensor(get_contiguous_view(input), get_2d_size_for_tensor(input));
-  auto binary_input_2d_view = view_tensor(get_contiguous_view(binary_input),
-                                          get_2d_size_for_tensor(binary_input));
   // `result` tensor's dtype will be same as input dtype.
   torch::stable::Tensor result =
       create_linear_and_matmul_output_tensor(input, weight);
-  // `result` is viewed as 2d for matmul computation.
-  auto result_2d = view_tensor(result, get_2d_size_for_tensor(result));
 
-  std::vector<torch::stable::Tensor> post_op_buffers = {binary_input_2d_view};
+  zentorch_woq_linear_unary_binary_out<fuse1, fuse2>(
+      input, weight, weight_scales, weight_zero_points, binary_input, bias,
+      zentorch_op_name, result);
+  return result;
+}
+
+// Core compute for the binary+binary variants: writes the result into `out`.
+// Shared by the allocating impl and the `.out` variant.
+template <BINARY_POST_OP fuse1, BINARY_POST_OP fuse2>
+void zentorch_woq_linear_binary_binary_out(
+    const torch::stable::Tensor &input, const torch::stable::Tensor &weight,
+    const torch::stable::Tensor &weight_scales,
+    const std::optional<torch::stable::Tensor> &weight_zero_points,
+    const torch::stable::Tensor &binary1_input,
+    const torch::stable::Tensor &binary2_input,
+    const std::optional<torch::stable::Tensor> &bias,
+    std::string zentorch_op_name, torch::stable::Tensor &out) {
+  LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
+            << "Executing function: " << __FUNCTION__;
+
+  check_linear_and_matmul_out_tensor(input, weight, out);
+
+  // `input` is viewed as 2d for matmul computation.
+  auto input_2d_view =
+      view_tensor(get_contiguous_view(input), get_2d_size_for_tensor(input));
+  auto binary1_input_2d_view =
+      view_tensor(get_contiguous_view(binary1_input),
+                  get_2d_size_for_tensor(binary1_input));
+  auto binary2_input_2d_view =
+      view_tensor(get_contiguous_view(binary2_input),
+                  get_2d_size_for_tensor(binary2_input));
+  // `out` is viewed as 2d for matmul computation.
+  auto out_2d = view_tensor(out, get_2d_size_for_tensor(out));
+
+  std::vector<torch::stable::Tensor> post_op_buffers = {binary1_input_2d_view,
+                                                        binary2_input_2d_view};
   std::vector<int64_t> post_op_ids = {fuse1, fuse2};
 
   LOG(INFO) << "Calling  zentorch_woq_linear_impl from " << __FUNCTION__
             << "!\n";
 
-  zentorch_woq_linear_impl(input_2d_view, weight, bias, result_2d,
-                           weight_scales, weight_zero_points, post_op_ids,
-                           post_op_buffers, zentorch_op_name);
-  return result;
+  zentorch_woq_linear_impl(input_2d_view, weight, bias, out_2d, weight_scales,
+                           weight_zero_points, post_op_ids, post_op_buffers,
+                           zentorch_op_name);
 }
 
 template <BINARY_POST_OP fuse1, BINARY_POST_OP fuse2>
@@ -276,31 +360,13 @@ inline torch::stable::Tensor zentorch_woq_linear_binary_binary(
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
 
-  // `input` is viewed as 2d for matmul computation.
-  auto input_2d_view =
-      view_tensor(get_contiguous_view(input), get_2d_size_for_tensor(input));
-  auto binary1_input_2d_view =
-      view_tensor(get_contiguous_view(binary1_input),
-                  get_2d_size_for_tensor(binary1_input));
-  auto binary2_input_2d_view =
-      view_tensor(get_contiguous_view(binary2_input),
-                  get_2d_size_for_tensor(binary2_input));
   // `result` tensor's dtype will be same as input dtype.
   torch::stable::Tensor result =
       create_linear_and_matmul_output_tensor(input, weight);
-  // `result` is viewed as 2d for matmul computation.
-  auto result_2d = view_tensor(result, get_2d_size_for_tensor(result));
 
-  std::vector<torch::stable::Tensor> post_op_buffers = {binary1_input_2d_view,
-                                                        binary2_input_2d_view};
-  std::vector<int64_t> post_op_ids = {fuse1, fuse2};
-
-  LOG(INFO) << "Calling  zentorch_woq_linear_impl from " << __FUNCTION__
-            << "!\n";
-
-  zentorch_woq_linear_impl(input_2d_view, weight, bias, result_2d,
-                           weight_scales, weight_zero_points, post_op_ids,
-                           post_op_buffers, zentorch_op_name);
+  zentorch_woq_linear_binary_binary_out<fuse1, fuse2>(
+      input, weight, weight_scales, weight_zero_points, binary1_input,
+      binary2_input, bias, zentorch_op_name, result);
   return result;
 }
 
@@ -491,6 +557,46 @@ STABLE_TORCH_LIBRARY_FRAGMENT(zentorch, m) {
          "Tensor add_input, Tensor add_input_2, Tensor? bias=None, *, str "
          "zentorch_op_name='zentorch::zentorch_woq_linear_add_add') -> Tensor");
 
+  // `.out` variants:
+  m.def("zentorch_woq_linear.out(Tensor input, Tensor weight, "
+        "Tensor weight_scales, Tensor? weight_zero_points, Tensor? bias=None, "
+        "str zentorch_op_name='zentorch::zentorch_woq_linear_out', "
+        "*, Tensor(a!) out) -> ()");
+  m.def("zentorch_woq_linear_relu.out(Tensor input, Tensor weight, "
+        "Tensor weight_scales, Tensor? weight_zero_points, Tensor? bias=None, "
+        "str zentorch_op_name='zentorch::zentorch_woq_linear_relu_out', "
+        "*, Tensor(a!) out) -> ()");
+  m.def("zentorch_woq_linear_sigmoid.out(Tensor input, Tensor weight, "
+        "Tensor weight_scales, Tensor? weight_zero_points, Tensor? bias=None, "
+        "str zentorch_op_name='zentorch::zentorch_woq_linear_sigmoid_out', "
+        "*, Tensor(a!) out) -> ()");
+  m.def("zentorch_woq_linear_gelu_tanh.out(Tensor input, Tensor weight, "
+        "Tensor weight_scales, Tensor? weight_zero_points, Tensor? bias=None, "
+        "str zentorch_op_name='zentorch::zentorch_woq_linear_gelu_tanh_out', "
+        "*, Tensor(a!) out) -> ()");
+  m.def("zentorch_woq_linear_gelu_erf.out(Tensor input, Tensor weight, "
+        "Tensor weight_scales, Tensor? weight_zero_points, Tensor? bias=None, "
+        "str zentorch_op_name='zentorch::zentorch_woq_linear_gelu_erf_out', "
+        "*, Tensor(a!) out) -> ()");
+
+  zentorch_stable_def_needs_fixed_stride(
+      m, "zentorch_woq_linear_add.out(Tensor input, Tensor weight, "
+         "Tensor weight_scales, Tensor? weight_zero_points, "
+         "Tensor add_input, Tensor? bias=None, str zentorch_op_name="
+         "'zentorch::zentorch_woq_linear_add_out', *, Tensor(a!) out) -> ()");
+  zentorch_stable_def_needs_fixed_stride(
+      m, "zentorch_woq_linear_mul_add.out(Tensor input, Tensor weight,"
+         "Tensor weight_scales, Tensor? weight_zero_points, "
+         "Tensor mul_input, Tensor add_input, Tensor? bias=None, str "
+         "zentorch_op_name='zentorch::zentorch_woq_linear_mul_add_out', "
+         "*, Tensor(a!) out) -> ()");
+  zentorch_stable_def_needs_fixed_stride(
+      m, "zentorch_woq_linear_add_add.out(Tensor input, Tensor weight,"
+         "Tensor weight_scales, Tensor? weight_zero_points, "
+         "Tensor add_input, Tensor add_input_2, Tensor? bias=None, str "
+         "zentorch_op_name='zentorch::zentorch_woq_linear_add_add_out', "
+         "*, Tensor(a!) out) -> ()");
+
   m.def("zentorch_woq_repack_weight(Tensor unpacked_weight) -> Tensor");
 
   m.def("zentorch_woq_repack_from_int4pack(Tensor "
@@ -528,6 +634,35 @@ STABLE_TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
                     BINARY_POST_OP::MUL, BINARY_POST_OP::ADD>)));
   m.impl("zentorch_woq_linear_add_add",
          TORCH_BOX((&zentorch::zentorch_woq_linear_binary_binary<
+                    BINARY_POST_OP::ADD, BINARY_POST_OP::ADD>)));
+
+  m.impl("zentorch_woq_linear.out",
+         TORCH_BOX((&zentorch::zentorch_woq_linear_unary_out<
+                    UNARY_POST_OP::POST_OP_NONE>)));
+  m.impl("zentorch_woq_linear_relu.out",
+         TORCH_BOX(
+             (&zentorch::zentorch_woq_linear_unary_out<UNARY_POST_OP::RELU>)));
+  m.impl(
+      "zentorch_woq_linear_sigmoid.out",
+      TORCH_BOX(
+          (&zentorch::zentorch_woq_linear_unary_out<UNARY_POST_OP::SIGMOID>)));
+  m.impl(
+      "zentorch_woq_linear_gelu_tanh.out",
+      TORCH_BOX((
+          &zentorch::zentorch_woq_linear_unary_out<UNARY_POST_OP::GELU_TANH>)));
+  m.impl(
+      "zentorch_woq_linear_gelu_erf.out",
+      TORCH_BOX(
+          (&zentorch::zentorch_woq_linear_unary_out<UNARY_POST_OP::GELU_ERF>)));
+
+  m.impl("zentorch_woq_linear_add.out",
+         TORCH_BOX((&zentorch::zentorch_woq_linear_unary_binary_out<
+                    UNARY_POST_OP::POST_OP_NONE, BINARY_POST_OP::ADD>)));
+  m.impl("zentorch_woq_linear_mul_add.out",
+         TORCH_BOX((&zentorch::zentorch_woq_linear_binary_binary_out<
+                    BINARY_POST_OP::MUL, BINARY_POST_OP::ADD>)));
+  m.impl("zentorch_woq_linear_add_add.out",
+         TORCH_BOX((&zentorch::zentorch_woq_linear_binary_binary_out<
                     BINARY_POST_OP::ADD, BINARY_POST_OP::ADD>)));
 
   m.impl("zentorch_woq_repack_weight",

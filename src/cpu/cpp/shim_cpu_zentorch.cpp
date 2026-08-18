@@ -555,6 +555,128 @@ AOTITorchError aoti_torch_cpu_zentorch_woq_linear_add_add(
   });
 }
 
+// Out variants.
+AOTITorchError aoti_torch_cpu_zentorch_woq_linear_out(
+    AtenTensorHandle out, AtenTensorHandle X, AtenTensorHandle W,
+    AtenTensorHandle weight_scales, AtenTensorHandle *weight_zero_points,
+    AtenTensorHandle *B, const char *zentorch_op_name) {
+  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+    torch::stable::Tensor result = stable_from_handle(out);
+    zentorch::zentorch_woq_linear_unary_out<
+        zentorch::UNARY_POST_OP::POST_OP_NONE>(
+        stable_from_handle(X), stable_from_handle(W),
+        stable_from_handle(weight_scales),
+        stable_from_handle(weight_zero_points), stable_from_handle(B),
+        zentorch_op_name, result);
+  });
+}
+
+AOTITorchError aoti_torch_cpu_zentorch_woq_linear_relu_out(
+    AtenTensorHandle out, AtenTensorHandle X, AtenTensorHandle W,
+    AtenTensorHandle weight_scales, AtenTensorHandle *weight_zero_points,
+    AtenTensorHandle *B, const char *zentorch_op_name) {
+  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+    torch::stable::Tensor result = stable_from_handle(out);
+    zentorch::zentorch_woq_linear_unary_out<zentorch::UNARY_POST_OP::RELU>(
+        stable_from_handle(X), stable_from_handle(W),
+        stable_from_handle(weight_scales),
+        stable_from_handle(weight_zero_points), stable_from_handle(B),
+        zentorch_op_name, result);
+  });
+}
+
+AOTITorchError aoti_torch_cpu_zentorch_woq_linear_sigmoid_out(
+    AtenTensorHandle out, AtenTensorHandle X, AtenTensorHandle W,
+    AtenTensorHandle weight_scales, AtenTensorHandle *weight_zero_points,
+    AtenTensorHandle *B, const char *zentorch_op_name) {
+  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+    torch::stable::Tensor result = stable_from_handle(out);
+    zentorch::zentorch_woq_linear_unary_out<zentorch::UNARY_POST_OP::SIGMOID>(
+        stable_from_handle(X), stable_from_handle(W),
+        stable_from_handle(weight_scales),
+        stable_from_handle(weight_zero_points), stable_from_handle(B),
+        zentorch_op_name, result);
+  });
+}
+
+AOTITorchError aoti_torch_cpu_zentorch_woq_linear_gelu_tanh_out(
+    AtenTensorHandle out, AtenTensorHandle X, AtenTensorHandle W,
+    AtenTensorHandle weight_scales, AtenTensorHandle *weight_zero_points,
+    AtenTensorHandle *B, const char *zentorch_op_name) {
+  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+    torch::stable::Tensor result = stable_from_handle(out);
+    zentorch::zentorch_woq_linear_unary_out<zentorch::UNARY_POST_OP::GELU_TANH>(
+        stable_from_handle(X), stable_from_handle(W),
+        stable_from_handle(weight_scales),
+        stable_from_handle(weight_zero_points), stable_from_handle(B),
+        zentorch_op_name, result);
+  });
+}
+
+AOTITorchError aoti_torch_cpu_zentorch_woq_linear_gelu_erf_out(
+    AtenTensorHandle out, AtenTensorHandle X, AtenTensorHandle W,
+    AtenTensorHandle weight_scales, AtenTensorHandle *weight_zero_points,
+    AtenTensorHandle *B, const char *zentorch_op_name) {
+  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+    torch::stable::Tensor result = stable_from_handle(out);
+    zentorch::zentorch_woq_linear_unary_out<zentorch::UNARY_POST_OP::GELU_ERF>(
+        stable_from_handle(X), stable_from_handle(W),
+        stable_from_handle(weight_scales),
+        stable_from_handle(weight_zero_points), stable_from_handle(B),
+        zentorch_op_name, result);
+  });
+}
+
+AOTITorchError aoti_torch_cpu_zentorch_woq_linear_add_out(
+    AtenTensorHandle out, AtenTensorHandle X, AtenTensorHandle W,
+    AtenTensorHandle weight_scales, AtenTensorHandle *weight_zero_points,
+    AtenTensorHandle add_input, AtenTensorHandle *B,
+    const char *zentorch_op_name) {
+  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+    torch::stable::Tensor result = stable_from_handle(out);
+    zentorch::zentorch_woq_linear_unary_binary_out<
+        zentorch::UNARY_POST_OP::POST_OP_NONE, zentorch::BINARY_POST_OP::ADD>(
+        stable_from_handle(X), stable_from_handle(W),
+        stable_from_handle(weight_scales),
+        stable_from_handle(weight_zero_points), stable_from_handle(add_input),
+        stable_from_handle(B), zentorch_op_name, result);
+  });
+}
+
+AOTITorchError aoti_torch_cpu_zentorch_woq_linear_mul_add_out(
+    AtenTensorHandle out, AtenTensorHandle X, AtenTensorHandle W,
+    AtenTensorHandle weight_scales, AtenTensorHandle *weight_zero_points,
+    AtenTensorHandle mul_input, AtenTensorHandle add_input, AtenTensorHandle *B,
+    const char *zentorch_op_name) {
+  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+    torch::stable::Tensor result = stable_from_handle(out);
+    zentorch::zentorch_woq_linear_binary_binary_out<
+        zentorch::BINARY_POST_OP::MUL, zentorch::BINARY_POST_OP::ADD>(
+        stable_from_handle(X), stable_from_handle(W),
+        stable_from_handle(weight_scales),
+        stable_from_handle(weight_zero_points), stable_from_handle(mul_input),
+        stable_from_handle(add_input), stable_from_handle(B), zentorch_op_name,
+        result);
+  });
+}
+
+AOTITorchError aoti_torch_cpu_zentorch_woq_linear_add_add_out(
+    AtenTensorHandle out, AtenTensorHandle X, AtenTensorHandle W,
+    AtenTensorHandle weight_scales, AtenTensorHandle *weight_zero_points,
+    AtenTensorHandle add_input, AtenTensorHandle add_input_2,
+    AtenTensorHandle *B, const char *zentorch_op_name) {
+  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+    torch::stable::Tensor result = stable_from_handle(out);
+    zentorch::zentorch_woq_linear_binary_binary_out<
+        zentorch::BINARY_POST_OP::ADD, zentorch::BINARY_POST_OP::ADD>(
+        stable_from_handle(X), stable_from_handle(W),
+        stable_from_handle(weight_scales),
+        stable_from_handle(weight_zero_points), stable_from_handle(add_input),
+        stable_from_handle(add_input_2), stable_from_handle(B),
+        zentorch_op_name, result);
+  });
+}
+
 AOTITorchError aoti_torch_cpu_zentorch_dynamic_qlinear(
     AtenTensorHandle X, AtenTensorHandle W, AtenTensorHandle weight_scales,
     AtenTensorHandle *B, const char *zentorch_op_name, AtenTensorHandle *ret0) {

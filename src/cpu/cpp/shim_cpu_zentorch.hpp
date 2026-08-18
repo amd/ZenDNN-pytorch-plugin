@@ -208,6 +208,53 @@ AOTI_TORCH_EXPORT AOTITorchError aoti_torch_cpu_zentorch_woq_linear_add_add(
     AtenTensorHandle add_input_2, AtenTensorHandle *B,
     const char *zentorch_op_name, AtenTensorHandle *ret0);
 
+// Out variants: void return; write into the Inductor-allocated `out` buffer
+// passed as the first arg (per the *_out shim convention).
+AOTI_TORCH_EXPORT AOTITorchError aoti_torch_cpu_zentorch_woq_linear_out(
+    AtenTensorHandle out, AtenTensorHandle X, AtenTensorHandle W,
+    AtenTensorHandle weight_scales, AtenTensorHandle *weight_zero_points,
+    AtenTensorHandle *B, const char *zentorch_op_name);
+
+AOTI_TORCH_EXPORT AOTITorchError aoti_torch_cpu_zentorch_woq_linear_relu_out(
+    AtenTensorHandle out, AtenTensorHandle X, AtenTensorHandle W,
+    AtenTensorHandle weight_scales, AtenTensorHandle *weight_zero_points,
+    AtenTensorHandle *B, const char *zentorch_op_name);
+
+AOTI_TORCH_EXPORT AOTITorchError aoti_torch_cpu_zentorch_woq_linear_sigmoid_out(
+    AtenTensorHandle out, AtenTensorHandle X, AtenTensorHandle W,
+    AtenTensorHandle weight_scales, AtenTensorHandle *weight_zero_points,
+    AtenTensorHandle *B, const char *zentorch_op_name);
+
+AOTI_TORCH_EXPORT AOTITorchError
+aoti_torch_cpu_zentorch_woq_linear_gelu_tanh_out(
+    AtenTensorHandle out, AtenTensorHandle X, AtenTensorHandle W,
+    AtenTensorHandle weight_scales, AtenTensorHandle *weight_zero_points,
+    AtenTensorHandle *B, const char *zentorch_op_name);
+
+AOTI_TORCH_EXPORT AOTITorchError
+aoti_torch_cpu_zentorch_woq_linear_gelu_erf_out(
+    AtenTensorHandle out, AtenTensorHandle X, AtenTensorHandle W,
+    AtenTensorHandle weight_scales, AtenTensorHandle *weight_zero_points,
+    AtenTensorHandle *B, const char *zentorch_op_name);
+
+AOTI_TORCH_EXPORT AOTITorchError aoti_torch_cpu_zentorch_woq_linear_add_out(
+    AtenTensorHandle out, AtenTensorHandle X, AtenTensorHandle W,
+    AtenTensorHandle weight_scales, AtenTensorHandle *weight_zero_points,
+    AtenTensorHandle add_input, AtenTensorHandle *B,
+    const char *zentorch_op_name);
+
+AOTI_TORCH_EXPORT AOTITorchError aoti_torch_cpu_zentorch_woq_linear_mul_add_out(
+    AtenTensorHandle out, AtenTensorHandle X, AtenTensorHandle W,
+    AtenTensorHandle weight_scales, AtenTensorHandle *weight_zero_points,
+    AtenTensorHandle mul_input, AtenTensorHandle add_input, AtenTensorHandle *B,
+    const char *zentorch_op_name);
+
+AOTI_TORCH_EXPORT AOTITorchError aoti_torch_cpu_zentorch_woq_linear_add_add_out(
+    AtenTensorHandle out, AtenTensorHandle X, AtenTensorHandle W,
+    AtenTensorHandle weight_scales, AtenTensorHandle *weight_zero_points,
+    AtenTensorHandle add_input, AtenTensorHandle add_input_2,
+    AtenTensorHandle *B, const char *zentorch_op_name);
+
 // Dynamic (per-token source) qlinear. Input is dynamically quantized to s8
 // inside the kernel; weight is pre-quantized (s8 [N, K] for DA8W8, or packed s4
 // [N, K/2] int8 / [N, K/8] int32 for DA8W4) with per-(channel|group)

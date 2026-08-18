@@ -717,6 +717,117 @@ def meta_zentorch_woq_linear_add_add(
     )
 
 
+# `.out` variants: void-returning; the caller-provided `out` buffer is written
+# in place, so the meta functions register the mutation and return nothing.
+@register_meta("zentorch_woq_linear", "out")
+def meta_zentorch_woq_linear_out(
+    input,
+    weight,
+    weight_scales,
+    weight_zero_points=None,
+    bias=None,
+    zentorch_op_name="zentorch::zentorch_woq_linear_out",
+    out=None,
+):
+    return
+
+
+@register_meta("zentorch_woq_linear_relu", "out")
+def meta_zentorch_woq_linear_relu_out(
+    input,
+    weight,
+    weight_scales,
+    weight_zero_points=None,
+    bias=None,
+    zentorch_op_name="zentorch::zentorch_woq_linear_relu_out",
+    out=None,
+):
+    return
+
+
+@register_meta("zentorch_woq_linear_sigmoid", "out")
+def meta_zentorch_woq_linear_sigmoid_out(
+    input,
+    weight,
+    weight_scales,
+    weight_zero_points=None,
+    bias=None,
+    zentorch_op_name="zentorch::zentorch_woq_linear_sigmoid_out",
+    out=None,
+):
+    return
+
+
+@register_meta("zentorch_woq_linear_gelu_tanh", "out")
+def meta_zentorch_woq_linear_gelu_tanh_out(
+    input,
+    weight,
+    weight_scales,
+    weight_zero_points=None,
+    bias=None,
+    zentorch_op_name="zentorch::zentorch_woq_linear_gelu_tanh_out",
+    out=None,
+):
+    return
+
+
+@register_meta("zentorch_woq_linear_gelu_erf", "out")
+def meta_zentorch_woq_linear_gelu_erf_out(
+    input,
+    weight,
+    weight_scales,
+    weight_zero_points=None,
+    bias=None,
+    zentorch_op_name="zentorch::zentorch_woq_linear_gelu_erf_out",
+    out=None,
+):
+    return
+
+
+@register_meta("zentorch_woq_linear_add", "out")
+def meta_zentorch_woq_linear_add_out(
+    input,
+    weight,
+    weight_scales,
+    weight_zero_points,
+    add_input,
+    bias=None,
+    zentorch_op_name="zentorch::zentorch_woq_linear_add_out",
+    out=None,
+):
+    return
+
+
+@register_meta("zentorch_woq_linear_mul_add", "out")
+def meta_zentorch_woq_linear_mul_add_out(
+    input,
+    weight,
+    weight_scales,
+    weight_zero_points,
+    mul_input,
+    add_input,
+    bias=None,
+    zentorch_op_name="zentorch::zentorch_woq_linear_mul_add_out",
+    out=None,
+):
+    return
+
+
+@register_meta("zentorch_woq_linear_add_add", "out")
+def meta_zentorch_woq_linear_add_add_out(
+    input,
+    weight,
+    weight_scales,
+    weight_zero_points,
+    add_input,
+    add_input_2,
+    bias=None,
+    zentorch_op_name="zentorch::zentorch_woq_linear_add_add_out",
+    out=None,
+):
+    return
+
+
 @register_meta("zentorch_dynamic_qlinear")
 def meta_zentorch_dynamic_qlinear(
     input,

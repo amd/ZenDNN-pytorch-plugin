@@ -39,4 +39,34 @@ torch::stable::Tensor zentorch_woq_linear_binary_binary(
     const std::optional<torch::stable::Tensor> &bias,
     std::string zentorch_op_name);
 
+// `.out` variants: write the result into the caller-supplied `out` tensor
+// instead of allocating. Registered directly for `zentorch_woq_linear*.out`
+// and reused by the AOTI shims.
+template <UNARY_POST_OP fuse>
+void zentorch_woq_linear_unary_out(
+    const torch::stable::Tensor &input, const torch::stable::Tensor &weight,
+    const torch::stable::Tensor &weight_scales,
+    const std::optional<torch::stable::Tensor> &weight_zero_points,
+    const std::optional<torch::stable::Tensor> &bias,
+    std::string zentorch_op_name, torch::stable::Tensor &out);
+
+template <UNARY_POST_OP fuse1, BINARY_POST_OP fuse2>
+void zentorch_woq_linear_unary_binary_out(
+    const torch::stable::Tensor &input, const torch::stable::Tensor &weight,
+    const torch::stable::Tensor &weight_scales,
+    const std::optional<torch::stable::Tensor> &weight_zero_points,
+    const torch::stable::Tensor &binary_input,
+    const std::optional<torch::stable::Tensor> &bias,
+    std::string zentorch_op_name, torch::stable::Tensor &out);
+
+template <BINARY_POST_OP fuse1, BINARY_POST_OP fuse2>
+void zentorch_woq_linear_binary_binary_out(
+    const torch::stable::Tensor &input, const torch::stable::Tensor &weight,
+    const torch::stable::Tensor &weight_scales,
+    const std::optional<torch::stable::Tensor> &weight_zero_points,
+    const torch::stable::Tensor &binary1_input,
+    const torch::stable::Tensor &binary2_input,
+    const std::optional<torch::stable::Tensor> &bias,
+    std::string zentorch_op_name, torch::stable::Tensor &out);
+
 } // namespace zentorch

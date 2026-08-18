@@ -7,6 +7,7 @@ import unittest
 import torch
 from torch.testing import FileCheck
 from torch import nn
+from torch._inductor import config as inductor_config
 import sys
 from pathlib import Path
 
@@ -115,6 +116,7 @@ class Test_WOQ_Linear_Asymmetric(WOQTestCase):
         compiled = torch.compile(model, backend="zentorch")
         counters.clear()
         self.assertEqual(counters["zentorch"]["zentorch_woq_linear"], 0)
+        self.assertEqual(counters["zentorch"]["zentorch_woq_linear_out"], 0)
         compiled_out, cpp_code = test_with_freeze_opt_and_cpp_wrapper(
             compiled, x, freeze_opt, cpp_wrapper
         )
@@ -123,6 +125,13 @@ class Test_WOQ_Linear_Asymmetric(WOQTestCase):
             1,
             f"{pattern_description} should be replaced by exactly one "
             "zentorch_woq_linear",
+        )
+        # Assert the op took the `.out` lowering path (cache-sensitive; the
+        # caller disables caches).
+        self.assertEqual(
+            counters["zentorch"]["zentorch_woq_linear_out"],
+            1,
+            f"{pattern_description} should lower to the woq_linear out variant",
         )
         diff = (compiled_out - eager_out).abs()
         print(
@@ -134,10 +143,12 @@ class Test_WOQ_Linear_Asymmetric(WOQTestCase):
             f"Compiled {pattern_description} output should match eager. "
             f"Max diff: {diff.max().item():.6f}",
         )
-        # Pillar 2 (codegen): op lowers to its AOTI C-shim (see helper docstring).
+        # Pillar 2 (codegen): op lowers to its AOTI out C-shim (see docstring).
         if cpp_wrapper:
-            FileCheck().check("aoti_torch_cpu_zentorch").run(cpp_code)
+            FileCheck().check("aoti_torch_cpu_zentorch_woq_linear_out").run(cpp_code)
 
+    # Caches off: the `.out` lowering counter is skipped on an FxGraphCache hit.
+    @inductor_config.patch(force_disable_caches=True)
     @WOQTestCase.hypothesis_params_woq_itr(
         dtype_opt_list=woq_dtypes,
         batch_opt_list=WOQ_INT4_BATCH_RANGE,
