@@ -577,8 +577,8 @@ AOTITorchError aoti_torch_cpu_zentorch_woq_linear_out(
         zentorch::UNARY_POST_OP::POST_OP_NONE>(
         stable_from_handle(X), stable_from_handle(W),
         stable_from_handle(weight_scales),
-        stable_from_handle(weight_zero_points), stable_from_handle(B),
-        zentorch_op_name, result);
+        stable_optional_from_handle(weight_zero_points),
+        stable_optional_from_handle(B), zentorch_op_name, result);
   });
 }
 
@@ -591,8 +591,8 @@ AOTITorchError aoti_torch_cpu_zentorch_woq_linear_relu_out(
     zentorch::zentorch_woq_linear_unary_out<zentorch::UNARY_POST_OP::RELU>(
         stable_from_handle(X), stable_from_handle(W),
         stable_from_handle(weight_scales),
-        stable_from_handle(weight_zero_points), stable_from_handle(B),
-        zentorch_op_name, result);
+        stable_optional_from_handle(weight_zero_points),
+        stable_optional_from_handle(B), zentorch_op_name, result);
   });
 }
 
@@ -605,8 +605,8 @@ AOTITorchError aoti_torch_cpu_zentorch_woq_linear_sigmoid_out(
     zentorch::zentorch_woq_linear_unary_out<zentorch::UNARY_POST_OP::SIGMOID>(
         stable_from_handle(X), stable_from_handle(W),
         stable_from_handle(weight_scales),
-        stable_from_handle(weight_zero_points), stable_from_handle(B),
-        zentorch_op_name, result);
+        stable_optional_from_handle(weight_zero_points),
+        stable_optional_from_handle(B), zentorch_op_name, result);
   });
 }
 
@@ -619,8 +619,8 @@ AOTITorchError aoti_torch_cpu_zentorch_woq_linear_gelu_tanh_out(
     zentorch::zentorch_woq_linear_unary_out<zentorch::UNARY_POST_OP::GELU_TANH>(
         stable_from_handle(X), stable_from_handle(W),
         stable_from_handle(weight_scales),
-        stable_from_handle(weight_zero_points), stable_from_handle(B),
-        zentorch_op_name, result);
+        stable_optional_from_handle(weight_zero_points),
+        stable_optional_from_handle(B), zentorch_op_name, result);
   });
 }
 
@@ -633,8 +633,8 @@ AOTITorchError aoti_torch_cpu_zentorch_woq_linear_gelu_erf_out(
     zentorch::zentorch_woq_linear_unary_out<zentorch::UNARY_POST_OP::GELU_ERF>(
         stable_from_handle(X), stable_from_handle(W),
         stable_from_handle(weight_scales),
-        stable_from_handle(weight_zero_points), stable_from_handle(B),
-        zentorch_op_name, result);
+        stable_optional_from_handle(weight_zero_points),
+        stable_optional_from_handle(B), zentorch_op_name, result);
   });
 }
 
@@ -649,8 +649,9 @@ AOTITorchError aoti_torch_cpu_zentorch_woq_linear_add_out(
         zentorch::UNARY_POST_OP::POST_OP_NONE, zentorch::BINARY_POST_OP::ADD>(
         stable_from_handle(X), stable_from_handle(W),
         stable_from_handle(weight_scales),
-        stable_from_handle(weight_zero_points), stable_from_handle(add_input),
-        stable_from_handle(B), zentorch_op_name, result);
+        stable_optional_from_handle(weight_zero_points),
+        stable_from_handle(add_input), stable_optional_from_handle(B),
+        zentorch_op_name, result);
   });
 }
 
@@ -665,9 +666,9 @@ AOTITorchError aoti_torch_cpu_zentorch_woq_linear_mul_add_out(
         zentorch::BINARY_POST_OP::MUL, zentorch::BINARY_POST_OP::ADD>(
         stable_from_handle(X), stable_from_handle(W),
         stable_from_handle(weight_scales),
-        stable_from_handle(weight_zero_points), stable_from_handle(mul_input),
-        stable_from_handle(add_input), stable_from_handle(B), zentorch_op_name,
-        result);
+        stable_optional_from_handle(weight_zero_points),
+        stable_from_handle(mul_input), stable_from_handle(add_input),
+        stable_optional_from_handle(B), zentorch_op_name, result);
   });
 }
 
@@ -682,9 +683,9 @@ AOTITorchError aoti_torch_cpu_zentorch_woq_linear_add_add_out(
         zentorch::BINARY_POST_OP::ADD, zentorch::BINARY_POST_OP::ADD>(
         stable_from_handle(X), stable_from_handle(W),
         stable_from_handle(weight_scales),
-        stable_from_handle(weight_zero_points), stable_from_handle(add_input),
-        stable_from_handle(add_input_2), stable_from_handle(B),
-        zentorch_op_name, result);
+        stable_optional_from_handle(weight_zero_points),
+        stable_from_handle(add_input), stable_from_handle(add_input_2),
+        stable_optional_from_handle(B), zentorch_op_name, result);
   });
 }
 
