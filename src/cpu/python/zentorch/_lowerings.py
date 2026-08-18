@@ -468,6 +468,7 @@ class zentorch_QlinearUnary(ExternKernelAlloc):
         output_scales,
         output_zero_points,
         output_dtype,
+        is_weight_prepacked,
         name,
     ):
         # Pin input contiguity at the IR level so the kernel doesn't pay an
@@ -531,7 +532,10 @@ class zentorch_QlinearUnary(ExternKernelAlloc):
             # Route the caller-supplied op name into the IR node's kwargs so
             # `codegen_kwargs` emits it instead of falling back to the schema
             # default. Matches what the linear / .out lowerings already do.
-            kwargs={"zentorch_op_name": name},
+            kwargs={
+                "is_weight_prepacked": is_weight_prepacked,
+                "zentorch_op_name": name,
+            },
         )
         packed._optional_tensor_presence = [
             input_scales is not None,
@@ -587,6 +591,7 @@ class zentorch_QlinearUnaryRelu(ExternKernelAlloc):
         output_scales,
         output_zero_points,
         output_dtype,
+        is_weight_prepacked,
         name,
     ):
         input = cls.require_contiguous(cls.realize_input(input))
@@ -645,7 +650,10 @@ class zentorch_QlinearUnaryRelu(ExternKernelAlloc):
             ),
             inputs=inputs,
             constant_args=constant_args,
-            kwargs={"zentorch_op_name": name},
+            kwargs={
+                "is_weight_prepacked": is_weight_prepacked,
+                "zentorch_op_name": name,
+            },
         )
         packed._optional_tensor_presence = [
             input_scales is not None,
@@ -701,6 +709,7 @@ class zentorch_QlinearUnarySigmoid(ExternKernelAlloc):
         output_scales,
         output_zero_points,
         output_dtype,
+        is_weight_prepacked,
         name,
     ):
         input = cls.require_contiguous(cls.realize_input(input))
@@ -759,7 +768,10 @@ class zentorch_QlinearUnarySigmoid(ExternKernelAlloc):
             ),
             inputs=inputs,
             constant_args=constant_args,
-            kwargs={"zentorch_op_name": name},
+            kwargs={
+                "is_weight_prepacked": is_weight_prepacked,
+                "zentorch_op_name": name,
+            },
         )
         packed._optional_tensor_presence = [
             input_scales is not None,
@@ -817,6 +829,7 @@ class zentorch_QlinearMulAdd(ExternKernelAlloc):
         output_scales,
         output_zero_points,
         output_dtype,
+        is_weight_prepacked,
         name,
     ):
         input = cls.require_contiguous(cls.realize_input(input))
@@ -881,7 +894,10 @@ class zentorch_QlinearMulAdd(ExternKernelAlloc):
             ),
             inputs=inputs,
             constant_args=constant_args,
-            kwargs={"zentorch_op_name": name},
+            kwargs={
+                "is_weight_prepacked": is_weight_prepacked,
+                "zentorch_op_name": name,
+            },
         )
         packed._optional_tensor_presence = [
             input_scales is not None,
@@ -1014,6 +1030,7 @@ class _zentorch_QlinearOutBase(ExternKernelAlloc):
         output_scales,
         output_zero_points,
         output_dtype,
+        is_weight_prepacked,
         zentorch_op_name,
     ):
         inputs, presence = cls._build_inputs(
@@ -1039,7 +1056,10 @@ class _zentorch_QlinearOutBase(ExternKernelAlloc):
             layout=NoneLayout(device=device),
             inputs=inputs,
             constant_args=[output_dtype],
-            kwargs={"zentorch_op_name": zentorch_op_name},
+            kwargs={
+                "is_weight_prepacked": is_weight_prepacked,
+                "zentorch_op_name": zentorch_op_name,
+            },
         )
         packed._optional_tensor_presence = presence
         return packed
@@ -1069,6 +1089,7 @@ def zentorch_qlinear_lowering(
     output_scales: TensorBox,
     output_zero_points: TensorBox,
     output_dtype=None,
+    is_weight_prepacked=False,
     zentorch_op_name="zentorch_qlinear",
 ):
     return TensorBox.create(
@@ -1083,6 +1104,7 @@ def zentorch_qlinear_lowering(
             output_scales,
             output_zero_points,
             output_dtype,
+            is_weight_prepacked,
             zentorch_op_name,
         )
     )
@@ -1102,6 +1124,7 @@ def zentorch_qlinear_relu_lowering(
     output_scales: TensorBox,
     output_zero_points: TensorBox,
     output_dtype=None,
+    is_weight_prepacked=False,
     zentorch_op_name="zentorch_qlinear_relu",
 ):
     return TensorBox.create(
@@ -1116,6 +1139,7 @@ def zentorch_qlinear_relu_lowering(
             output_scales,
             output_zero_points,
             output_dtype,
+            is_weight_prepacked,
             zentorch_op_name,
         )
     )
@@ -1134,6 +1158,7 @@ def zentorch_qlinear_out_lowering(
     output_scales: TensorBox,
     output_zero_points: TensorBox,
     output_dtype=None,
+    is_weight_prepacked=False,
     zentorch_op_name="zentorch_qlinear.out",
 ):
     # Routes to the C++ `.out` shim which writes directly into `out`,
@@ -1150,6 +1175,7 @@ def zentorch_qlinear_out_lowering(
         output_scales,
         output_zero_points,
         output_dtype,
+        is_weight_prepacked,
         zentorch_op_name,
     )
 
@@ -1169,6 +1195,7 @@ def zentorch_qlinear_relu_out_lowering(
     output_scales: TensorBox,
     output_zero_points: TensorBox,
     output_dtype=None,
+    is_weight_prepacked=False,
     zentorch_op_name="zentorch_qlinear_relu.out",
 ):
     zentorch_QlinearReluOut.create(
@@ -1183,6 +1210,7 @@ def zentorch_qlinear_relu_out_lowering(
         output_scales,
         output_zero_points,
         output_dtype,
+        is_weight_prepacked,
         zentorch_op_name,
     )
 
@@ -1201,6 +1229,7 @@ def zentorch_qlinear_sigmoid_lowering(
     output_scales: TensorBox,
     output_zero_points: TensorBox,
     output_dtype=None,
+    is_weight_prepacked=False,
     zentorch_op_name="zentorch_qlinear_sigmoid",
 ):
     return TensorBox.create(
@@ -1215,6 +1244,7 @@ def zentorch_qlinear_sigmoid_lowering(
             output_scales,
             output_zero_points,
             output_dtype,
+            is_weight_prepacked,
             zentorch_op_name,
         )
     )
@@ -1236,6 +1266,7 @@ def zentorch_qlinear_mul_add_lowering(
     output_scales: TensorBox,
     output_zero_points: TensorBox,
     output_dtype=None,
+    is_weight_prepacked=False,
     zentorch_op_name="zentorch_qlinear_mul_add",
 ):
     return TensorBox.create(
@@ -1252,6 +1283,7 @@ def zentorch_qlinear_mul_add_lowering(
             output_scales,
             output_zero_points,
             output_dtype,
+            is_weight_prepacked,
             zentorch_op_name,
         )
     )

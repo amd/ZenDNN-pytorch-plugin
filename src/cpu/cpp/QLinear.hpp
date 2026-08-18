@@ -23,7 +23,7 @@ torch::stable::Tensor zentorch_qlinear_unary(
     const std::optional<torch::stable::Tensor> &output_scales,
     const std::optional<torch::stable::Tensor> &output_zero_points,
     const std::optional<c10::ScalarType> &output_dtype,
-    std::string zentorch_op_name);
+    bool is_weight_prepacked, std::string zentorch_op_name);
 
 template <UNARY_POST_OP fuse>
 void zentorch_qlinear_out_unary(
@@ -37,7 +37,7 @@ void zentorch_qlinear_out_unary(
     const std::optional<torch::stable::Tensor> &output_scales,
     const std::optional<torch::stable::Tensor> &output_zero_points,
     const std::optional<c10::ScalarType> &output_dtype,
-    std::string zentorch_op_name);
+    bool is_weight_prepacked, std::string zentorch_op_name);
 
 template <BINARY_POST_OP fuse1, BINARY_POST_OP fuse2>
 torch::stable::Tensor zentorch_qlinear_binary_binary(
@@ -52,6 +52,6 @@ torch::stable::Tensor zentorch_qlinear_binary_binary(
     const std::optional<torch::stable::Tensor> &output_scales,
     const std::optional<torch::stable::Tensor> &output_zero_points,
     const std::optional<c10::ScalarType> &output_dtype,
-    std::string zentorch_op_name);
+    bool is_weight_prepacked, std::string zentorch_op_name);
 
 } // namespace zentorch

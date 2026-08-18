@@ -89,6 +89,157 @@ def zentorch_weight_prepack_for_linear_replacement_with_bias(
     match.replace_by_example(repl, [mat_1, mat_2, bias, is_weight_prepacked, post_op, zentorch_op_name])
 
 
+def qlinear_weight_prepack_check(match: Match) -> bool:
+    is_weight_prepacked = any(
+        node.kwargs.get("is_weight_prepacked", False) for node in match.nodes
+    )
+    if is_weight_prepacked:
+        return False
+
+    input_zero_points, weight_zero_points = match.args[3], match.args[5]
+    return input_zero_points is None and weight_zero_points is None
+
+
+qlinear_args = [Arg() for _ in range(10)]
+qlinear_mul_add_args = [Arg() for _ in range(12)]
+
+
+# zentorch_qlinear replacement with weight prepacking
+@register_graph_pattern(
+    CallFunction(zentorch.zentorch_qlinear, *qlinear_args),
+    extra_check=qlinear_weight_prepack_check,
+    pass_dict=pass_pattern,
+)
+def zentorch_weight_prepack_for_qlinear_replacement(
+    match: Match,
+    input: Any,
+    weight: Any,
+    input_scales: Any,
+    input_zero_points: Any,
+    weight_scales: Any,
+    weight_zero_points: Any,
+    bias: Any,
+    output_scales: Any,
+    output_zero_points: Any,
+    output_dtype: Any,
+) -> None:
+    def repl(
+        input: Any,
+        weight: Any,
+        input_scales: Any,
+        input_zero_points: Any,
+        weight_scales: Any,
+        weight_zero_points: Any,
+        bias: Any,
+        output_scales: Any,
+        output_zero_points: Any,
+        output_dtype: Any,
+    ) -> torch.Tensor:
+        counters["zentorch"]["zentorch_weight_prepack_for_dynamic_qlinear"] += 1
+        weight_prepacked = zentorch.zentorch_weight_prepack_for_dynamic_qlinear(weight)
+        return zentorch.zentorch_qlinear(
+            input,
+            weight_prepacked,
+            input_scales,
+            input_zero_points,
+            weight_scales,
+            weight_zero_points,
+            bias,
+            output_scales,
+            output_zero_points,
+            output_dtype,
+            is_weight_prepacked=True,
+        )
+
+    match.replace_by_example(
+        repl,
+        [
+            input,
+            weight,
+            input_scales,
+            input_zero_points,
+            weight_scales,
+            weight_zero_points,
+            bias,
+            output_scales,
+            output_zero_points,
+            output_dtype,
+        ],
+    )
+
+
+# zentorch_qlinear_mul_add replacement with weight prepacking
+@register_graph_pattern(
+    CallFunction(zentorch.zentorch_qlinear_mul_add, *qlinear_mul_add_args),
+    extra_check=qlinear_weight_prepack_check,
+    pass_dict=pass_pattern,
+)
+def zentorch_weight_prepack_for_qlinear_mul_add_replacement(
+    match: Match,
+    input: Any,
+    weight: Any,
+    input_scales: Any,
+    input_zero_points: Any,
+    weight_scales: Any,
+    weight_zero_points: Any,
+    mul_input: Any,
+    add_input: Any,
+    bias: Any,
+    output_scales: Any,
+    output_zero_points: Any,
+    output_dtype: Any,
+) -> None:
+    def repl(
+        input: Any,
+        weight: Any,
+        input_scales: Any,
+        input_zero_points: Any,
+        weight_scales: Any,
+        weight_zero_points: Any,
+        mul_input: Any,
+        add_input: Any,
+        bias: Any,
+        output_scales: Any,
+        output_zero_points: Any,
+        output_dtype: Any,
+    ) -> torch.Tensor:
+        counters["zentorch"]["zentorch_weight_prepack_for_dynamic_qlinear"] += 1
+        weight_prepacked = zentorch.zentorch_weight_prepack_for_dynamic_qlinear(weight)
+        return zentorch.zentorch_qlinear_mul_add(
+            input,
+            weight_prepacked,
+            input_scales,
+            input_zero_points,
+            weight_scales,
+            weight_zero_points,
+            mul_input,
+            add_input,
+            bias,
+            output_scales,
+            output_zero_points,
+            output_dtype,
+            is_weight_prepacked=True,
+        )
+
+    match.replace_by_example(
+        repl,
+        [
+            input,
+            weight,
+            input_scales,
+            input_zero_points,
+            weight_scales,
+            weight_zero_points,
+            mul_input,
+            add_input,
+            bias,
+            output_scales,
+            output_zero_points,
+            output_dtype,
+        ],
+    )
+
+
 def add_zentorch_weight_prepack_ops(fx_graph: Graph) -> Graph:
     GraphTransformObserver = functools.partial(
         torch.fx.passes.graph_transform_observer.GraphTransformObserver,

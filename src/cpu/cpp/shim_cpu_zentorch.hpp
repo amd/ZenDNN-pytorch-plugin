@@ -35,24 +35,24 @@ AOTI_TORCH_EXPORT AOTITorchError aoti_torch_cpu_zentorch_qlinear(
     AtenTensorHandle X_zero_points, AtenTensorHandle W_scales,
     AtenTensorHandle W_zero_points, AtenTensorHandle *B,
     AtenTensorHandle *output_scales, AtenTensorHandle *output_zero_points,
-    const int32_t *output_dtype, const char *zentorch_op_name,
-    AtenTensorHandle *ret0);
+    const int32_t *output_dtype, bool is_weight_prepacked,
+    const char *zentorch_op_name, AtenTensorHandle *ret0);
 
 AOTI_TORCH_EXPORT AOTITorchError aoti_torch_cpu_zentorch_qlinear_relu(
     AtenTensorHandle X, AtenTensorHandle W, AtenTensorHandle X_scales,
     AtenTensorHandle X_zero_points, AtenTensorHandle W_scales,
     AtenTensorHandle W_zero_points, AtenTensorHandle *B,
     AtenTensorHandle *output_scales, AtenTensorHandle *output_zero_points,
-    const int32_t *output_dtype, const char *zentorch_op_name,
-    AtenTensorHandle *ret0);
+    const int32_t *output_dtype, bool is_weight_prepacked,
+    const char *zentorch_op_name, AtenTensorHandle *ret0);
 
 AOTI_TORCH_EXPORT AOTITorchError aoti_torch_cpu_zentorch_qlinear_sigmoid(
     AtenTensorHandle X, AtenTensorHandle W, AtenTensorHandle X_scales,
     AtenTensorHandle X_zero_points, AtenTensorHandle W_scales,
     AtenTensorHandle W_zero_points, AtenTensorHandle *B,
     AtenTensorHandle *output_scales, AtenTensorHandle *output_zero_points,
-    const int32_t *output_dtype, const char *zentorch_op_name,
-    AtenTensorHandle *ret0);
+    const int32_t *output_dtype, bool is_weight_prepacked,
+    const char *zentorch_op_name, AtenTensorHandle *ret0);
 
 AOTI_TORCH_EXPORT AOTITorchError aoti_torch_cpu_zentorch_qlinear_mul_add(
     AtenTensorHandle X, AtenTensorHandle W, AtenTensorHandle X_scales,
@@ -60,8 +60,8 @@ AOTI_TORCH_EXPORT AOTITorchError aoti_torch_cpu_zentorch_qlinear_mul_add(
     AtenTensorHandle W_zero_points, AtenTensorHandle mul_input,
     AtenTensorHandle add_input, AtenTensorHandle *B,
     AtenTensorHandle *output_scales, AtenTensorHandle *output_zero_points,
-    const int32_t *output_dtype, const char *zentorch_op_name,
-    AtenTensorHandle *ret0);
+    const int32_t *output_dtype, bool is_weight_prepacked,
+    const char *zentorch_op_name, AtenTensorHandle *ret0);
 
 AOTI_TORCH_EXPORT AOTITorchError aoti_torch_cpu_zentorch_qlinear_out(
     AtenTensorHandle out, AtenTensorHandle X, AtenTensorHandle W,
@@ -69,7 +69,7 @@ AOTI_TORCH_EXPORT AOTITorchError aoti_torch_cpu_zentorch_qlinear_out(
     AtenTensorHandle W_scales, AtenTensorHandle W_zero_points,
     AtenTensorHandle *B, AtenTensorHandle *output_scales,
     AtenTensorHandle *output_zero_points, const int32_t *output_dtype,
-    const char *zentorch_op_name);
+    bool is_weight_prepacked, const char *zentorch_op_name);
 
 AOTI_TORCH_EXPORT AOTITorchError aoti_torch_cpu_zentorch_qlinear_relu_out(
     AtenTensorHandle out, AtenTensorHandle X, AtenTensorHandle W,
@@ -77,7 +77,7 @@ AOTI_TORCH_EXPORT AOTITorchError aoti_torch_cpu_zentorch_qlinear_relu_out(
     AtenTensorHandle W_scales, AtenTensorHandle W_zero_points,
     AtenTensorHandle *B, AtenTensorHandle *output_scales,
     AtenTensorHandle *output_zero_points, const int32_t *output_dtype,
-    const char *zentorch_op_name);
+    bool is_weight_prepacked, const char *zentorch_op_name);
 
 AOTI_TORCH_EXPORT AOTITorchError aoti_torch_cpu_zentorch_linear_unary_binary(
     AtenTensorHandle X, AtenTensorHandle W, AtenTensorHandle binary_input,

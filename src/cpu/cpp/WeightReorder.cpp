@@ -27,18 +27,10 @@ void clear_zendnn_weight_caches() {
   zendnnl::lowoha::matmul::clear_onednn_matmul_weight_cache();
 }
 
-at::Tensor
-zentorch_weight_prepack_for_linear(const at::Tensor &weight,
-                                   const std::string & /*zentorch_op_name*/) {
-  ZENTORCH_CHECK(weight.dim() == 2,
-                 "Weight tensor must be 2D for linear layer prepacking, got ",
-                 weight.dim(), "D tensor.");
-  const auto dtype = weight.scalar_type();
-  ZENTORCH_CHECK(dtype == c10::ScalarType::Float ||
-                     dtype == c10::ScalarType::BFloat16 ||
-                     dtype == c10::ScalarType::Half,
-                 "Currently weight prepacking only supports float32, "
-                 "bfloat16 or float16 dtype for weight tensor");
+// AOCL picks its reorder routine per (wei_dtype, src_dtype) pair.
+at::Tensor prepack_weight_for_blocked_matmul(const at::Tensor &weight_in,
+                                             const data_type_t src_dtype) {
+  const at::Tensor weight = weight_in.contiguous();
 
   // Matmul weight B = weight.t() = [K, N] = [in_features, out_features];
   // a contiguous [N, K] weight makes this view column-major ("ba").
@@ -64,7 +56,7 @@ zentorch_weight_prepack_for_linear(const at::Tensor &weight,
   rp.is_prepack = true;
   rp.prepack.algo = zendnnl::ops::matmul_algo_t::aocl_dlp_blocked;
   rp.prepack.wei_dtype = get_zendnnl_dtype(weight);
-  rp.prepack.src_dtype = rp.prepack.wei_dtype;
+  rp.prepack.src_dtype = src_dtype;
   rp.prepack.K = K;
   rp.prepack.N = N;
   rp.prepack.ldb = ldb;
@@ -95,15 +87,55 @@ zentorch_weight_prepack_for_linear(const at::Tensor &weight,
   return at::as_strided(packed, weight.sizes(), weight.strides());
 }
 
+at::Tensor
+zentorch_weight_prepack_for_linear(const at::Tensor &weight,
+                                   const std::string & /*zentorch_op_name*/) {
+  ZENTORCH_CHECK(weight.dim() == 2,
+                 "Weight tensor must be 2D for linear layer prepacking, got ",
+                 weight.dim(), "D tensor.");
+  const auto dtype = weight.scalar_type();
+  ZENTORCH_CHECK(dtype == c10::ScalarType::Float ||
+                     dtype == c10::ScalarType::BFloat16 ||
+                     dtype == c10::ScalarType::Half,
+                 "Currently weight prepacking only supports float32, "
+                 "bfloat16 or float16 dtype for weight tensor");
+
+  // Non-quantized GEMMs run activations and weights at the same precision.
+  return prepack_weight_for_blocked_matmul(weight, get_zendnnl_dtype(weight));
+}
+
+at::Tensor zentorch_weight_prepack_for_dynamic_qlinear(const at::Tensor &weight,
+                                                       const std::string &
+                                                       /*zentorch_op_name*/) {
+  ZENTORCH_CHECK(weight.dim() == 2,
+                 "Weight tensor must be 2D for qlinear layer prepacking, got ",
+                 weight.dim(), "D tensor.");
+  ZENTORCH_CHECK(weight.scalar_type() == c10::ScalarType::Char,
+                 "Currently qlinear weight prepacking only supports int8 "
+                 "dtype for weight tensor, got ",
+                 weight.scalar_type(), ".");
+
+  // Prepacked weights are gated on symmetric quantization, whose activations
+  // qlinear quantizes to s8.
+  return prepack_weight_for_blocked_matmul(weight, data_type_t::s8);
+}
+
 TORCH_LIBRARY_FRAGMENT(zentorch, m) {
   m.def("zentorch_weight_prepack_for_linear(Tensor weight, "
         "str zentorch_op_name='zentorch::zentorch_weight_prepack_for_linear') "
+        "-> Tensor");
+  m.def("zentorch_weight_prepack_for_dynamic_qlinear(Tensor weight, "
+        "str "
+        "zentorch_op_name='zentorch::zentorch_weight_prepack_for_dynamic_"
+        "qlinear') "
         "-> Tensor");
 }
 
 TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
   m.impl("zentorch_weight_prepack_for_linear",
          zentorch::zentorch_weight_prepack_for_linear);
+  m.impl("zentorch_weight_prepack_for_dynamic_qlinear",
+         zentorch::zentorch_weight_prepack_for_dynamic_qlinear);
 }
 
 } // namespace zentorch

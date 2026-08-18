@@ -11,6 +11,7 @@ from torch._inductor.pattern_matcher import (
     register_graph_pattern,
     CallFunction,
     Arg,
+    KeywordArg,
     stable_topological_sort,
 )
 from ._logging import get_logger
@@ -35,6 +36,7 @@ qlinear_args = [Arg() for _ in range(10)]
         CallFunction(
             zt_ops.zentorch_qlinear,
             *qlinear_args,
+            is_weight_prepacked=KeywordArg("is_weight_prepacked"),
         ),
     ),
     pass_dict=pass_pattern,
@@ -45,6 +47,7 @@ qlinear_args = [Arg() for _ in range(10)]
         CallFunction(
             zt_ops.zentorch_qlinear,
             *qlinear_args,
+            is_weight_prepacked=KeywordArg("is_weight_prepacked"),
         ),
     ),
     pass_dict=pass_pattern,
@@ -61,6 +64,7 @@ def qlinear_relu_replacement(
     output_scales,
     output_zero_points,
     output_dtype,
+    is_weight_prepacked,
 ):
     def repl(
         input,
@@ -87,6 +91,7 @@ def qlinear_relu_replacement(
             output_scales,
             output_zero_points,
             output_dtype,
+            is_weight_prepacked=is_weight_prepacked,
         )
 
     match.replace_by_example(
@@ -113,6 +118,7 @@ def qlinear_relu_replacement(
         CallFunction(
             zt_ops.zentorch_qlinear,
             *qlinear_args,
+            is_weight_prepacked=KeywordArg("is_weight_prepacked"),
         ),
     ),
     pass_dict=pass_pattern,
@@ -123,6 +129,7 @@ def qlinear_relu_replacement(
         CallFunction(
             zt_ops.zentorch_qlinear,
             *qlinear_args,
+            is_weight_prepacked=KeywordArg("is_weight_prepacked"),
         ),
     ),
     pass_dict=pass_pattern,
@@ -139,6 +146,7 @@ def qlinear_sigmoid_replacement(
     output_scales,
     output_zero_points,
     output_dtype,
+    is_weight_prepacked,
 ):
     def repl(
         input,
@@ -165,6 +173,7 @@ def qlinear_sigmoid_replacement(
             output_scales,
             output_zero_points,
             output_dtype,
+            is_weight_prepacked=is_weight_prepacked,
         )
 
     match.replace_by_example(

@@ -205,6 +205,19 @@ class Test_Qlinear_Model(QLinearTestCase):
             cpp_wrapper,
         )
         self.assertEqual(counters["zentorch"]["optimized_reorder"], 2)
+        prepacked_weights = (
+            1
+            if freeze_opt
+            and get_comp_zero_points(
+                self.data.x_zero_points["per_tensor"][dtype][q_zero_points_dtype]
+            )
+            is None
+            else 0
+        )
+        self.assertEqual(
+            counters["zentorch"]["zentorch_weight_prepack_for_dynamic_qlinear"],
+            prepacked_weights,
+        )
         self.assertEqual(model_output, zentorch_output, atol=1e-2, rtol=1e-2)
         # Pillar 2 (codegen): op lowers to its AOTI C-shim (see helper docstring).
         if cpp_wrapper:
@@ -274,6 +287,19 @@ class Test_Qlinear_Model(QLinearTestCase):
             cpp_wrapper,
         )
         self.assertEqual(counters["zentorch"]["optimized_reorder"], 2)
+        prepacked_weights = (
+            3
+            if freeze_opt
+            and get_comp_zero_points(
+                self.data.x_zero_points["per_tensor"][dtype][q_zero_points_dtype]
+            )
+            is None
+            else 0
+        )
+        self.assertEqual(
+            counters["zentorch"]["zentorch_weight_prepack_for_dynamic_qlinear"],
+            prepacked_weights,
+        )
         self.assertEqual(model_output, zentorch_output, atol=1e-2, rtol=1e-2)
         # Pillar 2 (codegen): op lowers to its AOTI C-shim (see helper docstring).
         if cpp_wrapper:

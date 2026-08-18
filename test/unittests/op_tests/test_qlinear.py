@@ -29,6 +29,56 @@ from quant_utils import qdq_linear  # noqa: 402
 
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class Test_Qlinear(QLinearTestCase):
+
+    def get_and_compare_qlinear_output(
+        self,
+        ref_output,
+        input,
+        weight,
+        input_scales,
+        input_zero_points,
+        weight_scales,
+        weight_zero_points,
+        bias=None,
+        output_scales=None,
+        output_zero_points=None,
+        output_dtype=None,
+    ):
+        zen_output = torch.ops.zentorch.zentorch_qlinear(
+            input,
+            weight,
+            input_scales,
+            input_zero_points,
+            weight_scales,
+            weight_zero_points,
+            bias=bias,
+            output_scales=output_scales,
+            output_zero_points=output_zero_points,
+            output_dtype=output_dtype,
+        )
+        self.assertEqual(ref_output, zen_output, atol=1e-2, rtol=1e-2)
+
+        if input_zero_points is not None or weight_zero_points is not None:
+            return
+
+        prepacked_weight = (
+            torch.ops.zentorch.zentorch_weight_prepack_for_dynamic_qlinear(weight)
+        )
+        zen_output_prepacked = torch.ops.zentorch.zentorch_qlinear(
+            input,
+            prepacked_weight,
+            input_scales,
+            input_zero_points,
+            weight_scales,
+            weight_zero_points,
+            bias=bias,
+            output_scales=output_scales,
+            output_zero_points=output_zero_points,
+            output_dtype=output_dtype,
+            is_weight_prepacked=True,
+        )
+        self.assertEqual(ref_output, zen_output_prepacked, atol=1e-2, rtol=1e-2)
+
     @QLinearTestCase.hypothesis_params_qlinear_itr(
         input_dim_opt_list=input_dim_opt,
         q_weight_list_opt_list=q_weight_list_opt,
@@ -587,7 +637,9 @@ class Test_Qlinear(QLinearTestCase):
             )
         else:
             output_zero_points = None
-        zentorch_qlinear_output = torch.ops.zentorch.zentorch_qlinear(
+        # bf16 qlinear comparsion requires slightly higher tolerance as compared to fp32
+        self.get_and_compare_qlinear_output(
+            qdq_linear_output,
             self.data.x_for_qlinear[input_dtype][input_dim],
             self.data.y_int8[q_weight_idx],
             self.data.x_scales["per_tensor"],
@@ -602,10 +654,6 @@ class Test_Qlinear(QLinearTestCase):
             ],
             output_zero_points=output_zero_points,
             output_dtype=actual_output_dtype,
-        )
-        # bf16 qlinear comparsion requires slightly higher tolerance as compared to fp32
-        self.assertEqual(
-            qdq_linear_output, zentorch_qlinear_output, atol=1e-2, rtol=1e-2
         )
 
 

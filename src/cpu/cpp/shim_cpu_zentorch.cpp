@@ -139,8 +139,8 @@ AOTITorchError aoti_torch_cpu_zentorch_qlinear(
     AtenTensorHandle X_zero_points, AtenTensorHandle W_scales,
     AtenTensorHandle W_zero_points, AtenTensorHandle *B,
     AtenTensorHandle *output_scales, AtenTensorHandle *output_zero_points,
-    const int32_t *output_dtype, const char *zentorch_op_name,
-    AtenTensorHandle *ret0) {
+    const int32_t *output_dtype, bool is_weight_prepacked,
+    const char *zentorch_op_name, AtenTensorHandle *ret0) {
   AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
     auto tmp_result =
         zentorch::zentorch_qlinear_unary<zentorch::UNARY_POST_OP::POST_OP_NONE>(
@@ -151,7 +151,7 @@ AOTITorchError aoti_torch_cpu_zentorch_qlinear(
             stable_optional_from_handle(output_scales),
             stable_optional_from_handle(output_zero_points),
             pointer_to_optional<c10::ScalarType>(output_dtype),
-            zentorch_op_name);
+            is_weight_prepacked, zentorch_op_name);
     *ret0 = handle_from_stable(tmp_result);
   });
 }
@@ -161,8 +161,8 @@ AOTITorchError aoti_torch_cpu_zentorch_qlinear_relu(
     AtenTensorHandle X_zero_points, AtenTensorHandle W_scales,
     AtenTensorHandle W_zero_points, AtenTensorHandle *B,
     AtenTensorHandle *output_scales, AtenTensorHandle *output_zero_points,
-    const int32_t *output_dtype, const char *zentorch_op_name,
-    AtenTensorHandle *ret0) {
+    const int32_t *output_dtype, bool is_weight_prepacked,
+    const char *zentorch_op_name, AtenTensorHandle *ret0) {
   AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
     auto tmp_result =
         zentorch::zentorch_qlinear_unary<zentorch::UNARY_POST_OP::RELU>(
@@ -173,7 +173,7 @@ AOTITorchError aoti_torch_cpu_zentorch_qlinear_relu(
             stable_optional_from_handle(output_scales),
             stable_optional_from_handle(output_zero_points),
             pointer_to_optional<c10::ScalarType>(output_dtype),
-            zentorch_op_name);
+            is_weight_prepacked, zentorch_op_name);
     *ret0 = handle_from_stable(tmp_result);
   });
 }
@@ -183,8 +183,8 @@ AOTITorchError aoti_torch_cpu_zentorch_qlinear_sigmoid(
     AtenTensorHandle X_zero_points, AtenTensorHandle W_scales,
     AtenTensorHandle W_zero_points, AtenTensorHandle *B,
     AtenTensorHandle *output_scales, AtenTensorHandle *output_zero_points,
-    const int32_t *output_dtype, const char *zentorch_op_name,
-    AtenTensorHandle *ret0) {
+    const int32_t *output_dtype, bool is_weight_prepacked,
+    const char *zentorch_op_name, AtenTensorHandle *ret0) {
   AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
     auto tmp_result =
         zentorch::zentorch_qlinear_unary<zentorch::UNARY_POST_OP::SIGMOID>(
@@ -195,7 +195,7 @@ AOTITorchError aoti_torch_cpu_zentorch_qlinear_sigmoid(
             stable_optional_from_handle(output_scales),
             stable_optional_from_handle(output_zero_points),
             pointer_to_optional<c10::ScalarType>(output_dtype),
-            zentorch_op_name);
+            is_weight_prepacked, zentorch_op_name);
     *ret0 = handle_from_stable(tmp_result);
   });
 }
@@ -206,8 +206,8 @@ AOTITorchError aoti_torch_cpu_zentorch_qlinear_mul_add(
     AtenTensorHandle W_zero_points, AtenTensorHandle mul_input,
     AtenTensorHandle add_input, AtenTensorHandle *B,
     AtenTensorHandle *output_scales, AtenTensorHandle *output_zero_points,
-    const int32_t *output_dtype, const char *zentorch_op_name,
-    AtenTensorHandle *ret0) {
+    const int32_t *output_dtype, bool is_weight_prepacked,
+    const char *zentorch_op_name, AtenTensorHandle *ret0) {
   AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
     auto tmp_result =
         zentorch::zentorch_qlinear_binary_binary<zentorch::BINARY_POST_OP::MUL,
@@ -220,7 +220,7 @@ AOTITorchError aoti_torch_cpu_zentorch_qlinear_mul_add(
             stable_optional_from_handle(output_scales),
             stable_optional_from_handle(output_zero_points),
             pointer_to_optional<c10::ScalarType>(output_dtype),
-            zentorch_op_name);
+            is_weight_prepacked, zentorch_op_name);
     *ret0 = handle_from_stable(tmp_result);
   });
 }
@@ -231,7 +231,7 @@ AOTITorchError aoti_torch_cpu_zentorch_qlinear_out(
     AtenTensorHandle W_scales, AtenTensorHandle W_zero_points,
     AtenTensorHandle *B, AtenTensorHandle *output_scales,
     AtenTensorHandle *output_zero_points, const int32_t *output_dtype,
-    const char *zentorch_op_name) {
+    bool is_weight_prepacked, const char *zentorch_op_name) {
   AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
     torch::stable::Tensor result = stable_from_handle(out);
     zentorch::zentorch_qlinear_out_unary<zentorch::UNARY_POST_OP::POST_OP_NONE>(
@@ -241,7 +241,8 @@ AOTITorchError aoti_torch_cpu_zentorch_qlinear_out(
         stable_optional_from_handle(B),
         stable_optional_from_handle(output_scales),
         stable_optional_from_handle(output_zero_points),
-        pointer_to_optional<c10::ScalarType>(output_dtype), zentorch_op_name);
+        pointer_to_optional<c10::ScalarType>(output_dtype), is_weight_prepacked,
+        zentorch_op_name);
   });
 }
 
@@ -251,7 +252,7 @@ AOTITorchError aoti_torch_cpu_zentorch_qlinear_relu_out(
     AtenTensorHandle W_scales, AtenTensorHandle W_zero_points,
     AtenTensorHandle *B, AtenTensorHandle *output_scales,
     AtenTensorHandle *output_zero_points, const int32_t *output_dtype,
-    const char *zentorch_op_name) {
+    bool is_weight_prepacked, const char *zentorch_op_name) {
   AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
     torch::stable::Tensor result = stable_from_handle(out);
     zentorch::zentorch_qlinear_out_unary<zentorch::UNARY_POST_OP::RELU>(
@@ -261,7 +262,8 @@ AOTITorchError aoti_torch_cpu_zentorch_qlinear_relu_out(
         stable_optional_from_handle(B),
         stable_optional_from_handle(output_scales),
         stable_optional_from_handle(output_zero_points),
-        pointer_to_optional<c10::ScalarType>(output_dtype), zentorch_op_name);
+        pointer_to_optional<c10::ScalarType>(output_dtype), is_weight_prepacked,
+        zentorch_op_name);
   });
 }
 

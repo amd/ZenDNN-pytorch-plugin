@@ -84,7 +84,8 @@ void zendnnl_quantized_matmul_impl(
     const std::vector<torch::stable::Tensor> &post_op_buffers,
     const std::optional<torch::stable::Tensor> &output_scales,
     const std::optional<torch::stable::Tensor> &output_zero_points,
-    const int64_t output_stride, std::string zentorch_op_name) {
+    const int64_t output_stride, const bool is_weight_prepacked,
+    std::string zentorch_op_name) {
 
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
@@ -129,6 +130,14 @@ void zendnnl_quantized_matmul_impl(
   const bool is_input_quantized =
       input.scalar_type() == c10::kByte || input.scalar_type() == c10::kChar;
   const auto input_zero_points_defined = input_zero_points.defined();
+
+  ZENTORCH_CHECK(!is_weight_prepacked || (!input_zero_points_defined &&
+                                          !weight_zero_points.defined()),
+                 "zentorch_qlinear does not support prepacked weights along "
+                 "with input or weight zero points, since the quantized kernel "
+                 "computes its zero point compensation from the un-blocked "
+                 "weight.");
+
   torch::stable::Tensor q_input;
 
   if (!is_input_quantized) {
@@ -220,10 +229,10 @@ void zendnnl_quantized_matmul_impl(
           sizes_to_int64_vec(output_zero_points_t.sizes());
     }
 
-    zendnnl_direct_kernel(
-        is_input_quantized ? input : q_input, weight, bias_t, result, 1.0f,
-        post_op_ids, post_op_buffers, true /* is_weight_const */,
-        false /* is_weight_prepacked */, zentorch_op_name, quantization_params);
+    zendnnl_direct_kernel(is_input_quantized ? input : q_input, weight, bias_t,
+                          result, 1.0f, post_op_ids, post_op_buffers,
+                          true /* is_weight_const */, is_weight_prepacked,
+                          zentorch_op_name, quantization_params);
 
     return;
   }
@@ -278,7 +287,7 @@ void zendnnl_quantized_matmul_impl(
 
   tensor_t z_q_weight = tensor_t();
   set_zendnnl_tensor_attributes(
-      weight, z_q_weight, "z_q_weight", false /* is_weight_prepacked */,
+      weight, z_q_weight, "z_q_weight", is_weight_prepacked,
       {} /* tensor_sizes */, {} /* tensor_strides */,
       {} /* tensor_aligned_sizes */, -1 /* nbytes */,
       z_weight_scales_opt_ref /*, z_weight_zero_points_opt_ref*/);
@@ -361,25 +370,6 @@ void zendnnl_quantized_matmul_impl(
   LOG(INFO) << "Finished executing: " << __FUNCTION__ << "!\n";
 }
 
-void zentorch_quantized_matmul_impl(
-    const torch::stable::Tensor &input, const torch::stable::Tensor &weight,
-    const std::optional<torch::stable::Tensor> &bias,
-    torch::stable::Tensor &result, const torch::stable::Tensor &input_scales,
-    const torch::stable::Tensor &input_zero_points,
-    const torch::stable::Tensor &weight_scales,
-    const torch::stable::Tensor &weight_zero_points,
-    const std::vector<int64_t> &post_op_ids,
-    const std::vector<torch::stable::Tensor> &post_op_buffers,
-    const std::optional<torch::stable::Tensor> &output_scales,
-    const std::optional<torch::stable::Tensor> &output_zero_points,
-    const int64_t output_stride, std::string zentorch_op_name) {
-
-  zendnnl_quantized_matmul_impl(
-      input, weight, bias, result, input_scales, input_zero_points,
-      weight_scales, weight_zero_points, post_op_ids, post_op_buffers,
-      output_scales, output_zero_points, output_stride, zentorch_op_name);
-}
-
 template <UNARY_POST_OP fuse>
 void zentorch_qlinear_out_unary(
     torch::stable::Tensor &result, const torch::stable::Tensor &input,
@@ -392,7 +382,7 @@ void zentorch_qlinear_out_unary(
     const std::optional<torch::stable::Tensor> &output_scales,
     const std::optional<torch::stable::Tensor> &output_zero_points,
     const std::optional<c10::ScalarType> &output_dtype,
-    std::string zentorch_op_name) {
+    bool is_weight_prepacked, std::string zentorch_op_name) {
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
 
@@ -427,13 +417,13 @@ void zentorch_qlinear_out_unary(
   // Set unary post ops.
   std::vector<torch::stable::Tensor> post_op_buffers = {};
   std::vector<int64_t> post_op_ids = {fuse};
-  LOG(INFO) << "Calling zentorch_quantized_matmul_impl from " << __FUNCTION__
+  LOG(INFO) << "Calling zendnnl_quantized_matmul_impl from " << __FUNCTION__
             << "!\n";
-  zentorch_quantized_matmul_impl(
+  zendnnl_quantized_matmul_impl(
       input_2d_view, weight_transposed, bias, result_2d_view, input_scales,
       input_zero_points, weight_scales, weight_zero_points, post_op_ids,
       post_op_buffers, output_scales, output_zero_points, output_stride,
-      zentorch_op_name);
+      is_weight_prepacked, zentorch_op_name);
 }
 
 template <UNARY_POST_OP fuse>
@@ -447,7 +437,7 @@ torch::stable::Tensor zentorch_qlinear_unary(
     const std::optional<torch::stable::Tensor> &output_scales,
     const std::optional<torch::stable::Tensor> &output_zero_points,
     const std::optional<c10::ScalarType> &output_dtype,
-    std::string zentorch_op_name) {
+    bool is_weight_prepacked, std::string zentorch_op_name) {
 
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
@@ -463,7 +453,8 @@ torch::stable::Tensor zentorch_qlinear_unary(
   zentorch_qlinear_out_unary<fuse>(
       result, input, weight, input_scales, input_zero_points, weight_scales,
       weight_zero_points, bias, output_scales, output_zero_points,
-      std::optional<c10::ScalarType>(out_dtype), zentorch_op_name);
+      std::optional<c10::ScalarType>(out_dtype), is_weight_prepacked,
+      zentorch_op_name);
 
   return result;
 }
@@ -481,7 +472,7 @@ inline torch::stable::Tensor zentorch_qlinear_binary_binary(
     const std::optional<torch::stable::Tensor> &output_scales,
     const std::optional<torch::stable::Tensor> &output_zero_points,
     const std::optional<c10::ScalarType> &output_dtype,
-    std::string zentorch_op_name) {
+    bool is_weight_prepacked, std::string zentorch_op_name) {
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
 
@@ -526,13 +517,13 @@ inline torch::stable::Tensor zentorch_qlinear_binary_binary(
                                                         binary2_input_2d_view};
   std::vector<int64_t> post_op_ids = {fuse1, fuse2};
 
-  LOG(INFO) << "Calling zentorch_quantized_matmul_impl from " << __FUNCTION__
+  LOG(INFO) << "Calling zendnnl_quantized_matmul_impl from " << __FUNCTION__
             << "!\n";
-  zentorch_quantized_matmul_impl(
+  zendnnl_quantized_matmul_impl(
       input_2d_view, weight_transposed, bias, result_2d_view, input_scales,
       input_zero_points, weight_scales, weight_zero_points, post_op_ids,
       post_op_buffers, output_scales, output_zero_points,
-      result_2d_view.stride(0), zentorch_op_name);
+      result_2d_view.stride(0), is_weight_prepacked, zentorch_op_name);
   return result;
 }
 
@@ -544,31 +535,34 @@ STABLE_TORCH_LIBRARY_FRAGMENT(zentorch, m) {
         "Tensor weight_scales, Tensor weight_zero_points, Tensor? bias, "
         "Tensor? output_scales, "
         "Tensor? output_zero_points, "
-        "ScalarType? output_dtype=None, str zentorch_op_name="
-        "'zentorch::zentorch_qlinear') -> Tensor");
+        "ScalarType? output_dtype=None, *, bool is_weight_prepacked=False, "
+        "str zentorch_op_name='zentorch::zentorch_qlinear') "
+        "-> Tensor");
   m.def("zentorch_qlinear_relu(Tensor input, Tensor weight, "
         "Tensor input_scales, Tensor input_zero_points, "
         "Tensor weight_scales, Tensor weight_zero_points, Tensor? bias, "
         "Tensor? output_scales, "
         "Tensor? output_zero_points, "
-        "ScalarType? output_dtype=None, str zentorch_op_name="
-        "'zentorch::zentorch_qlinear_relu') -> Tensor");
+        "ScalarType? output_dtype=None, *, bool is_weight_prepacked=False, "
+        "str zentorch_op_name='zentorch::zentorch_qlinear_relu') "
+        "-> Tensor");
   m.def("zentorch_qlinear_sigmoid(Tensor input, Tensor weight, "
         "Tensor input_scales, Tensor input_zero_points, "
         "Tensor weight_scales, Tensor weight_zero_points, Tensor? bias, "
         "Tensor? output_scales, "
         "Tensor? output_zero_points, "
-        "ScalarType? output_dtype=None, str zentorch_op_name="
-        "'zentorch::zentorch_qlinear_sigmoid') -> Tensor");
+        "ScalarType? output_dtype=None, *, bool is_weight_prepacked=False, "
+        "str zentorch_op_name='zentorch::zentorch_qlinear_sigmoid') "
+        "-> Tensor");
 
   m.def("zentorch_qlinear_mul_add(Tensor input, Tensor weight, "
         "Tensor input_scales, Tensor input_zero_points, "
         "Tensor weight_scales, Tensor weight_zero_points, Tensor "
         " mul_input, Tensor add_input, Tensor? bias, "
         "Tensor? output_scales, "
-        "Tensor? output_zero_points, ScalarType? output_dtype=None, str "
-        "zentorch_op_name="
-        "'zentorch::zentorch_qlinear_mul_add') -> Tensor");
+        "Tensor? output_zero_points, ScalarType? output_dtype=None, "
+        "*, bool is_weight_prepacked=False, str "
+        "zentorch_op_name='zentorch::zentorch_qlinear_mul_add') -> Tensor");
 
   m.def("zentorch_qlinear.out(Tensor(a!) out,"
         "Tensor input, Tensor weight, "
@@ -576,6 +570,7 @@ STABLE_TORCH_LIBRARY_FRAGMENT(zentorch, m) {
         "Tensor weight_scales, Tensor weight_zero_points, Tensor? bias, "
         "Tensor? output_scales, "
         "Tensor? output_zero_points, ScalarType? output_dtype=None, "
+        "*, bool is_weight_prepacked=False, "
         "str zentorch_op_name='zentorch::zentorch_qlinear.out') -> ()");
   m.def("zentorch_qlinear_relu.out(Tensor(a!) out,"
         "Tensor input, Tensor weight, "
@@ -584,8 +579,8 @@ STABLE_TORCH_LIBRARY_FRAGMENT(zentorch, m) {
         "Tensor? bias, "
         "Tensor? output_scales, "
         "Tensor? output_zero_points, ScalarType? output_dtype=None, "
-        "str zentorch_op_name="
-        "'zentorch::zentorch_qlinear_relu.out') -> ()");
+        "*, bool is_weight_prepacked=False, "
+        "str zentorch_op_name='zentorch::zentorch_qlinear_relu.out') -> ()");
 }
 
 STABLE_TORCH_LIBRARY_IMPL(zentorch, CPU, m) {

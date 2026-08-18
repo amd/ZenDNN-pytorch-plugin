@@ -437,6 +437,11 @@ def meta_zentorch_weight_prepack_for_linear(weight):
     return weight.new_empty(weight.size())
 
 
+@register_meta("zentorch_weight_prepack_for_dynamic_qlinear")
+def meta_zentorch_weight_prepack_for_dynamic_qlinear(weight, zentorch_op_name=None):
+    return weight.new_empty(weight.size())
+
+
 @register_meta("zentorch_qlinear", "out")
 def meta_zentorch_qlinear_out(
     out,
@@ -450,6 +455,8 @@ def meta_zentorch_qlinear_out(
     output_scales,
     output_zero_points,
     output_dtype,
+    is_weight_prepacked=False,
+    zentorch_op_name=None,
 ):
     return
 
@@ -467,6 +474,8 @@ def meta_zentorch_qlinear_relu_out(
     output_scales,
     output_zero_points,
     output_dtype,
+    is_weight_prepacked=False,
+    zentorch_op_name=None,
 ):
     return
 
@@ -483,6 +492,8 @@ def meta_zentorch_qlinear(
     output_scales,
     output_zero_points,
     output_dtype=None,
+    is_weight_prepacked=False,
+    zentorch_op_name=None,
 ):
     if output_dtype is None:
         output_dtype = torch.float32
@@ -503,6 +514,8 @@ def meta_zentorch_qlinear_relu(
     output_scales,
     output_zero_points,
     output_dtype=None,
+    is_weight_prepacked=False,
+    zentorch_op_name=None,
 ):
     return meta_zentorch_qlinear(
         input,
@@ -530,6 +543,8 @@ def meta_zentorch_qlinear_sigmoid(
     output_scales,
     output_zero_points,
     output_dtype=None,
+    is_weight_prepacked=False,
+    zentorch_op_name=None,
 ):
     return meta_zentorch_qlinear(
         input,
@@ -559,6 +574,8 @@ def meta_zentorch_qlinear_mul_add(
     output_scales,
     output_zero_points,
     output_dtype=None,
+    is_weight_prepacked=False,
+    zentorch_op_name=None,
 ):
     if output_dtype is None:
         output_dtype = torch.float32
@@ -932,6 +949,7 @@ make_fallback(torch.ops.zentorch.zentorch_horizontal_embedding_group)
 # direct `aoti_torch_cpu_zentorch_*` C-shim call instead of the slow
 # `custom_op_wrapper` Python path); they must NOT go through `make_fallback`.
 make_fallback(torch.ops.zentorch.zentorch_weight_prepack_for_linear)
+make_fallback(torch.ops.zentorch.zentorch_weight_prepack_for_dynamic_qlinear)
 make_fallback(torch.ops.zentorch.zentorch_group_matmul.out)
 make_fallback(torch.ops.zentorch.zentorch_woq_repack_weight)
 make_fallback(torch.ops.zentorch.zentorch_woq_repack_from_int4pack)
