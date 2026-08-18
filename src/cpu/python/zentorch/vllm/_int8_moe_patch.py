@@ -4,34 +4,20 @@
 # ******************************************************************************
 """Out-of-tree W8A8 INT8 fused-MoE via zentorch (no vLLM changes).
 
-Mirrors the in-tree modular structure so the FusedMoE runner (and torch.compile)
-drive it through the standard modular-kernel path. Monkey-patches
-``CompressedTensorsW8A8Int8MoEMethod`` at import time to:
-* allocate per-expert biases in ``create_weights`` (gpt-oss),
-* reorder w13 to the interleaved SwiGLU-OAI layout (Zen-gated) and build a
-  ``FusedMoEKernel`` backed by a plugin-defined ``CPUInt8Experts`` in
-  ``process_weights_after_loading``,
-* pass biases through ``get_fused_moe_quant_config``.
-
-``CPUInt8Experts`` runs the FFN via ``zentorch_fused_moe`` (>=2 active experts)
-with a per-expert ``zentorch_dynamic_qlinear`` fallback (<2), wrapped in an
-opaque custom op for torch.compile.
-
-Only installed on Zen CPU (enforced by the plugin's register()) and when the
-zentorch MoE ops are present; otherwise vLLM's own int8 MoE backend is used.
+Patches ``CompressedTensorsW8A8Int8MoEMethod`` to run the FFN through
+``zentorch_fused_moe``, as monolithic experts on the standard FusedMoE path.
 """
 
 from __future__ import annotations
 
-import importlib
 import importlib.util
 import inspect
 import sys
 
 import torch
-import torch.nn.functional as F
 
 from zentorch._logging import get_logger
+from zentorch._utils import _SUPPORTED_MOE_ACTIVATIONS
 
 logger = get_logger(__name__)
 
@@ -40,40 +26,6 @@ _TARGET_MODULE = (
     "compressed_tensors_moe.compressed_tensors_moe_w8a8_int8"
 )
 _TARGET_CLASS = "CompressedTensorsW8A8Int8MoEMethod"
-
-
-# --------------------------------------------------------------------------- #
-# Native activation fallbacks (per-expert loop path).
-# --------------------------------------------------------------------------- #
-def _silu_and_mul_native(x: torch.Tensor) -> torch.Tensor:
-    d = x.shape[-1] // 2
-    return F.silu(x[..., :d]) * x[..., d:]
-
-
-def _gelu_and_mul_native(x: torch.Tensor) -> torch.Tensor:
-    d = x.shape[-1] // 2
-    return F.gelu(x[..., :d]) * x[..., d:]
-
-
-def _swigluoai_and_mul_native(
-    x: torch.Tensor,
-    *,
-    alpha: float = 1.702,  # gpt-oss defaults; match ZenDNN swiglu_oai_mul.
-    limit: float = 7.0,
-) -> torch.Tensor:
-    # Interleaved SwiGLU-OAI (gate=x[..., 0::2], up=x[..., 1::2]); w13 is
-    # reordered to interleaved in process_weights_after_loading so this
-    # fallback and the fused op share the layout.
-    gate = x[..., 0::2].clamp(max=limit)
-    up = x[..., 1::2].clamp(min=-limit, max=limit)
-    return (up + 1) * gate * torch.sigmoid(alpha * gate)
-
-
-_ACT_FN = {
-    "silu": _silu_and_mul_native,
-    "gelu": _gelu_and_mul_native,
-    "swigluoai": _swigluoai_and_mul_native,
-}
 
 
 # --------------------------------------------------------------------------- #
@@ -93,116 +45,32 @@ def _cpu_int8_moe(
     topk_weights: torch.Tensor,
     topk_ids: torch.Tensor,
     activation: str,
-    expert_map: torch.Tensor | None,
     apply_router_weight_on_input: bool,
 ) -> None:
-    E, _, K = w1.shape
-    M, top_k = topk_ids.shape
-
-    # Map global -> local expert ids; -1 marks remote-rank tokens.
-    local_topk_ids_raw = (
-        expert_map[topk_ids.to(torch.long)] if expert_map is not None else topk_ids
-    )
-
-    flat_local = local_topk_ids_raw.reshape(-1)
-    valid_local = flat_local[flat_local >= 0]
-    num_active_local = (
-        int(valid_local.unique().numel()) if valid_local.numel() > 0 else 0
-    )
-
-    # Fast path: >=2 active local experts -> single fused-MoE call.
-    if num_active_local >= 2:
-        if expert_map is not None and (local_topk_ids_raw < 0).any():
-            invalid = local_topk_ids_raw < 0
-            local_topk_ids_fast = local_topk_ids_raw.masked_fill(invalid, 0)
-            topk_weights_fast = topk_weights.masked_fill(invalid, 0.0)
-        else:
-            local_topk_ids_fast = local_topk_ids_raw
-            topk_weights_fast = topk_weights
-
-        input_for_op = hidden_states
-        if apply_router_weight_on_input:
-            if top_k != 1:
-                raise NotImplementedError(
-                    "zen int8 MoE: apply_router_weight_on_input=True is only "
-                    f"supported for top_k=1 (got top_k={top_k})."
-                )
-            input_for_op = hidden_states.mul(topk_weights_fast.to(hidden_states.dtype))
-
-        torch.ops.zentorch.zentorch_fused_moe(
-            output,
-            input_for_op,
-            w1,
-            w2,
-            w13_bias,
-            w2_bias,
-            topk_weights_fast.to(torch.float32).contiguous(),
-            local_topk_ids_fast.to(torch.int32).contiguous(),
-            apply_router_weight_on_input,  # skip_weighted
-            activation,
-            w13_scale,
-            w2_scale,
-        )
-        return
-
-    # Fallback: per-expert zentorch_dynamic_qlinear loop (<2 active experts,
-    # e.g. M==1/top_k==1 decode). Handles arbitrary (M, top_k) shapes.
-    if num_active_local == 0:
-        output.zero_()
-        return
-
-    act_fn = _ACT_FN[activation]
-    local_topk_ids = local_topk_ids_raw
-
-    input_for_loop = hidden_states
+    x = hidden_states
     if apply_router_weight_on_input:
+        top_k = topk_ids.shape[1]
         if top_k != 1:
             raise NotImplementedError(
                 "zen int8 MoE: apply_router_weight_on_input=True is only "
                 f"supported for top_k=1 (got top_k={top_k})."
             )
-        input_for_loop = hidden_states.mul(topk_weights.to(hidden_states.dtype))
+        x = hidden_states.mul(topk_weights.to(hidden_states.dtype))
 
-    flat_ids = local_topk_ids.reshape(-1)
-    sort_idx = torch.argsort(flat_ids.to(torch.int64), stable=True)
-    sorted_local_ids = flat_ids[sort_idx]
-    token_src = sort_idx // top_k
-    sorted_tokens = input_for_loop.index_select(0, token_src)
-
-    # Exclude remote tokens (-1, produced by expert_map under EP) from the
-    # per-expert counts. Using clamp(min=0) would miscount every -1 as expert 0,
-    # inflating counts_cpu[0] by num_remote and corrupting the cursor slicing
-    # below (the -1 block is skipped separately via `cursor = num_remote`).
-    num_remote = int((sorted_local_ids == -1).sum().item())
-    per_expert_counts = torch.bincount(
-        sorted_local_ids[sorted_local_ids >= 0], minlength=E
+    torch.ops.zentorch.zentorch_fused_moe(
+        output,
+        x,
+        w1,
+        w2,
+        w13_bias,
+        w2_bias,
+        topk_weights.to(torch.float32).contiguous(),
+        topk_ids.to(torch.int32).contiguous(),
+        apply_router_weight_on_input,  # skip_weighted
+        activation,
+        w13_scale,
+        w2_scale,
     )
-
-    sorted_out = sorted_tokens.new_zeros(sorted_tokens.size(0), K)
-    counts_cpu = per_expert_counts.cpu().tolist()
-    cursor = num_remote
-    for e in range(E):
-        n_e = int(counts_cpu[e])
-        if n_e == 0:
-            continue
-        tokens_e = sorted_tokens[cursor : cursor + n_e]
-        bias13_e = None if w13_bias is None else w13_bias[e]
-        gate_up = torch.ops.zentorch.zentorch_dynamic_qlinear(
-            tokens_e, w1[e], w13_scale[e], bias13_e
-        )
-        act_out = act_fn(gate_up)
-        bias2_e = None if w2_bias is None else w2_bias[e]
-        sorted_out[cursor : cursor + n_e] = torch.ops.zentorch.zentorch_dynamic_qlinear(
-            act_out, w2[e], w2_scale[e], bias2_e
-        )
-        cursor += n_e
-
-    unsorted_out = torch.empty_like(sorted_out)
-    unsorted_out.index_copy_(0, sort_idx, sorted_out)
-    per_topk = unsorted_out.view(M, top_k, K)
-    if not apply_router_weight_on_input:
-        per_topk = per_topk * topk_weights.view(M, top_k, 1).to(per_topk.dtype)
-    torch.sum(per_topk, dim=1, out=output)
 
 
 @_cpu_int8_moe.register_fake
@@ -218,7 +86,6 @@ def _cpu_int8_moe_fake(
     topk_weights,
     topk_ids,
     activation,
-    expert_map,
     apply_router_weight_on_input,
 ) -> None:
     return None
@@ -235,13 +102,14 @@ def _register_int8_moe_patches(mod) -> None:
     from vllm.model_executor.layers.fused_moe.config import (
         FusedMoEParallelConfig,
         FusedMoEQuantConfig,
+        RoutingMethodType,
+    )
+    from vllm.model_executor.layers.fused_moe.fused_moe_method_base import (
+        FusedMoEMethodBase,
     )
     from vllm.model_executor.layers.fused_moe.oracle.int8 import (
-        make_int8_moe_kernel,
+        Int8MoeBackend,
         make_int8_moe_quant_config,
-    )
-    from vllm.model_executor.layers.fused_moe.topk_weight_and_reduce import (
-        TopKWeightAndReduceNoOP,
     )
     from vllm.model_executor.layers.quantization.utils.quant_utils import (
         QuantKey,
@@ -250,7 +118,14 @@ def _register_int8_moe_patches(mod) -> None:
     )
     from vllm.model_executor.utils import set_weight_attrs
 
-    class CPUInt8Experts(mk.FusedMoEExpertsModular):
+    try:
+        from vllm.model_executor.layers.fused_moe.cpu_fused_moe import select_experts
+    except ImportError:
+        # vLLM moved select_experts into the experts package after 0.26.0.
+        # TODO: drop once 0.27 support lands in zentorch.
+        from vllm.model_executor.layers.fused_moe.experts.cpu_moe import select_experts
+
+    class CPUInt8Experts(mk.FusedMoEExpertsMonolithic):
         """CPU FusedMoE experts for W8A8 int8 dispatching through zentorch."""
 
         def __init__(self, moe_config, quant_config):
@@ -282,12 +157,12 @@ def _register_int8_moe_patches(mod) -> None:
 
         @property
         def expects_unquantized_inputs(self) -> bool:
-            # zentorch_dynamic_qlinear quantizes activations itself.
+            # zentorch_fused_moe quantizes activations itself.
             return True
 
         @staticmethod
         def _supports_current_device() -> bool:
-            return has_zentorch_op(["zentorch_fused_moe", "zentorch_dynamic_qlinear"])
+            return has_zentorch_op(["zentorch_fused_moe"])
 
         @staticmethod
         def _supports_no_act_and_mul() -> bool:
@@ -305,7 +180,7 @@ def _register_int8_moe_patches(mod) -> None:
 
         @staticmethod
         def _supports_activation(activation: MoEActivation) -> bool:
-            return activation.value in _ACT_FN
+            return activation.value in _SUPPORTED_MOE_ACTIVATIONS
 
         @staticmethod
         def _supports_parallel_config(
@@ -313,49 +188,65 @@ def _register_int8_moe_patches(mod) -> None:
         ) -> bool:
             return True
 
-        def supports_expert_map(self) -> bool:
+        @staticmethod
+        def _supports_routing_method(
+            routing_method: RoutingMethodType,
+            weight_key: QuantKey | None,
+            activation_key: QuantKey | None,
+        ) -> bool:
+            # Routing runs in select_experts(), so opt into CPUExpertsInt8's set.
+            # vllm/model_executor/layers/fused_moe/experts/cpu_moe.py
+            return routing_method in (
+                RoutingMethodType.Default,
+                RoutingMethodType.Renormalize,
+                RoutingMethodType.RenormalizeNaive,
+            )
+
+        @staticmethod
+        def _supports_router_logits_dtype(
+            router_logits_dtype: torch.dtype | None,
+            routing_method: RoutingMethodType,
+        ) -> bool:
             return True
 
-        def workspace_shapes(
-            self,
-            M: int,
-            N: int,
-            K: int,
-            topk: int,
-            global_num_experts: int,
-            local_num_experts: int,
-            expert_tokens_meta,
-            activation: MoEActivation,
-        ):
-            # Framework uses these only for activation-chunking heuristics; we
-            # allocate our own scratch inside the op.
-            activation_out_dim = self.adjust_N_for_activation(N, activation)
-            workspace13 = (M, topk, max(activation_out_dim, K))
-            workspace2 = (M, topk, max(N, K))
-            output = (M, K)
-            return (workspace13, workspace2, output)
-
-        def finalize_weight_and_reduce_impl(self) -> mk.TopKWeightAndReduce:
-            return TopKWeightAndReduceNoOP()
+        def supports_expert_map(self) -> bool:
+            return False
 
         def apply(
             self,
-            output: torch.Tensor,
             hidden_states: torch.Tensor,
             w1: torch.Tensor,
             w2: torch.Tensor,
-            topk_weights: torch.Tensor,
-            topk_ids: torch.Tensor,
+            router_logits: torch.Tensor,
             activation: MoEActivation,
             global_num_experts: int,
             expert_map: torch.Tensor | None,
             a1q_scale: torch.Tensor | None,
-            a2_scale: torch.Tensor | None,
-            workspace13: torch.Tensor,
-            workspace2: torch.Tensor,
-            expert_tokens_meta,
             apply_router_weight_on_input: bool,
-        ) -> None:
+            num_expert_group: int | None = None,
+            e_score_correction_bias: torch.Tensor | None = None,
+            routed_scaling_factor: float | None = None,
+            topk_group: int | None = None,
+        ) -> torch.Tensor:
+            topk_weights, topk_ids = select_experts(
+                hidden_states=hidden_states,
+                router_logits=router_logits,
+                use_grouped_topk=num_expert_group is not None,
+                top_k=self.moe_config.experts_per_token,
+                renormalize=self.moe_config.routing_method
+                in (
+                    RoutingMethodType.Renormalize,
+                    RoutingMethodType.RenormalizeNaive,
+                ),
+                topk_group=topk_group,
+                num_expert_group=num_expert_group,
+                scoring_func="softmax",
+                routed_scaling_factor=(
+                    routed_scaling_factor if routed_scaling_factor is not None else 1.0
+                ),
+                e_score_correction_bias=e_score_correction_bias,
+            )
+            output = torch.empty_like(hidden_states)
             torch.ops.zentorch_vllm.cpu_int8_moe(
                 output,
                 hidden_states,
@@ -368,19 +259,19 @@ def _register_int8_moe_patches(mod) -> None:
                 topk_weights,
                 topk_ids,
                 activation.value,
-                expert_map,
                 apply_router_weight_on_input,
             )
+            return output
 
     method_cls = getattr(mod, _TARGET_CLASS)
     orig_init = method_cls.__init__
     orig_create_weights = method_cls.create_weights
+    orig_process_weights = method_cls.process_weights_after_loading
     int8_quant_config_params = inspect.signature(make_int8_moe_quant_config).parameters
-    int8_kernel_params = inspect.signature(make_int8_moe_kernel).parameters
 
     def _zen_init(self, *args, **kwargs):
-        # Vanilla __init__'s select_int8_moe_backend() raises on CPU; neutralize
-        # it, then install our own experts class for the modular kernel.
+        # select_int8_moe_backend() has no out-of-tree hook and raises on Zen CPU.
+        # vllm/model_executor/layers/fused_moe/oracle/int8.py
         saved = getattr(mod, "select_int8_moe_backend", None)
         if saved is not None:
             mod.select_int8_moe_backend = lambda *a, **k: (None, None)
@@ -390,6 +281,9 @@ def _register_int8_moe_patches(mod) -> None:
             if saved is not None:
                 mod.select_int8_moe_backend = saved
         self.experts_cls = CPUInt8Experts
+        # From 0.25 on the helpers take a backend; before that there is no CPU
+        # member to name.
+        self.int8_backend = getattr(Int8MoeBackend, "CPU", None)
 
     def _zen_create_weights(
         self,
@@ -412,8 +306,8 @@ def _register_int8_moe_patches(mod) -> None:
             params_dtype,
             **extra_weight_attrs,
         )
-        # Per-expert biases (e.g. gpt-oss) are not allocated by vanilla 0.23
-        # create_weights; add them so the per-expert loader has a target.
+        # The int8 method never allocates per-expert biases (e.g. gpt-oss).
+        # vllm/model_executor/layers/fused_moe/unquantized_fused_moe_method.py
         if getattr(self.moe, "has_bias", False) and (
             getattr(layer, "w13_bias", None) is None
         ):
@@ -436,8 +330,8 @@ def _register_int8_moe_patches(mod) -> None:
             set_weight_attrs(w2_bias, extra_weight_attrs)
 
     def _zen_get_fused_moe_quant_config(self, layer) -> "FusedMoEQuantConfig":
-        # Pass per-expert biases through so CPUInt8Experts can add them
-        # (vanilla's config omits w1_bias/w2_bias).
+        # make_int8_moe_quant_config takes w1_bias/w2_bias; the method never does.
+        # vllm/model_executor/layers/fused_moe/oracle/int8.py
         quant_config_kwargs = {
             "w1_scale": layer.w13_weight_scale,
             "w2_scale": layer.w2_weight_scale,
@@ -491,22 +385,24 @@ def _register_int8_moe_patches(mod) -> None:
                 layer.w13_bias.data[:, perm].contiguous(), requires_grad=False
             )
 
+    def _keep_weights_unpacked(int8_backend, w13, w2, layer=None, w13_scale=None):
+        return w13, w2
+
     def _zen_process_weights_after_loading(self, layer) -> None:
+        # Relayout first: the original then reads w13 scales/biases to build
+        # the quant config and the MoE kernel.
         _maybe_permute_swigluoai(layer)
-        self.moe_quant_config = self.get_fused_moe_quant_config(layer)
-        kernel_kwargs = {
-            "moe_quant_config": self.moe_quant_config,
-            "moe_config": self.moe,
-            "experts_cls": CPUInt8Experts,
-            "routing_tables": layer._expert_routing_tables(),
-        }
-        # vLLM 0.25 adds int8_backend to the kernel constructor; keep older
-        # supported releases on the original call shape.
-        if "int8_backend" in int8_kernel_params:
-            kernel_kwargs["int8_backend"] = self.int8_backend
-        self.moe_kernel = make_int8_moe_kernel(
-            **kernel_kwargs,
-        )
+        # vLLM <= 0.26.0 VNNI-prepacks w13/w2; zentorch needs plain [N, K] int8.
+        # TODO: drop once 0.26.0 and earlier are out of the supported set.
+        # vllm/model_executor/layers/fused_moe/oracle/int8.py
+        saved = getattr(mod, "convert_to_int8_moe_kernel_format", None)
+        if saved is not None:
+            mod.convert_to_int8_moe_kernel_format = _keep_weights_unpacked
+        try:
+            orig_process_weights(self, layer)
+        finally:
+            if saved is not None:
+                mod.convert_to_int8_moe_kernel_format = saved
         logger.info(
             "[zentorch] W8A8 int8 MoE kernel built via OOT patch "
             "(experts=%d, has_bias=%s)",
@@ -514,10 +410,31 @@ def _register_int8_moe_patches(mod) -> None:
             getattr(layer, "w13_bias", None) is not None,
         )
 
+    def _zen_apply_monolithic(self, layer, x, router_logits, input_ids=None):
+        assert self.moe_kernel is not None
+        return self.moe_kernel.apply_monolithic(
+            x,
+            layer.w13_weight,
+            layer.w2_weight,
+            router_logits,
+            activation=layer.activation,
+            global_num_experts=layer.global_num_experts,
+            expert_map=layer.expert_map,
+            apply_router_weight_on_input=layer.apply_router_weight_on_input,
+            num_expert_group=layer.num_expert_group,
+            topk_group=layer.topk_group,
+            e_score_correction_bias=layer.e_score_correction_bias,
+            routed_scaling_factor=layer.routed_scaling_factor,
+        )
+
     method_cls.__init__ = _zen_init
     method_cls.create_weights = _zen_create_weights
     method_cls.get_fused_moe_quant_config = _zen_get_fused_moe_quant_config
     method_cls.process_weights_after_loading = _zen_process_weights_after_loading
+    # On 0.22.1-0.24 the base apply_monolithic only raises, so supply upstream's
+    # forwarding body. TODO: drop once VLLM_MIN_VERSION moves past 0.24.
+    if method_cls.apply_monolithic is FusedMoEMethodBase.apply_monolithic:
+        method_cls.apply_monolithic = _zen_apply_monolithic
 
 
 def _apply_int8_moe_patch_to_module(mod) -> bool:
@@ -534,18 +451,16 @@ def _apply_int8_moe_patch_to_module(mod) -> bool:
             return True
         # Skip patching if this zentorch build lacks the MoE ops.
         zt = getattr(torch.ops, "zentorch", None)
-        if zt is None or not all(
-            hasattr(zt, op) for op in ("zentorch_fused_moe", "zentorch_dynamic_qlinear")
-        ):
+        if zt is None or not hasattr(zt, "zentorch_fused_moe"):
             logger.warning(
-                "[zentorch] zentorch_fused_moe/zentorch_dynamic_qlinear not "
-                "available; leaving vLLM's int8 MoE backend unpatched."
+                "[zentorch] zentorch_fused_moe not available; leaving vLLM's "
+                "int8 MoE backend unpatched."
             )
             return False
         _register_int8_moe_patches(mod)
         cls._zentorch_int8_moe_patched = True
         logger.info(
-            "[zentorch] Patched %s: modular zentorch W8A8 int8 MoE",
+            "[zentorch] Patched %s: monolithic zentorch W8A8 int8 MoE",
             _TARGET_CLASS,
         )
         return True

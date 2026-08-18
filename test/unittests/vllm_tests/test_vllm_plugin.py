@@ -530,8 +530,6 @@ class TestPatchRegistration(unittest.TestCase):
             "Int8MoE",
             "GptOssMoELoader",
             "MixtralMoELoader",
-            "MoETopkCpu",
-            "CpuWorkerWorkspace",
             "RMSNorm",
             "CppIndirectAssert",
             "CPURunnerShutdown",

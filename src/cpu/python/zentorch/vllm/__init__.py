@@ -79,12 +79,6 @@ from zentorch.vllm._gptoss_moe_loader_patch import (  # noqa: E402, F401
 from zentorch.vllm._mixtral_moe_loader_patch import (  # noqa: E402, F401
     _apply_mixtral_loader_patch_impl,
 )
-from zentorch.vllm._moe_topk_cpu_patch import (  # noqa: E402, F401
-    _apply_moe_topk_cpu_patch_impl,
-)
-from zentorch.vllm._cpu_worker_workspace_patch import (  # noqa: E402, F401
-    _apply_cpu_worker_workspace_patch_impl,
-)
 
 logger = get_logger(__name__)
 
@@ -313,27 +307,6 @@ class MixtralMoELoaderPatch:
     @classmethod
     def apply(cls) -> bool:
         return _apply_mixtral_loader_patch_impl()
-
-
-@vllm_version(VLLM_V22_1, VLLM_V23, VLLM_V24, VLLM_V25, VLLM_V25_1, VLLM_V26)
-class MoETopkCpuPatch:
-    """Register a CPU implementation for the ``_moe_C`` top-k router ops so the
-    MoE router works on CPU. See ``_moe_topk_cpu_patch.py``."""
-
-    @classmethod
-    def apply(cls) -> bool:
-        return _apply_moe_topk_cpu_patch_impl()
-
-
-@vllm_version(VLLM_V22_1, VLLM_V23, VLLM_V24, VLLM_V25, VLLM_V25_1, VLLM_V26)
-class CpuWorkerWorkspacePatch:
-    """Initialize the modular-kernel workspace manager on the CPU worker so
-    modular MoE kernels can allocate scratch. See
-    ``_cpu_worker_workspace_patch.py``."""
-
-    @classmethod
-    def apply(cls) -> bool:
-        return _apply_cpu_worker_workspace_patch_impl()
 
 
 @vllm_version_range(min_ver=VLLM_MIN_VERSION, max_ver=VLLM_MAX_VERSION)
@@ -1674,8 +1647,6 @@ def _register_patches():
     manager.register("Int8MoE", Int8MoEPatch)
     manager.register("GptOssMoELoader", GptOssMoELoaderPatch)
     manager.register("MixtralMoELoader", MixtralMoELoaderPatch)
-    manager.register("MoETopkCpu", MoETopkCpuPatch)
-    manager.register("CpuWorkerWorkspace", CpuWorkerWorkspacePatch)
     manager.register("RMSNorm", RMSNormPatch)
     manager.register("CppIndirectAssert", CppIndirectAssertPatch)
     manager.register("CPURunnerShutdown", CPURunnerShutdownPatch)

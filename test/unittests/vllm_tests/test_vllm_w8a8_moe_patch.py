@@ -27,9 +27,6 @@ _W8A8_MOE_PATCHES = {
     "Int8MoE": "Int8MoEPatch",
     "GptOssMoELoader": "GptOssMoELoaderPatch",
     "MixtralMoELoader": "MixtralMoELoaderPatch",
-    "MoERunnerCompile": "MoERunnerCompilePatch",
-    "MoETopkCpu": "MoETopkCpuPatch",
-    "CpuWorkerWorkspace": "CpuWorkerWorkspacePatch",
 }
 
 
