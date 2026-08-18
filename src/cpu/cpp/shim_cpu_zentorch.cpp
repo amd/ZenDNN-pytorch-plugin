@@ -28,7 +28,7 @@ namespace {
 // them.
 inline torch::stable::Tensor stable_from_handle(AtenTensorHandle orig_handle);
 inline std::optional<torch::stable::Tensor>
-stable_from_handle(AtenTensorHandle *handle);
+stable_optional_from_handle(AtenTensorHandle *handle);
 
 // Build a `std::vector<torch::stable::Tensor>` from a contiguous array of
 // non-null AtenTensorHandles -- the C ABI representation of `Tensor[]`.
@@ -82,9 +82,12 @@ inline torch::stable::Tensor stable_from_handle(AtenTensorHandle orig_handle) {
   return torch::stable::Tensor(new_handle);
 }
 
-// Overload for optional Tensor? args (C ABI: potentially-null handle pointer).
+// Bridge an optional Tensor? arg (C ABI: potentially-null handle pointer).
+// AtenTensorHandle is already a pointer type, so optional args arrive as
+// AtenTensorHandle* (null -> std::nullopt, otherwise
+// stable_from_handle(*handle)).
 inline std::optional<torch::stable::Tensor>
-stable_from_handle(AtenTensorHandle *handle) {
+stable_optional_from_handle(AtenTensorHandle *handle) {
   if (handle && *handle) {
     return stable_from_handle(*handle);
   }
@@ -144,8 +147,9 @@ AOTITorchError aoti_torch_cpu_zentorch_qlinear(
             stable_from_handle(X), stable_from_handle(W),
             stable_from_handle(X_scales), stable_from_handle(X_zero_points),
             stable_from_handle(W_scales), stable_from_handle(W_zero_points),
-            stable_from_handle(B), stable_from_handle(output_scales),
-            stable_from_handle(output_zero_points),
+            stable_optional_from_handle(B),
+            stable_optional_from_handle(output_scales),
+            stable_optional_from_handle(output_zero_points),
             pointer_to_optional<c10::ScalarType>(output_dtype),
             zentorch_op_name);
     *ret0 = handle_from_stable(tmp_result);
@@ -165,8 +169,9 @@ AOTITorchError aoti_torch_cpu_zentorch_qlinear_relu(
             stable_from_handle(X), stable_from_handle(W),
             stable_from_handle(X_scales), stable_from_handle(X_zero_points),
             stable_from_handle(W_scales), stable_from_handle(W_zero_points),
-            stable_from_handle(B), stable_from_handle(output_scales),
-            stable_from_handle(output_zero_points),
+            stable_optional_from_handle(B),
+            stable_optional_from_handle(output_scales),
+            stable_optional_from_handle(output_zero_points),
             pointer_to_optional<c10::ScalarType>(output_dtype),
             zentorch_op_name);
     *ret0 = handle_from_stable(tmp_result);
@@ -186,8 +191,9 @@ AOTITorchError aoti_torch_cpu_zentorch_qlinear_sigmoid(
             stable_from_handle(X), stable_from_handle(W),
             stable_from_handle(X_scales), stable_from_handle(X_zero_points),
             stable_from_handle(W_scales), stable_from_handle(W_zero_points),
-            stable_from_handle(B), stable_from_handle(output_scales),
-            stable_from_handle(output_zero_points),
+            stable_optional_from_handle(B),
+            stable_optional_from_handle(output_scales),
+            stable_optional_from_handle(output_zero_points),
             pointer_to_optional<c10::ScalarType>(output_dtype),
             zentorch_op_name);
     *ret0 = handle_from_stable(tmp_result);
@@ -210,8 +216,9 @@ AOTITorchError aoti_torch_cpu_zentorch_qlinear_mul_add(
             stable_from_handle(X_scales), stable_from_handle(X_zero_points),
             stable_from_handle(W_scales), stable_from_handle(W_zero_points),
             stable_from_handle(mul_input), stable_from_handle(add_input),
-            stable_from_handle(B), stable_from_handle(output_scales),
-            stable_from_handle(output_zero_points),
+            stable_optional_from_handle(B),
+            stable_optional_from_handle(output_scales),
+            stable_optional_from_handle(output_zero_points),
             pointer_to_optional<c10::ScalarType>(output_dtype),
             zentorch_op_name);
     *ret0 = handle_from_stable(tmp_result);
@@ -231,8 +238,9 @@ AOTITorchError aoti_torch_cpu_zentorch_qlinear_out(
         result, stable_from_handle(X), stable_from_handle(W),
         stable_from_handle(X_scales), stable_from_handle(X_zero_points),
         stable_from_handle(W_scales), stable_from_handle(W_zero_points),
-        stable_from_handle(B), stable_from_handle(output_scales),
-        stable_from_handle(output_zero_points),
+        stable_optional_from_handle(B),
+        stable_optional_from_handle(output_scales),
+        stable_optional_from_handle(output_zero_points),
         pointer_to_optional<c10::ScalarType>(output_dtype), zentorch_op_name);
   });
 }
@@ -250,8 +258,9 @@ AOTITorchError aoti_torch_cpu_zentorch_qlinear_relu_out(
         result, stable_from_handle(X), stable_from_handle(W),
         stable_from_handle(X_scales), stable_from_handle(X_zero_points),
         stable_from_handle(W_scales), stable_from_handle(W_zero_points),
-        stable_from_handle(B), stable_from_handle(output_scales),
-        stable_from_handle(output_zero_points),
+        stable_optional_from_handle(B),
+        stable_optional_from_handle(output_scales),
+        stable_optional_from_handle(output_zero_points),
         pointer_to_optional<c10::ScalarType>(output_dtype), zentorch_op_name);
   });
 }
@@ -338,8 +347,8 @@ AOTITorchError aoti_torch_cpu_zentorch_quant_embedding_bag(
         stable_from_handle(weight), stable_from_handle(indices),
         stable_from_handle(offsets), num_bits_per_weight,
         static_cast<c10::ScalarType>(output_dtype), scale_grad_by_freq, mode,
-        sparse, stable_from_handle(per_sample_weights), include_last_offset,
-        padding_idx, zentorch_op_name);
+        sparse, stable_optional_from_handle(per_sample_weights),
+        include_last_offset, padding_idx, zentorch_op_name);
     *ret0 = handle_from_stable(tmp_result);
   });
 }
@@ -356,8 +365,8 @@ AOTITorchError aoti_torch_cpu_zentorch_quant_embedding_bag_out(
         output_stable, stable_from_handle(weight), stable_from_handle(indices),
         stable_from_handle(offsets), num_bits_per_weight,
         static_cast<c10::ScalarType>(output_dtype), scale_grad_by_freq, mode,
-        sparse, stable_from_handle(per_sample_weights), include_last_offset,
-        padding_idx, zentorch_op_name);
+        sparse, stable_optional_from_handle(per_sample_weights),
+        include_last_offset, padding_idx, zentorch_op_name);
   });
 }
 
@@ -441,8 +450,8 @@ AOTITorchError aoti_torch_cpu_zentorch_woq_linear(
         zentorch::UNARY_POST_OP::POST_OP_NONE>(
         stable_from_handle(X), stable_from_handle(W),
         stable_from_handle(weight_scales),
-        stable_from_handle(weight_zero_points), stable_from_handle(B),
-        zentorch_op_name);
+        stable_optional_from_handle(weight_zero_points),
+        stable_optional_from_handle(B), zentorch_op_name);
     *ret0 = handle_from_stable(tmp_result);
   });
 }
@@ -456,8 +465,8 @@ AOTITorchError aoti_torch_cpu_zentorch_woq_linear_relu(
         zentorch::zentorch_woq_linear_unary<zentorch::UNARY_POST_OP::RELU>(
             stable_from_handle(X), stable_from_handle(W),
             stable_from_handle(weight_scales),
-            stable_from_handle(weight_zero_points), stable_from_handle(B),
-            zentorch_op_name);
+            stable_optional_from_handle(weight_zero_points),
+            stable_optional_from_handle(B), zentorch_op_name);
     *ret0 = handle_from_stable(tmp_result);
   });
 }
@@ -471,8 +480,8 @@ AOTITorchError aoti_torch_cpu_zentorch_woq_linear_sigmoid(
         zentorch::zentorch_woq_linear_unary<zentorch::UNARY_POST_OP::SIGMOID>(
             stable_from_handle(X), stable_from_handle(W),
             stable_from_handle(weight_scales),
-            stable_from_handle(weight_zero_points), stable_from_handle(B),
-            zentorch_op_name);
+            stable_optional_from_handle(weight_zero_points),
+            stable_optional_from_handle(B), zentorch_op_name);
     *ret0 = handle_from_stable(tmp_result);
   });
 }
@@ -486,8 +495,8 @@ AOTITorchError aoti_torch_cpu_zentorch_woq_linear_gelu_tanh(
         zentorch::zentorch_woq_linear_unary<zentorch::UNARY_POST_OP::GELU_TANH>(
             stable_from_handle(X), stable_from_handle(W),
             stable_from_handle(weight_scales),
-            stable_from_handle(weight_zero_points), stable_from_handle(B),
-            zentorch_op_name);
+            stable_optional_from_handle(weight_zero_points),
+            stable_optional_from_handle(B), zentorch_op_name);
     *ret0 = handle_from_stable(tmp_result);
   });
 }
@@ -501,8 +510,8 @@ AOTITorchError aoti_torch_cpu_zentorch_woq_linear_gelu_erf(
         zentorch::zentorch_woq_linear_unary<zentorch::UNARY_POST_OP::GELU_ERF>(
             stable_from_handle(X), stable_from_handle(W),
             stable_from_handle(weight_scales),
-            stable_from_handle(weight_zero_points), stable_from_handle(B),
-            zentorch_op_name);
+            stable_optional_from_handle(weight_zero_points),
+            stable_optional_from_handle(B), zentorch_op_name);
     *ret0 = handle_from_stable(tmp_result);
   });
 }
@@ -516,8 +525,9 @@ AOTITorchError aoti_torch_cpu_zentorch_woq_linear_add(
         zentorch::UNARY_POST_OP::POST_OP_NONE, zentorch::BINARY_POST_OP::ADD>(
         stable_from_handle(X), stable_from_handle(W),
         stable_from_handle(weight_scales),
-        stable_from_handle(weight_zero_points), stable_from_handle(add_input),
-        stable_from_handle(B), zentorch_op_name);
+        stable_optional_from_handle(weight_zero_points),
+        stable_from_handle(add_input), stable_optional_from_handle(B),
+        zentorch_op_name);
     *ret0 = handle_from_stable(tmp_result);
   });
 }
@@ -532,8 +542,9 @@ AOTITorchError aoti_torch_cpu_zentorch_woq_linear_mul_add(
         zentorch::BINARY_POST_OP::MUL, zentorch::BINARY_POST_OP::ADD>(
         stable_from_handle(X), stable_from_handle(W),
         stable_from_handle(weight_scales),
-        stable_from_handle(weight_zero_points), stable_from_handle(mul_input),
-        stable_from_handle(add_input), stable_from_handle(B), zentorch_op_name);
+        stable_optional_from_handle(weight_zero_points),
+        stable_from_handle(mul_input), stable_from_handle(add_input),
+        stable_optional_from_handle(B), zentorch_op_name);
     *ret0 = handle_from_stable(tmp_result);
   });
 }
@@ -548,9 +559,9 @@ AOTITorchError aoti_torch_cpu_zentorch_woq_linear_add_add(
         zentorch::BINARY_POST_OP::ADD, zentorch::BINARY_POST_OP::ADD>(
         stable_from_handle(X), stable_from_handle(W),
         stable_from_handle(weight_scales),
-        stable_from_handle(weight_zero_points), stable_from_handle(add_input),
-        stable_from_handle(add_input_2), stable_from_handle(B),
-        zentorch_op_name);
+        stable_optional_from_handle(weight_zero_points),
+        stable_from_handle(add_input), stable_from_handle(add_input_2),
+        stable_optional_from_handle(B), zentorch_op_name);
     *ret0 = handle_from_stable(tmp_result);
   });
 }
@@ -682,11 +693,10 @@ AOTITorchError aoti_torch_cpu_zentorch_dynamic_qlinear(
     AtenTensorHandle *B, const char *zentorch_op_name, AtenTensorHandle *ret0) {
   AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
     auto tmp_result = zentorch::zentorch_dynamic_qlinear(
-        *tensor_handle_to_tensor_pointer(X),
-        *tensor_handle_to_tensor_pointer(W),
-        *tensor_handle_to_tensor_pointer(weight_scales),
-        pointer_to_optional<at::Tensor>(B), zentorch_op_name);
-    *ret0 = new_tensor_handle(std::move(tmp_result));
+        stable_from_handle(X), stable_from_handle(W),
+        stable_from_handle(weight_scales), stable_optional_from_handle(B),
+        zentorch_op_name);
+    *ret0 = handle_from_stable(tmp_result);
   });
 }
 
@@ -697,12 +707,11 @@ AOTITorchError aoti_torch_cpu_zentorch_dynamic_qlinear_out(
     AtenTensorHandle weight_scales, AtenTensorHandle *B,
     const char *zentorch_op_name) {
   AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+    auto out_stable = stable_from_handle(out);
     zentorch::zentorch_dynamic_qlinear_out(
-        *tensor_handle_to_tensor_pointer(X),
-        *tensor_handle_to_tensor_pointer(W),
-        *tensor_handle_to_tensor_pointer(weight_scales),
-        pointer_to_optional<at::Tensor>(B), zentorch_op_name,
-        *tensor_handle_to_tensor_pointer(out));
+        stable_from_handle(X), stable_from_handle(W),
+        stable_from_handle(weight_scales), stable_optional_from_handle(B),
+        zentorch_op_name, out_stable);
   });
 }
 
