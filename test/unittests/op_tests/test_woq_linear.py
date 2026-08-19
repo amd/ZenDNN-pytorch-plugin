@@ -220,26 +220,13 @@ class Test_WOQLinear(WOQTestCase):
             "zentorch_woq_linear_gelu_erf does not match dq linear + gelu(erf).",
         )
 
-    # Test Fails while generalising test
-    # Bug has been reported Jira ID: ZENAI-3714
-    # @WOQTestCase.hypothesis_params_woq_itr(
-    #     dtype_opt_list=woq_dtypes,
-    #     batch_opt_list=batch_opt,
-    #     in_features_opt_list=in_features_opt,
-    #     out_features_opt_list=out_features_opt,
-    #     bias_opt_list=woq_bias_opt,
-    #     input_dim_opt_list=input_dim_opt,
-    # )
-
     @WOQTestCase.hypothesis_params_woq_itr(
         dtype_opt_list=woq_dtypes,
-        batch_opt_list=[2, 3],
-        in_features_opt_list=[64],
-        out_features_opt_list=[48],
-        bias_opt_list=[False],
+        batch_opt_list=batch_opt,
+        in_features_opt_list=in_features_opt,
+        out_features_opt_list=out_features_opt,
+        bias_opt_list=woq_bias_opt,
         input_dim_opt_list=input_dim_opt,
-        pRange=Range(1, 3),
-        qRange=Range(1, 3),
     )
     @torch.inference_mode()
     def test_woq_linear_mul_add_accuracy(self):
@@ -250,9 +237,11 @@ class Test_WOQLinear(WOQTestCase):
         zentorch_result = torch.ops.zentorch.zentorch_woq_linear_mul_add(
             input_t, packed_weight_t, scale_t, None, mul_input, add_input, bias_t
         )
+
         woq_dtype = DataTypes.get_torch_type(self.data.dtype)
-        dq_output = torch.nn.functional.linear(input_t, dq_weight.to(woq_dtype), bias_t)
-        pytorch_result = dq_output * mul_input + add_input
+        bias_ref = bias_t.float() if bias_t is not None else None
+        dq_output = torch.nn.functional.linear(input_t.float(), dq_weight.float(), bias_ref)
+        pytorch_result = (dq_output * mul_input.float() + add_input.float()).to(woq_dtype)
         self._assert_woq_fused_output_sanity(zentorch_result, "zentorch_woq_linear_mul_add")
         self.assertTrue(
             torch.allclose(zentorch_result, pytorch_result, rtol=self._fused_rtol, atol=self._fused_atol),

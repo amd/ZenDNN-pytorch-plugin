@@ -132,7 +132,7 @@ class Test_WOQ_Linear_Binary_Binary_Fusion(WOQTestCase):
         if cpp_wrapper:
             FileCheck().check(f"aoti_torch_cpu_{counter_key}_out").run(cpp_code)
 
-        # Pinned bias_opt_list to [True]: the add-add fusion has no bias check, so bias=False
+        # Pinned bias_opt_list to [True]: the binary-binary fusion has no bias check, so bias=False
         # falls back to plain zentorch_woq_linear and skips the fusion under test.
         # The bias check was not added since the bias=False pattern was not
         # observed in any models.
@@ -162,23 +162,14 @@ class Test_WOQ_Linear_Binary_Binary_Fusion(WOQTestCase):
             cpp_wrapper=cpp_wrapper,
         )
 
-    # Test Fails while generalising test
-    # Bug has been reported Jira ID: ZENAI-3717
-    # @WOQTestCase.hypothesis_params_woq_itr(
-    #     dtype_opt_list=woq_dtypes,
-    #     batch_opt_list=batch_opt,
-    #     in_features_opt_list=in_features_opt,
-    #     out_features_opt_list=out_features_opt,
-    #     bias_opt_list=woq_bias_opt,
-    # )
     # Caches off: the `.out` lowering counter is skipped on an FxGraphCache hit.
     # Smallest sweep, so it carries the counter check for the binary-binary family.
     @inductor_config.patch(force_disable_caches=True)
     @WOQTestCase.hypothesis_params_woq_itr(
         dtype_opt_list=woq_dtypes,
-        batch_opt_list=[4],
-        in_features_opt_list=[64],
-        out_features_opt_list=[48],
+        batch_opt_list=batch_opt,
+        in_features_opt_list=in_features_opt,
+        out_features_opt_list=out_features_opt,
         bias_opt_list=[True],
         freeze_list=freeze_opt,
         cpp_wrapper_opt_list=cpp_wrapper_opt,
