@@ -46,11 +46,13 @@ zentorch_gdn_chunk_gated_delta_rule_fwd_h(
   ZENTORCH_CHECK(BT > 0 && (BT & (BT - 1)) == 0,
                  "chunk_size must be a positive power of 2; got ", BT);
 
-  ZENTORCH_CHECK(at::isFloatingType(k.scalar_type()),
-                 "k must be floating-point; got ", k.scalar_type());
+  ZENTORCH_CHECK(is_supported_gdn_float(k.scalar_type()),
+                 "k must be fp16, bf16, or fp32; got ", k.scalar_type());
   ZENTORCH_CHECK(u.scalar_type() == k.scalar_type() &&
                      w.scalar_type() == k.scalar_type(),
                  "u/w/k must share dtype");
+  ZENTORCH_CHECK(is_supported_gdn_float(g.scalar_type()),
+                 "g must be fp16, bf16, or fp32; got ", g.scalar_type());
 
   ZENTORCH_CHECK(cu_seqlens.dim() == 1 &&
                      cu_seqlens.scalar_type() == c10::ScalarType::Int,
@@ -88,6 +90,9 @@ zentorch_gdn_chunk_gated_delta_rule_fwd_h(
   at::Tensor g_f = g.to(c10::kFloat);
   c10::optional<at::Tensor> initial_state_f;
   if (initial_state.has_value() && initial_state->numel() > 0) {
+    ZENTORCH_CHECK(is_supported_gdn_float(initial_state->scalar_type()),
+                   "initial_state must be fp16, bf16, or fp32; got ",
+                   initial_state->scalar_type());
     initial_state_f = initial_state->to(c10::kFloat);
   }
 

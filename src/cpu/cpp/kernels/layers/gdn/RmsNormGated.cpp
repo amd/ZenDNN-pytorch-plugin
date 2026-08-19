@@ -34,13 +34,14 @@ at::Tensor zentorch_gdn_rms_norm_gated(const at::Tensor &x,
   ZENTORCH_CHECK(weight.dim() == 1 && weight.size(0) == V,
                  "weight must be 1-D of size V=", V);
 
-  ZENTORCH_CHECK(at::isFloatingType(x.scalar_type()),
-                 "x must be floating-point; got ", x.scalar_type());
+  ZENTORCH_CHECK(is_supported_gdn_float(x.scalar_type()),
+                 "x must be fp16, bf16, or fp32; got ", x.scalar_type());
   ZENTORCH_CHECK(z.scalar_type() == x.scalar_type(),
                  "z must share dtype with x; got x=", x.scalar_type(),
                  " z=", z.scalar_type());
-  ZENTORCH_CHECK(at::isFloatingType(weight.scalar_type()),
-                 "weight must be floating-point; got ", weight.scalar_type());
+  ZENTORCH_CHECK(is_supported_gdn_float(weight.scalar_type()),
+                 "weight must be fp16, bf16, or fp32; got ",
+                 weight.scalar_type());
 
   const bool is_silu = (activation == "silu" || activation == "swish");
   const bool is_sigmoid = (activation == "sigmoid");

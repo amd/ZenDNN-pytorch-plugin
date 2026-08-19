@@ -46,6 +46,13 @@ inline bool zendnn_fp16_device_check() {
   return is_fp16_supported;
 }
 
+// GDN kernels compute in fp32 and only accept model dtypes they can convert
+// from; fp64 is excluded so a caller's fp64 tensor cannot silently promote a
+// whole kernel to double precision.
+constexpr bool is_supported_gdn_float(c10::ScalarType dtype) {
+  return dtype == c10::kFloat || dtype == c10::kHalf || dtype == c10::kBFloat16;
+}
+
 enum EMBEDDING_BAG_ALGO {
   // Add unary post ops here
   SUM = 0,

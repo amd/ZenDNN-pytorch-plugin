@@ -42,11 +42,15 @@ at::Tensor zentorch_gdn_chunk_fwd_o(const at::Tensor &q, const at::Tensor &k,
   ZENTORCH_CHECK(BT > 0 && (BT & (BT - 1)) == 0,
                  "chunk_size must be a positive power of 2; got ", BT);
 
-  ZENTORCH_CHECK(at::isFloatingType(q.scalar_type()),
-                 "q must be floating-point; got ", q.scalar_type());
+  ZENTORCH_CHECK(is_supported_gdn_float(q.scalar_type()),
+                 "q must be fp16, bf16, or fp32; got ", q.scalar_type());
   ZENTORCH_CHECK(k.scalar_type() == q.scalar_type() &&
                      v.scalar_type() == q.scalar_type(),
                  "q/k/v must share dtype");
+  ZENTORCH_CHECK(is_supported_gdn_float(h.scalar_type()),
+                 "h must be fp16, bf16, or fp32; got ", h.scalar_type());
+  ZENTORCH_CHECK(is_supported_gdn_float(g.scalar_type()),
+                 "g must be fp16, bf16, or fp32; got ", g.scalar_type());
 
   ZENTORCH_CHECK(cu_seqlens.dim() == 1 &&
                      cu_seqlens.scalar_type() == c10::ScalarType::Int,

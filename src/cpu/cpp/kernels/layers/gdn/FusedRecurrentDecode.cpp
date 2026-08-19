@@ -354,8 +354,7 @@ void dispatch_dtypes(const at::Tensor &mixed_qkv, const at::Tensor &a,
     } else if (state_dt == c10::ScalarType::Half) {                            \
       ZENTORCH_GDN_RUN(model_t, c10::Half);                                    \
     } else {                                                                   \
-      ZENTORCH_CHECK(false,                                                    \
-                     "initial_state dtype must be fp32 or bf16 or fp16; got ", \
+      ZENTORCH_CHECK(false, "initial_state must be fp16, bf16, or fp32; got ", \
                      state_dt);                                                \
     }                                                                          \
   } while (0)
@@ -367,7 +366,7 @@ void dispatch_dtypes(const at::Tensor &mixed_qkv, const at::Tensor &a,
   } else if (model_dt == c10::ScalarType::Half) {
     ZENTORCH_GDN_DISPATCH_STATE(c10::Half);
   } else {
-    ZENTORCH_CHECK(false, "mixed_qkv dtype must be fp32 or bf16 or fp16; got ",
+    ZENTORCH_CHECK(false, "mixed_qkv must be fp16, bf16, or fp32; got ",
                    model_dt);
   }
 
@@ -424,10 +423,12 @@ void zentorch_gdn_fused_recurrent_gated_delta_rule_packed_decode(
   ZENTORCH_CHECK(H > 0 && HV % H == 0, "Invalid head config");
   const int64_t r = HV / H;
 
-  ZENTORCH_CHECK(at::isFloatingType(A_log.scalar_type()),
-                 "A_log must be floating-point");
-  ZENTORCH_CHECK(at::isFloatingType(dt_bias.scalar_type()),
-                 "dt_bias must be floating-point");
+  ZENTORCH_CHECK(is_supported_gdn_float(A_log.scalar_type()),
+                 "A_log must be fp16, bf16, or fp32; got ",
+                 A_log.scalar_type());
+  ZENTORCH_CHECK(is_supported_gdn_float(dt_bias.scalar_type()),
+                 "dt_bias must be fp16, bf16, or fp32; got ",
+                 dt_bias.scalar_type());
   ZENTORCH_CHECK(ssm_state_indices.scalar_type() == c10::ScalarType::Int,
                  "ssm_state_indices must be int32");
 

@@ -501,15 +501,15 @@ std::tuple<at::Tensor, at::Tensor> zentorch_gdn_chunk_gated_delta_rule_fwd(
   ZENTORCH_CHECK(g.size(0) == B && g.size(1) == T && g.size(2) == H,
                  "g must be (B, T, H)");
 
-  ZENTORCH_CHECK(at::isFloatingType(q.scalar_type()),
-                 "q must be floating-point; got ", q.scalar_type());
+  ZENTORCH_CHECK(is_supported_gdn_float(q.scalar_type()),
+                 "q must be fp16, bf16, or fp32; got ", q.scalar_type());
   ZENTORCH_CHECK(k.scalar_type() == q.scalar_type() &&
                      v.scalar_type() == q.scalar_type(),
                  "q, k, v must share dtype");
-  ZENTORCH_CHECK(at::isFloatingType(g.scalar_type()),
-                 "g must be floating-point");
-  ZENTORCH_CHECK(at::isFloatingType(beta.scalar_type()),
-                 "beta must be floating-point");
+  ZENTORCH_CHECK(is_supported_gdn_float(g.scalar_type()),
+                 "g must be fp16, bf16, or fp32; got ", g.scalar_type());
+  ZENTORCH_CHECK(is_supported_gdn_float(beta.scalar_type()),
+                 "beta must be fp16, bf16, or fp32; got ", beta.scalar_type());
 
   ZENTORCH_CHECK(cu_seqlens.dim() == 1 &&
                      cu_seqlens.scalar_type() == c10::ScalarType::Int,
@@ -540,6 +540,9 @@ std::tuple<at::Tensor, at::Tensor> zentorch_gdn_chunk_gated_delta_rule_fwd(
                        initial_state->size(2) == V_dim &&
                        initial_state->size(3) == K_dim,
                    "initial_state shape must be (N, H, V, K)");
+    ZENTORCH_CHECK(is_supported_gdn_float(initial_state->scalar_type()),
+                   "initial_state must be fp16, bf16, or fp32; got ",
+                   initial_state->scalar_type());
   }
 
   const auto fp32_options = k.options().dtype(c10::kFloat);
@@ -591,7 +594,10 @@ std::tuple<at::Tensor, at::Tensor> zentorch_gdn_chunk_gated_delta_rule_fwd(
   } else if (g_dt == c10::ScalarType::Half) {
     run_g_cumsum<c10::Half>(g, cu_seqlens, chunk_indices, BT, g_cum, H);
   } else {
-    ZENTORCH_CHECK(false, "g dtype must be fp32 or bf16 or fp16; got ", g_dt);
+    // Defensive fallback: g is already constrained to fp16/bf16/fp32 by the
+    // is_supported_gdn_float check above, so this arm is unreachable in
+    // practice; kept to fail loudly if a new dtype is dispatched here.
+    ZENTORCH_CHECK(false, "g must be fp16, bf16, or fp32; got ", g_dt);
   }
 
   at::Tensor k_f = k.to(c10::kFloat).contiguous();

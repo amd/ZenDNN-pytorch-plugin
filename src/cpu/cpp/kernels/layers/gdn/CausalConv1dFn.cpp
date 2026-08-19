@@ -65,10 +65,21 @@ at::Tensor zentorch_gdn_causal_conv1d_fn(
   if (bias.has_value()) {
     ZENTORCH_CHECK(bias->dim() == 1 && bias->size(0) == dim,
                    "bias must be 1-D of size dim=", dim);
+    ZENTORCH_CHECK(is_supported_gdn_float(bias->scalar_type()),
+                   "bias must be fp16, bf16, or fp32; got ",
+                   bias->scalar_type());
   }
 
-  ZENTORCH_CHECK(at::isFloatingType(x.scalar_type()),
-                 "x must be floating-point; got ", x.scalar_type());
+  ZENTORCH_CHECK(is_supported_gdn_float(x.scalar_type()),
+                 "x must be fp16, bf16, or fp32; got ", x.scalar_type());
+  ZENTORCH_CHECK(is_supported_gdn_float(weight.scalar_type()),
+                 "weight must be fp16, bf16, or fp32; got ",
+                 weight.scalar_type());
+  // compute_dtype is taken from conv_states below, so it must also be one of
+  // the supported floating dtypes to keep the kernel out of fp64.
+  ZENTORCH_CHECK(is_supported_gdn_float(conv_states.scalar_type()),
+                 "conv_states must be fp16, bf16, or fp32; got ",
+                 conv_states.scalar_type());
 
   const bool is_silu = (activation == "silu" || activation == "swish");
   const bool is_none = activation.empty();

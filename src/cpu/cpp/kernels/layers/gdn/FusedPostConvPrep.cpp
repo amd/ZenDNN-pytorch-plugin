@@ -48,16 +48,18 @@ zentorch_gdn_fused_post_conv_prep(
   ZENTORCH_CHECK(dt_bias.dim() == 1 && dt_bias.size(0) == HV,
                  "dt_bias must be 1-D of size HV=", HV);
 
-  ZENTORCH_CHECK(at::isFloatingType(conv_output.scalar_type()),
-                 "conv_output must be floating-point; got ",
+  ZENTORCH_CHECK(is_supported_gdn_float(conv_output.scalar_type()),
+                 "conv_output must be fp16, bf16, or fp32; got ",
                  conv_output.scalar_type());
   ZENTORCH_CHECK(a.scalar_type() == conv_output.scalar_type() &&
                      b.scalar_type() == conv_output.scalar_type(),
                  "a/b must share dtype with conv_output");
-  ZENTORCH_CHECK(at::isFloatingType(A_log.scalar_type()),
-                 "A_log must be floating-point");
-  ZENTORCH_CHECK(at::isFloatingType(dt_bias.scalar_type()),
-                 "dt_bias must be floating-point");
+  ZENTORCH_CHECK(is_supported_gdn_float(A_log.scalar_type()),
+                 "A_log must be fp16, bf16, or fp32; got ",
+                 A_log.scalar_type());
+  ZENTORCH_CHECK(is_supported_gdn_float(dt_bias.scalar_type()),
+                 "dt_bias must be fp16, bf16, or fp32; got ",
+                 dt_bias.scalar_type());
 
   const auto model_dtype = conv_output.scalar_type();
 

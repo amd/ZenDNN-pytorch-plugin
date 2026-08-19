@@ -79,19 +79,24 @@ at::Tensor zentorch_gdn_fused_sigmoid_gating_delta_rule_update(
                      initial_state.size(2) == V_dim &&
                      initial_state.size(3) == K_dim,
                  "initial_state must be (num_cache_lines, HV, V, K)");
+  ZENTORCH_CHECK(is_supported_gdn_float(initial_state.scalar_type()),
+                 "initial_state must be fp16, bf16, or fp32; got ",
+                 initial_state.scalar_type());
 
-  ZENTORCH_CHECK(at::isFloatingType(q.scalar_type()),
-                 "q must be floating-point; got ", q.scalar_type());
+  ZENTORCH_CHECK(is_supported_gdn_float(q.scalar_type()),
+                 "q must be fp16, bf16, or fp32; got ", q.scalar_type());
   ZENTORCH_CHECK(k.scalar_type() == q.scalar_type() &&
                      v.scalar_type() == q.scalar_type(),
                  "q/k/v must share dtype");
   ZENTORCH_CHECK(a.scalar_type() == q.scalar_type() &&
                      b.scalar_type() == q.scalar_type(),
                  "a/b must share dtype with q");
-  ZENTORCH_CHECK(at::isFloatingType(A_log.scalar_type()),
-                 "A_log must be floating-point");
-  ZENTORCH_CHECK(at::isFloatingType(dt_bias.scalar_type()),
-                 "dt_bias must be floating-point");
+  ZENTORCH_CHECK(is_supported_gdn_float(A_log.scalar_type()),
+                 "A_log must be fp16, bf16, or fp32; got ",
+                 A_log.scalar_type());
+  ZENTORCH_CHECK(is_supported_gdn_float(dt_bias.scalar_type()),
+                 "dt_bias must be fp16, bf16, or fp32; got ",
+                 dt_bias.scalar_type());
 
   ZENTORCH_CHECK(cu_seqlens.dim() == 1 &&
                      cu_seqlens.scalar_type() == c10::ScalarType::Int,

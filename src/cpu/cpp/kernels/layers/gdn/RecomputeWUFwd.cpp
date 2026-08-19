@@ -46,12 +46,17 @@ std::tuple<at::Tensor, at::Tensor> zentorch_gdn_recompute_w_u_fwd(
   ZENTORCH_CHECK(A.size(0) == B && A.size(1) == T && A.size(2) == H,
                  "A must be (B, T, H, BT)");
 
-  ZENTORCH_CHECK(at::isFloatingType(k.scalar_type()),
-                 "k must be floating-point; got ", k.scalar_type());
+  ZENTORCH_CHECK(is_supported_gdn_float(k.scalar_type()),
+                 "k must be fp16, bf16, or fp32; got ", k.scalar_type());
   ZENTORCH_CHECK(v.scalar_type() == k.scalar_type(),
                  "v dtype must match k dtype");
-  ZENTORCH_CHECK(at::isFloatingType(beta.scalar_type()),
-                 "beta must be floating-point; got ", beta.scalar_type());
+  ZENTORCH_CHECK(is_supported_gdn_float(beta.scalar_type()),
+                 "beta must be fp16, bf16, or fp32; got ", beta.scalar_type());
+  ZENTORCH_CHECK(is_supported_gdn_float(g_cumsum.scalar_type()),
+                 "g_cumsum must be fp16, bf16, or fp32; got ",
+                 g_cumsum.scalar_type());
+  ZENTORCH_CHECK(is_supported_gdn_float(A.scalar_type()),
+                 "A must be fp16, bf16, or fp32; got ", A.scalar_type());
 
   ZENTORCH_CHECK(cu_seqlens.dim() == 1 &&
                      cu_seqlens.scalar_type() == c10::ScalarType::Int,

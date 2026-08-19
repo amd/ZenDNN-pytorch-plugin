@@ -44,12 +44,12 @@ at::Tensor zentorch_gdn_chunk_scaled_dot_kkt_fwd(
   ZENTORCH_CHECK(g.sizes() == beta.sizes(),
                  "g must have the same shape as beta");
 
-  ZENTORCH_CHECK(at::isFloatingType(k.scalar_type()),
-                 "k must be floating-point; got ", k.scalar_type());
-  ZENTORCH_CHECK(at::isFloatingType(beta.scalar_type()),
-                 "beta must be floating-point; got ", beta.scalar_type());
-  ZENTORCH_CHECK(at::isFloatingType(g.scalar_type()),
-                 "g must be floating-point; got ", g.scalar_type());
+  ZENTORCH_CHECK(is_supported_gdn_float(k.scalar_type()),
+                 "k must be fp16, bf16, or fp32; got ", k.scalar_type());
+  ZENTORCH_CHECK(is_supported_gdn_float(beta.scalar_type()),
+                 "beta must be fp16, bf16, or fp32; got ", beta.scalar_type());
+  ZENTORCH_CHECK(is_supported_gdn_float(g.scalar_type()),
+                 "g must be fp16, bf16, or fp32; got ", g.scalar_type());
 
   ZENTORCH_CHECK(cu_seqlens.dim() == 1 &&
                      cu_seqlens.scalar_type() == c10::ScalarType::Int,

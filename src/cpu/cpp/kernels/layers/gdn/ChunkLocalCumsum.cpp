@@ -97,8 +97,8 @@ at::Tensor zentorch_gdn_chunk_local_cumsum(const at::Tensor &g,
   ZENTORCH_CHECK(chunk_size > 0, "chunk_size must be positive; got ",
                  chunk_size);
 
-  ZENTORCH_CHECK(at::isFloatingType(g.scalar_type()),
-                 "g must be floating-point; got ", g.scalar_type());
+  ZENTORCH_CHECK(is_supported_gdn_float(g.scalar_type()),
+                 "g must be fp16, bf16, or fp32; got ", g.scalar_type());
   ZENTORCH_CHECK(cu_seqlens.scalar_type() == c10::ScalarType::Int,
                  "cu_seqlens must be int32");
   ZENTORCH_CHECK(chunk_indices.scalar_type() == c10::ScalarType::Int,
@@ -134,7 +134,10 @@ at::Tensor zentorch_gdn_chunk_local_cumsum(const at::Tensor &g,
   } else if (g_dt == c10::ScalarType::Half) {
     ZENTORCH_GDN_RUN(c10::Half);
   } else {
-    ZENTORCH_CHECK(false, "g dtype must be fp32 or bf16 or fp16; got ", g_dt);
+    // Defensive fallback: g is already constrained to fp16/bf16/fp32 by the
+    // is_supported_gdn_float check above, so this arm is unreachable in
+    // practice; kept to fail loudly if a new dtype is dispatched here.
+    ZENTORCH_CHECK(false, "g must be fp16, bf16, or fp32; got ", g_dt);
   }
 
 #undef ZENTORCH_GDN_RUN

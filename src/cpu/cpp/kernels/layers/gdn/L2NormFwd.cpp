@@ -78,8 +78,8 @@ at::Tensor zentorch_gdn_l2norm_fwd(const at::Tensor &x, double eps,
   ZENTORCH_CHECK(x.dim() >= 1, "x must have at least one dim");
   const int64_t D = x.size(-1);
   ZENTORCH_CHECK(D >= 1, "x.size(-1) must be >= 1; got ", D);
-  ZENTORCH_CHECK(at::isFloatingType(x.scalar_type()),
-                 "x must be floating-point; got ", x.scalar_type());
+  ZENTORCH_CHECK(is_supported_gdn_float(x.scalar_type()),
+                 "x must be fp16, bf16, or fp32; got ", x.scalar_type());
   ZENTORCH_CHECK(x.stride(-1) == 1, "x last dim must be unit-stride");
 
   at::Tensor out = at::empty(x.sizes(), x.options());
@@ -104,7 +104,10 @@ at::Tensor zentorch_gdn_l2norm_fwd(const at::Tensor &x, double eps,
   } else if (x_dt == c10::ScalarType::Half) {
     ZENTORCH_GDN_RUN(c10::Half);
   } else {
-    ZENTORCH_CHECK(false, "x dtype must be fp32 or bf16 or fp16; got ", x_dt);
+    // Defensive fallback: x is already constrained to fp16/bf16/fp32 by the
+    // is_supported_gdn_float check above, so this arm is unreachable in
+    // practice; kept to fail loudly if a new dtype is dispatched here.
+    ZENTORCH_CHECK(false, "x must be fp16, bf16, or fp32; got ", x_dt);
   }
 
 #undef ZENTORCH_GDN_RUN
