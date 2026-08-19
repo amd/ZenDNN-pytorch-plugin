@@ -309,8 +309,6 @@ packages = [
 ]
 if ZENTORCH_VLLM_PLUGIN_BUILD:
     packages.append(PACKAGE_NAME + ".vllm")
-    packages.append(PACKAGE_NAME + ".vllm.layers")
-    packages.append(PACKAGE_NAME + ".vllm.layers.gdn")
 extras_require = {}
 
 with open(_build_info_path, "w") as f:

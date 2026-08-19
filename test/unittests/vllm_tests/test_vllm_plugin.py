@@ -3,1717 +3,311 @@
 # All rights reserved.
 # ******************************************************************************
 
-"""
-Unit tests for zentorch.vllm plugin.
+"""Runtime, registration, wiring, and platform tests for zentorch.vllm."""
 
-Tests verify:
-- Runtime compatibility checks for supported versions (0.20.0 - 0.26.0)
-- Version parsing logic
-- Patch registration and application
-- Individual patch functionality (oneDNN disable, CompilationConfig repr, etc.)
-- Platform configuration
-
-Runtime-supported vLLM versions: 0.20.0, 0.20.1, 0.20.2, 0.21.0, 0.22.0, 0.22.1,
-0.23.0, 0.24.0, 0.25.0, 0.25.1, 0.26.0
-Retained legacy version map: 0.15.0, 0.15.1, 0.16.0, 0.17.0, 0.17.1, 0.18.0,
-0.18.1, 0.19.0, 0.19.1
-"""
-
-import importlib.util
-import os
 import sys
 import types
 import unittest
-from pathlib import Path
-from unittest import mock
-import zentorch  # noqa: F401 - ensures zentorch native extension is loaded
+import unittest.mock
+
 import torch
-from zentorch._utils import counters
 
-from ._test_constants import TORCHAO_AVAILABLE, VLLM_AVAILABLE, vllm
-
-
-def _load_source_vllm_module():
-
-    plugin_root = Path(__file__).resolve().parents[3]
-    vllm_init = os.path.join(
-        plugin_root, "src", "cpu", "python", "zentorch", "vllm", "__init__.py"
-    )
-    spec = importlib.util.spec_from_file_location("zentorch.vllm", vllm_init)
-    zv = importlib.util.module_from_spec(spec)
-    return spec, zv
+from ._test_constants import VLLM_AVAILABLE, vllm
+from ._test_utils import load_source_vllm_module
 
 
-def _skip_if_installed_vllm_is_unsupported(test_case):
-    from packaging import version as pkg_version
-    from zentorch.vllm._core import (
-        VLLM_MAX_VERSION,
-        VLLM_V20,
-        _base_version,
-        get_version_family,
-        get_vllm_version,
-    )
+EXPECTED_PATCHES = [
+    "Gemma4HeteroConfig",
+    "TorchAO",
+    "Int8MoE",
+    "GptOssMoELoader",
+    "MixtralMoELoader",
+    "RMSNorm",
+    "FusedMoE",
+    "Da8w4Kernel",
+]
 
-    ver = get_vllm_version() or "<unknown>"
-    family = get_version_family()
-    if family is None:
-        test_case.skipTest(f"Installed vLLM {ver} is not supported")
-
-    base_ver = _base_version(ver)
-    parsed_ver = pkg_version.parse(base_ver)
-    if (
-        parsed_ver < pkg_version.parse(VLLM_V20)
-        or parsed_ver > pkg_version.parse(VLLM_MAX_VERSION)
-    ):
-        test_case.skipTest(f"Installed vLLM {ver} is not runtime-supported")
-    return family
+REMOVED_PATCHES = [
+    "CppIndirectAssert",
+    "CPURunnerShutdown",
+    "CpuZeroBlockIds",
+    "TorchcodecImportGuard",
+    "GatedDeltaNet",
+    "CPUProfiler",
+    "CompilationConfigRepr",
+    "GptOssMoEWeightRemap",
+]
 
 
-# =============================================================================
-# Version Parsing Tests
-# =============================================================================
-
-
-class TestVersionParsing(unittest.TestCase):
-    """Test version parsing logic in core.py."""
+class TestVersionContract(unittest.TestCase):
+    """Accept only the validated vLLM window on PyTorch 2.13 or newer."""
 
     def test_base_version_strips_suffixes(self):
-        """_base_version should strip dev/rc/local suffixes."""
-        from zentorch.vllm._core import _base_version
+        from zentorch.vllm import _base_version
 
+        self.assertEqual(_base_version("0.27.0rc1+cpu"), "0.27.0rc1")
         self.assertEqual(
-            _base_version("0.12.0.dev1+gb8b302cde.d20251203.cpu"), "0.12.0"
+            _base_version("0.27.0.dev1+gabc.d20260101.cpu"),
+            "0.27.0.dev1",
         )
-        self.assertEqual(_base_version("0.13.0rc1+cpu"), "0.13.0")
-        self.assertEqual(_base_version("0.13.0rc0"), "0.13.0")
-        self.assertEqual(_base_version("0.14.0rc1+cpu"), "0.14.0")
-        self.assertEqual(_base_version("0.17.1rc1+cpu"), "0.17.1")
-        self.assertEqual(_base_version("0.18.0.dev1+cpu"), "0.18.0")
+        self.assertEqual(_base_version("0.27.1+cpu"), "0.27.1")
+        self.assertEqual(_base_version("0.27.0"), "0.27.0")
 
-    def test_version_map_contains_supported_versions(self):
-        """VERSION_MAP should contain all supported base versions."""
-        from zentorch.vllm._core import _VERSION_MAP
+    def test_is_supported_vllm_accepts_validated_window(self):
+        from zentorch.vllm import is_supported_vllm
 
-        expected_versions = [
-            "0.15.0",
-            "0.15.1",
-            "0.16.0",
-            "0.17.0",
-            "0.17.1",
-            "0.18.0",
-            "0.18.1",
-            "0.19.0",
-            "0.19.1",
-            "0.20.0",
-            "0.20.1",
-            "0.20.2",
-            "0.21.0",
-            "0.22.0",
-            "0.22.1",
-            "0.23.0",
-            "0.24.0",
-            "0.25.0",
-            "0.25.1",
-            "0.26.0",
-        ]
-        for ver in expected_versions:
-            self.assertIn(ver, _VERSION_MAP, f"{ver} should be in VERSION_MAP")
-
-    def test_version_family_detection_supported(self):
-        """VERSION_MAP should return correct family for supported versions."""
-        from zentorch.vllm._core import _base_version, _VERSION_MAP
-
-        # v15 family
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.15.0")), "v15")
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.15.0+cpu")), "v15")
-
-        # v15_1 family
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.15.1")), "v15_1")
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.15.1+cpu")), "v15_1")
-
-        # v16 family
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.16.0")), "v16")
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.16.0+cpu")), "v16")
-
-        # v17 family
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.17.0")), "v17")
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.17.0+cpu")), "v17")
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.17.1")), "v17")
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.17.1+cpu")), "v17")
-
-        # v18 family
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.18.0")), "v18")
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.18.0+cpu")), "v18")
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.18.1")), "v18")
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.18.1+cpu")), "v18")
-
-        # v19 family
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.19.0")), "v19")
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.19.0+cpu")), "v19")
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.19.1")), "v19")
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.19.1+cpu")), "v19")
-
-        # v20 family
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.20.0")), "v20")
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.20.0+cpu")), "v20")
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.20.0rc1+cpu")), "v20")
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.20.1")), "v20")
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.20.1+cpu")), "v20")
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.20.1rc0+cpu")), "v20")
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.20.2")), "v20")
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.20.2+cpu")), "v20")
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.20.2rc0+cpu")), "v20")
-
-        # v21 family
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.21.0")), "v21")
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.21.0+cpu")), "v21")
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.21.0rc1+cpu")), "v21")
-
-        # v22 family
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.22.0")), "v22")
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.22.0+cpu")), "v22")
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.22.0rc1+cpu")), "v22")
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.22.1")), "v22")
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.22.1+cpu")), "v22")
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.22.1rc1+cpu")), "v22")
-
-        # v23 family
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.23.0")), "v23")
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.23.0+cpu")), "v23")
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.23.0rc2+cpu")), "v23")
-
-        # v24 family
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.24.0")), "v24")
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.24.0+cpu")), "v24")
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.24.0rc2+cpu")), "v24")
-
-        # v25 family
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.25.0")), "v25")
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.25.0+cpu")), "v25")
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.25.0rc3+cpu")), "v25")
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.25.1")), "v25")
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.25.1+cpu")), "v25")
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.25.1rc1+cpu")), "v25")
-
-        # v26 family
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.26.0")), "v26")
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.26.0+cpu")), "v26")
-        self.assertEqual(_VERSION_MAP.get(_base_version("0.26.0rc1+cpu")), "v26")
-
-    def test_version_family_detection_unsupported(self):
-        """VERSION_MAP should return None for unsupported versions."""
-        from zentorch.vllm._core import _base_version, _VERSION_MAP
-
-        unsupported = [
-            "0.9.1",
-            "0.10.0",
-            "0.10.5",
-            "0.11.0",
-            "0.11.1",
-            "0.11.2",
-            "0.12.0",
-            "0.13.0",
-            "0.14.0",
-            "0.14.1",
-            "0.19.2",
-            "0.20.3",
-            "0.21.1",
-            "0.22.2",
-            "0.23.1",
-            "0.24.1",
-            "0.25.2",
-            "0.26.1",
-            "1.0.0",
-        ]
-        for ver in unsupported:
-            self.assertIsNone(
-                _VERSION_MAP.get(_base_version(ver)),
-                f"{ver} should not be in VERSION_MAP",
+        for version in [
+            "0.27.0",
+            "0.27.0+cpu",
+            "0.27.1",
+            "0.27.1+cpu",
+        ]:
+            self.assertTrue(
+                is_supported_vllm(version),
+                f"{version} should be supported",
             )
 
+    def test_is_supported_vllm_rejects_other_versions(self):
+        from zentorch.vllm import is_supported_vllm
 
-# =============================================================================
-# Plugin Registration Tests
-# =============================================================================
+        for version in [
+            None,
+            "",
+            "0.26.0",
+            "0.26.9+cpu",
+            "0.25.1",
+            "0.27.0rc1+cpu",
+            "0.27.0.dev123+cpu",
+            "0.27.2",
+            "0.27.5+cpu",
+            "0.27.99",
+            "0.28.0",
+            "0.28.0rc1+cpu",
+            "1.0.0",
+            "not-a-version",
+        ]:
+            self.assertFalse(
+                is_supported_vllm(version),
+                f"{version} should NOT be supported",
+            )
 
+    def test_is_supported_torch_enforces_213(self):
+        from zentorch.vllm import is_supported_torch
 
-class TestVllmPluginVersionCheck(unittest.TestCase):
-    """Test version compatibility with installed vLLM."""
+        for version, expected in [
+            ("2.11.0+cpu", False),
+            ("2.12.1+cpu", False),
+            ("2.13.0+cpu", True),
+            ("2.13.1", True),
+            ("2.14.0+cpu", True),
+        ]:
+            with unittest.mock.patch.object(torch, "__version__", version):
+                self.assertEqual(
+                    is_supported_torch(),
+                    expected,
+                    f"torch {version} -> {expected}",
+                )
 
-    def test_runtime_support_helper_skips_legacy_families(self):
-        """Helper should skip legacy mapped versions rejected by register()."""
-        from zentorch.vllm import _core as zv_core
+    @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
+    def test_installed_vllm_is_supported(self):
+        from zentorch.vllm import is_supported_vllm
 
-        fake_test = mock.Mock()
-        fake_test.skipTest.side_effect = unittest.SkipTest("legacy")
-
-        with (
-            mock.patch.object(zv_core, "get_vllm_version", return_value="0.19.1"),
-            mock.patch.object(zv_core, "get_version_family", return_value="v19"),
-            self.assertRaises(unittest.SkipTest),
-        ):
-            _skip_if_installed_vllm_is_unsupported(fake_test)
-
-        fake_test.skipTest.assert_called_once_with(
-            "Installed vLLM 0.19.1 is not runtime-supported"
+        self.assertTrue(
+            is_supported_vllm(vllm.__version__),
+            f"Installed vLLM {vllm.__version__} must be supported",
         )
+
+
+class TestRegisterContract(unittest.TestCase):
+    """register() gates on vLLM, PyTorch, and AVX-512."""
+
+    @staticmethod
+    def _fresh_source_module():
+        spec, plugin = load_source_vllm_module()
+        with unittest.mock.patch.dict(
+            sys.modules, {"zentorch.vllm": plugin}
+        ):
+            spec.loader.exec_module(plugin)
+        plugin._INITIALIZED = False
+        return plugin
+
+    @staticmethod
+    def _register_with(
+        plugin,
+        vllm_version,
+        torch_ok=True,
+        avx512=True,
+    ):
+        fake_vllm = types.ModuleType("vllm")
+        fake_vllm.__version__ = vllm_version
+        with (
+            unittest.mock.patch.dict(sys.modules, {"vllm": fake_vllm}),
+            unittest.mock.patch.object(
+                plugin, "is_supported_torch", return_value=torch_ok
+            ),
+            unittest.mock.patch.object(
+                plugin, "_apply_all_patches"
+            ) as apply_all,
+            unittest.mock.patch(
+                "zentorch._C.is_avx512_supported", return_value=avx512
+            ),
+        ):
+            result = plugin.register()
+        return result, apply_all
+
+    def test_accepts_supported_runtime(self):
+        plugin = self._fresh_source_module()
+        result, apply_all = self._register_with(plugin, "0.27.0+cpu")
+        self.assertEqual(result, "zentorch.vllm._platform.ZenCPUPlatform")
+        apply_all.assert_called_once_with()
+
+    def test_rejects_old_vllm(self):
+        plugin = self._fresh_source_module()
+        result, apply_all = self._register_with(plugin, "0.26.0+cpu")
+        self.assertIsNone(result)
+        apply_all.assert_not_called()
+
+    def test_rejects_future_vllm(self):
+        plugin = self._fresh_source_module()
+        result, apply_all = self._register_with(plugin, "0.28.0+cpu")
+        self.assertIsNone(result)
+        apply_all.assert_not_called()
+
+    def test_rejects_unsupported_torch(self):
+        plugin = self._fresh_source_module()
+        result, apply_all = self._register_with(
+            plugin, "0.27.0+cpu", torch_ok=False
+        )
+        self.assertIsNone(result)
+        apply_all.assert_not_called()
+
+    def test_falls_back_without_avx512(self):
+        plugin = self._fresh_source_module()
+        result, apply_all = self._register_with(
+            plugin, "0.27.0+cpu", avx512=False
+        )
+        self.assertIsNone(result)
+        apply_all.assert_not_called()
+
+    def test_patches_applied_only_once(self):
+        plugin = self._fresh_source_module()
+        fake_vllm = types.ModuleType("vllm")
+        fake_vllm.__version__ = "0.27.0+cpu"
+        with (
+            unittest.mock.patch.dict(sys.modules, {"vllm": fake_vllm}),
+            unittest.mock.patch.object(
+                plugin, "is_supported_torch", return_value=True
+            ),
+            unittest.mock.patch.object(
+                plugin, "_apply_all_patches"
+            ) as apply_all,
+            unittest.mock.patch(
+                "zentorch._C.is_avx512_supported", return_value=True
+            ),
+        ):
+            first = plugin.register()
+            second = plugin.register()
+        self.assertEqual(first, "zentorch.vllm._platform.ZenCPUPlatform")
+        self.assertEqual(second, "zentorch.vllm._platform.ZenCPUPlatform")
+        apply_all.assert_called_once_with()
 
     @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
     def test_register_returns_platform_for_installed_vllm(self):
-        """register() should return platform path for the installed vLLM version."""
-        from zentorch.vllm import register
-        from zentorch.vllm._core import get_version_family
+        from zentorch.vllm import is_supported_vllm, register
 
-        family = get_version_family()
-        if family is None:
+        if not is_supported_vllm(vllm.__version__):
             self.skipTest(f"Installed vLLM {vllm.__version__} is not supported")
 
-        with mock.patch("zentorch._C.is_avx512_supported", return_value=True):
-            result = register()
-        self.assertEqual(result, "zentorch.vllm._platform.ZenCPUPlatform")
-
-    @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
-    def test_installed_vllm_version_is_supported(self):
-        """Installed vLLM version should be in supported list."""
-        from zentorch.vllm._core import get_version_family, _base_version
-
-        base_ver = _base_version(vllm.__version__)
-        family = get_version_family()
-
-        self.assertIsNotNone(
-            family,
-            f"vLLM {vllm.__version__} (base: {base_ver}) should be supported",
-        )
-
-    def test_register_accepts_v20_runtime_minimum(self):
-        """register() should accept vLLM 0.20.0 as the minimum runtime version."""
-        spec, zv = _load_source_vllm_module()
-        fake_vllm = types.ModuleType("vllm")
-        fake_vllm.__version__ = "0.20.0"
-
-        with mock.patch.dict(sys.modules, {"zentorch.vllm": zv, "vllm": fake_vllm}):
-            spec.loader.exec_module(zv)
-            zv._INITIALIZED = False
-
-            with (
-                mock.patch.object(zv, "get_version_family", return_value="v20"),
-                mock.patch.object(zv, "_apply_faketensor_subclass_patch"),
-                mock.patch.object(zv, "_apply_fxgraphcache_pickle_patch"),
-                mock.patch.object(zv, "_apply_torchao_int8_tensor_patch_impl"),
-                mock.patch.object(zv, "_register_patches") as register_patches,
-                mock.patch.object(zv.manager, "apply_all") as apply_all,
-                mock.patch.object(zv, "_install_pre_v18_dispatch_hooks") as install_hooks,
-                mock.patch("zentorch._C.is_avx512_supported", return_value=True),
-            ):
-                result = zv.register()
-
-            self.assertEqual(result, "zentorch.vllm._platform.ZenCPUPlatform")
-            register_patches.assert_called_once_with()
-            apply_all.assert_called_once_with()
-            install_hooks.assert_not_called()
-
-    def test_register_accepts_v21_runtime(self):
-        """register() should accept vLLM 0.21.0 as a supported runtime version."""
-        spec, zv = _load_source_vllm_module()
-        fake_vllm = types.ModuleType("vllm")
-        fake_vllm.__version__ = "0.21.0"
-
-        with mock.patch.dict(sys.modules, {"zentorch.vllm": zv, "vllm": fake_vllm}):
-            spec.loader.exec_module(zv)
-            zv._INITIALIZED = False
-
-            with (
-                mock.patch.object(zv, "get_version_family", return_value="v21"),
-                mock.patch.object(zv, "_apply_faketensor_subclass_patch"),
-                mock.patch.object(zv, "_apply_fxgraphcache_pickle_patch"),
-                mock.patch.object(zv, "_apply_torchao_int8_tensor_patch_impl"),
-                mock.patch.object(zv, "_register_patches") as register_patches,
-                mock.patch.object(zv.manager, "apply_all") as apply_all,
-                mock.patch.object(zv, "_install_pre_v18_dispatch_hooks") as install_hooks,
-                mock.patch("zentorch._C.is_avx512_supported", return_value=True),
-            ):
-                result = zv.register()
-
-            self.assertEqual(result, "zentorch.vllm._platform.ZenCPUPlatform")
-            register_patches.assert_called_once_with()
-            apply_all.assert_called_once_with()
-            install_hooks.assert_not_called()
-
-    def test_register_accepts_v22_runtime(self):
-        """register() should accept vLLM 0.22.0 as a supported runtime version."""
-        spec, zv = _load_source_vllm_module()
-        fake_vllm = types.ModuleType("vllm")
-        fake_vllm.__version__ = "0.22.0"
-
-        with mock.patch.dict(sys.modules, {"zentorch.vllm": zv, "vllm": fake_vllm}):
-            spec.loader.exec_module(zv)
-            zv._INITIALIZED = False
-
-            with (
-                mock.patch.object(zv, "get_version_family", return_value="v22"),
-                mock.patch.object(zv, "_apply_faketensor_subclass_patch"),
-                mock.patch.object(zv, "_apply_fxgraphcache_pickle_patch"),
-                mock.patch.object(zv, "_apply_torchao_int8_tensor_patch_impl"),
-                mock.patch.object(zv, "_register_patches") as register_patches,
-                mock.patch.object(zv.manager, "apply_all") as apply_all,
-                mock.patch.object(zv, "_install_pre_v18_dispatch_hooks") as install_hooks,
-                mock.patch("zentorch._C.is_avx512_supported", return_value=True),
-            ):
-                result = zv.register()
-
-            self.assertEqual(result, "zentorch.vllm._platform.ZenCPUPlatform")
-            register_patches.assert_called_once_with()
-            apply_all.assert_called_once_with()
-            install_hooks.assert_not_called()
-
-    def test_register_accepts_v23_runtime(self):
-        """register() should accept vLLM 0.23.0 as a supported runtime version."""
-        spec, zv = _load_source_vllm_module()
-        fake_vllm = types.ModuleType("vllm")
-        fake_vllm.__version__ = "0.23.0"
-
-        with mock.patch.dict(sys.modules, {"zentorch.vllm": zv, "vllm": fake_vllm}):
-            spec.loader.exec_module(zv)
-            zv._INITIALIZED = False
-
-            with (
-                mock.patch.object(zv, "get_version_family", return_value="v23"),
-                mock.patch.object(zv, "_apply_faketensor_subclass_patch"),
-                mock.patch.object(zv, "_apply_fxgraphcache_pickle_patch"),
-                mock.patch.object(zv, "_apply_torchao_int8_tensor_patch_impl"),
-                mock.patch.object(zv, "_register_patches") as register_patches,
-                mock.patch.object(zv.manager, "apply_all") as apply_all,
-                mock.patch.object(
-                    zv, "_install_pre_v18_dispatch_hooks"
-                ) as install_hooks,
-                mock.patch("zentorch._C.is_avx512_supported", return_value=True),
-            ):
-                result = zv.register()
-
-            self.assertEqual(result, "zentorch.vllm._platform.ZenCPUPlatform")
-            register_patches.assert_called_once_with()
-            apply_all.assert_called_once_with()
-            install_hooks.assert_not_called()
-
-    def test_register_accepts_v24_runtime(self):
-        """register() should accept vLLM 0.24.0 as a supported runtime version."""
-        spec, zv = _load_source_vllm_module()
-        fake_vllm = types.ModuleType("vllm")
-        fake_vllm.__version__ = "0.24.0"
-
-        with mock.patch.dict(sys.modules, {"zentorch.vllm": zv, "vllm": fake_vllm}):
-            spec.loader.exec_module(zv)
-            zv._INITIALIZED = False
-
-            with (
-                mock.patch.object(zv, "get_version_family", return_value="v24"),
-                mock.patch.object(zv, "_apply_faketensor_subclass_patch"),
-                mock.patch.object(zv, "_apply_fxgraphcache_pickle_patch"),
-                mock.patch.object(zv, "_apply_torchao_int8_tensor_patch_impl"),
-                mock.patch.object(zv, "_register_patches") as register_patches,
-                mock.patch.object(zv.manager, "apply_all") as apply_all,
-                mock.patch.object(zv, "_install_pre_v18_dispatch_hooks") as install_hooks,
-                mock.patch("zentorch._C.is_avx512_supported", return_value=True),
-            ):
-                result = zv.register()
-
-            self.assertEqual(result, "zentorch.vllm._platform.ZenCPUPlatform")
-            register_patches.assert_called_once_with()
-            apply_all.assert_called_once_with()
-            install_hooks.assert_not_called()
-
-    def test_register_accepts_v25_runtime(self):
-        """register() should accept vLLM 0.25.0 as a supported runtime version."""
-        spec, zv = _load_source_vllm_module()
-        fake_vllm = types.ModuleType("vllm")
-        fake_vllm.__version__ = "0.25.0"
-
-        with mock.patch.dict(sys.modules, {"zentorch.vllm": zv, "vllm": fake_vllm}):
-            spec.loader.exec_module(zv)
-            zv._INITIALIZED = False
-
-            with (
-                mock.patch.object(zv, "get_version_family", return_value="v25"),
-                mock.patch.object(zv, "_apply_faketensor_subclass_patch"),
-                mock.patch.object(zv, "_apply_fxgraphcache_pickle_patch"),
-                mock.patch.object(zv, "_apply_torchao_int8_tensor_patch_impl"),
-                mock.patch.object(zv, "_register_patches") as register_patches,
-                mock.patch.object(zv.manager, "apply_all") as apply_all,
-                mock.patch.object(zv, "_install_pre_v18_dispatch_hooks") as install_hooks,
-                mock.patch("zentorch._C.is_avx512_supported", return_value=True),
-            ):
-                result = zv.register()
-
-            self.assertEqual(result, "zentorch.vllm._platform.ZenCPUPlatform")
-            register_patches.assert_called_once_with()
-            apply_all.assert_called_once_with()
-            install_hooks.assert_not_called()
-
-    def test_register_accepts_v25_1_runtime(self):
-        """register() should accept vLLM 0.25.1 as a supported runtime version."""
-        spec, zv = _load_source_vllm_module()
-        fake_vllm = types.ModuleType("vllm")
-        fake_vllm.__version__ = "0.25.1"
-
-        with mock.patch.dict(sys.modules, {"zentorch.vllm": zv, "vllm": fake_vllm}):
-            spec.loader.exec_module(zv)
-            zv._INITIALIZED = False
-
-            with (
-                mock.patch.object(zv, "get_version_family", return_value="v25"),
-                mock.patch.object(zv, "_apply_faketensor_subclass_patch"),
-                mock.patch.object(zv, "_apply_fxgraphcache_pickle_patch"),
-                mock.patch.object(zv, "_apply_torchao_int8_tensor_patch_impl"),
-                mock.patch.object(zv, "_register_patches") as register_patches,
-                mock.patch.object(zv.manager, "apply_all") as apply_all,
-                mock.patch.object(zv, "_install_pre_v18_dispatch_hooks") as install_hooks,
-                mock.patch("zentorch._C.is_avx512_supported", return_value=True),
-            ):
-                result = zv.register()
-
-            self.assertEqual(result, "zentorch.vllm._platform.ZenCPUPlatform")
-            register_patches.assert_called_once_with()
-            apply_all.assert_called_once_with()
-            install_hooks.assert_not_called()
-
-    def test_register_accepts_v26_runtime(self):
-        """register() should accept vLLM 0.26.0 as a supported runtime version."""
-        spec, zv = _load_source_vllm_module()
-        fake_vllm = types.ModuleType("vllm")
-        fake_vllm.__version__ = "0.26.0"
-
-        with mock.patch.dict(sys.modules, {"zentorch.vllm": zv, "vllm": fake_vllm}):
-            spec.loader.exec_module(zv)
-            zv._INITIALIZED = False
-
-            with (
-                mock.patch.object(zv, "get_version_family", return_value="v26"),
-                mock.patch.object(zv, "_apply_faketensor_subclass_patch"),
-                mock.patch.object(zv, "_apply_fxgraphcache_pickle_patch"),
-                mock.patch.object(zv, "_apply_torchao_int8_tensor_patch_impl"),
-                mock.patch.object(zv, "_register_patches") as register_patches,
-                mock.patch.object(zv.manager, "apply_all") as apply_all,
-                mock.patch.object(zv, "_install_pre_v18_dispatch_hooks") as install_hooks,
-                mock.patch("zentorch._C.is_avx512_supported", return_value=True),
-            ):
-                result = zv.register()
-
-            self.assertEqual(result, "zentorch.vllm._platform.ZenCPUPlatform")
-            register_patches.assert_called_once_with()
-            apply_all.assert_called_once_with()
-            install_hooks.assert_not_called()
-
-
-class TestPatchRegistration(unittest.TestCase):
-    """Test that patches are registered and applied correctly."""
-
-    @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
-    def test_patches_are_registered(self):
-        """All expected patches should be registered with manager."""
-        from zentorch import vllm as zv
-        from zentorch.vllm._core import manager
-
-        _skip_if_installed_vllm_is_unsupported(self)
-
-        zv._INITIALIZED = False
-        with mock.patch("zentorch._C.is_avx512_supported", return_value=True):
-            zv.register()  # Ensure patches are registered
-
-        # The full set of monkey-patches registered by _register_patches().
-        # Every patch (incl. the torchcodec import guard) must show up here so
-        # this stays the single place that verifies all patching is wired in.
-        expected_patches = [
-            "TorchcodecImportGuard",
-            "CompilationConfigRepr",
-            "CPUProfiler",
-            "TorchAO",
-            "Int8MoE",
-            "GptOssMoELoader",
-            "MixtralMoELoader",
-            "RMSNorm",
-            "CppIndirectAssert",
-            "CPURunnerShutdown",
-            "FusedMoE",
-            "GptOssMoEWeightRemap",
-            "GatedDeltaNet",
-            "CpuZeroBlockIds",
-        ]
-        for patch_name in expected_patches:
-            self.assertIn(
-                patch_name,
-                manager.patches,
-                f"Patch {patch_name!r} should be registered",
-            )
-
-        self.assertNotIn("OneDNNDisable", manager.patches)
-        self.assertNotIn("DispatchCPUUnquantizedGemm", manager.patches)
-
-    @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
-    def test_version_appropriate_patches_applied(self):
-        """Patches appropriate for installed vLLM version should be applied."""
-        from zentorch import vllm as zv
-        from zentorch.vllm._core import manager
-
-        family = _skip_if_installed_vllm_is_unsupported(self)
-
-        # vLLM may auto-load this plugin before vllm.config is importable.
-        # Reset initialization so this unit test exercises patch application
-        # after the full vLLM import graph is available.
-        zv._INITIALIZED = False
-        manager.applied.clear()
-
-        with mock.patch("zentorch._C.is_avx512_supported", return_value=True):
-            zv.register()
-
-        universal_patches = ["CompilationConfigRepr"]
-        for patch_name in universal_patches:
-            self.assertIn(
-                patch_name,
-                manager.applied,
-                f"Universal patch {patch_name!r} should be applied for {family}",
-            )
-
-        self.assertNotIn("OneDNNDisable", manager.applied)
-        self.assertNotIn("DispatchCPUUnquantizedGemm", manager.applied)
-
-
-# =============================================================================
-# Individual Patch Tests
-# =============================================================================
-
-
-class TestPreV18DispatchHook(unittest.TestCase):
-    """Test retained pre-v18 dispatch hook behavior."""
-
-    def test_register_rejects_pre_v20_even_if_legacy_family_exists(self):
-        """register() should reject legacy vLLM releases before hook install."""
-        pre_v20_cases = [
-            ("0.15.0", "v15"),
-            ("0.15.1", "v15_1"),
-            ("0.16.0", "v16"),
-            ("0.17.0", "v17"),
-            ("0.18.0", "v18"),
-            ("0.19.0", "v19"),
-        ]
-
-        for version_str, family in pre_v20_cases:
-            with self.subTest(version_str=version_str, family=family):
-                spec, zv = _load_source_vllm_module()
-                fake_vllm = types.ModuleType("vllm")
-                fake_vllm.__version__ = version_str
-
-                with mock.patch.dict(
-                    sys.modules, {"zentorch.vllm": zv, "vllm": fake_vllm}
-                ):
-                    spec.loader.exec_module(zv)
-                    zv._INITIALIZED = False
-
-                    with (
-                        mock.patch.object(
-                            zv, "get_version_family", return_value=family
-                        ),
-                        mock.patch.object(zv, "_apply_faketensor_subclass_patch"),
-                        mock.patch.object(zv, "_apply_fxgraphcache_pickle_patch"),
-                        mock.patch.object(zv, "_apply_torchao_int8_tensor_patch_impl"),
-                        mock.patch.object(zv, "_register_patches") as register_patches,
-                        mock.patch.object(zv.manager, "apply_all") as apply_all,
-                        mock.patch.object(
-                            zv, "_install_pre_v18_dispatch_hooks"
-                        ) as install_hooks,
-                    ):
-                        result = zv.register()
-
-                    self.assertIsNone(result)
-                    register_patches.assert_not_called()
-                    apply_all.assert_not_called()
-                    install_hooks.assert_not_called()
-
-    def test_pre_v18_dispatch_patch_preserves_weight_removal(self):
-        """The shared dispatch hook should preserve remove_weight semantics."""
-        spec, zv = _load_source_vllm_module()
-
-        vllm_pkg = types.ModuleType("vllm")
-        vllm_pkg.__path__ = []
-        model_executor_pkg = types.ModuleType("vllm.model_executor")
-        model_executor_pkg.__path__ = []
-        layers_pkg = types.ModuleType("vllm.model_executor.layers")
-        layers_pkg.__path__ = []
-        utils_module = types.ModuleType("vllm.model_executor.layers.utils")
-
-        def original_dispatch(layer, remove_weight):
-            raise AssertionError("dispatch patch did not replace original function")
-
-        utils_module.dispatch_cpu_unquantized_gemm = original_dispatch
-        vllm_pkg.model_executor = model_executor_pkg
-        model_executor_pkg.layers = layers_pkg
-        layers_pkg.utils = utils_module
-
-        with mock.patch.dict(
-            sys.modules,
-            {
-                "zentorch.vllm": zv,
-                "vllm": vllm_pkg,
-                "vllm.model_executor": model_executor_pkg,
-                "vllm.model_executor.layers": layers_pkg,
-                "vllm.model_executor.layers.utils": utils_module,
-            },
+        with unittest.mock.patch(
+            "zentorch._C.is_avx512_supported", return_value=True
         ):
-            spec.loader.exec_module(zv)
-            zv._do_patch_pre_v18_gemm_dispatch()
-
-            patched_dispatch = utils_module.dispatch_cpu_unquantized_gemm
-            self.assertTrue(hasattr(patched_dispatch, "_zentorch_patched"))
-
-            layer = torch.nn.Linear(4, 3).eval()
-            original_weight = layer.weight.detach().clone()
-            x = torch.randn(2, 4)
-
-            patched_dispatch(layer, remove_weight=True)
-
-            self.assertEqual(layer.weight.numel(), 0)
-            actual = layer.cpu_linear(x, layer.weight, layer.bias)
-            expected = torch.nn.functional.linear(x, original_weight, layer.bias)
-            self.assertTrue(torch.allclose(actual, expected))
+            self.assertEqual(
+                register(), "zentorch.vllm._platform.ZenCPUPlatform"
+            )
 
 
-class TestCompilationConfigPatch(unittest.TestCase):
-    """Test CompilationConfig repr patch."""
+class TestPatchWiring(unittest.TestCase):
+    """register() wires only the Zen-specific vLLM 0.27 hooks."""
 
-    @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
-    def test_compilation_config_repr_is_patched(self):
-        """CompilationConfig.__repr__ should have _zentorch_patched attribute."""
-        from zentorch import vllm as zv
-        from zentorch.vllm._core import manager
+    def test_expected_patches_are_wired(self):
+        from zentorch.vllm import _PATCHES
 
-        _skip_if_installed_vllm_is_unsupported(self)
+        names = [name for name, _ in _PATCHES]
+        self.assertEqual(names, EXPECTED_PATCHES)
 
-        zv._INITIALIZED = False
-        manager.applied.clear()
+    def test_removed_backports_are_gone(self):
+        from zentorch import vllm as plugin
 
-        with mock.patch("zentorch._C.is_avx512_supported", return_value=True):
-            zv.register()
+        names = {name for name, _ in plugin._PATCHES}
+        for removed in REMOVED_PATCHES:
+            self.assertNotIn(removed, names)
 
-        from vllm.config import CompilationConfig
+        self.assertFalse(hasattr(plugin, "manager"))
+        self.assertFalse(hasattr(plugin, "PatchManager"))
+        self.assertFalse(hasattr(plugin, "vllm_version"))
 
-        self.assertTrue(
-            hasattr(CompilationConfig.__repr__, "_zentorch_patched"),
-            "CompilationConfig.__repr__ should be patched",
-        )
+    def test_core_module_deleted(self):
+        with self.assertRaises(ImportError):
+            import zentorch.vllm._core  # noqa: F401
 
     @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
-    def test_compilation_config_repr_handles_custom_pass(self):
-        """Patched repr should not raise errors with zentorch optimize_pass."""
-        from zentorch import vllm as zv
-        from zentorch.vllm._core import manager
+    def test_apply_all_records_applied_patches(self):
+        from zentorch import vllm as plugin
 
-        _skip_if_installed_vllm_is_unsupported(self)
+        if not plugin.is_supported_vllm(vllm.__version__):
+            self.skipTest(f"Installed vLLM {vllm.__version__} is not supported")
 
-        zv._INITIALIZED = False
-        manager.applied.clear()
+        plugin._INITIALIZED = False
+        with unittest.mock.patch(
+            "zentorch._C.is_avx512_supported", return_value=True
+        ):
+            plugin.register()
 
-        with mock.patch("zentorch._C.is_avx512_supported", return_value=True):
-            zv.register()
-
-        from vllm.config import CompilationConfig
-        from zentorch._compile_backend import optimize_pass
-
-        config = CompilationConfig()
-        config.inductor_compile_config["joint_custom_post_pass"] = optimize_pass
-
-        # Should not raise
-        repr_str = repr(config)
-        self.assertIsInstance(repr_str, str)
-        # Should be valid (not error fallback)
-        self.assertNotIn("<error", repr_str)
-
-
-# =============================================================================
-# Platform Version Guard Tests
-# =============================================================================
-
-
-class TestPlatformProfilerPatchVersionRange(unittest.TestCase):
-    """Test profiler patch version gating in platform.py."""
-
-    def test_profiler_patch_range_uses_normalized_versions(self):
-        """Profiler patch should use the normalized supported version range."""
-        from zentorch.vllm import _platform
-
-        cases = [
-            (None, False),
-            ("0.12.0", False),
-            ("0.13.0", False),
-            ("0.14.1", False),
-            ("0.15.0", True),
-            ("0.15.0rc1+cpu", True),
-            ("0.17.1+cpu", True),
-            ("0.18.0.dev1+cpu", True),
-            ("0.18.1", True),
-            ("0.19.0", True),
-            ("0.19.0+cpu", True),
-            ("0.19.1", True),
-            ("0.20.0", True),
-            ("0.20.0+cpu", True),
-            ("0.20.0rc1+cpu", True),
-            ("0.20.1", True),
-            ("0.20.1+cpu", True),
-            ("0.20.1rc0+cpu", True),
-            ("0.20.2", True),
-            ("0.20.2+cpu", True),
-            ("0.20.2rc0+cpu", True),
-            ("0.20.2rc1.dev94+cpu", True),
-            ("0.20.3", False),
-            ("0.21.0", True),
-            ("0.21.0+cpu", True),
-            ("0.21.0rc1+cpu", True),
-            ("0.21.1", False),
-            ("0.22.0", True),
-            ("0.22.0+cpu", True),
-            ("0.22.0rc1+cpu", True),
-            ("0.22.1", True),
-            ("0.22.1+cpu", True),
-            ("0.22.1rc1+cpu", True),
-            ("0.22.2", False),
-            ("0.23.0", True),
-            ("0.23.0+cpu", True),
-            ("0.23.0rc2+cpu", True),
-            ("0.23.1", False),
-            ("0.24.0", True),
-            ("0.24.0+cpu", True),
-            ("0.24.0rc2+cpu", True),
-            ("0.24.1", False),
-            ("0.25.0", True),
-            ("0.25.0+cpu", True),
-            ("0.25.0rc3+cpu", True),
-            ("0.25.1", True),
-            ("0.25.1+cpu", True),
-            ("0.25.1rc1+cpu", True),
-            ("0.25.2", False),
-            ("0.26.0", True),
-            ("0.26.0+cpu", True),
-            ("0.26.0rc1+cpu", True),
-            ("0.26.1", False),
-        ]
-
-        for version_str, expected in cases:
-            with (
-                self.subTest(version_str=version_str),
-                mock.patch.object(
-                    _platform, "get_vllm_version", return_value=version_str
-                ),
-            ):
-                self.assertEqual(_platform._is_profiler_patch_version(), expected)
-
-
-# =============================================================================
-# Platform Configuration Tests
-# =============================================================================
+        for name in ("RMSNorm", "FusedMoE"):
+            self.assertIn(name, plugin.APPLIED_PATCHES)
 
 
 class TestPlatformConfiguration(unittest.TestCase):
-    """Test ZenCPUPlatform configuration."""
+    """ZenCPUPlatform identity."""
 
     @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
-    def test_platform_device_name_is_cpu(self):
-        """device_name should be 'cpu'."""
+    def test_platform_device_name_and_type(self):
         from zentorch.vllm._platform import ZenCPUPlatform
 
         self.assertEqual(ZenCPUPlatform.device_name, "cpu")
-
-    @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
-    def test_platform_device_type_is_cpu(self):
-        """device_type should be 'cpu'."""
-        from zentorch.vllm._platform import ZenCPUPlatform
-
         self.assertEqual(ZenCPUPlatform.device_type, "cpu")
 
-
-# =============================================================================
-# Zentorch Component Tests
-# =============================================================================
-
-
-class TestDynamicQLinearDispatchPatch(unittest.TestCase):
-    """Test that Int8Tensor F.linear dispatch is patched to zentorch_dynamic_qlinear."""
-
     @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
-    @unittest.skipUnless(TORCHAO_AVAILABLE, "torchao not installed")
-    def test_patch_is_applied_after_register(self):
-        """TorchAOPatch.apply() must invoke _apply_torchao_int8_tensor_patch_impl
-        and the TorchAO patch must land in manager.applied after register().
-        """
-        from zentorch.vllm import register
-        from zentorch.vllm._core import manager
+    def test_platform_is_zen_cpu(self):
+        from zentorch.vllm._platform import ZenCPUPlatform
 
-        register()
-
-        self.assertIn(
-            "TorchAO",
-            manager.applied,
-            "TorchAO patch (Int4 + Int8Tensor F.linear dispatch via "
-            "_apply_torchao_int8_tensor_patch_impl) should be applied "
-            "after register() when torchao is installed",
-        )
-
-
-class TestDynamicQLinearDispatchNoTorchAO(unittest.TestCase):
-    """Int8 linear patch must not import torchao when the package is absent."""
-
-    def test_register_skips_without_torchao(self):
-        """Load zentorch.vllm from this repo's sources (native zentorch from site-packages)."""
-        spec, zv = _load_source_vllm_module()
-        from zentorch.vllm import _core as zv_core
-
-        with mock.patch.dict(sys.modules, {"zentorch.vllm": zv}):
-            spec.loader.exec_module(zv)
-            with (
-                mock.patch.object(zv_core, "get_vllm_version", return_value="0.20.0"),
-                mock.patch.object(
-                    zv.importlib.util,
-                    "find_spec",
-                    return_value=None,
-                ) as mock_find,
-            ):
-                applied = zv.TorchAOPatch.apply()
-
-                mock_find.assert_called_once_with("torchao")
-                self.assertFalse(
-                    applied,
-                    "TorchAOPatch.apply() must return False when "
-                    "find_spec('torchao') is None",
-                )
-
-
-@unittest.skipUnless(TORCHAO_AVAILABLE, "torchao not installed")
-class TestInt8TensorHandlers(unittest.TestCase):
-    """End-to-end checks for the shape-transform Int8Tensor handlers
-    registered by ``_register_int8_tensor_handlers``
-    """
-
-    @classmethod
-    def setUpClass(cls):
-        # Ensure zentorch native ops are loaded and Int8Tensor handlers
-        # registered, regardless of test ordering.
-
-        from zentorch.vllm._torchao_int8_patch import (
-            _apply_torchao_int8_tensor_patch_impl,
-        )
-        from torchao.quantization.granularity import PerRow
-        from torchao.quantization.quantize_.workflows.int8.int8_tensor import (
-            Int8Tensor,
-        )
-
-        _apply_torchao_int8_tensor_patch_impl()
-        cls.Int8Tensor = Int8Tensor
-        cls.PerRow = PerRow
-
-    def _static_qt(self, shape, seed=0, dtype=torch.bfloat16):
-        """Build (hp_tensor, weight-only Int8Tensor) sharing the same data."""
-        torch.manual_seed(seed)
-        hp = torch.randn(*shape, dtype=dtype)
-        qt = self.Int8Tensor.from_hp(hp, granularity=self.PerRow())
-        return hp, qt
-
-    @staticmethod
-    def _manual_dequant(qt):
-        """Dequantize manually as ``(qdata - zero_point) * scale``."""
-        qdata = qt.qdata.to(qt.dtype)
-        scale = qt.scale.to(qt.dtype)
-        if qt.zero_point is not None:
-            qdata = qdata - qt.zero_point.to(qt.dtype)
-        return qdata * scale
-
-    def test_view_rank_preserving_2d(self):
-        """aten.view: same-shape view yields the same dequantized values."""
-        _, qt = self._static_qt((4, 8), seed=0)
-        viewed = qt.view(4, 8)
-        self.assertEqual(viewed.shape, qt.shape)
-        self.assertTrue(
-            torch.equal(self._manual_dequant(viewed), self._manual_dequant(qt)),
-            "view(4,8) must preserve dequantized values bit-for-bit",
-        )
-
-    def test_view_3d_to_2d_flatten(self):
-        """aten.view: 3D -> 2D flatten -- dequant commutes with view."""
-        _, qt = self._static_qt((2, 4, 8), seed=1)
-        viewed = qt.view(8, 8)
-        dq_view = self._manual_dequant(viewed)
-        view_dq = self._manual_dequant(qt).view(8, 8)
-        self.assertEqual(dq_view.shape, view_dq.shape)
-        self.assertTrue(
-            torch.equal(dq_view, view_dq),
-            "dequant(view(qt, [8,8])) must equal view(dequant(qt), [8,8])",
-        )
-
-    def test_view_2d_to_3d_unflatten(self):
-        """aten.view: 2D -> 3D unflatten -- dequant commutes with view."""
-        _, qt = self._static_qt((8, 8), seed=2)
-        viewed = qt.view(2, 4, 8)
-        dq_view = self._manual_dequant(viewed)
-        view_dq = self._manual_dequant(qt).view(2, 4, 8)
-        self.assertEqual(dq_view.shape, view_dq.shape)
-        self.assertTrue(
-            torch.equal(dq_view, view_dq),
-            "dequant(view(qt, [2,4,8])) must equal view(dequant(qt), [2,4,8])",
-        )
-
-    def test_permute_2d_transpose(self):
-        """aten.permute: (1,0) transpose -- dequant commutes with permute."""
-        _, qt = self._static_qt((4, 8), seed=3)
-        permuted = qt.permute(1, 0)
-        dq_permute = self._manual_dequant(permuted)
-        permute_dq = self._manual_dequant(qt).permute(1, 0)
-        self.assertEqual(dq_permute.shape, permute_dq.shape)
-        self.assertEqual(dq_permute.shape, (8, 4))
-        self.assertTrue(
-            torch.equal(dq_permute, permute_dq),
-            "dequant(permute(qt, (1,0))) must equal permute(dequant(qt), (1,0))",
-        )
-
-    def test_linear_dispatches_to_dynamic_qlinear_when_activation_quantized(self):
-        """linear handler should dispatch to zentorch_dynamic_qlinear when
-        act_quant_kwargs is present on the Int8Tensor weight.
-        """
-        counters.clear()
-        x = torch.randn(3, 8, dtype=torch.bfloat16)
-        _, qt = self._static_qt((6, 8), seed=4)
-        bias = torch.randn(6, dtype=torch.bfloat16)
-        expected = torch.randn(3, 6, dtype=torch.bfloat16)
-        with (
-            mock.patch.object(qt, "act_quant_kwargs", {"dynamic": True}, create=True),
-            mock.patch.object(
-                torch.ops.zentorch,
-                "zentorch_dynamic_qlinear",
-                return_value=expected,
-            ) as dynamic_qlinear,
-        ):
-            result = torch.nn.functional.linear(x, qt, bias)
-        self.assertIs(result, expected)
-        dynamic_qlinear.assert_called_once()
-        self.assertEqual(counters["zentorch"]["zentorch_dynamic_qlinear"], 1)
-
-    def test_linear_hands_contiguous_tensors_to_dynamic_qlinear(self):
-        """Regression: the handler must normalize weight/scales/bias to
-        contiguous before calling zentorch_dynamic_qlinear, even when the
-        Int8Tensor is non-contiguous (e.g. a permuted weight). The C++ op reads
-        these through raw data_ptr() with hard-coded leading dims and only
-        asserts contiguity under ZENTORCH_ENABLE_CHECKS (it does not normalize
-        itself), so this boundary normalization is what upholds the contract.
-        """
-        counters.clear()
-        # A permuted Int8Tensor has a transposed (non-contiguous) qdata.
-        _, qt = self._static_qt((8, 6), seed=5)
-        qt_nc = qt.permute(1, 0)  # [6, 8]
-        self.assertFalse(
-            qt_nc.qdata.is_contiguous(),
-            "precondition: the permuted Int8Tensor's qdata is non-contiguous",
-        )
-        x = torch.randn(3, 8, dtype=torch.bfloat16)
-        # Non-contiguous 1-D bias (stride-2 view over a 2x-wide buffer).
-        wide = torch.zeros(12, dtype=torch.bfloat16)
-        wide[::2] = torch.randn(6, dtype=torch.bfloat16)
-        bias_nc = wide[::2]
-        self.assertFalse(bias_nc.is_contiguous())
-
-        captured = {}
-
-        def _capture(activation, weight, scales, bias_arg=None, *args, **kwargs):
-            captured["weight"] = weight
-            captured["scales"] = scales
-            captured["bias"] = bias_arg
-            return torch.zeros(x.shape[0], qt_nc.shape[0], dtype=x.dtype)
-
-        with (
-            mock.patch.object(
-                qt_nc, "act_quant_kwargs", {"dynamic": True}, create=True
-            ),
-            mock.patch.object(
-                torch.ops.zentorch,
-                "zentorch_dynamic_qlinear",
-                side_effect=_capture,
-            ),
-        ):
-            torch.nn.functional.linear(x, qt_nc, bias_nc)
-
-        # Guard the regression signal: if the op was not dispatched the capture
-        # dict stays empty and the contiguity checks below would raise an opaque
-        # KeyError instead of a meaningful failure.
-        self.assertIn(
-            "weight", captured, "zentorch_dynamic_qlinear was not called"
-        )
-        self.assertTrue(
-            captured["weight"].is_contiguous(),
-            "weight_int8 handed to zentorch_dynamic_qlinear must be contiguous",
-        )
-        self.assertTrue(
-            captured["scales"].is_contiguous(),
-            "weight_scales handed to zentorch_dynamic_qlinear must be contiguous",
-        )
-        self.assertTrue(
-            captured["bias"].is_contiguous(),
-            "bias handed to zentorch_dynamic_qlinear must be contiguous",
-        )
+        instance = ZenCPUPlatform.__new__(ZenCPUPlatform)
+        self.assertTrue(ZenCPUPlatform.is_zen_cpu(instance))
 
 
 class TestZentorchOptimizePass(unittest.TestCase):
-    """Test that zentorch optimize_pass is available."""
+    """zentorch optimize_pass must be importable and callable."""
 
     @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
     def test_optimize_pass_is_callable(self):
-        """optimize_pass should be available and callable."""
         from zentorch._compile_backend import optimize_pass
 
         self.assertIsNotNone(optimize_pass)
         self.assertTrue(callable(optimize_pass))
 
 
-class TestCppIndirectAssertPatch(unittest.TestCase):
-    """CppIndirectAssertPatch must be registered and gated to vLLM 0.20.0/0.20.1/0.20.2."""
-
-    @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
-    def test_patch_is_registered(self):
-        """CppIndirectAssertPatch should be registered with the manager."""
-        from zentorch.vllm import register
-        from zentorch.vllm._core import manager
-
-        register()
-        self.assertIn("CppIndirectAssert", manager.patches)
-
-    def test_patch_targets_v20_v20_1_v20_2(self):
-        """The @vllm_version decorator should target v0.20.0, v0.20.1, v0.20.2."""
-        from zentorch.vllm import CppIndirectAssertPatch
-        from zentorch.vllm._core import VLLM_V20, VLLM_V20_1, VLLM_V20_2
-
-        self.assertTrue(hasattr(CppIndirectAssertPatch, "_target_versions"))
-        self.assertEqual(
-            CppIndirectAssertPatch._target_versions,
-            {VLLM_V20, VLLM_V20_1, VLLM_V20_2},
-        )
-
-
-class TestCPURunnerShutdownPatch(unittest.TestCase):
-    """CPURunnerShutdownPatch must be registered, gated to v0.20.0/v0.20.1/v0.20.2,
-    and actually replace torch.accelerator.{synchronize,empty_cache} on apply.
-    """
-
-    @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
-    def test_patch_is_registered(self):
-        from zentorch.vllm import register
-        from zentorch.vllm._core import manager
-
-        register()
-        self.assertIn("CPURunnerShutdown", manager.patches)
-
-    def test_patch_targets_v20_v20_1_v20_2(self):
-        from zentorch.vllm import CPURunnerShutdownPatch
-        from zentorch.vllm._core import VLLM_V20, VLLM_V20_1, VLLM_V20_2
-
-        self.assertTrue(hasattr(CPURunnerShutdownPatch, "_target_versions"))
-        self.assertEqual(
-            CPURunnerShutdownPatch._target_versions,
-            {VLLM_V20, VLLM_V20_1, VLLM_V20_2},
-        )
-
-    def test_apply_makes_accelerator_apis_noop(self):
-        """After apply(), synchronize and empty_cache must not raise on CPU."""
-        import torch
-
-        if not hasattr(torch, "accelerator"):
-            self.skipTest("torch.accelerator API not present on this torch build")
-
-        original_sync = torch.accelerator.synchronize
-        original_empty = torch.accelerator.empty_cache
-
-        from zentorch.vllm import _apply_torch_accelerator_noop_patch
-        from zentorch import vllm as zv
-
-        zv._TORCH_ACCELERATOR_NOOP_APPLIED = False
-        applied = _apply_torch_accelerator_noop_patch()
-        self.assertTrue(applied)
-
-        self.assertIsNone(torch.accelerator.synchronize())
-        self.assertIsNone(torch.accelerator.empty_cache())
-
-        torch.accelerator.synchronize = original_sync
-        torch.accelerator.empty_cache = original_empty
-        zv._TORCH_ACCELERATOR_NOOP_APPLIED = False
-
-
-class TestGptOssMoEWeightRemapPatch(unittest.TestCase):
-    """GptOssMoEWeightRemapPatch is registered and gated to v0.24.0 only."""
-
-    @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
-    def test_patch_is_registered(self):
-        from zentorch.vllm import register
-        from zentorch.vllm._core import manager
-
-        register()
-        self.assertIn("GptOssMoEWeightRemap", manager.patches)
-
-    def test_patch_targets_v24_only(self):
-        from zentorch.vllm import GptOssMoEWeightRemapPatch
-        from zentorch.vllm._core import VLLM_V24
-
-        self.assertTrue(hasattr(GptOssMoEWeightRemapPatch, "_target_versions"))
-        self.assertEqual(GptOssMoEWeightRemapPatch._target_versions, {VLLM_V24})
-
-    def test_deferred_patch_applies_when_gpt_oss_imports(self):
-        """Patch installs a deferred loader hook, then patches on gpt_oss import."""
-        spec, zv = _load_source_vllm_module()
-
-        gpt_oss_mod = types.ModuleType("vllm.model_executor.models.gpt_oss")
-
-        class _FakeGptOssModel:
-            @staticmethod
-            def _load_weights_other(*args, **kwargs):
-                return set()
-
-        gpt_oss_mod.GptOssModel = _FakeGptOssModel
-
-        weight_utils_mod = types.ModuleType(
-            "vllm.model_executor.model_loader.weight_utils"
-        )
-
-        def _remap(weights, params_dict):
-            for name, weight in weights:
-                new_name = name.replace(
-                    ".mlp.experts.", ".mlp.experts.routed_experts.", 1
-                )
-                yield new_name, weight
-
-        weight_utils_mod.remap_moe_expert_weights = _remap
-
-        with mock.patch.dict(sys.modules, {"zentorch.vllm": zv}):
-            spec.loader.exec_module(zv)
-            zv._GPT_OSS_DEFERRED_INSTALLED = False
-            sys.meta_path[:] = [
-                h for h in sys.meta_path if not isinstance(h, zv._GptOssImportHook)
-            ]
-
-            applied = zv._apply_gpt_oss_load_weights_patch()
-            self.assertTrue(applied)
-            self.assertTrue(
-                any(isinstance(h, zv._GptOssImportHook) for h in sys.meta_path)
-            )
-
-            with mock.patch.dict(
-                sys.modules,
-                {
-                    "vllm.model_executor.model_loader.weight_utils": weight_utils_mod,
-                    "vllm.model_executor.models.gpt_oss": gpt_oss_mod,
-                },
-            ):
-                self.assertTrue(zv._do_patch_gpt_oss_load_weights())
-
-            self.assertTrue(
-                getattr(
-                    _FakeGptOssModel._load_weights_other,
-                    "_zentorch_gpt_oss_moe_remap_patched",
-                    False,
-                )
-            )
-
-
-class TestGatedDeltaNetPatch(unittest.TestCase):
-    """GatedDeltaNetPatch must be registered and gated to v0.21.0 + v0.22.0 + v0.22.1
-    + v0.23.0 + v0.24.0 + v0.25.0."""
-
-    @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
-    def test_patch_is_registered(self):
-        from zentorch.vllm import register
-        from zentorch.vllm._core import manager
-
-        register()
-        self.assertIn("GatedDeltaNet", manager.patches)
-
-    def test_patch_targets_supported_gdn_versions(self):
-        from zentorch.vllm import GatedDeltaNetPatch
-        from zentorch.vllm._core import (
-            VLLM_V21,
-            VLLM_V22,
-            VLLM_V22_1,
-            VLLM_V23,
-            VLLM_V24,
-            VLLM_V25,
-            VLLM_V25_1,
-            VLLM_V26,
-        )
-
-        self.assertTrue(hasattr(GatedDeltaNetPatch, "_target_versions"))
-        self.assertEqual(
-            GatedDeltaNetPatch._target_versions,
-            {
-                VLLM_V21,
-                VLLM_V22,
-                VLLM_V22_1,
-                VLLM_V23,
-                VLLM_V24,
-                VLLM_V25,
-                VLLM_V25_1,
-                VLLM_V26,
-            },
-        )
-
-
-class TestCpuZeroBlockIdsPatch(unittest.TestCase):
-    """CpuZeroBlockIdsPatch must be registered, gated to v0.23-v0.24, and must
-    only patch CPUModelRunner._zero_block_ids once its module is imported.
-
-    These tests load an isolated copy of ``zentorch.vllm`` from source and drive
-    the two code paths of ``CpuZeroBlockIdsPatch.apply()`` directly, so they do
-    not depend on a real ``vllm.v1.worker.cpu_model_runner`` being importable.
-    """
-
-    _TARGET = "vllm.v1.worker.cpu_model_runner"
-
-    def _fresh_module(self):
-        """Return an isolated, executed ``zentorch.vllm`` source module."""
-        spec, zv = _load_source_vllm_module()
-        with mock.patch.dict(sys.modules, {"zentorch.vllm": zv}):
-            spec.loader.exec_module(zv)
-        zv._CPU_ZERO_BLOCK_IDS_HOOK_INSTALLED = False
-        return zv
-
-    @staticmethod
-    def _make_fake_runner_module():
-        """A stand-in ``vllm.v1.worker.cpu_model_runner`` with a CPUModelRunner."""
-        module = types.ModuleType(TestCpuZeroBlockIdsPatch._TARGET)
-
-        class CPUModelRunner:
-            def _zero_block_ids(self, block_ids):
-                raise AssertionError("original _zero_block_ids should be replaced")
-
-        module.CPUModelRunner = CPUModelRunner
-        return module
-
-    @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
-    def test_patch_is_registered(self):
-        """CpuZeroBlockIds should be registered with the manager."""
-        from zentorch.vllm import register
-        from zentorch.vllm._core import manager
-
-        register()
-        self.assertIn("CpuZeroBlockIds", manager.patches)
-
-    def test_patch_targets_v23_and_v24(self):
-        """The @vllm_version decorator should target only v0.23 and v0.24
-        (the two most recent supported releases, N and N-1)."""
-        from zentorch.vllm import CpuZeroBlockIdsPatch
-        from zentorch.vllm._core import (
-            VLLM_V23,
-            VLLM_V24,
-        )
-
-        self.assertTrue(hasattr(CpuZeroBlockIdsPatch, "_target_versions"))
-        self.assertEqual(
-            CpuZeroBlockIdsPatch._target_versions,
-            {
-                VLLM_V23,
-                VLLM_V24,
-            },
-        )
-
-    def test_deferred_path_installs_hook_without_patching(self):
-        """When the runner module is absent, apply() must install a meta-path
-        finder and must NOT patch CPUModelRunner (the deferred/cold path)."""
-        zv = self._fresh_module()
-        from zentorch.vllm import _core as zv_core
-
-        added_finders = []
-        original_meta_path = list(sys.meta_path)
-        try:
-            with (
-                mock.patch.dict(sys.modules, {self._TARGET: None}, clear=False),
-                mock.patch.object(
-                    zv_core, "get_vllm_version", return_value="0.24.0"
-                ),
-                mock.patch.object(
-                    zv, "_do_patch_cpu_zero_block_ids"
-                ) as do_patch,
-            ):
-                # Ensure the target module is genuinely absent.
-                sys.modules.pop(self._TARGET, None)
-
-                result = zv.CpuZeroBlockIdsPatch.apply()
-
-                self.assertTrue(result)
-                do_patch.assert_not_called()
-                added_finders = [
-                    f
-                    for f in sys.meta_path
-                    if isinstance(f, zv._CpuModelRunnerImportHook)
-                ]
-                self.assertEqual(
-                    len(added_finders),
-                    1,
-                    "exactly one CPUModelRunner import hook should be armed",
-                )
-                self.assertTrue(zv._CPU_ZERO_BLOCK_IDS_HOOK_INSTALLED)
-        finally:
-            sys.meta_path[:] = original_meta_path
-
-    def test_eager_path_patches_immediately(self):
-        """When the runner module is already imported, apply() must patch it
-        right away instead of arming the import hook (the eager/hot path)."""
-        zv = self._fresh_module()
-        from zentorch.vllm import _core as zv_core
-
-        fake_module = self._make_fake_runner_module()
-        original_meta_path = list(sys.meta_path)
-        try:
-            with (
-                mock.patch.dict(sys.modules, {self._TARGET: fake_module}),
-                mock.patch.object(
-                    zv_core, "get_vllm_version", return_value="0.24.0"
-                ),
-            ):
-                result = zv.CpuZeroBlockIdsPatch.apply()
-
-            self.assertTrue(result)
-            self.assertIs(
-                fake_module.CPUModelRunner._zero_block_ids,
-                zv._zentorch_cpu_zero_block_ids,
-                "_zero_block_ids should be swapped for the zentorch backport",
-            )
-            armed = [
-                f
-                for f in sys.meta_path
-                if isinstance(f, zv._CpuModelRunnerImportHook)
-            ]
-            self.assertEqual(
-                armed, [], "no import hook should be armed on the eager path"
-            )
-        finally:
-            sys.meta_path[:] = original_meta_path
-
-    def test_do_patch_swaps_and_is_idempotent(self):
-        """_do_patch_cpu_zero_block_ids must swap the method and be idempotent."""
-        zv = self._fresh_module()
-        fake_module = self._make_fake_runner_module()
-
-        with mock.patch.dict(sys.modules, {self._TARGET: fake_module}):
-            first = zv._do_patch_cpu_zero_block_ids()
-            self.assertTrue(first)
-            self.assertIs(
-                fake_module.CPUModelRunner._zero_block_ids,
-                zv._zentorch_cpu_zero_block_ids,
-            )
-
-            # Second call is a no-op that still reports success (identity check).
-            second = zv._do_patch_cpu_zero_block_ids()
-            self.assertTrue(second)
-            self.assertIs(
-                fake_module.CPUModelRunner._zero_block_ids,
-                zv._zentorch_cpu_zero_block_ids,
-            )
-
-    def test_do_patch_is_safe_noop_when_module_unimportable(self):
-        """If the runner module cannot be imported, _do_patch must return False
-        rather than raising (GPU-only / partial installs)."""
-        import builtins
-
-        zv = self._fresh_module()
-        real_import = builtins.__import__
-
-        def fake_import(name, *args, **kwargs):
-            if name == self._TARGET:
-                raise ImportError("simulated missing CPU worker module")
-            return real_import(name, *args, **kwargs)
-
-        with mock.patch.dict(sys.modules):
-            sys.modules.pop(self._TARGET, None)
-            with mock.patch.object(builtins, "__import__", side_effect=fake_import):
-                self.assertFalse(zv._do_patch_cpu_zero_block_ids())
-
-    def test_import_hook_runs_patch_after_module_executes(self):
-        """The finder must execute the real module body BEFORE patching, remove
-        itself from sys.meta_path, and trigger the patch via exec_module."""
-        zv = self._fresh_module()
-
-        call_order = []
-        fake_module = self._make_fake_runner_module()
-
-        def fake_exec(module):
-            call_order.append("exec")
-
-        fake_loader = mock.Mock()
-        fake_loader.exec_module = fake_exec
-        fake_spec = types.SimpleNamespace(loader=fake_loader)
-
-        hook = zv._CpuModelRunnerImportHook()
-        original_meta_path = list(sys.meta_path)
-        sys.meta_path.insert(0, hook)
-        try:
-            with (
-                mock.patch.object(
-                    zv.importlib.util, "find_spec", return_value=fake_spec
-                ),
-                mock.patch.object(
-                    zv,
-                    "_do_patch_cpu_zero_block_ids",
-                    side_effect=lambda: call_order.append("patch"),
-                ),
-            ):
-                returned_spec = hook.find_spec(self._TARGET, None, None)
-
-                self.assertIs(returned_spec, fake_spec)
-                self.assertNotIn(
-                    hook, sys.meta_path, "finder must remove itself (one-shot)"
-                )
-
-                # Simulate the import machinery invoking the wrapped loader.
-                returned_spec.loader.exec_module(fake_module)
-
-            self.assertEqual(
-                call_order,
-                ["exec", "patch"],
-                "real module body must execute before the patch runs",
-            )
-        finally:
-            sys.meta_path[:] = original_meta_path
-
-    def test_import_hook_ignores_other_modules(self):
-        """find_spec must return None (defer to normal machinery) for unrelated
-        module names and must not remove itself for those."""
-        zv = self._fresh_module()
-
-        hook = zv._CpuModelRunnerImportHook()
-        original_meta_path = list(sys.meta_path)
-        sys.meta_path.insert(0, hook)
-        try:
-            self.assertIsNone(hook.find_spec("some.other.module", None, None))
-            self.assertIn(hook, sys.meta_path)
-        finally:
-            sys.meta_path[:] = original_meta_path
-
-
-@unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
-class TestTorchcodecImportGuardPatch(unittest.TestCase):
-    """TorchcodecImportGuardPatch must be registered, gated to v0.25.0 only, and
-    must make a broken torchcodec import survive during vllm.multimodal.video
-    load (backport of vLLM #47888) without changing runtime availability.
-
-    The hook/stub tests load an isolated copy of ``zentorch.vllm`` from source
-    so they neither depend on nor pollute the process-wide plugin state.
-    """
-
-    _TARGET = "vllm.multimodal.video"
-
-    def _fresh_module(self):
-        """Return an isolated, executed ``zentorch.vllm`` source module."""
-        spec, zv = _load_source_vllm_module()
-        with mock.patch.dict(sys.modules, {"zentorch.vllm": zv}):
-            spec.loader.exec_module(zv)
-        return zv
-
-    def test_patch_is_registered(self):
-        """TorchcodecImportGuard should be registered with the manager."""
-        from zentorch.vllm import register
-        from zentorch.vllm._core import manager
-
-        _skip_if_installed_vllm_is_unsupported(self)
-        register()
-        self.assertIn("TorchcodecImportGuard", manager.patches)
-
-    def test_patch_targets_v25_only(self):
-        """The @vllm_version decorator should target only v0.25.0."""
-        from zentorch.vllm import TorchcodecImportGuardPatch
-        from zentorch.vllm._core import VLLM_V25
-
-        self.assertTrue(hasattr(TorchcodecImportGuardPatch, "_target_versions"))
-        self.assertEqual(
-            TorchcodecImportGuardPatch._target_versions, {VLLM_V25}
-        )
-
-    def test_apply_installs_deferred_hook_when_video_absent(self):
-        """When video.py is not yet imported, apply() must arm exactly one
-        import hook and must not import the module eagerly."""
-        zv = self._fresh_module()
-
-        original_meta_path = list(sys.meta_path)
-        try:
-            with mock.patch.dict(sys.modules):
-                sys.modules.pop(self._TARGET, None)
-                result = zv._apply_torchcodec_import_guard()
-
-                self.assertTrue(result)
-                armed = [
-                    f
-                    for f in sys.meta_path
-                    if isinstance(f, zv._MultimodalVideoImportHook)
-                ]
-                self.assertEqual(len(armed), 1)
-        finally:
-            sys.meta_path[:] = original_meta_path
-
-    def test_apply_is_noop_when_video_already_imported(self):
-        """If video.py already imported (loaded fine), no hook is armed."""
-        zv = self._fresh_module()
-
-        original_meta_path = list(sys.meta_path)
-        try:
-            fake_video = types.ModuleType(self._TARGET)
-            with mock.patch.dict(sys.modules, {self._TARGET: fake_video}):
-                result = zv._apply_torchcodec_import_guard()
-
-            self.assertTrue(result)
-            armed = [
-                f
-                for f in sys.meta_path
-                if isinstance(f, zv._MultimodalVideoImportHook)
-            ]
-            self.assertEqual(armed, [])
-        finally:
-            sys.meta_path[:] = original_meta_path
-
-    def test_stub_installs_placeholder_when_torchcodec_broken(self):
-        """A broken `import torchcodec` (RuntimeError, as with missing FFmpeg)
-        must yield a removable placeholder so `from torchcodec.decoders import
-        VideoDecoder` succeeds."""
-        import builtins
-
-        zv = self._fresh_module()
-        real_import = builtins.__import__
-
-        def fake_import(name, *args, **kwargs):
-            if name == "torchcodec" or name.startswith("torchcodec."):
-                raise RuntimeError(
-                    "Could not load libtorchcodec (simulated missing FFmpeg)"
-                )
-            return real_import(name, *args, **kwargs)
-
-        with mock.patch.dict(sys.modules):
-            sys.modules.pop("torchcodec", None)
-            sys.modules.pop("torchcodec.decoders", None)
-            with mock.patch.object(builtins, "__import__", side_effect=fake_import):
-                stubbed = zv._stub_broken_torchcodec_for_video_import()
-
-            self.assertTrue(stubbed)
-            self.assertIn("torchcodec.decoders", sys.modules)
-            self.assertTrue(
-                getattr(sys.modules["torchcodec"], "_zentorch_torchcodec_stub", False)
-            )
-            # `from torchcodec.decoders import VideoDecoder` must resolve.
-            self.assertTrue(hasattr(sys.modules["torchcodec.decoders"], "VideoDecoder"))
-
-            # Teardown must remove ONLY our stub.
-            zv._remove_torchcodec_stub()
-            self.assertNotIn("torchcodec", sys.modules)
-            self.assertNotIn("torchcodec.decoders", sys.modules)
-
-    def test_stub_is_noop_when_torchcodec_importable(self):
-        """When torchcodec imports cleanly, no stub is installed and the real
-        module is left untouched."""
-        if importlib.util.find_spec("torchcodec") is None:
-            self.skipTest("torchcodec not installed")
-        try:
-            import torchcodec.decoders  # noqa: F401
-        except (ImportError, RuntimeError):
-            self.skipTest("torchcodec present but not loadable on this host")
-
-        zv = self._fresh_module()
-        stubbed = zv._stub_broken_torchcodec_for_video_import()
-        self.assertFalse(stubbed)
-        self.assertFalse(
-            getattr(sys.modules.get("torchcodec"), "_zentorch_torchcodec_stub", False)
-        )
-
-    def test_import_hook_wraps_exec_and_guards_torchcodec(self):
-        """The finder must wrap exec_module so the stub is active during the
-        module body and removed afterwards, and must remove itself (one-shot)."""
-        zv = self._fresh_module()
-
-        events = []
-        fake_module = types.ModuleType(self._TARGET)
-
-        def fake_exec(module):
-            # Emulate video.py's top-level `from torchcodec.decoders import
-            # VideoDecoder`: it must succeed while the guard is active.
-            events.append(("exec", "torchcodec.decoders" in sys.modules))
-
-        fake_loader = mock.Mock()
-        fake_loader.exec_module = fake_exec
-        fake_spec = types.SimpleNamespace(loader=fake_loader)
-
-        hook = zv._MultimodalVideoImportHook()
-        original_meta_path = list(sys.meta_path)
-        sys.meta_path.insert(0, hook)
-        try:
-            with (
-                mock.patch.object(
-                    zv.importlib.util, "find_spec", return_value=fake_spec
-                ),
-                mock.patch.object(
-                    zv,
-                    "_stub_broken_torchcodec_for_video_import",
-                    side_effect=lambda: (events.append(("stub", True)) or True),
-                ),
-                mock.patch.object(
-                    zv,
-                    "_remove_torchcodec_stub",
-                    side_effect=lambda: events.append(("unstub", True)),
-                ),
-            ):
-                returned_spec = hook.find_spec(self._TARGET, None, None)
-                self.assertIs(returned_spec, fake_spec)
-                self.assertNotIn(
-                    hook, sys.meta_path, "finder must remove itself (one-shot)"
-                )
-                returned_spec.loader.exec_module(fake_module)
-
-            self.assertEqual(
-                [e[0] for e in events],
-                ["stub", "exec", "unstub"],
-                "stub must be installed before exec and removed after",
-            )
-        finally:
-            sys.meta_path[:] = original_meta_path
-
-    def test_import_hook_ignores_other_modules(self):
-        """find_spec must defer (return None) for unrelated modules and stay
-        armed."""
-        zv = self._fresh_module()
-
-        hook = zv._MultimodalVideoImportHook()
-        original_meta_path = list(sys.meta_path)
-        sys.meta_path.insert(0, hook)
-        try:
-            self.assertIsNone(hook.find_spec("some.other.module", None, None))
-            self.assertIn(hook, sys.meta_path)
-        finally:
-            sys.meta_path[:] = original_meta_path
-
-
-# =============================================================================
-# Test Runner
-# =============================================================================
-
-
 def run_tests():
-    """Run all vLLM plugin tests."""
     loader = unittest.TestLoader()
     suite = unittest.TestSuite()
-
-    suite.addTests(loader.loadTestsFromTestCase(TestVersionParsing))
-    suite.addTests(loader.loadTestsFromTestCase(TestVllmPluginVersionCheck))
-    suite.addTests(loader.loadTestsFromTestCase(TestPatchRegistration))
-    suite.addTests(loader.loadTestsFromTestCase(TestPreV18DispatchHook))
-    suite.addTests(loader.loadTestsFromTestCase(TestCompilationConfigPatch))
-    suite.addTests(loader.loadTestsFromTestCase(TestPlatformConfiguration))
-    suite.addTests(loader.loadTestsFromTestCase(TestDynamicQLinearDispatchPatch))
-    suite.addTests(loader.loadTestsFromTestCase(TestDynamicQLinearDispatchNoTorchAO))
-    suite.addTests(loader.loadTestsFromTestCase(TestInt8TensorHandlers))
-    suite.addTests(loader.loadTestsFromTestCase(TestZentorchOptimizePass))
-    suite.addTests(loader.loadTestsFromTestCase(TestCppIndirectAssertPatch))
-    suite.addTests(loader.loadTestsFromTestCase(TestCPURunnerShutdownPatch))
-    suite.addTests(loader.loadTestsFromTestCase(TestGptOssMoEWeightRemapPatch))
-    suite.addTests(loader.loadTestsFromTestCase(TestGatedDeltaNetPatch))
-    suite.addTests(loader.loadTestsFromTestCase(TestCpuZeroBlockIdsPatch))
-    suite.addTests(loader.loadTestsFromTestCase(TestTorchcodecImportGuardPatch))
-
-    runner = unittest.TextTestRunner(verbosity=2)
-    result = runner.run(suite)
-    return result
+    for test_case in (
+        TestVersionContract,
+        TestRegisterContract,
+        TestPatchWiring,
+        TestPlatformConfiguration,
+        TestZentorchOptimizePass,
+    ):
+        suite.addTests(loader.loadTestsFromTestCase(test_case))
+    return unittest.TextTestRunner(verbosity=2).run(suite)
 
 
 if __name__ == "__main__":

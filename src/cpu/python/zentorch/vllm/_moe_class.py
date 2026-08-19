@@ -22,21 +22,13 @@ _TORCHAO_MOE_TARGET_MODULE = "vllm.model_executor.layers.quantization.torchao"
 def _resolve_moe_layer_types():
     """Return the MoE weight-container type(s) exposed by the installed vLLM.
 
-    vLLM 0.24.0+ onwards, FusedMoE is refactored from a class into a factory
-    function and the MoE weight container is moved to RoutedExperts.
+    On vLLM 0.27 the MoE weight container is ``RoutedExperts`` (``FusedMoE`` is a
+    factory function, not a class). Importing it here hard-fails on an
+    incompatible vLLM rather than silently disabling the MoE patch.
     """
-    types = []
-    try:
-        from vllm.model_executor.layers.fused_moe.routed_experts import (
-            RoutedExperts,
-        )
-        types.append(RoutedExperts)
-    except ImportError:
-        pass
-    from vllm.model_executor.layers.fused_moe.layer import FusedMoE
-    if isinstance(FusedMoE, type):
-        types.append(FusedMoE)
-    return tuple(types)
+    from vllm.model_executor.layers.fused_moe.routed_experts import RoutedExperts
+
+    return (RoutedExperts,)
 
 
 def _register_torchao_moe_patches(torchao_mod) -> None:

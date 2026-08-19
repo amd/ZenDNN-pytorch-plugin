@@ -4,61 +4,51 @@
 # ******************************************************************************
 
 """
-Unit tests for the out-of-tree DA8W4 (W4A8) vLLM kernel patch
-(``Da8w4KernelPatch`` in ``zentorch.vllm``): patch registration and version
-gating (vLLM >= 0.22.1).
+Unit tests for the out-of-tree DA8W4 (W4A8) vLLM kernel patch.
+
+The plugin adds the W4A8 fast path onto vLLM's in-tree W4A16
+``ZentorchWNA16LinearKernel``. Registration is via the flat
+``_PATCHES`` tuple, so version gating is covered by the shared
+version-contract tests; the DA8W4-specific surface is the
+``VLLM_CPU_INT4_W4A8`` toggle.
 """
 
+import os
 import unittest
 import unittest.mock
 
 import zentorch  # noqa: F401 - ensures zentorch native extension is loaded
 
-try:
-    import vllm  # noqa: F401
 
-    VLLM_AVAILABLE = True
-except ImportError:
-    VLLM_AVAILABLE = False
-
-
-@unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
 class TestDa8w4KernelPatch(unittest.TestCase):
-    """Da8w4KernelPatch is registered and gated to vLLM >= 0.22.1."""
+    """DA8W4 is wired into _PATCHES and respects VLLM_CPU_INT4_W4A8."""
 
-    def test_patch_is_registered(self):
-        from zentorch.vllm import register
-        from zentorch.vllm._core import manager
+    def test_wired_in_patches(self):
+        import zentorch.vllm as zv
 
-        register()
-        self.assertIn("Da8w4Kernel", manager.patches)
+        names = [name for name, _ in zv._PATCHES]
+        self.assertIn("Da8w4Kernel", names)
 
-    def test_patch_targets_v22_1_through_v25_1(self):
-        """Gated to exactly {0.22.1, 0.23, 0.24, 0.25, 0.25.1}."""
-        from zentorch.vllm import Da8w4KernelPatch
-        from zentorch.vllm._core import (
-            VLLM_V22_1,
-            VLLM_V23,
-            VLLM_V24,
-            VLLM_V25,
-            VLLM_V25_1,
-        )
+    def test_enabled_by_default(self):
+        from zentorch.vllm._da8w4_kernel_patch import _da8w4_enabled
 
-        self.assertTrue(hasattr(Da8w4KernelPatch, "_target_versions"))
-        self.assertEqual(
-            Da8w4KernelPatch._target_versions,
-            {VLLM_V22_1, VLLM_V23, VLLM_V24, VLLM_V25, VLLM_V25_1},
-        )
+        with unittest.mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("VLLM_CPU_INT4_W4A8", None)
+            self.assertTrue(_da8w4_enabled())
 
-    def test_apply_skips_below_v22_1(self):
-        """apply() must be a no-op (False) on vLLM versions preceding 0.22.1."""
-        from zentorch.vllm import Da8w4KernelPatch
-        from zentorch.vllm import _core as zv_core
+    def test_disabled_via_env(self):
+        from zentorch.vllm._da8w4_kernel_patch import _da8w4_enabled
 
-        with unittest.mock.patch.object(
-            zv_core, "get_vllm_version", return_value="0.22.0"
-        ):
-            self.assertFalse(Da8w4KernelPatch.apply())
+        with unittest.mock.patch.dict(os.environ, {"VLLM_CPU_INT4_W4A8": "0"}):
+            self.assertFalse(_da8w4_enabled())
+
+    def test_apply_is_noop_when_disabled(self):
+        # Disabled -> returns False and installs nothing, so vLLM's in-tree
+        # W4A16 ZentorchWNA16LinearKernel is used unchanged.
+        from zentorch.vllm._da8w4_kernel_patch import _apply_da8w4_patch
+
+        with unittest.mock.patch.dict(os.environ, {"VLLM_CPU_INT4_W4A8": "0"}):
+            self.assertFalse(_apply_da8w4_patch())
 
 
 if __name__ == "__main__":

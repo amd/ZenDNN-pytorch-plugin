@@ -5,23 +5,13 @@
 
 """zentorch CPU Platform for vLLM.
 
-Notes:
-- Out-of-tree runtime support: 0.20.0 - 0.26.0
-- Legacy version map retained for shared patch/version checks: 0.15.0 - 0.26.0
-- 0.18.0+: is_zen_cpu() for native dispatch_cpu_unquantized_gemm routing
+Targets vLLM 0.27.x / PyTorch 2.13. vLLM's stock CpuPlatform already configures
+the CPU compile defaults (DYNAMO_TRACE_ONCE + inductor, dce/size_asserts/
+nan_asserts/epilogue_fusion) and CPU-only profiler handling, so this subclass
+only marks the platform as Zen and injects the zentorch inductor optimize pass.
 """
 
 from typing import TYPE_CHECKING
-
-from packaging import version as pkg_version
-
-from zentorch.vllm._core import (
-    _VERSION_MAP,
-    VLLM_MAX_VERSION,
-    VLLM_MIN_VERSION,
-    _base_version,
-    get_vllm_version,
-)
 
 if TYPE_CHECKING:
     from vllm.config import VllmConfig
@@ -29,24 +19,8 @@ if TYPE_CHECKING:
 _ZenCPUPlatformImpl = None
 
 
-def _is_profiler_patch_version() -> bool:
-    """Return True when the profiler wrapper patch applies."""
-    vllm_ver = get_vllm_version()
-    if vllm_ver is None:
-        return False
-
-    base_version = _base_version(vllm_ver)
-    if base_version not in _VERSION_MAP:
-        return False
-
-    parsed_version = pkg_version.parse(base_version)
-    return pkg_version.parse(VLLM_MIN_VERSION) <= parsed_version <= pkg_version.parse(
-        VLLM_MAX_VERSION
-    )
-
-
 def _create_platform():
-    """Create ZenCPUPlatform class lazily."""
+    """Create the ZenCPUPlatform class lazily (needs vLLM imported)."""
     global _ZenCPUPlatformImpl
     if _ZenCPUPlatformImpl is not None:
         return _ZenCPUPlatformImpl
@@ -57,10 +31,7 @@ def _create_platform():
     logger = init_logger(__name__)
 
     class ZenCPUPlatformImpl(CpuPlatform):
-        """Out-of-tree CPU platform with zentorch optimizations.
-
-        Runtime-supported vLLM versions: 0.20.0 - 0.26.0.
-        """
+        """Out-of-tree CPU platform with zentorch optimizations (vLLM 0.27.x)."""
 
         device_name: str = "cpu"
         device_type: str = "cpu"
@@ -83,7 +54,8 @@ def _create_platform():
                 }
             )
 
-            # Inject zentorch optimize pass
+            # Inject the zentorch optimize pass so torch.compile rewrites aten
+            # ops into ZenDNN-backed zentorch ops.
             try:
                 from zentorch._compile_backend import optimize_pass
 
@@ -91,64 +63,6 @@ def _create_platform():
                 logger.info("[zentorch] Injected optimize_pass")
             except ImportError:
                 logger.warning("[zentorch] optimize_pass not available")
-
-            # Apply profiler patches (version-specific)
-            cls._patch_profiler()
-
-        @classmethod
-        def _patch_profiler(cls):
-            """Suppress redundant cuda-time table output for OOT runtime support (v0.20.0-v0.26.0)."""
-            if _is_profiler_patch_version():
-                cls._patch_profiler_stop()
-
-        @classmethod
-        def _patch_profiler_stop(cls):
-            """Suppress redundant cuda-time table for CPU-only OOT runtime support (v0.20.0-v0.26.0)."""
-            try:
-                from vllm.profiler import wrapper as wrapper_module
-            except ImportError:
-                logger.debug("[zentorch] profiler.wrapper not available")
-                return
-
-            TorchProfilerWrapper = wrapper_module.TorchProfilerWrapper
-            if hasattr(TorchProfilerWrapper, "_zentorch_patched"):
-                return
-
-            def patched_stop(self):
-                self.profiler.stop()
-                profiler_config = self.profiler_config
-                rank = self.local_rank
-
-                # Only dump cuda time table if NOT cpu-only
-                if (
-                    profiler_config.torch_profiler_dump_cuda_time_total
-                    and not self.dump_cpu_time_total
-                ):
-                    profiler_dir = profiler_config.torch_profiler_dir
-                    profiler_out_file = f"{profiler_dir}/profiler_out_{rank}.txt"
-                    table = self.profiler.key_averages().table(
-                        sort_by="self_cuda_time_total"
-                    )
-                    with open(profiler_out_file, "w") as f:
-                        print(table, file=f)
-                    if rank == 0:
-                        print(table)
-
-                # CPU time table for CPU-only activities
-                if self.dump_cpu_time_total and rank == 0:
-                    wrapper_module.logger.info(
-                        self.profiler.key_averages().table(
-                            sort_by="self_cpu_time_total", row_limit=50
-                        )
-                    )
-
-            TorchProfilerWrapper._stop = patched_stop
-            TorchProfilerWrapper._zentorch_patched = True
-            logger.info(
-                "[zentorch] Patched TorchProfilerWrapper._stop (%s-%s)",
-                VLLM_MIN_VERSION,
-                VLLM_MAX_VERSION,
-            )
 
     _ZenCPUPlatformImpl = ZenCPUPlatformImpl
     return _ZenCPUPlatformImpl

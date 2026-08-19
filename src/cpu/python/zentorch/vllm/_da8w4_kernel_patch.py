@@ -3,27 +3,26 @@
 # All rights reserved.
 # ****************************************************************************
 
-"""Out-of-tree DA8W4 (W4A8) patch for vLLM's ``ZentorchWNA16LinearKernel``.
+"""DA8W4 (W4A8) fast path for vLLM's ``ZentorchWNA16LinearKernel``.
 
-Adds the DA8W4 (dynamic bf16->s8 activation x symmetric s4 weight) fast path to
-``ZentorchWNA16LinearKernel`` as a runtime monkey-patch, so vanilla vLLM needs
-no source changes.
+Adds the DA8W4 (dynamic bf16->s8 activation x symmetric s4 weight) path to
+``ZentorchWNA16LinearKernel`` for symmetric compressed-tensors W4 checkpoints.
+Enabled by default; set ``VLLM_CPU_INT4_W4A8=0`` to keep the W4A16 path.
 """
 
 from __future__ import annotations
 
-import importlib.util
 import os
-import sys
 
 import torch
 
 from vllm.logger import init_logger
 
+from zentorch.vllm._import_hook import patch_now_or_on_import
+
 logger = init_logger(__name__)
 
 _TARGET_MODULE = "vllm.model_executor.kernels.linear.mixed_precision.zentorch"
-_HOOK_INSTALLED = False
 
 
 def _da8w4_enabled() -> bool:
@@ -213,44 +212,8 @@ def _do_patch_da8w4() -> bool:
     return True
 
 
-class _Da8w4ImportHook:
-    """Post-import hook: patch ZentorchWNA16LinearKernel after its module loads."""
-
-    _TARGET_MODULE = _TARGET_MODULE
-
-    def find_spec(self, fullname, path, target=None):
-        if fullname != self._TARGET_MODULE:
-            return None
-        if self in sys.meta_path:
-            sys.meta_path.remove(self)
-
-        spec = importlib.util.find_spec(fullname)
-        if spec is None or spec.loader is None:
-            return None
-
-        original_exec = spec.loader.exec_module
-
-        def _exec_then_patch(module):
-            original_exec(module)
-            _do_patch_da8w4()
-
-        spec.loader.exec_module = _exec_then_patch
-        return spec
-
-
-def apply_da8w4_patch() -> bool:
-    """Install the DA8W4 patch, deferred if the target module isn't loaded yet."""
-    global _HOOK_INSTALLED
-
-    if _HOOK_INSTALLED:
-        return True
-
-    if _TARGET_MODULE in sys.modules:
-        result = _do_patch_da8w4()
-    else:
-        sys.meta_path.insert(0, _Da8w4ImportHook())
-        logger.debug("[zentorch] Installed DA8W4 kernel import hook")
-        result = True
-
-    _HOOK_INSTALLED = result
-    return result
+def _apply_da8w4_patch() -> bool:
+    """Opt out with VLLM_CPU_INT4_W4A8=0 to keep the in-tree W4A16 path."""
+    if not _da8w4_enabled():
+        return False
+    return patch_now_or_on_import(_TARGET_MODULE, _do_patch_da8w4)

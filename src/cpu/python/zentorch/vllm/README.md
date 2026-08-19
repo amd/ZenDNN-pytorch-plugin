@@ -14,8 +14,8 @@ The **zentorch vLLM plugin** integrates [zentorch](https://github.com/amd/ZenDNN
 
 The plugin uses vLLM's platform and general plugin entry points to:
 - Inject zentorch optimization passes into `torch.compile`
-- Bypass or reroute GEMM dispatch so zentorch linear kernels stay active
-- Enable CPU-only profiling
+- Route CPU RMSNorm and fused-MoE through ZenDNN kernels
+- Route CompressedTensors W8A8 (incl. gpt-oss / Mixtral per-expert checkpoints) through the zentorch int8 MoE kernel
 
 ---
 
@@ -32,14 +32,16 @@ The plugin uses vLLM's platform and general plugin entry points to:
 
 | Component | Version | Notes |
 |-----------|---------|-------|
-| vLLM | 0.20.0 - 0.26.0 | In-tree `ZenCpuPlatform` is available from 0.18.0 on supported AMD AVX512 systems; out-of-tree plugin runtime support starts at 0.20.0 |
+| vLLM | 0.27.0 – 0.27.1 | Inclusive, validated window (`VLLM_MIN_VERSION`–`VLLM_MAX_VERSION`). Pre-releases and newer, unvalidated patches (e.g. 0.27.2) are rejected; the plugin falls back to the stock CPU platform. |
 | Python | 3.12 | |
-| PyTorch | 2.11.0 | Auto-installed by the supported vLLM CPU releases |
-| TorchAO | 0.17.0 (vLLM 0.20.0-0.26.0) | Required for TorchAO quantized model paths; the plugin skips TorchAO patches when the package is absent |
+| PyTorch | 2.13.0 | Auto-installed by the vLLM 0.27 CPU release; the plugin requires PyTorch 2.13+. |
+| TorchAO | 0.17.0+ | Required for TorchAO quantized model paths; the plugin skips TorchAO patches when the package is absent |
 
-> **Note:** vLLM version ranges in this README are shorthand for the supported
-> releases captured by the plugin's version map; unsupported patch releases are
-> still rejected by the runtime version check.
+> **Note:** This plugin supports only the validated, inclusive vLLM window
+> 0.27.0–0.27.1 on PyTorch 2.13. vLLM 0.x is not semver-stable, so newer patch
+> releases are rejected until validated and `VLLM_MAX_VERSION` is bumped. Older
+> vLLM releases and the PyTorch <= 2.12 backports they required have been removed
+> now that they are native upstream.
 
 ---
 
@@ -56,13 +58,12 @@ When both vLLM and the `zentorch` package are installed, vLLM automatically dete
 │  └── vllm.general_plugins  → Early monkey-patches           │
 ├─────────────────────────────────────────────────────────────┤
 │  ZenCPUPlatform                                             │
-│  ├── Configures torch.compile with inductor backend         │
-│  ├── Injects zentorch.optimize_pass for ZenDNN kernels      │
-│  └── Patches profiler (version-specific)                    │
+│  ├── Inherits stock CpuPlatform compile + profiler defaults │
+│  └── Injects zentorch.optimize_pass for ZenDNN kernels      │
 ├─────────────────────────────────────────────────────────────┤
 │  Monkey Patches (applied early)                             │
-│  ├── CompilationConfig.__repr__ → Handle custom passes      │
-│  └── GEMM dispatch / oneDNN bypass → Use zentorch linear    │
+│  ├── RMSNorm / CPUFusedMOE → zentorch kernels               │
+│  └── CompressedTensors W8A8 MoE → zentorch int8 MoE         │
 ├─────────────────────────────────────────────────────────────┤
 │  torch.compile (inductor + zentorch optimize_pass)          │
 │  └── Replaces aten ops with zentorch ops (mm, embedding)    │
@@ -76,15 +77,14 @@ The plugin leverages AMD EPYC specific intrinsics and optimizations to accelerat
 ## Key Components
 
 **ZenCPUPlatform** (`_platform.py`)
-- Extends vLLM's `CpuPlatform`
-- Sets `device_name = "cpu"` and `device_type = "cpu"`
-- Configures `CompilationLevel.DYNAMO_ONCE`/`CompilationMode.DYNAMO_TRACE_ONCE` with inductor backend
+- Extends vLLM's `CpuPlatform` (which already sets `DYNAMO_TRACE_ONCE` + inductor and CPU profiler defaults)
+- Sets `device_name = "cpu"` and `device_type = "cpu"`, and reports `is_zen_cpu()`
 - Injects `zentorch._compile_backend.optimize_pass` introducing zentorch operators
 
 **Plugin Entry Points** (`__init__.py`)
 - Registered via `vllm.platform_plugins` and `vllm.general_plugins`
-- Applies patches before model initialization
-- Validates vLLM version compatibility
+- Applies the Zen-specific patches before model initialization
+- Validates vLLM (0.27.x) and PyTorch (2.13+) compatibility, else falls back to the stock CPU platform
 
 ---
 
@@ -105,17 +105,17 @@ The plugin leverages AMD EPYC specific intrinsics and optimizations to accelerat
 
      > **Important:** Pre-built vLLM CPU binaries are available from [0.13.0](https://docs.vllm.ai/en/stable/getting_started/installation/cpu/#pre-built-wheels), so all currently supported versions can use the published CPU wheels.
 
-   - Supported versions: 0.20.0 - 0.26.0. Check out the appropriate release tag before building.
+   - Supported versions: 0.27.0–0.27.1 (inclusive). Check out the appropriate release tag before building.
 
 3. **Install zentorch:**
 
    | vLLM version | PyTorch version (auto-installed by vLLM) | zentorch install method |
    |--------------|-----------------|------------------------|
-   | 0.20.0 - 0.26.0 | 2.11.0 | PyPI or source |
+   | 0.27.0 – 0.27.1 | 2.13.0 | PyPI or source |
 
-   > **Note:** The out-of-tree plugin is supported only with vLLM `0.20.0+` and, when present, takes precedence over the in-tree `ZenCpuPlatform` on supported AMD AVX512 systems. To use the in-tree platform instead, build and install zentorch with `ZENTORCH_VLLM_PLUGIN_BUILD=0`, which omits the out-of-tree vLLM plugin from the wheel.
+   > **Note:** The out-of-tree plugin, when present, takes precedence over the in-tree `ZenCpuPlatform` on supported AMD AVX512 systems. To use the in-tree platform instead, build and install zentorch with `ZENTORCH_VLLM_PLUGIN_BUILD=0`, which omits the out-of-tree vLLM plugin from the wheel.
 
-   - **From PyPI** (vLLM 0.20.0+):
+   - **From PyPI:**
      ```bash
      pip install zentorch
      ```

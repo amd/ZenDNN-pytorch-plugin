@@ -3,18 +3,16 @@
 # All rights reserved.
 # ****************************************************************************
 
-"""vLLM - zentorch integration using the plugin pattern.
+"""vLLM - zentorch integration via the plugin pattern.
+
+Supports released vLLM in the inclusive [VLLM_MIN_VERSION, VLLM_MAX_VERSION]
+window on PyTorch 2.13; other versions fall back to the stock CPU platform.
 
 Entry points:
-- vllm.platform_plugins -> returns ZenCPUPlatform class path
-- vllm.general_plugins  -> applies early patches
+- vllm.platform_plugins -> returns the ZenCPUPlatform class path
+- vllm.general_plugins  -> applies the Zen-CPU patches
 
-Patches:
-- CompilationConfig repr (all versions)
-- Import-hook GEMM dispatch patching (v15-v17)
-  v18+ GEMM is handled natively via is_zen_cpu() in dispatch_cpu_unquantized_gemm.
-- Out-of-tree runtime activation starts at v20; older families are retained only
-  for legacy detection and patch metadata.
+The patches applied at registration are listed in ``_PATCHES``.
 
 Reference: https://blog.vllm.ai/2025/11/20/vllm-plugin-system.html
 """
@@ -24,46 +22,15 @@ from __future__ import annotations
 import importlib.util
 import os
 import sys
-import types
-from typing import Optional
+
 import torch
+from packaging import version as pkg_version
 
 from zentorch._logging import get_logger
-from zentorch._utils import counters
-from zentorch.vllm._core import (
-    vllm_version,
-    vllm_version_range,
-    manager,
-    get_version_family,
-    VLLM_MIN_VERSION,
-    VLLM_MAX_VERSION,
-    VLLM_V15,
-    VLLM_V15_1,
-    VLLM_V16,
-    VLLM_V17,
-    VLLM_V17_1,
-    VLLM_V18,
-    VLLM_V18_1,
-    VLLM_V19,
-    VLLM_V19_1,
-    VLLM_V20,
-    VLLM_V20_1,
-    VLLM_V20_2,
-    VLLM_V21,
-    VLLM_V22,
-    VLLM_V22_1,
-    VLLM_V23,
-    VLLM_V24,
-    VLLM_V25,
-    VLLM_V25_1,
-    VLLM_V26,
-)
-
-
-from zentorch._utils import _SUPPORTED_MOE_ACTIVATIONS
+from zentorch._utils import counters, _SUPPORTED_MOE_ACTIVATIONS
 
 # Re-exported at module scope so tests can mock the Int8Tensor dispatch impl
-# (see TorchAOPatch.apply); the import has no torchao dependency itself.
+# (see _apply_torchao_patch); the import has no torchao dependency itself.
 from zentorch.vllm._torchao_int8_patch import (  # noqa: E402, F401
     _apply_torchao_int8_tensor_patch_impl,
 )
@@ -79,344 +46,81 @@ from zentorch.vllm._gptoss_moe_loader_patch import (  # noqa: E402, F401
 from zentorch.vllm._mixtral_moe_loader_patch import (  # noqa: E402, F401
     _apply_mixtral_loader_patch_impl,
 )
+from zentorch.vllm._gemma4_hetero_config_patch import (  # noqa: E402, F401
+    _apply_gemma4_hetero_patch,
+)
+from zentorch.vllm._da8w4_kernel_patch import (  # noqa: E402, F401
+    _apply_da8w4_patch,
+)
+from zentorch.vllm._import_hook import patch_now_or_on_import  # noqa: E402
 
 logger = get_logger(__name__)
 
+# ---------------------------------------------------------------------------
+# Supported runtime
+# ---------------------------------------------------------------------------
+# Inclusive window of released vLLM versions validated against this plugin. The
+# upper bound is explicit, not an open "< next minor" range: bump VLLM_MAX_VERSION
+# after validating each new patch release.
+VLLM_MIN_VERSION = "0.27.0"
+VLLM_MAX_VERSION = "0.27.1"
+TORCH_MIN_VERSION = (2, 13)
 
-_FXGRAPHCACHE_PATCH_APPLIED = False
+
+def get_vllm_version() -> str | None:
+    """Return the imported vLLM version string, or None if vLLM is absent."""
+    if "vllm" not in sys.modules:
+        return None
+    return getattr(sys.modules["vllm"], "__version__", None)
 
 
-def _apply_fxgraphcache_pickle_patch() -> bool:
-    """Backport PyTorch mainline fix: add ValueError to FxGraphCachePickler.dumps().
+def _base_version(ver: str) -> str:
+    """Strip the local build suffix, e.g. 0.27.0+cpu -> 0.27.0.
 
-    PyTorch mainline already catches ValueError in FxGraphCachePickler.dumps(),
-    but PyTorch 2.10 does not. Without this, pickle fast mode (self.fast = True)
-    crashes on cyclic object references instead of gracefully bypassing the cache.
-
-    Returns:
-        True if patch was applied, False if not needed or failed.
+    rc/dev suffixes are kept so pre-releases parse below the release and are
+    rejected by ``is_supported_vllm``.
     """
-    global _FXGRAPHCACHE_PATCH_APPLIED
+    return ver.split("+")[0]
 
-    if _FXGRAPHCACHE_PATCH_APPLIED:
-        return True
 
-    # Only needed for PyTorch 2.10.0 which is missing the mainline fix.
+def is_supported_vllm(ver: str | None) -> bool:
+    """True iff ``ver`` is a released version in the inclusive
+    [VLLM_MIN_VERSION, VLLM_MAX_VERSION] window. Pre-releases and versions above
+    the window are rejected.
+    """
+    if not ver:
+        return False
+    try:
+        parsed = pkg_version.parse(_base_version(ver))
+    except pkg_version.InvalidVersion:
+        return False
+    if parsed.is_prerelease:  # reject rc/dev/alpha/beta (e.g. 0.27.0rc2, 0.28.0rc1)
+        return False
+    return (
+        pkg_version.parse(VLLM_MIN_VERSION)
+        <= parsed
+        <= pkg_version.parse(VLLM_MAX_VERSION)
+    )
+
+
+def is_supported_torch() -> bool:
+    """True iff the running PyTorch is >= 2.13 (the vLLM 0.27 CPU baseline)."""
     from torch.torch_version import TorchVersion
 
-    if TorchVersion(torch.__version__) < (2, 10):
-        logger.debug(
-            "[zentorch] FxGraphCache pickle patch only applies to PyTorch 2.10.0"
-        )
-        return False
-
-    import pickle
-
-    try:
-        from torch._inductor.codecache import FxGraphCachePickler
-
-        original_dumps = FxGraphCachePickler.dumps
-
-        # Check if already patched
-        if hasattr(original_dumps, "_zentorch_patched"):
-            _FXGRAPHCACHE_PATCH_APPLIED = True
-            return True
-
-        def patched_dumps(self, obj):
-            """Mainline backport: catches ValueError from cyclic Logger refs."""
-            try:
-                self.dump(obj)
-                return self._stream.getvalue()
-            except (TypeError, AttributeError, pickle.PicklingError, ValueError) as e:
-                from torch._inductor.codecache import BypassFxGraphCache
-                import logging
-
-                logging.getLogger("torch._inductor.codecache").warning(
-                    "Failed to pickle cache key", exc_info=True
-                )
-                raise BypassFxGraphCache("Failed to pickle cache key") from e
-            finally:
-                self._stream.seek(0)
-                self._stream.truncate(0)
-
-        patched_dumps._zentorch_patched = True
-        FxGraphCachePickler.dumps = patched_dumps
-
-        _FXGRAPHCACHE_PATCH_APPLIED = True
-        logger.info(
-            "[zentorch] Backported mainline ValueError fix to FxGraphCachePickler.dumps"
-        )
-        return True
-
-    except (ImportError, AttributeError):
-        logger.debug("[zentorch] FxGraphCachePickler patch not applicable")
-        return False
-
-
-# ---------------------------------------------------------------------------
-# PyTorch FakeTensorMode Patch (torch version aware)
-# ---------------------------------------------------------------------------
-
-_FAKETENSOR_PATCH_APPLIED = False
-
-
-def _apply_faketensor_subclass_patch() -> bool:
-    """Fix _check_for_subclass_arg to recognize Parameter subclasses.
-
-    Uses issubclass(type(x), Parameter) instead of `type(x) is not Parameter`
-    so vLLM's ModelWeightParameter is treated as a Parameter by FakeTensorMode.
-    Needed for TORCHINDUCTOR_FREEZING=1.
-
-    Returns True if patch was applied, False if not needed or failed.
-    """
-    global _FAKETENSOR_PATCH_APPLIED
-
-    if _FAKETENSOR_PATCH_APPLIED:
-        return True
-
-    # Only apply for PyTorch 2.10+ where freezing with custom ops is used
-    from torch.torch_version import TorchVersion
-
-    if TorchVersion(torch.__version__) < (2, 10):
-        logger.debug("[zentorch] FakeTensor patch not needed for PyTorch < 2.10")
-        return False
-
-    try:
-        import torch._subclasses.fake_tensor as fake_tensor_module
-
-        # Check if the function exists and needs patching
-        if not hasattr(fake_tensor_module, "_check_for_subclass_arg"):
-            logger.debug("[zentorch] _check_for_subclass_arg not found, skipping patch")
-            return False
-
-        original_fn = fake_tensor_module._check_for_subclass_arg
-
-        # Check if already patched
-        if hasattr(original_fn, "_zentorch_patched"):
-            _FAKETENSOR_PATCH_APPLIED = True
-            return True
-
-        # Create fixed version
-        def _check_for_subclass_arg_fixed(x: object) -> bool:
-            """Fixed version: uses issubclass() for Parameter check.
-
-            This allows Parameter subclasses (like ModelWeightParameter) to be
-            handled by FakeTensorMode's registered fake implementations rather
-            than returning NotImplemented.
-            """
-            from torch import Tensor
-            from torch._subclasses.fake_tensor import FakeTensor
-
-            return (
-                not isinstance(x, FakeTensor)
-                and isinstance(x, Tensor)
-                and type(x) is not Tensor
-                and not issubclass(type(x), torch.nn.Parameter)
-            )
-
-        _check_for_subclass_arg_fixed._zentorch_patched = True
-
-        # Apply the patch
-        fake_tensor_module._check_for_subclass_arg = _check_for_subclass_arg_fixed
-
-        # Also patch _check_for_subclass which uses _check_for_subclass_arg
-        # The function iterates over args and calls _check_for_subclass_arg
-        # Since we patched the helper, the main function will use our fixed version
-
-        _FAKETENSOR_PATCH_APPLIED = True
-        logger.info(
-            "[zentorch] Patched FakeTensorMode._check_for_subclass_arg for Parameter subclass support"
-        )
-        return True
-
-    except Exception:
-        logger.warning("[zentorch] Failed to patch FakeTensorMode", exc_info=True)
-        return False
-
-
-@vllm_version_range(min_ver=VLLM_MIN_VERSION, max_ver=VLLM_MAX_VERSION)
-class TorchAOPatch:
-    """Register TorchAO hooks: Int4 opaque tensor config/ops, Int8Tensor
-    monkey-patch, and FusedMoE support on TorchAOConfig."""
-
-    # Int8Tensor: upstream torchao dispatch (view/permute) + zentorch_dynamic_qlinear
-    # for dynamic int8; see torchao_int8_patch.py.
-
-    @classmethod
-    def apply(cls) -> bool:
-        if importlib.util.find_spec("torchao") is None:
-            logger.info("[zentorch] TorchAO not installed, skipping TorchAO patch")
-            return False
-        from ._torchao_int4_opaque_patch import (
-            _register_int4_opaque_tensor_config,
-            _register_int4_slice_op,
-        )
-
-        _register_int4_opaque_tensor_config()
-        _register_int4_slice_op()
-        _apply_torchao_int8_tensor_patch_impl()
-        _apply_torchao_moe_patch_impl()
-        logger.info(
-            "[zentorch] Registered TorchAO operations "
-            "(Int4 + Int8Tensor patch + FusedMoE)."
-        )
-        return True
-
-
-# ---------------------------------------------------------------------------
-# Patches (all versions)
-# ---------------------------------------------------------------------------
-
-
-@vllm_version(VLLM_V22_1, VLLM_V23, VLLM_V24, VLLM_V25, VLLM_V25_1, VLLM_V26)
-class Int8MoEPatch:
-    """Route compressed-tensors W8A8 INT8 fused-MoE through zentorch.
-
-    Out-of-tree equivalent of the in-tree ``[CPU][Zen] Route Int8 MoE`` change:
-    monkey-patches ``CompressedTensorsW8A8Int8MoEMethod`` so no vLLM source
-    changes are needed. See ``_int8_moe_patch.py``.
-    """
-
-    @classmethod
-    def apply(cls) -> bool:
-        return _apply_int8_moe_patch_impl()
-
-
-@vllm_version(VLLM_V22_1, VLLM_V23, VLLM_V24, VLLM_V25, VLLM_V25_1, VLLM_V26)
-class GptOssMoELoaderPatch:
-    """GPT-OSS per-expert compressed-tensors W8A8 checkpoint loading (OOT).
-
-    Routes ``experts.experts.N.{w1,w3,w2}_*`` keys into the stacked params so
-    gpt-oss W8A8 loads without vLLM source changes. See
-    ``_gptoss_moe_loader_patch.py``.
-    """
-
-    @classmethod
-    def apply(cls) -> bool:
-        return _apply_gptoss_loader_patch_impl()
-
-
-@vllm_version(VLLM_V22_1, VLLM_V23, VLLM_V24, VLLM_V25, VLLM_V25_1, VLLM_V26)
-class MixtralMoELoaderPatch:
-    """Mixtral per-expert compressed-tensors W8A8 checkpoint loading (OOT).
-
-    Adds gate_proj/up_proj/down_proj naming to MixtralModel.get_expert_mapping
-    so LLM-Compressor W8A8 checkpoints load. See ``_mixtral_moe_loader_patch.py``.
-    """
-
-    @classmethod
-    def apply(cls) -> bool:
-        return _apply_mixtral_loader_patch_impl()
-
-
-@vllm_version_range(min_ver=VLLM_MIN_VERSION, max_ver=VLLM_MAX_VERSION)
-class CompilationConfigReprPatch:
-    """Fix CompilationConfig repr for pydantic serialization."""
-
-    @classmethod
-    def apply(cls) -> bool:
-        try:
-            from vllm.config import CompilationConfig
-            from pydantic import TypeAdapter
-            from vllm.config.compilation import PassConfig
-
-            if hasattr(CompilationConfig.__repr__, "_zentorch_patched"):
-                return True
-
-            def patched_repr(self):
-                exclude = {
-                    "static_forward_context": True,
-                    "enabled_custom_ops": True,
-                    "disabled_custom_ops": True,
-                    "compilation_time": True,
-                    "bs_to_padded_graph_size": True,
-                    "traced_files": True,
-                    "inductor_compile_config": {
-                        "post_grad_custom_post_pass": True,
-                        "joint_custom_post_pass": True,
-                        "joint_custom_pre_pass": True,
-                    },
-                }
-
-                pass_config_exclude = {}
-                try:
-                    for attr, default_val in vars(PassConfig()).items():
-                        if getattr(self.pass_config, attr) == default_val:
-                            pass_config_exclude[attr] = True
-                    if pass_config_exclude:
-                        exclude["pass_config"] = pass_config_exclude
-                except Exception:
-                    pass
-
-                try:
-                    return (
-                        TypeAdapter(CompilationConfig)
-                        .dump_json(self, exclude=exclude, exclude_unset=True)
-                        .decode()
-                    )
-                except Exception:
-                    mode = getattr(self, "mode", getattr(self, "level", "?"))
-                    return f"CompilationConfig(mode={mode}, backend={self.backend!r})"
-
-            patched_repr._zentorch_patched = True
-            CompilationConfig.__repr__ = patched_repr
-            CompilationConfig.__str__ = patched_repr
-            logger.info("[zentorch] Patched CompilationConfig repr")
-            return True
-        except ImportError:
-            return False
-
-
-@vllm_version(
-    VLLM_V15,
-    VLLM_V15_1,
-    VLLM_V16,
-    VLLM_V17,
-    VLLM_V17_1,
-    VLLM_V18,
-    VLLM_V18_1,
-    VLLM_V19,
-    VLLM_V19_1,
-    VLLM_V20,
-    VLLM_V20_1,
-    VLLM_V20_2,
-    VLLM_V21,
-    VLLM_V22,
-    VLLM_V22_1,
-    VLLM_V23,
-    VLLM_V24,
-    VLLM_V25,
-    VLLM_V25_1,
-    VLLM_V26,
-)
-class CPUProfilerPatch:
-    """Stub: Actual patching happens in platform.py check_and_update_config.
-
-    CPUWorker properly uses TorchProfilerWrapper natively, so no additional
-    patching is required here. The profiler wrapper._stop patch in platform.py
-    suppresses meaningless cuda-time table output for CPU-only.
-    """
-
-    @classmethod
-    def apply(cls) -> bool:
-        return True
+    return TorchVersion(torch.__version__) >= TORCH_MIN_VERSION
 
 
 # ---------------------------------------------------------------------------
 # RMSNorm CPU Forward Patch (deferred via import hook)
 # ---------------------------------------------------------------------------
 
-_RMSNORM_HOOK_INSTALLED = False
+_LAYERNORM_MODULE = "vllm.model_executor.layers.layernorm"
 
 
-def _do_patch_rmsnorm():
-    """Patch RMSNorm.forward to use zentorch fused add-RMS-norm kernel
-    for all dtypes.
-    """
+def _do_patch_rmsnorm() -> bool:
+    """Patch RMSNorm.forward to use zentorch fused add-RMS-norm kernel."""
     try:
-        from vllm.model_executor.layers.layernorm import (
-            RMSNorm,
-        )
+        from vllm.model_executor.layers.layernorm import RMSNorm
     except ImportError:
         return False
 
@@ -435,102 +139,30 @@ def _do_patch_rmsnorm():
                 x, self.weight.data, residual, self.variance_epsilon
             )
             return x, residual
-        # This custom op causes accuracy issue with Qwen models
-        # return rms_norm(x, self.weight.data, self.variance_epsilon)
+        # The non-residual custom op causes accuracy issues with Qwen models,
+        # so fall back to the native path there.
         return self.forward_native(x, residual)
 
     RMSNorm.forward = patched_forward
     RMSNorm._zentorch_rmsnorm_patched = True
-    logger.info("[zentorch] Patched RMSNorm.forward (bf16/fp32/fp16->zentorch)")
+    logger.info("[zentorch] Patched RMSNorm.forward (bf16/fp32/fp16 -> zentorch)")
     return True
 
 
-class _RMSNormImportHook:
-    """Post-import hook: patch RMSNorm after layernorm module loads.
-
-    Python 3.12 only calls find_spec (silently skips find_module).
-    We cannot import the module inside find_spec and return None --
-    that causes Python to re-execute the module via the next finder,
-    hitting "Duplicate op name" assertions.
-
-    Instead we: remove ourselves, find the *real* spec via the
-    remaining finders, wrap its loader.exec_module to append our
-    patch, and return the wrapped spec.  The module loads exactly
-    once through normal means.
-    """
-
-    _LAYERNORM_MODULE = "vllm.model_executor.layers.layernorm"
-
-    def find_spec(self, fullname, path, target=None):
-        if fullname != self._LAYERNORM_MODULE:
-            return None
-        if self in sys.meta_path:
-            sys.meta_path.remove(self)
-
-        import importlib.util
-
-        spec = importlib.util.find_spec(fullname)
-        if spec is None or spec.loader is None:
-            return None
-
-        original_exec = spec.loader.exec_module
-
-        def _exec_then_patch(module):
-            original_exec(module)
-            _do_patch_rmsnorm()
-
-        spec.loader.exec_module = _exec_then_patch
-        return spec
-
-
 def _apply_rmsnorm_patch() -> bool:
-    """Install RMSNorm forward patch, deferred if the module isn't loaded yet.
-
-    Returns True if patch was applied or hook installed, False otherwise.
-    """
-    global _RMSNORM_HOOK_INSTALLED
-
-    if _RMSNORM_HOOK_INSTALLED:
-        return True
-
-    if "vllm.model_executor.layers.layernorm" in sys.modules:
-        result = _do_patch_rmsnorm()
-    else:
-        sys.meta_path.insert(0, _RMSNormImportHook())
-        logger.debug("[zentorch] Installed RMSNorm import hook")
-        result = True
-
-    _RMSNORM_HOOK_INSTALLED = True
-    return result
-
-
-@vllm_version_range(min_ver=VLLM_V15, max_ver=VLLM_MAX_VERSION)
-class RMSNormPatch:
-    """Patch RMSNorm.forward to use vLLM's optimized C++ kernels on CPU."""
-
-    @classmethod
-    def apply(cls) -> bool:
-        return _apply_rmsnorm_patch()
+    return patch_now_or_on_import(_LAYERNORM_MODULE, _do_patch_rmsnorm)
 
 
 # ---------------------------------------------------------------------------
 # CPUFusedMOE Patch (opt-out via ZENTORCH_FUSED_MOE=0; deferred via import hook)
 # ---------------------------------------------------------------------------
 #
-# Replaces vLLM's CPUFusedMOE — which dispatches to either `cpu_fused_moe`
-# (hand-written MicroGemm AMX/VEC kernel with prepacked weights) or
-# `cpu_fused_moe_torch` (per-expert F.linear loop) — with a single call to
-# `torch.ops.zentorch.zentorch_fused_moe`. The op runs the full MoE FFN block
+# Replaces vLLM's CPUFusedMOE with a single call to
+# torch.ops.zentorch.zentorch_fused_moe. The op runs the full MoE FFN block
 # (token grouping -> W13 GEMM -> gated activation -> W2 GEMM -> weighted
-# reduce) inside one ZenDNN `group_matmul_direct` call.
-#
-# Enabled by default. Set `ZENTORCH_FUSED_MOE=0` to disable.
-#
-# Per-layer weight validation runs once at __init__ time; per-call validation
-# (input/topk shapes, dtype, activation) runs at every forward. The C++ op
-# itself trusts its inputs.
+# reduce) inside one ZenDNN group_matmul_direct call.
 
-_FUSED_MOE_HOOK_INSTALLED = False
+_CPU_FUSED_MOE_MODULE = "vllm.model_executor.layers.fused_moe.cpu_fused_moe"
 
 
 def _moe_forward_zentorch(
@@ -543,10 +175,10 @@ def _moe_forward_zentorch(
     global_num_experts: int = -1,
     apply_router_weight_on_input: bool = False,
 ):
-    """CPUFusedMOE forward replacement that dispatches to zentorch_fused_moe.
+    """CPUFusedMOE forward replacement dispatching to zentorch_fused_moe.
 
-    Mirrors vLLM `forward_grouped_gemm` / `forward_torch` signature so the
-    enclosing `CPUFusedMOE.__call__` can hand off to us transparently.
+    Mirrors vLLM's forward_grouped_gemm / forward_torch signature so the
+    enclosing CPUFusedMOE.__call__ can hand off to us transparently.
     """
     # Activation may arrive as a MoEActivation enum or a raw string.
     act = activation if isinstance(activation, str) else activation.value
@@ -560,8 +192,8 @@ def _moe_forward_zentorch(
     output = torch.empty_like(input)
 
     if apply_router_weight_on_input:
-        # Match vLLM's behavior: pre-apply the K=1 router weight to the input
-        # then signal the op to skip its own weighted reduce.
+        # Match vLLM: pre-apply the K=1 router weight to the input then signal
+        # the op to skip its own weighted reduce.
         input = input.mul(topk_weights.to(input.dtype))
 
     torch.ops.zentorch.zentorch_fused_moe(
@@ -584,9 +216,7 @@ def _moe_forward_zentorch(
 def _do_patch_fused_moe() -> bool:
     """Patch CPUFusedMOE.__init__ to dispatch through zentorch_fused_moe."""
     try:
-        from vllm.model_executor.layers.fused_moe.cpu_fused_moe import (
-            CPUFusedMOE,
-        )
+        from vllm.model_executor.layers.fused_moe.cpu_fused_moe import CPUFusedMOE
     except ImportError:
         return False
 
@@ -600,18 +230,16 @@ def _do_patch_fused_moe() -> bool:
         # [E, ...] layout that zentorch_fused_moe expects.
         self.isa = "none"
         self.forward_method = self._zentorch_forward
-        # zentorch_fused_moe -> zentorch_group_matmul_out_impl consumes the
-        # [E, ...] weights via per-expert `.select(0, e)`. ZenDNN's
-        # group_matmul expects each per-expert slice to be row-major
-        # contiguous, which only holds when the parent [E, ...] tensor
-        # itself is contiguous. Some loaders / upstream passes hand us
-        # weights with non-default strides, so normalize once at __init__
-        # time -- it's a no-op when already contiguous, and keeps the hot
-        # path free of per-call .contiguous() copies.
+        # zentorch_fused_moe consumes the [E, ...] weights via per-expert
+        # .select(0, e). ZenDNN's group_matmul expects each per-expert slice to
+        # be row-major contiguous, which only holds when the parent [E, ...]
+        # tensor itself is contiguous. Normalize once here (a no-op when already
+        # contiguous) to keep the hot path free of per-call .contiguous() copies.
         from vllm.model_executor.layers.quantization.utils.layer_utils import (
             replace_parameter,
         )
-        # Extract int8 weight scales from torchao Int8Tensor
+
+        # Extract int8 weight scales from torchao Int8Tensor.
         if importlib.util.find_spec("torchao") is None:
             logger.info(
                 "[zentorch] torchao not installed, skipping Int8Tensor scale extraction"
@@ -643,8 +271,7 @@ def _do_patch_fused_moe() -> bool:
         if not layer.w2_weight.is_contiguous():
             replace_parameter(layer, "w2_weight", layer.w2_weight.contiguous())
 
-        # Bump the per-replacement counter (matches the convention used by
-        # graph-rewrite replacements in `_custom_op_replacement.py`).
+        # Bump the per-replacement counter (matches _custom_op_replacement.py).
         counters["zentorch"]["zentorch_fused_moe"] += 1
 
     CPUFusedMOE.__init__ = _patched_init
@@ -653,1010 +280,68 @@ def _do_patch_fused_moe() -> bool:
     return True
 
 
-class _FusedMoEImportHook:
-    """Post-import hook: patch CPUFusedMOE after `cpu_fused_moe` module loads."""
-
-    _TARGET_MODULE = "vllm.model_executor.layers.fused_moe.cpu_fused_moe"
-
-    def find_spec(self, fullname, path, target=None):
-        if fullname != self._TARGET_MODULE:
-            return None
-        if self in sys.meta_path:
-            sys.meta_path.remove(self)
-
-        spec = importlib.util.find_spec(fullname)
-        if spec is None or spec.loader is None:
-            return None
-
-        original_exec = spec.loader.exec_module
-
-        def _exec_then_patch(module):
-            original_exec(module)
-            _do_patch_fused_moe()
-
-        spec.loader.exec_module = _exec_then_patch
-        return spec
-
-
 def _apply_fused_moe_patch() -> bool:
-    """Install CPUFusedMOE patch, deferred if the module isn't loaded yet."""
-    global _FUSED_MOE_HOOK_INSTALLED
-
-    if _FUSED_MOE_HOOK_INSTALLED:
-        return True
-
-    if _FusedMoEImportHook._TARGET_MODULE in sys.modules:
-        result = _do_patch_fused_moe()
-    else:
-        sys.meta_path.insert(0, _FusedMoEImportHook())
-        logger.debug("[zentorch] Installed CPUFusedMOE import hook")
-        result = True
-
-    _FUSED_MOE_HOOK_INSTALLED = True
-    return result
-
-
-@vllm_version_range(min_ver=VLLM_V15, max_ver=VLLM_MAX_VERSION)
-class FusedMoEPatch:
-    """Replace CPUFusedMOE forward with zentorch_fused_moe.
-
-    Enabled by default. Set environment variable
-    `ZENTORCH_FUSED_MOE=0` to disable the patch.
-    """
-
-    @classmethod
-    def apply(cls) -> bool:
-        if os.environ.get("ZENTORCH_FUSED_MOE", "1") == "0":
-            logger.debug(
-                "[zentorch] FusedMoE patch disabled "
-                "(set ZENTORCH_FUSED_MOE=0 to disable)"
-            )
-            return False
-        return _apply_fused_moe_patch()
-
-
-# ---------------------------------------------------------------------------
-# vLLM 0.15-0.17 GEMM Dispatch Hook
-# ---------------------------------------------------------------------------
-#
-# Retained legacy logic for pre-v20 families. Current OOT runtime support starts
-# at vLLM 0.20.0, so register() rejects these families before activation.
-#
-# On vLLM 0.15-0.17 we patch dispatch_cpu_unquantized_gemm to route
-# through torch.nn.functional.linear. optimize_pass then rewrites
-# aten.linear -> zentorch_linear_unary in the inductor IR.
-#
-# The patched dispatch preserves remove_weight semantics by capturing
-# the original weights before optionally emptying layer.weight.
-#
-# Not needed for v18+: dispatch_cpu_unquantized_gemm natively checks
-# is_zen_cpu() and routes to zentorch_linear_unary.
-
-_PRE_V18_DISPATCH_FAMILIES = {"v15", "v15_1", "v16", "v17"}
-_PRE_V18_DISPATCH_HOOKS_INSTALLED = False
-
-
-def _do_patch_pre_v18_gemm_dispatch():
-    """Patch dispatch_cpu_unquantized_gemm to use F.linear on v15-v17."""
-    import vllm.model_executor.layers.utils as utils
-
-    if hasattr(utils.dispatch_cpu_unquantized_gemm, "_zentorch_patched"):
-        return
-
-    def _patched(layer, remove_weight):
-        if layer.weight.is_meta:
-            layer.cpu_linear = torch.nn.functional.linear
-            return
-
-        weights_copy = layer.weight.detach()
-        layer.cpu_linear = lambda x, weight, bias: torch.nn.functional.linear(
-            x, weights_copy, bias
-        )
-        if remove_weight:
-            layer.weight = torch.nn.Parameter(torch.empty(0), requires_grad=False)
-        return
-
-    _patched._zentorch_patched = True
-    utils.dispatch_cpu_unquantized_gemm = _patched
-    logger.info(
-        "[zentorch] Patched dispatch_cpu_unquantized_gemm (v15-v17, F.linear bypass)"
-    )
-
-
-_PRE_V18_HOOK_PATCHES = {
-    "vllm.model_executor.layers.utils": _do_patch_pre_v18_gemm_dispatch,
-}
-
-
-class _PreV18DispatchImportHook:
-    """Intercept imports to patch vLLM 0.15-0.17 dispatch functions.
-
-    Implements PEP 302 (find_module/load_module) for Python <= 3.11 and
-    PEP 451 (find_spec wrapping the real loader) for Python >= 3.12.
-    """
-
-    def __init__(self, pending):
-        self._pending = set(pending)
-        self._orig_loaders = {}
-
-    def _maybe_readd(self):
-        if self._pending and self not in sys.meta_path:
-            sys.meta_path.insert(0, self)
-
-    # PEP 302 (Python <= 3.11)
-    def find_module(self, fullname, path=None):
-        if fullname in self._pending:
-            return self
-        return None
-
-    def load_module(self, fullname):
-        self._pending.discard(fullname)
-        if self in sys.meta_path:
-            sys.meta_path.remove(self)
-
-        import importlib
-
-        module = importlib.import_module(fullname)
-
-        _PRE_V18_HOOK_PATCHES[fullname]()
-
-        self._maybe_readd()
-        return module
-
-    # PEP 451 (Python >= 3.12): wrap the real loader instead of re-importing
-    def find_spec(self, fullname, path, target=None):
-        if fullname not in self._pending:
-            return None
-        self._pending.discard(fullname)
-        if self in sys.meta_path:
-            sys.meta_path.remove(self)
-
-        real_spec = importlib.util.find_spec(fullname)
-        if real_spec is None:
-            self._maybe_readd()
-            return None
-
-        self._orig_loaders[fullname] = real_spec.loader
-        real_spec.loader = self
-        self._maybe_readd()
-        return real_spec
-
-    def create_module(self, spec):
-        orig = self._orig_loaders.get(spec.name)
-        if orig and hasattr(orig, "create_module"):
-            return orig.create_module(spec)
-        return None
-
-    def exec_module(self, module):
-        orig = self._orig_loaders.pop(module.__name__, None)
-        if orig:
-            orig.exec_module(module)
-        _PRE_V18_HOOK_PATCHES[module.__name__]()
-
-
-def _install_pre_v18_dispatch_hooks():
-    """Install import hooks for vLLM 0.15-0.17 GEMM dispatch patching."""
-    global _PRE_V18_DISPATCH_HOOKS_INSTALLED
-    if _PRE_V18_DISPATCH_HOOKS_INSTALLED:
-        return
-
-    pending = []
-    for modname, patcher in _PRE_V18_HOOK_PATCHES.items():
-        if modname in sys.modules:
-            patcher()
-        else:
-            pending.append(modname)
-
-    if pending:
-        sys.meta_path.insert(0, _PreV18DispatchImportHook(pending))
-        logger.debug("[zentorch] Installed dispatch import hooks for: %s", pending)
-
-    _PRE_V18_DISPATCH_HOOKS_INSTALLED = True
-
-
-# ---------------------------------------------------------------------------
-# vLLM 0.20.0 / 0.20.1 / 0.20.2 backport: PyTorch cpp codegen indirect_assert
-# scalar-mask fix
-# ---------------------------------------------------------------------------
-#
-# Backport of vllm-project/vllm#40973 (PyTorch PR pytorch/pytorch#178148).
-#
-# CppVecKernel.indirect_assert wraps a scalar mask with `VecMask<...>(scalar)`,
-# which is not a valid constructor and triggers a g++ compile error during
-# torch.compile of any model that does indirect indexing inside a
-# tail-vectorized loop (e.g. Qwen3-VL-2B). Failure looks like:
-#     no matching function for call to 'VecMask<int64_t,2>::VecMask(int&)'
-#
-# The PyTorch upstream fix lands in 2.12; vLLM mainline carries the backport
-# but the v0.20.x stable release branch (0.20.0, 0.20.1, 0.20.2) shipped
-# without it -- the upstream cherry-pick landed in v0.20.2rc0 but was not
-# included in the final v0.20.2 tag, which was cut from an older base.
-# For torch 2.11.x (the only torch family 0.20.x supports) we monkey-patch
-# CppVecKernel.indirect_assert to use `VecMask<...>::from(scalar)` instead.
-#
-# Currently scoped to vLLM 0.20.0, 0.20.1 and 0.20.2 via the @vllm_version
-# decorator below. Extend the decorator if other supported vLLM releases
-# also need this backport.
-# Remove the patch entirely once the minimum supported torch is 2.12.
-
-_CPP_INDIRECT_ASSERT_HOOK_INSTALLED = False
-
-
-def _apply_cpp_indirect_assert_patch() -> None:
-    """Replace CppVecKernel.indirect_assert with the fixed copy that uses
-    `VecMask<...>::from(scalar)` for scalar masks.
-
-    Idempotent via the `_zentorch_indirect_assert_patched` class flag.
-    """
-    from torch._inductor.codegen.cpp import (
-        CppCSEVariable,
-        CppVecKernel,
-        cexpr_index,
-    )
-
-    if getattr(CppVecKernel, "_zentorch_indirect_assert_patched", False):
-        return
-
-    def patched_indirect_assert(self, var, lower, upper, mask=None):
-        assert isinstance(var, CppCSEVariable)
-        assert var.dtype is not None
-        if not var.is_vec:
-            if isinstance(mask, CppCSEVariable) and mask.is_vec:
-                mask = f"({mask}).all_masked()"
-            return super(CppVecKernel, self).indirect_assert(var, lower, upper, mask)
-        lower_scalar = lower
-        upper_scalar = upper
-        if lower:
-            lower = f"{self._get_vec_type(var.dtype)}({lower})"
-        if upper:
-            upper = f"{self._get_vec_type(var.dtype)}({upper})"
-        if lower and upper:
-            cond = f"({lower} <= {var}) & ({var} < {upper})"
-            cond_print = f"{lower_scalar} <= {var} < {upper_scalar}"
-        elif lower:
-            cond = f"{lower} <= {var}"
-            cond_print = f"{lower_scalar} <= {var}"
-        else:
-            assert upper
-            cond = f"{var} < {upper}"
-            cond_print = f"{var} < {upper_scalar}"
-        cond = f"{self._get_mask_type(var.dtype)}({cond})"
-        if mask:
-            if not mask.is_vec:
-                # Backport of pytorch/pytorch#178148: use ::from for scalar
-                # masks so g++ picks the correct overload.
-                mask = f"{self._get_mask_type(var.dtype)}::from({mask})"
-            cond = f"({cond}) | ~({mask})"
-        if self.tail_size:
-            cond = (
-                f"{self._get_mask_type(var.dtype)}::set("
-                f"{self._get_mask_type(var.dtype)}::from(1)"
-                f", ({cond}), {cexpr_index(self.tail_size)})"
-            )
-        cond = f"({cond}).all_masked()"
-        return f'{self.assert_function}({cond}, "index out of bounds: {cond_print}")'
-
-    CppVecKernel.indirect_assert = patched_indirect_assert
-    CppVecKernel._zentorch_indirect_assert_patched = True
-    logger.info(
-        "[zentorch] Patched CppVecKernel.indirect_assert "
-        "(vLLM 0.20.0/0.20.1/0.20.2 backport)"
-    )
-
-
-def _patch_cpp_indirect_assert_if_needed() -> bool:
-    """Install the cpp codegen indirect_assert backport for torch 2.11.x.
-
-    Defers application until `torch._inductor.codegen.cpp` is naturally
-    imported by Inductor. Importing it eagerly during plugin registration
-    pulls in `torch._inductor.scheduler`, whose top-level
-    `import torch._inductor.async_compile` can fail with circular-import
-    errors depending on the runner's import order.
-
-    Returns True if the patch was applied or the import hook was installed,
-    False if torch is outside the [2.11, 2.12) window.
-    """
-    global _CPP_INDIRECT_ASSERT_HOOK_INSTALLED
-
-    if _CPP_INDIRECT_ASSERT_HOOK_INSTALLED:
-        return True
-
-    from torch.torch_version import TorchVersion
-
-    tv = TorchVersion(torch.__version__)
-    if tv < (2, 11) or tv >= (2, 12):
-        logger.debug(
-            "[zentorch] cpp indirect_assert patch skipped for torch %s",
-            torch.__version__,
-        )
+    """Opt out with ZENTORCH_FUSED_MOE=0 to keep vLLM's stock CPUFusedMOE."""
+    if os.environ.get("ZENTORCH_FUSED_MOE", "1") == "0":
         return False
-
-    target_name = "torch._inductor.codegen.cpp"
-    if target_name in sys.modules:
-        _apply_cpp_indirect_assert_patch()
-        _CPP_INDIRECT_ASSERT_HOOK_INSTALLED = True
-        return True
-
-    import importlib.abc
-    import importlib.util
-
-    class _CppCodegenPatchFinder(importlib.abc.MetaPathFinder):
-        def find_spec(self, fullname, path, target=None):
-            if fullname != target_name:
-                return None
-            if self in sys.meta_path:
-                sys.meta_path.remove(self)
-            spec = importlib.util.find_spec(fullname)
-            if spec is None or spec.loader is None:
-                return None
-            original_exec = spec.loader.exec_module
-
-            def _exec_then_patch(module):
-                original_exec(module)
-                _apply_cpp_indirect_assert_patch()
-
-            spec.loader.exec_module = _exec_then_patch
-            return spec
-
-    sys.meta_path.insert(0, _CppCodegenPatchFinder())
-    logger.debug("[zentorch] Installed cpp codegen indirect_assert import hook")
-
-    _CPP_INDIRECT_ASSERT_HOOK_INSTALLED = True
-    return True
-
-
-@vllm_version(VLLM_V20, VLLM_V20_1, VLLM_V20_2)
-class CppIndirectAssertPatch:
-    """Backport vLLM PR #40973 / PyTorch PR #178148 for vLLM 0.20.0/0.20.1/0.20.2.
-
-    The entire v0.20.x stable release branch ships without the
-    CppVecKernel.indirect_assert backport that vLLM main carries: the
-    upstream cherry-pick made it into v0.20.2rc0 but not into the final
-    v0.20.2 tag (cut from an older base). This breaks torch.compile for
-    models like Qwen3-VL-2B that do indirect indexing in tail-vectorized
-    loops.
-
-    Currently scoped to v0.20.0, v0.20.1 and v0.20.2. Extend the
-    @vllm_version decorator above when adding support for newer vLLM
-    releases that also lack the fix.
-    """
-
-    @classmethod
-    def apply(cls) -> bool:
-        return _patch_cpp_indirect_assert_if_needed()
+    return patch_now_or_on_import(_CPU_FUSED_MOE_MODULE, _do_patch_fused_moe)
 
 
 # ---------------------------------------------------------------------------
-# vLLM 0.20.0 / 0.20.1 / 0.20.2 backport: CPU runner shutdown crash fix
+# TorchAO patch (Int4 opaque tensor config/ops + Int8Tensor + FusedMoE)
 # ---------------------------------------------------------------------------
-#
-# Backport of vllm-project/vllm#41034 (commit d95d03c, in vLLM main).
-# The upstream cherry-pick made it into v0.20.2rc0 but not into the final
-# v0.20.2 tag (cut from an older base), so the entire v0.20.x stable
-# release branch (0.20.0, 0.20.1, 0.20.2) ships without the fix.
-#
-# CPUModelRunner inherits from GPUModelRunner whose shutdown() calls
-# torch.accelerator.synchronize() and torch.accelerator.empty_cache().
-# On CPU these raise:
-#
-#   RuntimeError: Cannot access accelerator device when none is available.
-#
-# producing a noisy worker-shutdown traceback at the end of every CPU run
-# (e.g. tail of `vllm bench throughput` on Qwen3-VL-2B).
-#
-# Upstream patches CPUModelRunner.__init__ to noop those two APIs at runner
-# construction time. Since this plugin is CPU-only and registers at process
-# startup, we apply the noop patch eagerly during plugin init, gated to vLLM
-# 0.20.0, 0.20.1 and 0.20.2 (all shipped without the fix).
-#
-# Remove this patch once VLLM_MIN_VERSION ships the upstream fix natively.
-
-_TORCH_ACCELERATOR_NOOP_APPLIED = False
 
 
-def _apply_torch_accelerator_noop_patch() -> bool:
-    """Replace torch.accelerator.{synchronize,empty_cache} with no-ops.
-
-    Idempotent via the module-level `_TORCH_ACCELERATOR_NOOP_APPLIED` flag.
-    """
-    global _TORCH_ACCELERATOR_NOOP_APPLIED
-
-    if _TORCH_ACCELERATOR_NOOP_APPLIED:
-        return True
-
-    if not hasattr(torch, "accelerator"):
-        logger.debug(
-            "[zentorch] torch.accelerator missing; skipping CPU shutdown noop patch"
-        )
+def _apply_torchao_patch() -> bool:
+    """Register TorchAO hooks when torchao is installed, else skip."""
+    if importlib.util.find_spec("torchao") is None:
+        logger.info("[zentorch] TorchAO not installed, skipping TorchAO patch")
         return False
+    from ._torchao_int4_opaque_patch import (
+        _register_int4_opaque_tensor_config,
+        _register_int4_slice_op,
+    )
 
-    def _noop(*args, **kwargs):
-        pass
-
-    torch.accelerator.synchronize = _noop
-    torch.accelerator.empty_cache = _noop
-
-    _TORCH_ACCELERATOR_NOOP_APPLIED = True
+    _register_int4_opaque_tensor_config()
+    _register_int4_slice_op()
+    _apply_torchao_int8_tensor_patch_impl()
+    _apply_torchao_moe_patch_impl()
     logger.info(
-        "[zentorch] Patched torch.accelerator.{synchronize,empty_cache} -> noop "
-        "(vLLM 0.20.0/0.20.1/0.20.2 CPU runner shutdown fix)"
+        "[zentorch] Registered TorchAO operations (Int4 + Int8Tensor + FusedMoE)."
     )
     return True
-
-
-@vllm_version(VLLM_V20, VLLM_V20_1, VLLM_V20_2)
-class CPURunnerShutdownPatch:
-    """Backport vLLM PR #41034 for vLLM 0.20.0, 0.20.1 and 0.20.2.
-
-    The entire v0.20.x stable release branch ships CPUModelRunner without
-    the noop patch for torch.accelerator.{synchronize,empty_cache}, so
-    worker shutdown raises 'RuntimeError: Cannot access accelerator device
-    when none is available.' after every CPU run.
-
-    Currently scoped to v0.20.0, v0.20.1 and v0.20.2. Drop once the
-    minimum supported vLLM ships the upstream fix natively.
-    """
-
-    @classmethod
-    def apply(cls) -> bool:
-        return _apply_torch_accelerator_noop_patch()
-
-
-# ---------------------------------------------------------------------------
-# gpt-oss unquantized MoE weight loading fix (vLLM PR #45818)
-# ---------------------------------------------------------------------------
-#
-# Backport of vllm-project/vllm#45818: wrap the `_load_weights_other` loop
-# with `remap_moe_expert_weights(weights, params_dict)` (one upstream line).
-# Required on vLLM 0.24.0 where the FusedMoE refactor introduced
-# `mlp.experts.routed_experts.*` but `_load_weights_other` was not updated.
-# Deferred until `gpt_oss` is imported: at plugin registration the model
-# module is not loaded yet and the eager import fails silently.
-
-_GPT_OSS_DEFERRED_INSTALLED = False
-
-
-def _do_patch_gpt_oss_load_weights() -> bool:
-    """Backport PR #45818: remap MoE expert names in _load_weights_other."""
-    try:
-        from vllm.model_executor.model_loader.weight_utils import (
-            remap_moe_expert_weights,
-        )
-        from vllm.model_executor.models.gpt_oss import GptOssModel
-    except ImportError:
-        logger.debug(
-            "[zentorch] gpt-oss weight remap patch deferred "
-            "(gpt_oss or remap_moe_expert_weights not importable yet)"
-        )
-        return False
-
-    original = GptOssModel._load_weights_other
-    if getattr(original, "_zentorch_gpt_oss_moe_remap_patched", False):
-        return True
-
-    def _patched_load_weights_other(
-        self,
-        ep_rank_end,
-        ep_rank_start,
-        heads_per_rank,
-        head_start,
-        weights,
-        stacked_params_mapping,
-    ):
-        params_dict = dict(self.named_parameters())
-        weights = remap_moe_expert_weights(weights, params_dict)
-        return original(
-            self,
-            ep_rank_end,
-            ep_rank_start,
-            heads_per_rank,
-            head_start,
-            weights,
-            stacked_params_mapping,
-        )
-
-    _patched_load_weights_other._zentorch_gpt_oss_moe_remap_patched = True
-    GptOssModel._load_weights_other = _patched_load_weights_other
-    logger.info(
-        "[zentorch] Patched GptOssModel._load_weights_other "
-        "(vLLM PR #45818 backport)"
-    )
-    return True
-
-
-class _GptOssImportHook:
-    """Apply the gpt-oss weight remap patch when the model module loads."""
-
-    _TARGET_MODULE = "vllm.model_executor.models.gpt_oss"
-
-    def find_spec(self, fullname, path, target=None):
-        if fullname != self._TARGET_MODULE:
-            return None
-        if self in sys.meta_path:
-            sys.meta_path.remove(self)
-
-        spec = importlib.util.find_spec(fullname)
-        if spec is None or spec.loader is None:
-            return None
-
-        original_exec = spec.loader.exec_module
-
-        def _exec_then_patch(module):
-            original_exec(module)
-            _do_patch_gpt_oss_load_weights()
-
-        spec.loader.exec_module = _exec_then_patch
-        return spec
-
-
-def _apply_gpt_oss_load_weights_patch() -> bool:
-    """Install gpt-oss weight remap patch, deferred until gpt_oss loads."""
-    global _GPT_OSS_DEFERRED_INSTALLED
-
-    if _GPT_OSS_DEFERRED_INSTALLED:
-        return True
-
-    if _GptOssImportHook._TARGET_MODULE in sys.modules:
-        result = _do_patch_gpt_oss_load_weights()
-    else:
-        sys.meta_path.insert(0, _GptOssImportHook())
-        logger.debug("[zentorch] Installed gpt_oss weight remap import hook")
-        result = True
-
-    _GPT_OSS_DEFERRED_INSTALLED = True
-    return result
-
-
-@vllm_version(VLLM_V24)
-class GptOssMoEWeightRemapPatch:
-    """Backport vLLM PR #45818 for unquantized gpt-oss MoE weight loading (v0.24.0)."""
-
-    @classmethod
-    def apply(cls) -> bool:
-        return _apply_gpt_oss_load_weights_patch()
-
-
-# GatedDeltaNet (Qwen3.5 / Qwen3-Next) CPU forward override (vLLM PR #41025).
-
-
-@vllm_version(
-    VLLM_V21,
-    VLLM_V22,
-    VLLM_V22_1,
-    VLLM_V23,
-    VLLM_V24,
-    VLLM_V25,
-    VLLM_V25_1,
-    VLLM_V26,
-)
-class GatedDeltaNetPatch:
-    """Override ``GatedDeltaNetAttention.forward_cpu`` with ``forward_cpu_zen``.
-
-    Additive across versions: on 0.21 the target is
-    ``mamba.gdn_linear_attn.GatedDeltaNetAttention``; on 0.22 the module/class
-    moved to ``mamba.gdn.qwen_gdn_linear_attn.QwenGatedDeltaNetAttention``
-    (resolved in ``layers.gdn.patch``).
-
-    **Disabled by default.** On vLLM 0.23 the in-tree fused CPU GDN kernels are
-    on par with the zentorch replacement, so we skip the override and let the
-    native ``forward_cpu`` run (keeps the rest of the zentorch platform active).
-    Set ``ZENTORCH_GDN=1`` to re-enable the zentorch GDN kernels (active perf
-    work / benchmarking) We are disabling the patch across all versions
-    currently instead of selectively applying for some versions for maintenance
-    purposes.
-    """
-
-    @classmethod
-    def apply(cls) -> bool:
-        if os.environ.get("ZENTORCH_GDN", "0") != "1":
-            logger.debug(
-                "[zentorch] GatedDeltaNet replacement disabled; using native "
-                "CPU GDN (set ZENTORCH_GDN=1 to enable the zentorch kernels)"
-            )
-            return False
-        # Import the leaf patch module directly (not via vllm.layers) so the
-        # deferred import hook is installed before any vLLM mamba submodule
-        # is touched. forward.py (which transitively imports gdn_linear_attn)
-        # is loaded later, inside patch._do_apply(), only after the hook fires.
-        from zentorch.vllm.layers.gdn import patch as gdn_patch
-        return gdn_patch.apply_deferred()
-
-
-# DA8W4 (W4A8) fast path for compressed-tensors symmetric W4 checkpoints,
-# added out-of-tree (no vLLM source changes).
-
-
-@vllm_version(VLLM_V22_1, VLLM_V23, VLLM_V24, VLLM_V25, VLLM_V25_1)
-class Da8w4KernelPatch:
-    """Register the DA8W4 (W4A8) fast path on vLLM's ``ZentorchWNA16LinearKernel``.
-
-    Enabled by default; set ``VLLM_CPU_INT4_W4A8=0`` to disable and force the
-    W4A16 path. See ``zentorch.vllm._da8w4_kernel_patch`` for the DA8W4 semantics
-    and eligibility rules.
-    """
-
-    @classmethod
-    def apply(cls) -> bool:
-        from zentorch.vllm._da8w4_kernel_patch import (
-            _da8w4_enabled,
-            apply_da8w4_patch,
-        )
-
-        if not _da8w4_enabled():
-            logger.debug(
-                "[zentorch] DA8W4 disabled via VLLM_CPU_INT4_W4A8=0; "
-                "using W4A16"
-            )
-            return False
-        return apply_da8w4_patch()
-
-
-# ---------------------------------------------------------------------------
-# CPU KV-cache block zeroing backport (vLLM 0.23-0.24)
-# ---------------------------------------------------------------------------
-#
-# vLLM's scheduler emits `new_block_ids_to_zero`, and the base runner's
-# `_update_states` (inherited by CPUModelRunner from GPUModelRunner) calls
-# `self._zero_block_ids(...)` to wipe freshly (re)allocated KV-cache blocks.
-# The GPU runner zeroes device memory; the released CPU runner (vLLM 0.23-0.24)
-# does not correctly zero the blocks, so recycled/uninitialized KV slots can
-# retain stale NaN/Inf.
-#
-# This is NOT optional on CPU: masking sets the softmax weight of
-# invalid/padding positions to 0, but the P*V numerator still computes
-# `0 * V`. If a recycled slot holds NaN/Inf, `0 * NaN = NaN` poisons the
-# attention output -- observed as broad bf16 accuracy collapse that worsens
-# with smaller VLLM_CPU_KVCACHE_SPACE.
-#
-# The plugin supports only the two most recent vLLM releases (N and N-1), so
-# this backport is scoped to 0.23 and 0.24 (see the @vllm_version decorator on
-# CpuZeroBlockIdsPatch). The native CPU fix should potentially land in vLLM
-# 0.25; drop a version from the decorator once its release ships the fix.
-
-_CPU_ZERO_BLOCK_IDS_HOOK_INSTALLED = False
-
-
-def _zentorch_cpu_zero_block_ids(self, block_ids) -> None:
-    # The base version of this function is present in vLLM mainline here:
-    # /vllm/vllm/v1/worker/cpu_model_runner.py.
-    # It was added to vLLM as part of PR #46202
-    # https://github.com/vllm-project/vllm/commit/1aad1258157b9327a1510f3889b6983d6f10004e
-
-    """CPU-correct replacement for CPUModelRunner._zero_block_ids.
-
-    Self-contained (depends only on the runner's kv_cache_config and
-    static_forward_context) so it can be monkey-patched onto any released
-    CPUModelRunner in the supported range.
-    """
-    if not block_ids:
-        return
-
-    from vllm.v1.kv_cache_interface import FullAttentionSpec
-
-    # Collect the FullAttention KV-cache buffers (block dim == 0 for the CPU
-    # backend: [num_blocks, num_kv_heads, block_size, 2*head_size]). This walk
-    # is repeated on every call, matching upstream vLLM.
-    #
-    # POSSIBLE OPTIMIZATION (currently DISABLED): the buffer set is fixed for
-    # the runner's lifetime -- the buffers are allocated once in
-    # initialize_kv_cache, and only the block *rows* we zero (`block_ids`)
-    # change per call. So this discovery walk returns the same list every time
-    # and could be memoized on `self`, saving the per-step group/layer/
-    # isinstance/data_ptr traversal on the hot path. We keep it disabled for
-    # now to (a) avoid writing a new attribute onto CPUModelRunner, a class
-    # zentorch does not own, and (b) keep this backport behaviorally identical
-    # to upstream and easy to reason about. To re-enable, guard the walk with:
-    #
-    #   caches = getattr(self, "_zentorch_attn_kv_caches_to_zero", None)
-    #   if caches is None:
-    #       ... build `caches` via the loop below ...
-    #       if caches:  # only memoize once buffers are actually allocated
-    #           self._zentorch_attn_kv_caches_to_zero = caches
-    #
-    caches = []
-    seen_ptrs: set[int] = set()
-    static_fwd_ctx = self.compilation_config.static_forward_context
-    for group in self.kv_cache_config.kv_cache_groups:
-        if not isinstance(group.kv_cache_spec, FullAttentionSpec):
-            continue
-        for layer_name in group.layer_names:
-            layer = static_fwd_ctx.get(layer_name)
-            kv = getattr(layer, "kv_cache", None)
-            # Defensive: kv may be a single tensor, a list/tuple of
-            # tensors, None (layer missing), or contain non-tensors.
-            # Dedup by data_ptr AFTER confirming each element is a
-            # tensor (list/None have no .data_ptr()).
-            kv_tensors = kv if isinstance(kv, (list, tuple)) else (kv,)
-            for t in kv_tensors:
-                if not isinstance(t, torch.Tensor):
-                    continue
-                ptr = t.data_ptr()
-                if ptr in seen_ptrs:
-                    continue
-                seen_ptrs.add(ptr)
-                caches.append(t)
-
-    if not caches:
-        return
-
-    idx = torch.as_tensor(block_ids, dtype=torch.long)
-    for kv in caches:
-        kv.index_fill_(0, idx, 0)
-
-
-def _do_patch_cpu_zero_block_ids() -> bool:
-    """Override CPUModelRunner._zero_block_ids with the zentorch backport."""
-    try:
-        from vllm.v1.worker.cpu_model_runner import CPUModelRunner
-    except ImportError:
-        return False
-
-    # Idempotency marker lives on our own replacement function (not as a new
-    # data-field on CPUModelRunner, which zentorch does not own): once patched,
-    # CPUModelRunner._zero_block_ids *is* our function, so we can detect it via
-    # identity. Mirrors CompilationConfigReprPatch's `_zentorch_patched` scheme.
-    if CPUModelRunner._zero_block_ids is _zentorch_cpu_zero_block_ids:
-        return True
-
-    CPUModelRunner._zero_block_ids = _zentorch_cpu_zero_block_ids
-    logger.info(
-        "[zentorch] Patched CPUModelRunner._zero_block_ids "
-        "(KV-cache block zeroing backport, vLLM 0.23-0.24)"
-    )
-    return True
-
-
-class _CpuModelRunnerImportHook:
-    """Post-import hook: patch CPUModelRunner after its module loads."""
-
-    _TARGET_MODULE = "vllm.v1.worker.cpu_model_runner"
-
-    def find_spec(self, fullname, path, target=None):
-        if fullname != self._TARGET_MODULE:
-            return None
-        if self in sys.meta_path:
-            sys.meta_path.remove(self)
-
-        spec = importlib.util.find_spec(fullname)
-        if spec is None or spec.loader is None:
-            return None
-
-        original_exec = spec.loader.exec_module
-
-        def _exec_then_patch(module):
-            original_exec(module)
-            _do_patch_cpu_zero_block_ids()
-
-        spec.loader.exec_module = _exec_then_patch
-        return spec
-
-
-@vllm_version(
-    VLLM_V23,
-    VLLM_V24,
-)
-class CpuZeroBlockIdsPatch:
-    """Backport CPU KV-cache block zeroing (_zero_block_ids) for vLLM 0.23-0.24.
-
-    Released vLLM 0.23-0.24 ship a CPUModelRunner whose _zero_block_ids does
-    not correctly wipe freshly (re)allocated KV-cache blocks, letting stale
-    NaN/Inf in recycled slots poison attention (`0 * NaN = NaN`) and collapse
-    bf16 accuracy. The base GPUModelRunner._update_states already calls
-    _zero_block_ids(scheduler_output.new_block_ids_to_zero), so overriding the
-    method on CPUModelRunner is sufficient.
-
-    The plugin supports only the two most recent vLLM releases (N and N-1), so
-    this patch is gated to 0.23 and 0.24 via the @vllm_version decorator above.
-    The native fix should potentially land in vLLM 0.25; drop a version from the
-    decorator once its release ships the fix natively.
-    """
-
-    @classmethod
-    def apply(cls) -> bool:
-        """Install the patch now if the runner module is already imported,
-        else defer it via an import hook (avoids force-importing the CPU
-        worker stack at plugin-registration time)."""
-        global _CPU_ZERO_BLOCK_IDS_HOOK_INSTALLED
-
-        if _CPU_ZERO_BLOCK_IDS_HOOK_INSTALLED:
-            return True
-
-        if _CpuModelRunnerImportHook._TARGET_MODULE in sys.modules:
-            result = _do_patch_cpu_zero_block_ids()
-        else:
-            sys.meta_path.insert(0, _CpuModelRunnerImportHook())
-            logger.debug("[zentorch] Installed CPUModelRunner import hook")
-            result = True
-
-        _CPU_ZERO_BLOCK_IDS_HOOK_INSTALLED = True
-        return result
-
-
-# ---------------------------------------------------------------------------
-# torchcodec import-guard backport (vLLM 0.25.0 release wheel)
-# ---------------------------------------------------------------------------
-#
-# Backport of vllm-project/vllm#47888 ("Avoid blocking model launching when no
-# system ffmpeg available for TorchCodec"). That one-line fix widened the guard
-# in vllm/multimodal/video.py from `except ImportError:` to
-# `except (ImportError, RuntimeError):`.
-#
-# torchcodec (>=0.14) is a hard vLLM dependency, so it is always installed. When
-# the host has no system FFmpeg, `import torchcodec` raises RuntimeError (not
-# ImportError) while trying to dlopen libtorchcodec. The final v0.25.0 CPU
-# release wheel was cut from a base *before* #47888, so its video.py still only
-# catches ImportError -- the RuntimeError propagates through the import chain
-# (sampling_params -> multimodal.inputs -> ... -> multimodal.video) and crashes
-# the entire `vllm` CLI / `import vllm` before any model is loaded.
-#
-# The zentorch platform plugin's register() runs before vllm.multimodal.video is
-# imported (verified for both the `vllm bench` CLI and the `from vllm import
-# LLM` API path), so we arm a one-shot import hook that makes the broken
-# torchcodec import survive as a placeholder -- exactly reproducing the effect
-# of #47888 without editing vLLM sources.
-#
-# The stub is scoped to video.py's import ONLY and removed immediately after, so
-# the runtime `check_torchcodec_available()` (a fresh `import torchcodec` at the
-# actual video-decode call site) still correctly reports torchcodec unavailable
-# and no non-video behaviour changes.
-#
-# Gated to vLLM 0.25.0 (see @vllm_version on TorchcodecImportGuardPatch): the
-# fix is already in vLLM main and ships from 0.26 onwards.
-
-_TORCHCODEC_VIDEO_MODULE = "vllm.multimodal.video"
-
-
-def _stub_broken_torchcodec_for_video_import() -> bool:
-    """Install a placeholder torchcodec iff the real one fails to import.
-
-    Returns True if a stub was installed (the caller must remove it once
-    video.py has finished importing), False when torchcodec imports cleanly and
-    the real module is left untouched.
-    """
-    try:
-        import torchcodec.decoders  # noqa: F401
-
-        return False
-    except (ImportError, RuntimeError):
-        # Missing system FFmpeg surfaces as RuntimeError during import; a broken
-        # torchcodec is exactly the case #47888 guards against.
-        pass
-
-    # A failed import can leave partial entries behind; clear them before
-    # seeding the placeholder so `from torchcodec.decoders import VideoDecoder`
-    # resolves to our stub instead of re-triggering the crash.
-    sys.modules.pop("torchcodec", None)
-    sys.modules.pop("torchcodec.decoders", None)
-
-    from vllm.utils.import_utils import PlaceholderModule
-
-    placeholder = PlaceholderModule("torchcodec").placeholder_attr(
-        "decoders.VideoDecoder"
-    )
-    tc = types.ModuleType("torchcodec")
-    tc._zentorch_torchcodec_stub = True
-    tcd = types.ModuleType("torchcodec.decoders")
-    tcd._zentorch_torchcodec_stub = True
-    tcd.VideoDecoder = placeholder
-    tc.decoders = tcd
-    sys.modules["torchcodec"] = tc
-    sys.modules["torchcodec.decoders"] = tcd
-    return True
-
-
-def _remove_torchcodec_stub() -> None:
-    """Remove ONLY the zentorch placeholder so a later real `import torchcodec`
-    (e.g. from check_torchcodec_available()) re-probes and correctly fails."""
-    tc = sys.modules.get("torchcodec")
-    if getattr(tc, "_zentorch_torchcodec_stub", False):
-        sys.modules.pop("torchcodec", None)
-        sys.modules.pop("torchcodec.decoders", None)
-
-
-class _MultimodalVideoImportHook:
-    """One-shot finder that guards vllm.multimodal.video's torchcodec import.
-
-    Wraps the real loader's exec_module so that, only while video.py's module
-    body runs, a broken torchcodec is replaced by a placeholder (mirroring vLLM
-    #47888). The stub is torn down immediately afterwards.
-    """
-
-    _TARGET_MODULE = _TORCHCODEC_VIDEO_MODULE
-
-    def find_spec(self, fullname, path, target=None):
-        if fullname != self._TARGET_MODULE:
-            return None
-        if self in sys.meta_path:
-            sys.meta_path.remove(self)
-
-        spec = importlib.util.find_spec(fullname)
-        if spec is None or spec.loader is None:
-            return None
-
-        original_exec = spec.loader.exec_module
-
-        def _exec_with_torchcodec_guard(module):
-            stubbed = _stub_broken_torchcodec_for_video_import()
-            try:
-                original_exec(module)
-            finally:
-                if stubbed:
-                    _remove_torchcodec_stub()
-
-        spec.loader.exec_module = _exec_with_torchcodec_guard
-        return spec
-
-
-def _apply_torchcodec_import_guard() -> bool:
-    """Arm the torchcodec import guard for vllm.multimodal.video.
-
-    If video.py is already imported it loaded fine and there is nothing to do;
-    otherwise install the one-shot import hook so the guard runs when the module
-    is imported later in the CLI / engine startup path.
-    """
-    # Already imported cleanly (nothing to guard), or the hook is already armed.
-    if _TORCHCODEC_VIDEO_MODULE in sys.modules:
-        return True
-    if any(isinstance(h, _MultimodalVideoImportHook) for h in sys.meta_path):
-        return True
-
-    sys.meta_path.insert(0, _MultimodalVideoImportHook())
-    logger.debug("[zentorch] Installed torchcodec import guard hook")
-    return True
-
-
-@vllm_version(VLLM_V25)
-class TorchcodecImportGuardPatch:
-    """Backport vLLM #47888 for the v0.25.0 release wheel.
-
-    The final v0.25.0 CPU release wheel ships vllm/multimodal/video.py with the
-    pre-#47888 guard (`except ImportError:` only). On hosts without system
-    FFmpeg, torchcodec raises RuntimeError during import, which propagates
-    through the multimodal import chain and crashes `import vllm` / the `vllm`
-    CLI before any model loads. This patch arms a one-shot import hook that lets
-    the broken torchcodec import survive as a placeholder -- identical in effect
-    to #47888 -- scoped to video.py's import so runtime torchcodec availability
-    detection is unchanged.
-
-    Gated to v0.25.0: the fix is already in vLLM main (ships from 0.26).
-    """
-
-    @classmethod
-    def apply(cls) -> bool:
-        return _apply_torchcodec_import_guard()
 
 
 # ---------------------------------------------------------------------------
 # Registration
 # ---------------------------------------------------------------------------
+#
+# Order matters only in that the import hooks must be armed before the target
+# vLLM modules load; register() runs at process startup, well before that.
+_PATCHES = (
+    ("Gemma4HeteroConfig", _apply_gemma4_hetero_patch),
+    ("TorchAO", _apply_torchao_patch),
+    ("Int8MoE", _apply_int8_moe_patch_impl),
+    ("GptOssMoELoader", _apply_gptoss_loader_patch_impl),
+    ("MixtralMoELoader", _apply_mixtral_loader_patch_impl),
+    ("RMSNorm", _apply_rmsnorm_patch),
+    ("FusedMoE", _apply_fused_moe_patch),
+    ("Da8w4Kernel", _apply_da8w4_patch),
+)
 
-_REGISTERED = False
+# Names of patches whose apply() returned True in this process (test hook).
+APPLIED_PATCHES: list[str] = []
 
 
-def _register_patches():
-    """Register all patches with the manager (only once)."""
-    global _REGISTERED
-    if _REGISTERED:
-        return
-
-    # Registered first so its import hook is armed before any other patch runs.
-    manager.register("TorchcodecImportGuard", TorchcodecImportGuardPatch)
-    manager.register("CompilationConfigRepr", CompilationConfigReprPatch)
-    manager.register("CPUProfiler", CPUProfilerPatch)
-    manager.register("TorchAO", TorchAOPatch)
-    manager.register("Int8MoE", Int8MoEPatch)
-    manager.register("GptOssMoELoader", GptOssMoELoaderPatch)
-    manager.register("MixtralMoELoader", MixtralMoELoaderPatch)
-    manager.register("RMSNorm", RMSNormPatch)
-    manager.register("CppIndirectAssert", CppIndirectAssertPatch)
-    manager.register("CPURunnerShutdown", CPURunnerShutdownPatch)
-    manager.register("FusedMoE", FusedMoEPatch)
-    manager.register("GptOssMoEWeightRemap", GptOssMoEWeightRemapPatch)
-    manager.register("GatedDeltaNet", GatedDeltaNetPatch)
-    manager.register("CpuZeroBlockIds", CpuZeroBlockIdsPatch)
-    manager.register("Da8w4Kernel", Da8w4KernelPatch)
-
-    _REGISTERED = True
+def _apply_all_patches() -> None:
+    """Apply every Zen-specific patch, recording the ones that took effect."""
+    APPLIED_PATCHES.clear()
+    for name, apply_fn in _PATCHES:
+        try:
+            if apply_fn():
+                APPLIED_PATCHES.append(name)
+        except Exception:
+            logger.warning("[zentorch] Patch %s FAILED", name, exc_info=True)
 
 
 # ---------------------------------------------------------------------------
@@ -1666,11 +351,11 @@ def _register_patches():
 _INITIALIZED = False
 
 
-def register() -> Optional[str]:
+def register() -> str | None:
     """Entry-point for vllm.platform_plugins and vllm.general_plugins.
 
-    This is called multiple times by vLLM (both entry points). We only
-    apply patches once but always return the platform class path.
+    Called multiple times by vLLM (both entry points). Patches are applied once;
+    the platform class path is always returned for supported runtimes.
     """
     global _INITIALIZED
 
@@ -1678,35 +363,34 @@ def register() -> Optional[str]:
         logger.warning("[zentorch] vllm not loaded")
         return None
 
-    vllm_ver = getattr(sys.modules["vllm"], "__version__", None)
-    family = get_version_family()
-    runtime_min_vllm = VLLM_V20
+    vllm_ver = get_vllm_version()
 
-    # vLLM 0.20.x is the first release line built on PyTorch 2.11.
-    if family in {"v15", "v15_1", "v16", "v17", "v18", "v19"}:
+    if not is_supported_vllm(vllm_ver):
         logger.warning(
-            "[zentorch] Unsupported vLLM %s. Minimum runtime-supported vLLM is %s "
-            "because zentorch requires the PyTorch 2.11-based vLLM releases.",
+            "[zentorch] Unsupported vLLM %s. This zentorch plugin supports "
+            "released vLLM %s-%s (PyTorch %d.%d+) only. Falling back to the "
+            "stock CPU platform.",
             vllm_ver,
-            runtime_min_vllm,
-        )
-        return None
-
-    if family is None:
-        logger.warning(
-            "[zentorch] Unsupported vLLM %s. Runtime support starts at %s and "
-            "extends through %s",
-            vllm_ver,
-            runtime_min_vllm,
+            VLLM_MIN_VERSION,
             VLLM_MAX_VERSION,
+            TORCH_MIN_VERSION[0],
+            TORCH_MIN_VERSION[1],
         )
         return None
 
-    # Master hardware gate: every zentorch vLLM optimization (eager linear /
-    # embedding routing via is_zen_cpu(), the optimize_pass graph rewrite, and
-    # the general_plugins patches such as RMSNorm / FusedMoE / GDN) requires
-    # AVX-512. Without it, do not activate the OOT platform or apply any
-    # patches: returning None makes vLLM fall back to the stock CpuPlatform
+    if not is_supported_torch():
+        logger.warning(
+            "[zentorch] Unsupported PyTorch %s; vLLM %s requires PyTorch "
+            "%d.%d+. Falling back to the stock CPU platform.",
+            torch.__version__,
+            vllm_ver,
+            TORCH_MIN_VERSION[0],
+            TORCH_MIN_VERSION[1],
+        )
+        return None
+
+    # Master hardware gate: every zentorch vLLM optimization requires AVX-512.
+    # Without it, return None so vLLM falls back to the stock CpuPlatform.
     from zentorch._C import is_avx512_supported
 
     if not is_avx512_supported():
@@ -1718,23 +402,8 @@ def register() -> Optional[str]:
 
     if not _INITIALIZED:
         _INITIALIZED = True
-
-        logger.info("[zentorch] vLLM %s detected (family: %s)", vllm_ver, family)
-
-        # CRITICAL: Apply PyTorch mainline backports FIRST
-        # These fixes exist in mainline but are missing from PyTorch 2.10.
-        # They must run before any torch.compile invocation.
-        # 1. isinstance() fix for Parameter subclasses in FakeTensorMode
-        _apply_faketensor_subclass_patch()
-        # 2. ValueError catch for cyclic Logger refs in FxGraphCachePickler
-        _apply_fxgraphcache_pickle_patch()
-        # Register and apply all patches (decorators handle version filtering);
-        _register_patches()
-        manager.apply_all()
-
-        if family in _PRE_V18_DISPATCH_FAMILIES:
-            _install_pre_v18_dispatch_hooks()
-
-        logger.info("[zentorch] Applied patches: %s", manager.applied)
+        logger.info("[zentorch] vLLM %s detected (PyTorch %s)", vllm_ver, torch.__version__)
+        _apply_all_patches()
+        logger.info("[zentorch] Applied patches: %s", APPLIED_PATCHES)
 
     return "zentorch.vllm._platform.ZenCPUPlatform"
