@@ -728,17 +728,18 @@ AOTITorchError aoti_torch_cpu_zentorch_fused_moe(
     const char *act, AtenTensorHandle *w13_scales, AtenTensorHandle *w2_scales,
     const char *zentorch_op_name) {
   AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+    // Named local: the kernel takes a non-const torch::stable::Tensor & for the
+    // mutated output, which cannot bind to the temporary stable_from_handle
+    // returns. Writes still land in the caller's buffer since the bumped handle
+    // references the same storage.
+    auto output_stable = stable_from_handle(output);
     zentorch::zentorch_fused_moe(
-        *tensor_handle_to_tensor_pointer(output),
-        *tensor_handle_to_tensor_pointer(input),
-        *tensor_handle_to_tensor_pointer(w13),
-        *tensor_handle_to_tensor_pointer(w2),
-        pointer_to_optional<at::Tensor>(w13_bias),
-        pointer_to_optional<at::Tensor>(w2_bias),
-        *tensor_handle_to_tensor_pointer(topk_weights),
-        *tensor_handle_to_tensor_pointer(topk_id), skip_weighted, act,
-        pointer_to_optional<at::Tensor>(w13_scales),
-        pointer_to_optional<at::Tensor>(w2_scales), zentorch_op_name);
+        output_stable, stable_from_handle(input), stable_from_handle(w13),
+        stable_from_handle(w2), stable_optional_from_handle(w13_bias),
+        stable_optional_from_handle(w2_bias), stable_from_handle(topk_weights),
+        stable_from_handle(topk_id), skip_weighted, act,
+        stable_optional_from_handle(w13_scales),
+        stable_optional_from_handle(w2_scales), zentorch_op_name);
   });
 }
 

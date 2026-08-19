@@ -9,11 +9,14 @@
 #include "MatmulUtils.hpp"
 #include "Memory.hpp"
 
+#include <torch/csrc/stable/library.h>
+#include <torch/csrc/stable/ops.h>
+
 using namespace zendnnl::interface;
 
 namespace zentorch {
 
-static bool has_tensor(const c10::optional<at::Tensor> &opt) {
+static bool has_tensor(const std::optional<torch::stable::Tensor> &opt) {
   return opt.has_value() && opt->defined();
 }
 
@@ -40,9 +43,9 @@ static bool checks_enabled() {
 // Shared validation for per-expert quantization scale lists.
 // Checks list size, per-element presence, dtype (f32/bf16), and dim
 // (1D/2D).
-static void
-validate_weight_scales(const std::vector<c10::optional<at::Tensor>> &scales,
-                       int num_ops, const char *param_name) {
+static void validate_weight_scales(
+    const std::vector<std::optional<torch::stable::Tensor>> &scales,
+    int num_ops, const char *param_name) {
   if (!checks_enabled())
     return;
   ZENTORCH_CHECK(scales.size() == static_cast<size_t>(num_ops),
@@ -66,9 +69,9 @@ validate_weight_scales(const std::vector<c10::optional<at::Tensor>> &scales,
 
 // DA8W4 needs true per-group scales: 2D [G, N] with G > 1 (G == 1 is the
 // per-channel case) and G dividing the unpacked contraction dim K.
-static void validate_da8w4_weight_scale(const at::Tensor &ws, int64_t N,
-                                        int64_t unpacked_K, int op_idx,
-                                        const char *param_name) {
+static void validate_da8w4_weight_scale(const torch::stable::Tensor &ws,
+                                        int64_t N, int64_t unpacked_K,
+                                        int op_idx, const char *param_name) {
   if (!checks_enabled())
     return;
   ZENTORCH_CHECK(ws.dim() == 2, "zentorch_group_matmul: DA8W4 ", param_name,
@@ -90,10 +93,10 @@ static void validate_da8w4_weight_scale(const at::Tensor &ws, int64_t N,
 // Validates per-expert input/weight/bias dtypes, shapes, K-compatibility,
 // and weight_scales (required for int8 weights).
 static void validate_dtypes_and_shapes(
-    const std::vector<at::Tensor> &inputs,
-    const std::vector<at::Tensor> &w13_weights,
-    const std::vector<c10::optional<at::Tensor>> &w13_bias,
-    const std::vector<c10::optional<at::Tensor>> &w13_scales) {
+    const std::vector<torch::stable::Tensor> &inputs,
+    const std::vector<torch::stable::Tensor> &w13_weights,
+    const std::vector<std::optional<torch::stable::Tensor>> &w13_bias,
+    const std::vector<std::optional<torch::stable::Tensor>> &w13_scales) {
 
   ZENTORCH_CHECK(inputs.size() > 1,
                  "zentorch_group_matmul: sequential mode (inputs.size() == 1) "
@@ -237,8 +240,9 @@ static void validate_dtypes_and_shapes(
 // gemm_outputs holds one destination per active expert. Compare against
 // inputs.size() (the active-expert count), not weights.size() (which is
 // sized to E and includes trailing inactive-expert passthrough entries).
-static void validate_gemm_outputs(const std::vector<at::Tensor> &gemm_outputs,
-                                  const std::vector<at::Tensor> &inputs) {
+static void
+validate_gemm_outputs(const std::vector<torch::stable::Tensor> &gemm_outputs,
+                      const std::vector<torch::stable::Tensor> &inputs) {
   ZENTORCH_CHECK(gemm_outputs.size() == inputs.size(),
                  "zentorch_group_matmul: gemm_outputs.size() (",
                  gemm_outputs.size(), ") must equal inputs.size() (",
@@ -254,13 +258,13 @@ static void validate_gemm_outputs(const std::vector<at::Tensor> &gemm_outputs,
 //   - w2_bias    : sized E_a (active only), matches inputs.size().
 // We validate every w2 weight (the inactive tail also gets prepacked) and
 // only the active w2 biases.
-static void
-validate_w2_params(const std::vector<at::Tensor> &inputs,
-                   const std::vector<at::Tensor> &w13_weights,
-                   const std::vector<c10::optional<at::Tensor>> &w2_weights,
-                   const std::vector<c10::optional<at::Tensor>> &w2_bias,
-                   const std::vector<c10::optional<at::Tensor>> &w2_scales,
-                   bool use_gated_act) {
+static void validate_w2_params(
+    const std::vector<torch::stable::Tensor> &inputs,
+    const std::vector<torch::stable::Tensor> &w13_weights,
+    const std::vector<std::optional<torch::stable::Tensor>> &w2_weights,
+    const std::vector<std::optional<torch::stable::Tensor>> &w2_bias,
+    const std::vector<std::optional<torch::stable::Tensor>> &w2_scales,
+    bool use_gated_act) {
 
   ZENTORCH_CHECK(
       w2_weights.size() == w13_weights.size(),
@@ -366,9 +370,10 @@ validate_w2_params(const std::vector<at::Tensor> &inputs,
 
 // Validates MoE weighted-reduce: topk_weights, row_ptrs, moe_output must all be
 // provided. Returns true if MoE is enabled.
-static bool validate_moe_params(const c10::optional<at::Tensor> &topk_weights,
-                                const c10::optional<at::Tensor> &row_ptrs,
-                                const c10::optional<at::Tensor> &moe_output) {
+static bool
+validate_moe_params(const std::optional<torch::stable::Tensor> &topk_weights,
+                    const std::optional<torch::stable::Tensor> &row_ptrs,
+                    const std::optional<torch::stable::Tensor> &moe_output) {
   const bool use_moe = has_tensor(topk_weights);
   if (use_moe) {
     ZENTORCH_CHECK(has_tensor(row_ptrs) && has_tensor(moe_output),
@@ -378,19 +383,19 @@ static bool validate_moe_params(const c10::optional<at::Tensor> &topk_weights,
   return use_moe;
 }
 
-static bool
-validate_all_inputs(const std::vector<at::Tensor> &inputs,
-                    const std::vector<at::Tensor> &w13_weights,
-                    const std::vector<c10::optional<at::Tensor>> &w13_bias,
-                    const std::vector<c10::optional<at::Tensor>> &w13_scales,
-                    const std::vector<at::Tensor> &gemm_outputs,
-                    const c10::optional<at::Tensor> &topk_weights,
-                    const c10::optional<at::Tensor> &row_ptrs,
-                    const c10::optional<at::Tensor> &moe_output,
-                    const std::vector<c10::optional<at::Tensor>> &w2_weights,
-                    const std::vector<c10::optional<at::Tensor>> &w2_bias,
-                    const std::vector<c10::optional<at::Tensor>> &w2_scales,
-                    bool use_gated_act) {
+static bool validate_all_inputs(
+    const std::vector<torch::stable::Tensor> &inputs,
+    const std::vector<torch::stable::Tensor> &w13_weights,
+    const std::vector<std::optional<torch::stable::Tensor>> &w13_bias,
+    const std::vector<std::optional<torch::stable::Tensor>> &w13_scales,
+    const std::vector<torch::stable::Tensor> &gemm_outputs,
+    const std::optional<torch::stable::Tensor> &topk_weights,
+    const std::optional<torch::stable::Tensor> &row_ptrs,
+    const std::optional<torch::stable::Tensor> &moe_output,
+    const std::vector<std::optional<torch::stable::Tensor>> &w2_weights,
+    const std::vector<std::optional<torch::stable::Tensor>> &w2_bias,
+    const std::vector<std::optional<torch::stable::Tensor>> &w2_scales,
+    bool use_gated_act) {
 
   validate_dtypes_and_shapes(inputs, w13_weights, w13_bias, w13_scales);
   if (!gemm_outputs.empty()) {
@@ -424,16 +429,18 @@ map_activation_to_gated_act(std::string_view activation) {
 }
 
 void zentorch_group_matmul_out_impl(
-    std::vector<at::Tensor> gemm_outputs, const std::vector<at::Tensor> &inputs,
-    const std::vector<at::Tensor> &w13_weights,
-    const std::vector<c10::optional<at::Tensor>> &w2_weights,
-    c10::optional<at::Tensor> moe_output,
-    const c10::optional<at::Tensor> &topk_weights,
-    const c10::optional<at::Tensor> &row_ptrs, std::string_view activation,
-    const std::vector<c10::optional<at::Tensor>> &w13_bias,
-    const std::vector<c10::optional<at::Tensor>> &w2_bias,
-    const std::vector<c10::optional<at::Tensor>> &w13_scales,
-    const std::vector<c10::optional<at::Tensor>> &w2_scales,
+    std::vector<torch::stable::Tensor> gemm_outputs,
+    const std::vector<torch::stable::Tensor> &inputs,
+    const std::vector<torch::stable::Tensor> &w13_weights,
+    const std::vector<std::optional<torch::stable::Tensor>> &w2_weights,
+    std::optional<torch::stable::Tensor> moe_output,
+    const std::optional<torch::stable::Tensor> &topk_weights,
+    const std::optional<torch::stable::Tensor> &row_ptrs,
+    std::string_view activation,
+    const std::vector<std::optional<torch::stable::Tensor>> &w13_bias,
+    const std::vector<std::optional<torch::stable::Tensor>> &w2_bias,
+    const std::vector<std::optional<torch::stable::Tensor>> &w13_scales,
+    const std::vector<std::optional<torch::stable::Tensor>> &w2_scales,
     const std::string &zentorch_op_name) {
 
   const auto gated_act_type = map_activation_to_gated_act(activation);
@@ -478,7 +485,7 @@ void zentorch_group_matmul_out_impl(
   std::vector<int> ldc_vec(num_active);
   // Holds src_scale tensors for dynamic DA8W8 (keeps them alive until kernel
   // returns)
-  std::vector<at::Tensor> temp_src_scales;
+  std::vector<torch::stable::Tensor> temp_src_scales;
   // DA8W4: packed s4 weights (int32 [N,K/8] or int8 [N,K/2]) + dynamic
   // per-token s8 activation quant. Shares the dynamic-quant wiring with the
   // DA8W8 path but forces dtypes.wei = s4 and derives K/ldb from the
@@ -582,8 +589,9 @@ void zentorch_group_matmul_out_impl(
       //   wei_scale {G, N} (per-group)   → src_scale {M, 1} (per-token,
       //                                    broadcast across the G groups)
       const int64_t M = input.size(0);
-      auto src_scale_tensor =
-          at::detail::empty_strided_cpu({M, 1}, {1, 1}, ws.scalar_type());
+      // new_empty inherits ws's dtype and device and is contiguous, i.e. the
+      // {1, 1} strides the pre-migration empty_strided_cpu asked for.
+      auto src_scale_tensor = torch::stable::new_empty(ws, {M, 1});
       qparams.src_scale.buff = src_scale_tensor.data_ptr();
       qparams.src_scale.dt = get_zendnnl_dtype(ws);
       qparams.src_scale.dims = {M, 1};
@@ -632,7 +640,7 @@ void zentorch_group_matmul_out_impl(
     moe_params.topk = topk;
     moe_params.output = moe_output->data_ptr();
     moe_params.ldc_output = hidden_dim;
-    moe_params.topk_weights = topk_weights->data_ptr<float>();
+    moe_params.topk_weights = topk_weights->const_data_ptr<float>();
     moe_params.skip_weighted = false;
     moe_params.row_ptrs = reinterpret_cast<const void **>(row_ptrs->data_ptr());
   }
@@ -719,7 +727,11 @@ void zentorch_group_matmul_out_impl(
   LOG(INFO) << "Finished executing: " << __FUNCTION__ << "!\n";
 }
 
-TORCH_LIBRARY_FRAGMENT(zentorch, m) {
+STABLE_TORCH_LIBRARY_FRAGMENT(zentorch, m) {
+  // `gemm_outputs` and `moe_output` are the mutated args but are declared in
+  // their natural schema positions (0 and 4) rather than as trailing `.out`
+  // kwargs, so they already line up positionally with the kernel parameters
+  // for TORCH_BOX.
   m.def("zentorch_group_matmul.out(Tensor(a!)[] gemm_outputs, "
         "Tensor[] inputs, Tensor[] w13_weights, "
         "Tensor?[] w2_weights, "
@@ -732,8 +744,9 @@ TORCH_LIBRARY_FRAGMENT(zentorch, m) {
         "-> ()");
 }
 
-TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
-  m.impl("zentorch_group_matmul.out", zentorch::zentorch_group_matmul_out_impl);
+STABLE_TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
+  m.impl("zentorch_group_matmul.out",
+         TORCH_BOX(&zentorch::zentorch_group_matmul_out_impl));
 }
 
 } // namespace zentorch

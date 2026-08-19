@@ -7,12 +7,13 @@
 #include "EnvReader.hpp"
 #include "GroupMatmul.hpp"
 #include "Utils.hpp"
-#include <ATen/Parallel.h>
 #include <ATen/record_function.h>
 #include <algorithm>
 #include <cstddef>
 #include <cstdlib>
 #include <cstring>
+#include <torch/csrc/stable/library.h>
+#include <torch/csrc/stable/ops.h>
 #include <torch/library.h>
 #include <unordered_map>
 #include <utility>
@@ -29,22 +30,22 @@ namespace {
 // (never shrinks) as larger per-call working sets are observed. Each
 // `zentorch_fused_moe` call's per-expert [M_e, H] grouped-input buffers are
 // placed contiguously inside this block and exposed as zero-copy
-// `at::from_blob` tensors with a no-op deleter. After the call returns the
-// at::from_blob handles are destroyed but the underlying memory persists for
-// the next call to reuse — avoiding the per-tensor allocator round-trip the
-// default `at::empty` path goes through.
+// `torch::stable::from_blob` tensors, which are non-owning by contract. After
+// the call returns the from_blob handles are destroyed but the underlying
+// memory persists for the next call to reuse — avoiding the per-tensor
+// allocator round-trip the default `new_empty` path goes through.
 //
 // Modeled on vLLM's `cpu_utils::ScratchPadManager` (csrc/cpu/utils.cpp).
 //
 // Enabled by default. Set `ZENTORCH_USE_SCRATCHPAD=0` to disable and fall
-// back to the `at::empty`-per-expert allocation path.
+// back to the `new_empty`-per-expert allocation path.
 //
 // Thread-safety: not safe for concurrent `zentorch_fused_moe` calls from
 // different threads. Matches the assumption of vLLM's CPU MoE path
 // (single inference stream per process); intra-call work parallelizes via
-// `at::parallel_for` / OMP, not via overlapping op invocations.
+// `torch::stable::parallel_for` / OMP, not via overlapping op invocations.
 //
-// Lifetime safety: the at::from_blob tensors are local to a single
+// Lifetime safety: the from_blob tensors are local to a single
 // `zentorch_fused_moe` call and destroyed before the next call begins, so
 // a `reserve()` that grows (and frees) the underlying buffer can never
 // dangle a still-live tensor. Tensors must NOT escape the op into Python /
@@ -112,8 +113,8 @@ inline size_t round_up_to(size_t bytes, size_t alignment) {
 //   MoE models stack many MoE layers (e.g. Qwen3-30B-A3B has 48), and every
 //   decode step calls `zentorch_fused_moe` once per layer. A single-slot
 //   cache (last tensor seen) thrashes between layers and rebuilds every call.
-//   Keying by `TensorImpl*` lets each layer's weight/bias/scale tensors hold
-//   their own slice list, so the hit rate after step 1 is effectively 100%.
+//   Keying per tensor lets each layer's weight/bias/scale tensors hold their
+//   own slice list, so the hit rate after step 1 is effectively 100%.
 //
 // Why we avoid `unbind(0)`:
 //   `unbind(0)` is implemented as a loop of `select(0, i)` internally, so it
@@ -122,12 +123,16 @@ inline size_t round_up_to(size_t bytes, size_t alignment) {
 //   5.7s of `unbind` — a net regression. Calling `select` directly inside
 //   the cache build keeps the one-time fill cheaper.
 //
+// Keying a stable tensor:
+//   `get()` is a new handle each unbox, so key on `data_ptr()` instead. That
+//   stays within the stable ABI. Collisions can't happen here: each weight
+//   role has its own cache and expert weights don't alias.
+//
 // Lifetime / safety:
 //   - Each entry holds a strong ref to the *base* tensor (`Entry::base`), not
-//     just the view slices. This pins the keyed `TensorImpl` so its address
-//     can't be freed and recycled into a different tensor (which would return
-//     stale slices). View slices alone don't suffice: they keep the storage
-//     alive but not the base `TensorImpl`.
+//     just the view slices. This pins the keyed storage so its address can't
+//     be freed and recycled into a different tensor (which would return stale
+//     slices).
 //   - For long-lived model weights this is benign. Callers that pass a fresh
 //     weight tensor every call grow the map by one (process-lifetime) entry.
 //   - Not thread-safe across concurrent `zentorch_fused_moe` calls. Matches
@@ -138,16 +143,17 @@ public:
   // Returns the per-expert views for `tensor`. On first encounter, builds
   // them with one `select(0, e)` per expert; subsequent calls are an
   // unordered_map lookup. A hit is always the same tensor: `Entry::base`
-  // pins the keyed TensorImpl so its address cannot be recycled to a
+  // pins the keyed storage so its address cannot be recycled to a
   // different tensor while the entry lives, so no identity re-check is
   // needed.
-  const std::vector<at::Tensor> &get(const at::Tensor &tensor) {
-    const auto *impl = tensor.unsafeGetTensorImpl();
-    auto it = entries_.find(impl);
+  const std::vector<torch::stable::Tensor> &
+  get(const torch::stable::Tensor &tensor) {
+    const void *key = tensor.data_ptr();
+    auto it = entries_.find(key);
     if (it != entries_.end()) {
       return it->second.slices;
     }
-    auto emplaced = entries_.emplace(impl, build_entry(tensor));
+    auto emplaced = entries_.emplace(key, build_entry(tensor));
     return emplaced.first->second.slices;
   }
 
@@ -156,23 +162,23 @@ public:
 
 private:
   struct Entry {
-    // Strong ref to the keyed tensor: pins its TensorImpl so the map key
-    // cannot be recycled to a different tensor while this entry exists.
-    at::Tensor base;
-    std::vector<at::Tensor> slices;
+    // Strong ref to the keyed tensor: pins its storage so the map key cannot
+    // be recycled to a different tensor while this entry exists.
+    torch::stable::Tensor base;
+    std::vector<torch::stable::Tensor> slices;
   };
 
-  static Entry build_entry(const at::Tensor &tensor) {
+  static Entry build_entry(const torch::stable::Tensor &tensor) {
     const int64_t E = tensor.size(0);
-    std::vector<at::Tensor> slices;
+    std::vector<torch::stable::Tensor> slices;
     slices.reserve(E);
     for (int64_t e = 0; e < E; ++e) {
-      slices.emplace_back(tensor.select(0, e));
+      slices.emplace_back(torch::stable::select(tensor, 0, e));
     }
     return Entry{tensor, std::move(slices)};
   }
 
-  std::unordered_map<const c10::TensorImpl *, Entry> entries_;
+  std::unordered_map<const void *, Entry> entries_;
 };
 
 // Singleton owning every FusedMoE per-expert view cache, so they can be
@@ -199,8 +205,6 @@ struct MoEWeightCaches {
 // Free-function entry point for the flush op (defined below).
 void flush_moe_weight_cache_impl() { MoEWeightCaches::instance().flush(); }
 
-} // namespace
-
 // ---------------------------------------------------------------------------
 // Phase 1 — Token-Expert Grouping
 //
@@ -225,7 +229,7 @@ void flush_moe_weight_cache_impl() { MoEWeightCaches::instance().flush(); }
 //     - Allocate one [M_e, H] tensor per active expert, indexed by
 //       active_idx (so `grouped_inputs.size() == E_a`, ready to hand to
 //       `group_matmul` directly).
-//     - `at::parallel_for` over the E_a active experts (`grain_size=1`):
+//     - `parallel_for` over the E_a active experts (`grain_size=1`):
 //       each worker owns one destination buffer and walks its own
 //       `source_tokens_per_active[a]` list to memcpy the source rows in.
 //       This exposes ~E_a tasks (instead of `total_pairs / grain_size`)
@@ -271,7 +275,7 @@ void flush_moe_weight_cache_impl() { MoEWeightCaches::instance().flush(); }
 struct TokenExpertMapping {
   // Size E_a. grouped_inputs[a] is the [M_e, H] input tensor for the
   // a-th active expert (active expert id = active_expert_ids[a]).
-  std::vector<at::Tensor> grouped_inputs;
+  std::vector<torch::stable::Tensor> grouped_inputs;
   // Size E_a. active_expert_ids[a] = the original expert id (in [0, E))
   // for the a-th active expert. Order is first-encounter in `topk_id`.
   std::vector<int32_t> active_expert_ids;
@@ -287,13 +291,14 @@ struct TokenExpertMapping {
 };
 
 static TokenExpertMapping
-build_token_expert_mapping(const at::Tensor &input, const at::Tensor &topk_id) {
+build_token_expert_mapping(const torch::stable::Tensor &input,
+                           const torch::stable::Tensor &topk_id) {
 
   const int64_t T = input.size(0);
   const int64_t H = input.size(1);
   const int64_t K = topk_id.size(1);
   const int64_t total_pairs = T * K;
-  const int64_t row_bytes = H * input.element_size();
+  const int64_t row_bytes = H * static_cast<int64_t>(input.element_size());
 
   // topk_id is contiguous int32 [T, K]; flat indexing is i = t*K + k.
   const int32_t *topk_id_serialized = topk_id.const_data_ptr<int32_t>();
@@ -335,16 +340,17 @@ build_token_expert_mapping(const at::Tensor &input, const at::Tensor &topk_id) {
   // Default path (`ZENTORCH_USE_SCRATCHPAD=1`, the default): pack every
   // per-expert [M_e, H] region contiguously into a single 64-byte-aligned
   // block reused (and grown when needed) across calls, then expose each
-  // region as a zero-copy `at::from_blob` tensor. Each region's byte length
-  // is rounded up to a 64-byte multiple so the next region's base also
-  // starts on a 64-byte boundary; the within-region row stride stays at the
-  // natural H * elem_size — identical to what `at::empty` would give us, so
-  // ZenDNN and the Pass-2 memcpy both see the same layout under either path.
+  // region as a zero-copy `torch::stable::from_blob` tensor. Each region's
+  // byte length is rounded up to a 64-byte multiple so the next region's base
+  // also starts on a 64-byte boundary; the within-region row stride stays at
+  // the natural H * elem_size — identical to what a fresh allocation would
+  // give us, so ZenDNN and the Pass-2 memcpy both see the same layout under
+  // either path.
   //
-  // Fallback path (`ZENTORCH_USE_SCRATCHPAD=0`): one `at::empty` per active
+  // Fallback path (`ZENTORCH_USE_SCRATCHPAD=0`): one `new_empty` per active
   // expert. PyTorch's caching allocator amortizes well for stable per-call
-  // working-set sizes but still pays a per-tensor metadata round-trip on
-  // every call.
+  // working-set sizes but still pays a per-tensor metadata round-trip (plus,
+  // on the stable ABI, a dispatcher hop) on every call.
   const int int_env_value =
       EnvReader::getEnvVariableAsInt("ZENTORCH_USE_SCRATCHPAD");
   const bool use_scratchpad = static_cast<bool>(int_env_value);
@@ -366,15 +372,20 @@ build_token_expert_mapping(const at::Tensor &input, const at::Tensor &topk_id) {
       auto &sp = FusedMoEScratchpad::get();
       sp.reserve(total_bytes);
       std::byte *base = sp.data();
+      // Hoisted: each accessor is a shim call, and every region shares the
+      // input's device and dtype.
+      const auto device = input.device();
+      const auto dtype = input.scalar_type();
       for (int64_t a = 0; a < E_a; ++a) {
-        mapping.grouped_inputs[a] = at::from_blob(
-            base + region_offsets[a], {tokens_per_active[a], H},
-            /*deleter=*/[](void *) {}, input.options());
+        mapping.grouped_inputs[a] = torch::stable::from_blob(
+            base + region_offsets[a],
+            {static_cast<int64_t>(tokens_per_active[a]), H}, {H, 1}, device,
+            dtype);
       }
     } else {
       for (int64_t a = 0; a < E_a; ++a) {
-        mapping.grouped_inputs[a] = at::detail::empty_strided_cpu(
-            {tokens_per_active[a], H}, {H, 1}, input.options());
+        mapping.grouped_inputs[a] = torch::stable::new_empty(
+            input, {static_cast<int64_t>(tokens_per_active[a]), H});
       }
     }
   } // RECORD_FUNCTION scratchpad_allocation
@@ -416,7 +427,7 @@ build_token_expert_mapping(const at::Tensor &input, const at::Tensor &topk_id) {
   {
     RECORD_FUNCTION("zentorch::fused_moe::pass2_parallel_memcpy",
                     c10::ArrayRef<c10::IValue>({}));
-    at::parallel_for(
+    torch::stable::parallel_for(
         0, E_a, /*grain_size=*/1, [&](int64_t a_begin, int64_t a_end) {
           for (int64_t a = a_begin; a < a_end; ++a) {
             std::byte *dst = dst_base[a];
@@ -434,6 +445,8 @@ build_token_expert_mapping(const at::Tensor &input, const at::Tensor &topk_id) {
 
   return mapping;
 }
+
+} // namespace
 
 // ---------------------------------------------------------------------------
 // zentorch_fused_moe — Fused Mixture-of-Experts operator (out variant)
@@ -482,18 +495,24 @@ build_token_expert_mapping(const at::Tensor &input, const at::Tensor &topk_id) {
 //   act            : one of {"silu", "gelu", "gelu_tanh", "swigluoai"}
 // ---------------------------------------------------------------------------
 
-void zentorch_fused_moe(
-    at::Tensor &output, const at::Tensor &input, const at::Tensor &w13,
-    const at::Tensor &w2, const c10::optional<at::Tensor> &w13_bias,
-    const c10::optional<at::Tensor> &w2_bias, const at::Tensor &topk_weights,
-    const at::Tensor &topk_id, bool skip_weighted, std::string_view act,
-    const c10::optional<at::Tensor> &w13_scales,
-    const c10::optional<at::Tensor> &w2_scales, std::string zentorch_op_name) {
+void zentorch_fused_moe(torch::stable::Tensor &output,
+                        const torch::stable::Tensor &input,
+                        const torch::stable::Tensor &w13,
+                        const torch::stable::Tensor &w2,
+                        const std::optional<torch::stable::Tensor> &w13_bias,
+                        const std::optional<torch::stable::Tensor> &w2_bias,
+                        const torch::stable::Tensor &topk_weights,
+                        const torch::stable::Tensor &topk_id,
+                        bool skip_weighted, std::string_view act,
+                        const std::optional<torch::stable::Tensor> &w13_scales,
+                        const std::optional<torch::stable::Tensor> &w2_scales,
+                        std::string zentorch_op_name) {
 
   const int64_t T = input.size(0);
   const int64_t K = topk_id.size(1);
   const int64_t total_pairs = T * K;
-  const int64_t row_bytes = input.size(1) * input.element_size();
+  const int64_t row_bytes =
+      input.size(1) * static_cast<int64_t>(input.element_size());
 
   // ---------------------- Phase 1: token-expert grouping ---------------------
   TokenExpertMapping mapping;
@@ -535,20 +554,20 @@ void zentorch_fused_moe(
   // experts that receive tokens, so there's no reason to materialize slices
   // for the inactive set.
   const int64_t E = w13.size(0);
-  std::vector<at::Tensor> w13_slices(E);
-  std::vector<c10::optional<at::Tensor>> w2_weight_slices(E);
-  std::vector<c10::optional<at::Tensor>> w13_bias_slices(E_a);
-  std::vector<c10::optional<at::Tensor>> w2_bias_slices(E_a);
-  std::vector<c10::optional<at::Tensor>> w13_scale_slices(E_a);
-  std::vector<c10::optional<at::Tensor>> w2_scale_slices(E_a);
+  std::vector<torch::stable::Tensor> w13_slices(E);
+  std::vector<std::optional<torch::stable::Tensor>> w2_weight_slices(E);
+  std::vector<std::optional<torch::stable::Tensor>> w13_bias_slices(E_a);
+  std::vector<std::optional<torch::stable::Tensor>> w2_bias_slices(E_a);
+  std::vector<std::optional<torch::stable::Tensor>> w13_scale_slices(E_a);
+  std::vector<std::optional<torch::stable::Tensor>> w2_scale_slices(E_a);
 
   const bool has_w13_bias = w13_bias.has_value() && w13_bias->defined();
   const bool has_w2_bias = w2_bias.has_value() && w2_bias->defined();
   const bool has_w13_scales = w13_scales.has_value() && w13_scales->defined();
   const bool has_w2_scales = w2_scales.has_value() && w2_scales->defined();
 
-  // Per-tensor caches of dim-0 expert views. Each cache is keyed by
-  // TensorImpl*, so the 48 MoE layers in models like Qwen3-30B-A3B each get
+  // Per-tensor caches of dim-0 expert views. Each cache is keyed by storage
+  // address, so the 48 MoE layers in models like Qwen3-30B-A3B each get
   // their own entry and do not evict each other. After the first decode
   // step, every lookup below is an unordered_map hit (no `select` calls).
   // Caches live in a process-lifetime singleton: zero churn while the process
@@ -558,13 +577,13 @@ void zentorch_fused_moe(
 
   const auto &w13_all_slices = caches.w13.get(w13);
   const auto &w2_all_slices = caches.w2.get(w2);
-  const std::vector<at::Tensor> *w13_bias_all_slices =
+  const std::vector<torch::stable::Tensor> *w13_bias_all_slices =
       has_w13_bias ? &caches.w13_bias.get(*w13_bias) : nullptr;
-  const std::vector<at::Tensor> *w2_bias_all_slices =
+  const std::vector<torch::stable::Tensor> *w2_bias_all_slices =
       has_w2_bias ? &caches.w2_bias.get(*w2_bias) : nullptr;
-  const std::vector<at::Tensor> *w13_scales_all_slices =
+  const std::vector<torch::stable::Tensor> *w13_scales_all_slices =
       has_w13_scales ? &caches.w13_scales.get(*w13_scales) : nullptr;
-  const std::vector<at::Tensor> *w2_scales_all_slices =
+  const std::vector<torch::stable::Tensor> *w2_scales_all_slices =
       has_w2_scales ? &caches.w2_scales.get(*w2_scales) : nullptr;
 
   // Pass 2a: active experts in active_idx order (positions [0, E_a)).
@@ -575,17 +594,21 @@ void zentorch_fused_moe(
     w13_slices[a] = w13_all_slices[e];
     w2_weight_slices[a] = w2_all_slices[e];
     w13_bias_slices[a] =
-        has_w13_bias ? c10::optional<at::Tensor>((*w13_bias_all_slices)[e])
-                     : c10::nullopt;
+        has_w13_bias
+            ? std::optional<torch::stable::Tensor>((*w13_bias_all_slices)[e])
+            : std::nullopt;
     w2_bias_slices[a] =
-        has_w2_bias ? c10::optional<at::Tensor>((*w2_bias_all_slices)[e])
-                    : c10::nullopt;
+        has_w2_bias
+            ? std::optional<torch::stable::Tensor>((*w2_bias_all_slices)[e])
+            : std::nullopt;
     w13_scale_slices[a] =
-        has_w13_scales ? c10::optional<at::Tensor>((*w13_scales_all_slices)[e])
-                       : c10::nullopt;
+        has_w13_scales
+            ? std::optional<torch::stable::Tensor>((*w13_scales_all_slices)[e])
+            : std::nullopt;
     w2_scale_slices[a] =
-        has_w2_scales ? c10::optional<at::Tensor>((*w2_scales_all_slices)[e])
-                      : c10::nullopt;
+        has_w2_scales
+            ? std::optional<torch::stable::Tensor>((*w2_scales_all_slices)[e])
+            : std::nullopt;
   }
 
   // Pass 2b: inactive experts in original order (positions [E_a, E)).
@@ -608,9 +631,9 @@ void zentorch_fused_moe(
   // inputs from these buffers within the fused chain, and both shapes are
   // [M_e, H]. row_ptrs therefore point directly into
   // `mapping.grouped_inputs`.
-  at::Tensor row_ptrs =
-      at::detail::empty_strided_cpu({total_pairs}, {1}, at::kLong);
-  int64_t *row_ptrs_data = row_ptrs.data_ptr<int64_t>();
+  torch::stable::Tensor row_ptrs = torch::stable::new_empty(
+      input, {total_pairs}, torch::headeronly::ScalarType::Long);
+  int64_t *row_ptrs_data = row_ptrs.mutable_data_ptr<int64_t>();
   for (int64_t i = 0; i < total_pairs; ++i) {
     const auto [a, pos] = mapping.topk_to_expert_row[i];
     row_ptrs_data[i] = reinterpret_cast<int64_t>(
@@ -621,8 +644,10 @@ void zentorch_fused_moe(
   // When `skip_weighted` is set, vLLM has already pre-applied router weights
   // to the input. Pass an all-ones weight vector so the postop accumulates
   // raw expert outputs. (Schema requires K == 1 in this case.)
-  const at::Tensor effective_topk_weights =
-      skip_weighted ? at::ones_like(topk_weights) : topk_weights;
+  const torch::stable::Tensor effective_topk_weights =
+      skip_weighted
+          ? torch::stable::fill_(torch::stable::empty_like(topk_weights), 1.0)
+          : topk_weights;
 
   const bool two_pass =
       static_cast<bool>(EnvReader::getEnvVariableAsInt("ZENTORCH_TWO_PASS"));
@@ -638,15 +663,16 @@ void zentorch_fused_moe(
     // -------------------------------- gemm_outputs are [M_e, N] per active
     // expert; the kernel writes the gated-activation result into the first I
     // columns.
-    std::vector<at::Tensor> w13_gemm_outs(E_a);
+    std::vector<torch::stable::Tensor> w13_gemm_outs(E_a);
     for (int64_t a = 0; a < E_a; ++a) {
       const int64_t M_e = mapping.grouped_inputs[a].size(0);
-      w13_gemm_outs[a] =
-          at::detail::empty_strided_cpu({M_e, N}, {N, 1}, input.options());
+      w13_gemm_outs[a] = torch::stable::new_empty(input, {M_e, N});
     }
 
-    const std::vector<c10::optional<at::Tensor>> empty_optional_vec_E{};
-    const std::vector<c10::optional<at::Tensor>> empty_optional_vec_Ea{};
+    const std::vector<std::optional<torch::stable::Tensor>>
+        empty_optional_vec_E{};
+    const std::vector<std::optional<torch::stable::Tensor>>
+        empty_optional_vec_Ea{};
 
     {
       RECORD_FUNCTION("zentorch::fused_moe::two_pass::w13_activation",
@@ -656,9 +682,9 @@ void zentorch_fused_moe(
           /*inputs=*/mapping.grouped_inputs,
           /*w13_weights=*/w13_slices,
           /*w2_weights=*/empty_optional_vec_E,
-          /*moe_output=*/c10::nullopt,
-          /*topk_weights=*/c10::nullopt,
-          /*row_ptrs=*/c10::nullopt,
+          /*moe_output=*/std::nullopt,
+          /*topk_weights=*/std::nullopt,
+          /*row_ptrs=*/std::nullopt,
           /*activation=*/act,
           /*w13_bias=*/w13_bias_slices,
           /*w2_bias=*/empty_optional_vec_Ea,
@@ -672,16 +698,17 @@ void zentorch_fused_moe(
     // I] (first I cols of Call 1's output, made contiguous so the kernel sees a
     // tight stride). gemm_outputs reuse mapping.grouped_inputs so the pre-built
     // row_ptrs continue to point at the correct W2 destination rows.
-    std::vector<at::Tensor> activation_outputs(E_a);
+    std::vector<torch::stable::Tensor> activation_outputs(E_a);
     for (int64_t a = 0; a < E_a; ++a) {
-      activation_outputs[a] = w13_gemm_outs[a].narrow(1, 0, I).contiguous();
+      activation_outputs[a] = torch::stable::contiguous(
+          torch::stable::narrow(w13_gemm_outs[a], 1, 0, I));
     }
 
-    // For Call 2, W2 acts as the only matmul, so we hand it in as
-    // `w13_weights` (vector<at::Tensor>). Preserve the active-prefix +
+    // For Call 2, W2 acts as the only matmul, so we hand it in as the
+    // non-optional `w13_weights` list. Preserve the active-prefix +
     // inactive-tail layout so ZenDNN's prepack warmer still sees all E
     // experts.
-    std::vector<at::Tensor> w2_as_w13(E);
+    std::vector<torch::stable::Tensor> w2_as_w13(E);
     for (int64_t e = 0; e < E; ++e) {
       w2_as_w13[e] = w2_weight_slices[e].value();
     }
@@ -741,7 +768,10 @@ void zentorch_fused_moe(
 // test hook so each case starts with no cross-call view-cache state.
 void zentorch_flush_moe_weight_cache() { flush_moe_weight_cache_impl(); }
 
-TORCH_LIBRARY_FRAGMENT(zentorch, m) {
+STABLE_TORCH_LIBRARY_FRAGMENT(zentorch, m) {
+  // `output` is the leading schema arg (mirroring vLLM's cpu_fused_moe), not a
+  // trailing `.out` kwarg, so it already lines up positionally with the
+  // kernel's first parameter for TORCH_BOX.
   m.def("zentorch_fused_moe(Tensor(a!) output, Tensor input, "
         "Tensor w13, Tensor w2, "
         "Tensor? w13_bias, Tensor? w2_bias, "
@@ -749,14 +779,19 @@ TORCH_LIBRARY_FRAGMENT(zentorch, m) {
         "bool skip_weighted, str act, "
         "Tensor? w13_scales=None, Tensor? w2_scales=None, "
         "*, str zentorch_op_name='zentorch::zentorch_fused_moe') -> ()");
-  // No tensor args -> register the implementation directly (backend-agnostic)
-  // rather than under the CPU key, which has no tensor to infer dispatch from.
-  m.def("zentorch_flush_moe_weight_cache() -> ()",
-        &zentorch::zentorch_flush_moe_weight_cache);
 }
 
-TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
-  m.impl("zentorch_fused_moe", zentorch::zentorch_fused_moe);
+STABLE_TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
+  m.impl("zentorch_fused_moe", TORCH_BOX(&zentorch::zentorch_fused_moe));
+}
+
+// The flush hook stays on the ATen registration API: it takes no tensors, so
+// it needs the backend-agnostic catch-all kernel that `m.def(schema, fn)`
+// gives us. The stable StableLibrary::def takes a schema only, and its only
+// available IMPL key here would be CPU — which has no tensor to dispatch on.
+TORCH_LIBRARY_FRAGMENT(zentorch, m) {
+  m.def("zentorch_flush_moe_weight_cache() -> ()",
+        &zentorch::zentorch_flush_moe_weight_cache);
 }
 
 } // namespace zentorch

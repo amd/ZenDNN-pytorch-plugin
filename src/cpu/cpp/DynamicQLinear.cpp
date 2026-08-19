@@ -56,54 +56,6 @@ static void check_valid_common_dtypes_for_qlinear(const TensorT &input,
   }
 }
 
-// Infer the weight mode from the packing (pack_factor = K / weight.size(1),
-// where K is the input's last dim) and check the weight dtype for that mode.
-// Returns true for DA8W4, false for DA8W8:
-//   pack_factor 1 -> DA8W8  (s8,    [N, K])
-//   pack_factor 2 -> DA8W4 (int8,  [N, K/2])
-//   pack_factor 8 -> DA8W4 (int32, [N, K/8])
-// weight.size(1) must divide K and yield one of the pack factors above, so an
-// invalid layout errors here instead of being mis-dispatched to matmul_direct.
-
-template <typename TensorT>
-bool check_weight_and_infer_is_da8w4(const TensorT &input,
-                                     const TensorT &weight) {
-  const auto wdt = weight.scalar_type();
-  if (wdt != c10::kChar && wdt != c10::kInt) {
-    return false;
-  }
-
-  const int64_t K = input.size(input.dim() - 1);
-  const int64_t wk = weight.size(1);
-  ZENTORCH_CHECK(wk > 0 && K % wk == 0,
-                 "zentorch_dynamic_qlinear: weight dim 1 (", wk,
-                 ") must divide the input K (", K, ")");
-
-  switch (K / wk) {
-  case 1: // DA8W8
-    ZENTORCH_CHECK(wdt == c10::kChar,
-                   "zentorch_dynamic_qlinear: DA8W8 weight must be int8, got ",
-                   wdt);
-    return false;
-  case 2: // DA8W4, 2 s4 per byte
-    ZENTORCH_CHECK(
-        wdt == c10::kChar,
-        "zentorch_dynamic_qlinear: DA8W4 (K/2) weight must be int8, got ", wdt);
-    return true;
-  case 8: // DA8W4, 8 s4 per int32
-    ZENTORCH_CHECK(
-        wdt == c10::kInt,
-        "zentorch_dynamic_qlinear: DA8W4 (K/8) weight must be int32, got ",
-        wdt);
-    return true;
-  default:
-    ZENTORCH_CHECK(false,
-                   "zentorch_dynamic_qlinear: unsupported weight dim 1 (", wk,
-                   ") for input K (", K, "); expected K, K/2, or K/8");
-    return false; // unreachable
-  }
-}
-
 // Core implementation shared by DA8W8 (s8 weight) and DA8W4 (packed s4 weight).
 static void zentorch_dynamic_qlinear_impl(
     const torch::stable::Tensor &input_2d, const torch::stable::Tensor &weight,
