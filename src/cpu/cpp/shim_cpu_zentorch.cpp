@@ -26,6 +26,9 @@ namespace {
 
 // Declared ahead of the list builders below, which are defined in terms of
 // them.
+// Required Tensor shim args arrive as AtenTensorHandle by value
+// (AtenTensorOpaque*, non-null). Optional Tensor? args arrive as
+// AtenTensorHandle* (nullptr => std::nullopt); dereference before bridging.
 inline torch::stable::Tensor stable_from_handle(AtenTensorHandle orig_handle);
 inline std::optional<torch::stable::Tensor>
 stable_optional_from_handle(AtenTensorHandle *handle);
@@ -75,6 +78,8 @@ inline std::vector<int64_t> build_int_vector(const int64_t *values,
 // ownership. aoti_torch_new_tensor_handle creates a new handle referencing the
 // same TensorImpl (refcount bump only, no tensor data copy). Required because
 // stable::Tensor(AtenTensorHandle) takes ownership of its handle.
+// Use this for required Tensor args (X, W, out, ...) passed as AtenTensorHandle
+// by value. Do not pass AtenTensorHandle* here; that is for optional args only.
 inline torch::stable::Tensor stable_from_handle(AtenTensorHandle orig_handle) {
   AtenTensorHandle new_handle = nullptr;
   TORCH_ERROR_CODE_CHECK(
@@ -113,11 +118,13 @@ AOTITorchError aoti_torch_cpu_zentorch_linear_unary(
     bool is_weight_prepacked, const char *post_op, const char *zentorch_op_name,
     AtenTensorHandle *ret0) {
   AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+    const torch::stable::Tensor input = stable_from_handle(X);
+    const torch::stable::Tensor weight = stable_from_handle(W);
+    const std::optional<torch::stable::Tensor> bias =
+        stable_optional_from_handle(B);
     auto tmp_result = zentorch::zentorch_linear_unary(
-        *tensor_handle_to_tensor_pointer(X),
-        *tensor_handle_to_tensor_pointer(W), pointer_to_optional<at::Tensor>(B),
-        is_weight_prepacked, post_op, zentorch_op_name);
-    *ret0 = new_tensor_handle(std::move(tmp_result));
+        input, weight, bias, is_weight_prepacked, post_op, zentorch_op_name);
+    *ret0 = handle_from_stable(tmp_result);
   });
 }
 
@@ -126,11 +133,14 @@ AOTITorchError aoti_torch_cpu_zentorch_linear_unary_out(
     AtenTensorHandle *B, bool is_weight_prepacked, const char *post_op,
     const char *zentorch_op_name) {
   AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
-    zentorch::zentorch_linear_unary_out_impl(
-        *tensor_handle_to_tensor_pointer(X),
-        *tensor_handle_to_tensor_pointer(W), pointer_to_optional<at::Tensor>(B),
-        is_weight_prepacked, post_op, zentorch_op_name,
-        *tensor_handle_to_tensor_pointer(out));
+    torch::stable::Tensor out_stable = stable_from_handle(out);
+    const torch::stable::Tensor input = stable_from_handle(X);
+    const torch::stable::Tensor weight = stable_from_handle(W);
+    const std::optional<torch::stable::Tensor> bias =
+        stable_optional_from_handle(B);
+    zentorch::zentorch_linear_unary_out_impl(input, weight, bias,
+                                             is_weight_prepacked, post_op,
+                                             zentorch_op_name, out_stable);
   });
 }
 
@@ -273,13 +283,16 @@ AOTITorchError aoti_torch_cpu_zentorch_linear_unary_binary(
     const char *post_op_2, const char *zentorch_op_name,
     AtenTensorHandle *ret0) {
   AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+    const torch::stable::Tensor input = stable_from_handle(X);
+    const torch::stable::Tensor weight = stable_from_handle(W);
+    const torch::stable::Tensor binary_input_stable =
+        stable_from_handle(binary_input);
+    const std::optional<torch::stable::Tensor> bias =
+        stable_optional_from_handle(B);
     auto tmp_result = zentorch::zentorch_linear_unary_binary(
-        *tensor_handle_to_tensor_pointer(X),
-        *tensor_handle_to_tensor_pointer(W),
-        *tensor_handle_to_tensor_pointer(binary_input),
-        pointer_to_optional<at::Tensor>(B), is_weight_prepacked, post_op_1,
-        post_op_2, zentorch_op_name);
-    *ret0 = new_tensor_handle(std::move(tmp_result));
+        input, weight, binary_input_stable, bias, is_weight_prepacked,
+        post_op_1, post_op_2, zentorch_op_name);
+    *ret0 = handle_from_stable(tmp_result);
   });
 }
 
@@ -289,12 +302,16 @@ AOTITorchError aoti_torch_cpu_zentorch_linear_unary_binary_out(
     bool is_weight_prepacked, const char *post_op_1, const char *post_op_2,
     const char *zentorch_op_name) {
   AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+    torch::stable::Tensor out_stable = stable_from_handle(out);
+    const torch::stable::Tensor input = stable_from_handle(X);
+    const torch::stable::Tensor weight = stable_from_handle(W);
+    const torch::stable::Tensor binary_input_stable =
+        stable_from_handle(binary_input);
+    const std::optional<torch::stable::Tensor> bias =
+        stable_optional_from_handle(B);
     zentorch::zentorch_linear_unary_binary_out_impl(
-        *tensor_handle_to_tensor_pointer(X),
-        *tensor_handle_to_tensor_pointer(W),
-        *tensor_handle_to_tensor_pointer(binary_input),
-        pointer_to_optional<at::Tensor>(B), is_weight_prepacked, post_op_1,
-        post_op_2, zentorch_op_name, *tensor_handle_to_tensor_pointer(out));
+        input, weight, binary_input_stable, bias, is_weight_prepacked,
+        post_op_1, post_op_2, zentorch_op_name, out_stable);
   });
 }
 
@@ -304,14 +321,18 @@ AOTITorchError aoti_torch_cpu_zentorch_linear_binary_binary(
     bool is_weight_prepacked, const char *post_op_1, const char *post_op_2,
     const char *zentorch_op_name, AtenTensorHandle *ret0) {
   AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+    const torch::stable::Tensor input = stable_from_handle(X);
+    const torch::stable::Tensor weight = stable_from_handle(W);
+    const torch::stable::Tensor binary_input_1_stable =
+        stable_from_handle(binary_input_1);
+    const torch::stable::Tensor binary_input_2_stable =
+        stable_from_handle(binary_input_2);
+    const std::optional<torch::stable::Tensor> bias =
+        stable_optional_from_handle(B);
     auto tmp_result = zentorch::zentorch_linear_binary_binary(
-        *tensor_handle_to_tensor_pointer(X),
-        *tensor_handle_to_tensor_pointer(W),
-        *tensor_handle_to_tensor_pointer(binary_input_1),
-        *tensor_handle_to_tensor_pointer(binary_input_2),
-        pointer_to_optional<at::Tensor>(B), is_weight_prepacked, post_op_1,
-        post_op_2, zentorch_op_name);
-    *ret0 = new_tensor_handle(std::move(tmp_result));
+        input, weight, binary_input_1_stable, binary_input_2_stable, bias,
+        is_weight_prepacked, post_op_1, post_op_2, zentorch_op_name);
+    *ret0 = handle_from_stable(tmp_result);
   });
 }
 
@@ -321,13 +342,19 @@ AOTITorchError aoti_torch_cpu_zentorch_linear_binary_binary_out(
     AtenTensorHandle *B, bool is_weight_prepacked, const char *post_op_1,
     const char *post_op_2, const char *zentorch_op_name) {
   AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+    torch::stable::Tensor out_stable = stable_from_handle(out);
+    const torch::stable::Tensor input = stable_from_handle(X);
+    const torch::stable::Tensor weight = stable_from_handle(W);
+    const torch::stable::Tensor binary_input_1_stable =
+        stable_from_handle(binary_input_1);
+    const torch::stable::Tensor binary_input_2_stable =
+        stable_from_handle(binary_input_2);
+    const std::optional<torch::stable::Tensor> bias =
+        stable_optional_from_handle(B);
     zentorch::zentorch_linear_binary_binary_out_impl(
-        *tensor_handle_to_tensor_pointer(X),
-        *tensor_handle_to_tensor_pointer(W),
-        *tensor_handle_to_tensor_pointer(binary_input_1),
-        *tensor_handle_to_tensor_pointer(binary_input_2),
-        pointer_to_optional<at::Tensor>(B), is_weight_prepacked, post_op_1,
-        post_op_2, zentorch_op_name, *tensor_handle_to_tensor_pointer(out));
+        input, weight, binary_input_1_stable, binary_input_2_stable, bias,
+        is_weight_prepacked, post_op_1, post_op_2, zentorch_op_name,
+        out_stable);
   });
 }
 

@@ -11,21 +11,6 @@
 #include <c10/util/StringUtil.h>
 #include <torch/csrc/stable/library.h>
 
-#ifndef TORCH_VERSION_2_12_0
-#define TORCH_VERSION_2_12_0 (((0ULL + 2) << 56) | ((0ULL + 12) << 48))
-#endif
-
-inline void
-zentorch_stable_def_needs_fixed_stride(torch::stable::detail::StableLibrary &m,
-                                       const char *schema) {
-#if (TORCH_VERSION_MAJOR > 2) ||                                               \
-    (TORCH_VERSION_MAJOR == 2 && TORCH_VERSION_MINOR >= 12)
-  m.def(schema, {at::Tag::needs_fixed_stride_order});
-#else
-  m.def(schema);
-#endif
-}
-
 namespace zentorch {
 using namespace zendnnl::interface;
 
@@ -540,22 +525,21 @@ STABLE_TORCH_LIBRARY_FRAGMENT(zentorch, m) {
         "*, str zentorch_op_name="
         "'zentorch::zentorch_woq_linear_gelu_erf') -> Tensor");
 
-  zentorch_stable_def_needs_fixed_stride(
-      m, "zentorch_woq_linear_add(Tensor input, Tensor weight, "
-         "Tensor weight_scales, Tensor? weight_zero_points, "
-         "Tensor add_input, Tensor? bias=None, *, str zentorch_op_name="
-         "'zentorch::zentorch_woq_linear_add') -> Tensor");
-  zentorch_stable_def_needs_fixed_stride(
-      m,
-      "zentorch_woq_linear_mul_add(Tensor input, Tensor weight,"
-      "Tensor weight_scales, Tensor? weight_zero_points, "
-      "Tensor mul_input, Tensor add_input, Tensor? bias=None, *, str "
-      "zentorch_op_name= 'zentorch::zentorch_woq_linear_mul_add') -> Tensor");
-  zentorch_stable_def_needs_fixed_stride(
-      m, "zentorch_woq_linear_add_add(Tensor input, Tensor weight,"
-         "Tensor weight_scales, Tensor? weight_zero_points, "
-         "Tensor add_input, Tensor add_input_2, Tensor? bias=None, *, str "
-         "zentorch_op_name='zentorch::zentorch_woq_linear_add_add') -> Tensor");
+  m.def("zentorch_woq_linear_add(Tensor input, Tensor weight, "
+        "Tensor weight_scales, Tensor? weight_zero_points, "
+        "Tensor add_input, Tensor? bias=None, *, str zentorch_op_name="
+        "'zentorch::zentorch_woq_linear_add') -> Tensor",
+        {at::Tag::needs_fixed_stride_order});
+  m.def("zentorch_woq_linear_mul_add(Tensor input, Tensor weight,"
+        "Tensor weight_scales, Tensor? weight_zero_points, "
+        "Tensor mul_input, Tensor add_input, Tensor? bias=None, *, str "
+        "zentorch_op_name= 'zentorch::zentorch_woq_linear_mul_add') -> Tensor",
+        {at::Tag::needs_fixed_stride_order});
+  m.def("zentorch_woq_linear_add_add(Tensor input, Tensor weight,"
+        "Tensor weight_scales, Tensor? weight_zero_points, "
+        "Tensor add_input, Tensor add_input_2, Tensor? bias=None, *, str "
+        "zentorch_op_name='zentorch::zentorch_woq_linear_add_add') -> Tensor",
+        {at::Tag::needs_fixed_stride_order});
 
   // `.out` variants:
   m.def("zentorch_woq_linear.out(Tensor input, Tensor weight, "
@@ -579,23 +563,23 @@ STABLE_TORCH_LIBRARY_FRAGMENT(zentorch, m) {
         "str zentorch_op_name='zentorch::zentorch_woq_linear_gelu_erf_out', "
         "*, Tensor(a!) out) -> ()");
 
-  zentorch_stable_def_needs_fixed_stride(
-      m, "zentorch_woq_linear_add.out(Tensor input, Tensor weight, "
-         "Tensor weight_scales, Tensor? weight_zero_points, "
-         "Tensor add_input, Tensor? bias=None, str zentorch_op_name="
-         "'zentorch::zentorch_woq_linear_add_out', *, Tensor(a!) out) -> ()");
-  zentorch_stable_def_needs_fixed_stride(
-      m, "zentorch_woq_linear_mul_add.out(Tensor input, Tensor weight,"
-         "Tensor weight_scales, Tensor? weight_zero_points, "
-         "Tensor mul_input, Tensor add_input, Tensor? bias=None, str "
-         "zentorch_op_name='zentorch::zentorch_woq_linear_mul_add_out', "
-         "*, Tensor(a!) out) -> ()");
-  zentorch_stable_def_needs_fixed_stride(
-      m, "zentorch_woq_linear_add_add.out(Tensor input, Tensor weight,"
-         "Tensor weight_scales, Tensor? weight_zero_points, "
-         "Tensor add_input, Tensor add_input_2, Tensor? bias=None, str "
-         "zentorch_op_name='zentorch::zentorch_woq_linear_add_add_out', "
-         "*, Tensor(a!) out) -> ()");
+  m.def("zentorch_woq_linear_add.out(Tensor input, Tensor weight, "
+        "Tensor weight_scales, Tensor? weight_zero_points, "
+        "Tensor add_input, Tensor? bias=None, str zentorch_op_name="
+        "'zentorch::zentorch_woq_linear_add_out', *, Tensor(a!) out) -> ()",
+        {at::Tag::needs_fixed_stride_order});
+  m.def("zentorch_woq_linear_mul_add.out(Tensor input, Tensor weight,"
+        "Tensor weight_scales, Tensor? weight_zero_points, "
+        "Tensor mul_input, Tensor add_input, Tensor? bias=None, str "
+        "zentorch_op_name='zentorch::zentorch_woq_linear_mul_add_out', "
+        "*, Tensor(a!) out) -> ()",
+        {at::Tag::needs_fixed_stride_order});
+  m.def("zentorch_woq_linear_add_add.out(Tensor input, Tensor weight,"
+        "Tensor weight_scales, Tensor? weight_zero_points, "
+        "Tensor add_input, Tensor add_input_2, Tensor? bias=None, str "
+        "zentorch_op_name='zentorch::zentorch_woq_linear_add_add_out', "
+        "*, Tensor(a!) out) -> ()",
+        {at::Tag::needs_fixed_stride_order});
 
   m.def("zentorch_woq_repack_weight(Tensor unpacked_weight) -> Tensor");
 

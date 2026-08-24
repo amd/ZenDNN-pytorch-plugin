@@ -14,7 +14,9 @@
 #include "EnvReader.hpp"
 #include "Memory.hpp"
 
+#include <c10/util/StringUtil.h>
 #include <torch/csrc/stable/ops.h>
+#include <torch/csrc/stable/stableivalue_conversions.h>
 
 using namespace zendnnl::interface;
 // TODO: remove tensor based template parameters and use stable::Tensor instead
@@ -122,6 +124,99 @@ inline TensorT get_contiguous_view(const TensorT &tensor) {
   return view_tensor(tensor, size_vec);
 }
 
+// TODO(stable-abi): Remove the ATen/stable dual-path helpers below once
+// zendnnl_matmul_impl and its callers (zentorch_addmm, zentorch_mm,
+// zentorch_bmm, etc.) are migrated to torch::stable::Tensor only. At that
+// point prefer upstream torch::stable:: ops (e.g. mul) where available, or
+// keep only the stable-specific shims that still lack header coverage.
+
+inline torch::stable::Tensor
+stable_mul_scalar(const torch::stable::Tensor &self, double scalar) {
+  const auto num_args = 2;
+  std::array<StableIValue, num_args> stack{torch::stable::detail::from(self),
+                                           torch::stable::detail::from(scalar)};
+  TORCH_ERROR_CODE_CHECK(torch_call_dispatcher(
+      "aten::mul", "Scalar", stack.data(), TORCH_ABI_VERSION));
+  return torch::stable::detail::to<torch::stable::Tensor>(stack[0]);
+}
+
+inline void stable_mul_scalar_(torch::stable::Tensor &self, double scalar) {
+  const auto num_args = 2;
+  std::array<StableIValue, num_args> stack{torch::stable::detail::from(self),
+                                           torch::stable::detail::from(scalar)};
+  TORCH_ERROR_CODE_CHECK(torch_call_dispatcher(
+      "aten::mul_", "Scalar", stack.data(), TORCH_ABI_VERSION));
+  self = torch::stable::detail::to<torch::stable::Tensor>(stack[0]);
+}
+
+template <typename TensorT>
+inline TensorT mul_by_scalar(const TensorT &tensor, float scalar) {
+  if constexpr (std::is_same_v<std::decay_t<TensorT>, at::Tensor>) {
+    return tensor.mul(scalar);
+  } else {
+    return stable_mul_scalar(tensor, static_cast<double>(scalar));
+  }
+}
+
+template <typename TensorT>
+inline void mul_by_scalar_inplace(TensorT &tensor, float scalar) {
+  if constexpr (std::is_same_v<std::decay_t<TensorT>, at::Tensor>) {
+    tensor.mul_(scalar);
+  } else {
+    stable_mul_scalar_(tensor, static_cast<double>(scalar));
+  }
+}
+
+template <typename TensorT>
+inline TensorT unsqueeze_dim(const TensorT &tensor, int64_t dim) {
+  if constexpr (std::is_same_v<std::decay_t<TensorT>, at::Tensor>) {
+    return tensor.unsqueeze(dim);
+  } else {
+    return torch::stable::unsqueeze(tensor, dim);
+  }
+}
+
+template <typename TensorT>
+inline TensorT unsqueeze_dim_(TensorT &tensor, int64_t dim) {
+  if constexpr (std::is_same_v<std::decay_t<TensorT>, at::Tensor>) {
+    return tensor.unsqueeze_(dim);
+  } else {
+    tensor = torch::stable::unsqueeze(tensor, dim);
+    return tensor;
+  }
+}
+
+template <typename TensorT>
+inline TensorT squeeze_dim(TensorT &tensor, int64_t dim) {
+  if constexpr (std::is_same_v<std::decay_t<TensorT>, at::Tensor>) {
+    return tensor.squeeze_(dim);
+  } else {
+    tensor = torch::stable::squeeze(tensor, dim);
+    return tensor;
+  }
+}
+
+template <typename TensorT> inline TensorT squeeze_all_(TensorT &tensor) {
+  if constexpr (std::is_same_v<std::decay_t<TensorT>, at::Tensor>) {
+    return tensor.squeeze_();
+  } else {
+    for (int64_t dim = static_cast<int64_t>(tensor.dim()) - 1; dim >= 0;
+         --dim) {
+      tensor = torch::stable::squeeze(tensor, dim);
+    }
+    return tensor;
+  }
+}
+
+template <typename TensorT>
+inline bool is_bias_defined_for_matmul(const TensorT &bias) {
+  if constexpr (std::is_same_v<std::decay_t<TensorT>, at::Tensor>) {
+    return bias.numel() != 0;
+  } else {
+    return bias.defined() && bias.numel() != 0;
+  }
+}
+
 // this function returns the output size for matrix multiplication of two
 // tensors - tensor1 @ tensor2 and also it returns the output size for
 // linear operation of these two tensors, and if tensor2 is packed on the
@@ -205,7 +300,7 @@ check_valid_sizes_for_matmul(const TensorT &mat1, const TensorT &mat2,
                  "unsupported dims for mat1, mat2 and "
                  "result buffer");
 
-  const bool is_bias_defined = bias.numel();
+  const bool is_bias_defined = is_bias_defined_for_matmul(bias);
   if (is_bias_defined) {
     if (bias.dim() != 1) {
       ZENTORCH_CHECK(false, "unsupported dimensions for input/bias/self");
@@ -252,10 +347,11 @@ check_valid_sizes_for_matmul(const TensorT &mat1, const TensorT &mat2,
                  "post op buffers");
 }
 
+template <typename TensorT>
 inline void
-check_valid_dtypes_for_matmul(const at::Tensor &mat1, const at::Tensor &mat2,
-                              const at::Tensor &bias, const at::Tensor &result,
-                              const std::vector<at::Tensor> &post_op_buffers) {
+check_valid_dtypes_for_matmul(const TensorT &mat1, const TensorT &mat2,
+                              const TensorT &bias, const TensorT &result,
+                              const std::vector<TensorT> &post_op_buffers) {
 
   // The flow of this check is as follows:
   // -> The individual datatypes of the tensors are inferred.
@@ -273,7 +369,7 @@ check_valid_dtypes_for_matmul(const at::Tensor &mat1, const at::Tensor &mat2,
   //    dtype as the matmul parameters, either float32, bfloat16 or float16,
   //    not a combination.
 
-  const bool is_bias_defined = bias.numel();
+  const bool is_bias_defined = is_bias_defined_for_matmul(bias);
   const bool is_mat1_fp32 = (mat1.scalar_type() == c10::ScalarType::Float);
   const bool is_mat1_bf16 = (mat1.scalar_type() == c10::ScalarType::BFloat16);
   const bool is_mat1_fp16 = (mat1.scalar_type() == c10::ScalarType::Half);
@@ -329,7 +425,7 @@ check_valid_dtypes_for_matmul(const at::Tensor &mat1, const at::Tensor &mat2,
   bool are_postops_bf16 = true;
   bool are_postops_fp16 = true;
 
-  for (const at::Tensor &buffer : post_op_buffers) {
+  for (const TensorT &buffer : post_op_buffers) {
     are_postops_fp32 =
         are_postops_fp32 && (buffer.scalar_type() == c10::ScalarType::Float);
     are_postops_bf16 =
@@ -683,23 +779,25 @@ template <typename TensorT> inline bool is_stride_valid(const TensorT &t) {
   return false;
 }
 
+template <typename TensorT>
 inline bool validate_zendnnl_direct_kernel_usage(
-    const at::Tensor &input, const at::Tensor &weight, const at::Tensor &bias,
-    const at::Tensor &result, const std::vector<at::Tensor> &post_op_buffers) {
+    const TensorT &input, const TensorT &weight, const TensorT &bias,
+    const TensorT &result, const std::vector<TensorT> &post_op_buffers) {
 
   // Currently this kernel supports only float32, bfloat16 and
   // float16 datatype. Define the datatype check as a lambda
   // The tensors for this kernel have to be either float, bfloat16
   // or float16.
-  auto is_dtype_supported = [](const at::Tensor &x) {
+  auto is_dtype_supported = [](const TensorT &x) {
     return ((x.scalar_type() == c10::ScalarType::Float) ||
             (x.scalar_type() == c10::ScalarType::BFloat16) ||
             (x.scalar_type() == c10::ScalarType::Half));
   };
 
+  const bool bias_defined = is_bias_defined_for_matmul(bias);
   const bool are_tensor_dtypes_valid =
       is_dtype_supported(input) && is_dtype_supported(weight) &&
-      ((bias.defined() && is_dtype_supported(bias)) || !bias.defined()) &&
+      ((bias_defined && is_dtype_supported(bias)) || !bias_defined) &&
       is_dtype_supported(result);
 
   if (!are_tensor_dtypes_valid) {
@@ -718,8 +816,8 @@ inline bool validate_zendnnl_direct_kernel_usage(
   // Bias is optional and can be of 1d when weight is 2d, or 3d when weight is
   // 3d.
   const bool is_bias_compatible_for_matmul =
-      bias.defined() ? (weight.dim() == 2 ? bias.dim() == 1 : bias.dim() == 3)
-                     : true;
+      bias_defined ? (weight.dim() == 2 ? bias.dim() == 1 : bias.dim() == 3)
+                   : true;
 
   if (!(are_tensors_compatible_for_matmul && is_bias_compatible_for_matmul)) {
     return false;
@@ -786,14 +884,14 @@ inline void zendnnl_direct_kernel(
 
   void *input_ptr = input_.data_ptr();
   void *weight_ptr = weight_.data_ptr();
-  void *bias_ptr = bias.defined() ? bias.data_ptr() : nullptr;
+  void *bias_ptr = is_bias_defined_for_matmul(bias) ? bias.data_ptr() : nullptr;
   void *result_ptr = result.data_ptr();
 
   zendnnl::lowoha::matmul::matmul_data_types matmul_dtype;
   matmul_dtype.src = get_zendnnl_dtype(input);
   matmul_dtype.wei = get_zendnnl_dtype(weight);
-  matmul_dtype.bias =
-      bias.defined() ? get_zendnnl_dtype(bias) : data_type_t::none;
+  matmul_dtype.bias = is_bias_defined_for_matmul(bias) ? get_zendnnl_dtype(bias)
+                                                       : data_type_t::none;
   matmul_dtype.dst = get_zendnnl_dtype(result);
 
   matmul_dtype.compute = data_type_t::none;

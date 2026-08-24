@@ -7,6 +7,10 @@
 #include "MatmulUtils.hpp"
 #include "Ops.hpp"
 
+#include <c10/util/StringUtil.h>
+#include <torch/csrc/stable/ops.h>
+#include <torch/csrc/stable/tensor.h>
+
 namespace zentorch {
 
 // There are two custom group matmul ops which are structurally different, but
@@ -14,18 +18,21 @@ namespace zentorch {
 // arguments. These overlaps are covered in the following function called
 // zendnn_matmul_group_impl.
 
-at::Tensor zendnnl_matmul_impl(
-    const at::Tensor &input, const at::Tensor &weight, const at::Tensor &bias,
-    at::Tensor &result, const std::vector<int64_t> &post_op_ids,
-    const std::vector<at::Tensor> &post_op_buffers, const float &beta,
-    const float &alpha, std::string zentorch_op_name,
-    const bool is_weight_const, const bool is_weight_prepacked) {
+template <typename TensorT>
+TensorT zendnnl_matmul_impl(const TensorT &input, const TensorT &weight,
+                            const TensorT &bias, TensorT &result,
+                            const std::vector<int64_t> &post_op_ids,
+                            const std::vector<TensorT> &post_op_buffers,
+                            const float &beta, const float &alpha,
+                            std::string zentorch_op_name,
+                            const bool is_weight_const,
+                            const bool is_weight_prepacked) {
 
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
-  LOG(INFO) << "input dimensions: " << input.sizes();
-  LOG(INFO) << "weight dimensions: " << weight.sizes();
-  LOG(INFO) << "result dimensions: " << result.sizes();
+  LOG(INFO) << "input dimensions: [" << c10::Join(", ", input.sizes()) << "]";
+  LOG(INFO) << "weight dimensions: [" << c10::Join(", ", weight.sizes()) << "]";
+  LOG(INFO) << "result dimensions: [" << c10::Join(", ", result.sizes()) << "]";
   LOG(INFO) << "beta : " << beta << " and alpha : " << alpha;
 
   // ZenDNNL has implementation for matmul and batched matmul which bypasses the
@@ -38,9 +45,9 @@ at::Tensor zendnnl_matmul_impl(
   const int int_env_value =
       EnvReader::getEnvVariableAsInt("USE_ZENDNN_MATMUL_DIRECT");
 
-  const bool bias_defined = bias.numel();
-  const at::Tensor beta_bias =
-      bias_defined ? (beta == 1 ? bias : bias.mul(beta)) : bias;
+  const bool bias_defined = is_bias_defined_for_matmul(bias);
+  const TensorT beta_bias =
+      bias_defined ? (beta == 1 ? bias : mul_by_scalar(bias, beta)) : bias;
 
   // "validate_zendnnl_direct_kernel_usage" returns a boolean representing
   // whether the direct kernel will be used or not. If true, then the direct
@@ -60,26 +67,36 @@ at::Tensor zendnnl_matmul_impl(
     return result;
   }
 
-  const at::Tensor &input_ = input.dim() == 1 ? input.unsqueeze(0) : input;
-  const at::Tensor &weight_ = weight.dim() == 1 ? weight.unsqueeze(1) : weight;
-  result = result.dim() == 1 ? result.unsqueeze_(1) : result;
+  const TensorT &input_ = input.dim() == 1 ? unsqueeze_dim(input, 0) : input;
+  const TensorT &weight_ =
+      weight.dim() == 1 ? unsqueeze_dim(weight, 1) : weight;
+  if (result.dim() == 1) {
+    unsqueeze_dim_(result, 1);
+  }
 
   check_valid_dtypes_for_matmul(input_, weight_, bias, result, post_op_buffers);
   check_valid_sizes_for_matmul(input_, weight_, bias, result, post_op_buffers);
 
-  // If alpha = 0, does not need to actually do gemm computation
   if (alpha == 0) {
     if (beta == 0.0f) {
-      return result.zero_();
+      if constexpr (std::is_same_v<std::decay_t<TensorT>, at::Tensor>) {
+        return result.zero_();
+      } else {
+        return torch::stable::zero_(result);
+      }
     } else if (bias_defined) {
-      at::Tensor beta_bias = (beta == 1.0f) ? bias : bias.mul(beta);
-      return result.copy_(beta_bias);
+      TensorT scaled_bias = (beta == 1.0f) ? bias : mul_by_scalar(bias, beta);
+      if constexpr (std::is_same_v<std::decay_t<TensorT>, at::Tensor>) {
+        return result.copy_(scaled_bias);
+      } else {
+        return torch::stable::copy_(result, scaled_bias);
+      }
     } else {
-      return result.mul_(beta);
+      mul_by_scalar_inplace(result, beta);
+      return result;
     }
   } else if (alpha != 1.0f) {
     if (bias_defined) {
-      // TODO: add support for alpha when bias is defined
       ZENTORCH_CHECK(
           !(input_.scalar_type() == c10::ScalarType::BFloat16 ||
             weight_.scalar_type() == c10::ScalarType::BFloat16 ||
@@ -117,8 +134,9 @@ at::Tensor zendnnl_matmul_impl(
             ? std::vector<unsigned long>{tensor_strides[1], tensor_sizes[1]}
             : std::vector<unsigned long>{tensor_sizes[0], tensor_strides[0]};
 
-    int64_t nbytes = c10::elementSize(input_.scalar_type()) *
-                     tensor_aligned_sizes[0] * tensor_aligned_sizes[1];
+    int64_t nbytes = static_cast<int64_t>(input_.element_size()) *
+                     static_cast<int64_t>(tensor_aligned_sizes[0]) *
+                     static_cast<int64_t>(tensor_aligned_sizes[1]);
 
     set_zendnnl_tensor_attributes(input_, input_tensor, "matmul_input",
                                   false /* is_weight_prepacked */, tensor_sizes,
@@ -133,7 +151,8 @@ at::Tensor zendnnl_matmul_impl(
   auto matmul_context = matmul_context_t();
   if (bias_defined) {
     tensor_t bias_tensor = tensor_t();
-    long unsigned int bias_numel = beta_bias.numel();
+    long unsigned int bias_numel =
+        static_cast<unsigned long>(beta_bias.numel());
     if (weight_.dim() == 2) {
       set_zendnnl_tensor_attributes(beta_bias, bias_tensor, "bias",
                                     false /* is_weight_prepacked */,
@@ -152,7 +171,6 @@ at::Tensor zendnnl_matmul_impl(
                                   alpha);
   }
 
-  // define matmul operator
   auto matmul_operator = matmul_operator_t();
   set_matmul_operator_attributes(matmul_operator, matmul_context, input_tensor,
                                  output_tensor, post_op_ids, post_op_buffers,
@@ -166,22 +184,36 @@ at::Tensor zendnnl_matmul_impl(
 
   if (weight.dim() == 1) {
     if (input.dim() == 2) {
-      // aten::mv  >>  [m, 1] tensor will be squeezed to 1-d([m]) tensor
-      result.squeeze_(1);
+      squeeze_dim(result, 1);
     } else if (input.dim() == 1) {
-      // aten::dot >>  [1, 1] tensor will be squeezed to 0-d([]) tensor
-      result.squeeze_();
+      squeeze_all_(result);
     }
   }
   LOG(INFO) << "Finished executing: " << __FUNCTION__ << "!\n";
   return result;
 }
 
+// TODO(stable-abi): Remove this ATen overload once Matmul.cpp (mm/bmm/addmm
+// etc.) is migrated to stable ABI; call zendnnl_matmul_impl directly or keep
+// only the stable zentorch_matmul_impl entry point below.
 at::Tensor zentorch_matmul_impl(
     const at::Tensor &input, const at::Tensor &weight, const at::Tensor &bias,
     at::Tensor &result, const std::vector<int64_t> &post_op_ids,
     const std::vector<at::Tensor> &post_op_buffers, const float &beta,
     const float &alpha, std::string zentorch_op_name,
+    const bool is_weight_const, const bool is_weight_prepacked) {
+
+  return zendnnl_matmul_impl(input, weight, bias, result, post_op_ids,
+                             post_op_buffers, beta, alpha, zentorch_op_name,
+                             is_weight_const, is_weight_prepacked);
+}
+
+torch::stable::Tensor zentorch_matmul_impl(
+    const torch::stable::Tensor &input, const torch::stable::Tensor &weight,
+    const torch::stable::Tensor &bias, torch::stable::Tensor &result,
+    const std::vector<int64_t> &post_op_ids,
+    const std::vector<torch::stable::Tensor> &post_op_buffers,
+    const float &beta, const float &alpha, std::string zentorch_op_name,
     const bool is_weight_const, const bool is_weight_prepacked) {
 
   return zendnnl_matmul_impl(input, weight, bias, result, post_op_ids,
