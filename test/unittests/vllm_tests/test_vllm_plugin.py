@@ -20,6 +20,7 @@ EXPECTED_PATCHES = [
     "Gemma4HeteroConfig",
     "TorchAO",
     "Int8MoE",
+    "Wna16MoE",
     "GptOssMoELoader",
     "MixtralMoELoader",
     "RMSNorm",

@@ -10,14 +10,19 @@ Patches ``CompressedTensorsW8A8Int8MoEMethod`` to run the FFN through
 
 from __future__ import annotations
 
-import importlib.util
 import inspect
-import sys
 
 import torch
 
 from zentorch._logging import get_logger
 from zentorch._utils import _SUPPORTED_MOE_ACTIVATIONS
+from zentorch.vllm._moe_patch_utils import (
+    allocate_expert_biases,
+    import_select_experts,
+    run_moe_patch_apply,
+    run_select_experts,
+    schedule_module_patches,
+)
 
 logger = get_logger(__name__)
 
@@ -116,14 +121,8 @@ def _register_int8_moe_patches(mod) -> None:
         kInt8DynamicTokenSym,
         kInt8StaticChannelSym,
     )
-    from vllm.model_executor.utils import set_weight_attrs
 
-    try:
-        from vllm.model_executor.layers.fused_moe.cpu_fused_moe import select_experts
-    except ImportError:
-        # vLLM moved select_experts into the experts package after 0.26.0.
-        # TODO: drop once 0.27 support lands in zentorch.
-        from vllm.model_executor.layers.fused_moe.experts.cpu_moe import select_experts
+    import_select_experts()
 
     class CPUInt8Experts(mk.FusedMoEExpertsMonolithic):
         """CPU FusedMoE experts for W8A8 int8 dispatching through zentorch."""
@@ -228,23 +227,14 @@ def _register_int8_moe_patches(mod) -> None:
             routed_scaling_factor: float | None = None,
             topk_group: int | None = None,
         ) -> torch.Tensor:
-            topk_weights, topk_ids = select_experts(
-                hidden_states=hidden_states,
-                router_logits=router_logits,
-                use_grouped_topk=num_expert_group is not None,
-                top_k=self.moe_config.experts_per_token,
-                renormalize=self.moe_config.routing_method
-                in (
-                    RoutingMethodType.Renormalize,
-                    RoutingMethodType.RenormalizeNaive,
-                ),
-                topk_group=topk_group,
+            topk_weights, topk_ids = run_select_experts(
+                hidden_states,
+                router_logits,
+                self.moe_config,
                 num_expert_group=num_expert_group,
-                scoring_func="softmax",
-                routed_scaling_factor=(
-                    routed_scaling_factor if routed_scaling_factor is not None else 1.0
-                ),
                 e_score_correction_bias=e_score_correction_bias,
+                routed_scaling_factor=routed_scaling_factor,
+                topk_group=topk_group,
             )
             output = torch.empty_like(hidden_states)
             torch.ops.zentorch_vllm.cpu_int8_moe(
@@ -308,26 +298,15 @@ def _register_int8_moe_patches(mod) -> None:
         )
         # The int8 method never allocates per-expert biases (e.g. gpt-oss).
         # vllm/model_executor/layers/fused_moe/unquantized_fused_moe_method.py
-        if getattr(self.moe, "has_bias", False) and (
-            getattr(layer, "w13_bias", None) is None
-        ):
-            w13_num_shards = 2 if self.moe.is_act_and_mul else 1
-            w13_bias = torch.nn.Parameter(
-                torch.zeros(
-                    num_experts,
-                    w13_num_shards * intermediate_size_per_partition,
-                    dtype=bias_dtype,
-                ),
-                requires_grad=False,
-            )
-            layer.register_parameter("w13_bias", w13_bias)
-            set_weight_attrs(w13_bias, extra_weight_attrs)
-            w2_bias = torch.nn.Parameter(
-                torch.zeros(num_experts, hidden_size, dtype=bias_dtype),
-                requires_grad=False,
-            )
-            layer.register_parameter("w2_bias", w2_bias)
-            set_weight_attrs(w2_bias, extra_weight_attrs)
+        allocate_expert_biases(
+            layer,
+            self.moe,
+            num_experts=num_experts,
+            hidden_size=hidden_size,
+            intermediate_size_per_partition=intermediate_size_per_partition,
+            params_dtype=bias_dtype,
+            extra_weight_attrs=extra_weight_attrs,
+        )
 
     def _zen_get_fused_moe_quant_config(self, layer) -> "FusedMoEQuantConfig":
         # make_int8_moe_quant_config takes w1_bias/w2_bias; the method never does.
@@ -438,72 +417,35 @@ def _register_int8_moe_patches(mod) -> None:
 
 
 def _apply_int8_moe_patch_to_module(mod) -> bool:
-    try:
-        cls = getattr(mod, _TARGET_CLASS, None)
-        if cls is None:
-            logger.warning(
-                "[zentorch] %s not found in %s; int8 MoE patch skipped",
-                _TARGET_CLASS,
-                _TARGET_MODULE,
-            )
-            return False
-        if getattr(cls, "_zentorch_int8_moe_patched", False):
-            return True
-        # Skip patching if this zentorch build lacks the MoE ops.
+    def _ops_guard() -> str | None:
         zt = getattr(torch.ops, "zentorch", None)
         if zt is None or not hasattr(zt, "zentorch_fused_moe"):
-            logger.warning(
+            return (
                 "[zentorch] zentorch_fused_moe not available; leaving vLLM's "
                 "int8 MoE backend unpatched."
             )
-            return False
-        _register_int8_moe_patches(mod)
-        cls._zentorch_int8_moe_patched = True
-        logger.info(
-            "[zentorch] Patched %s: monolithic zentorch W8A8 int8 MoE",
-            _TARGET_CLASS,
-        )
-        return True
-    except Exception:
-        logger.warning("[zentorch] int8 MoE patch FAILED", exc_info=True)
-        return False
+        return None
 
-
-_HOOK_INSTALLED = False
-
-
-class _Int8MoeImportHook:
-    """Defer patch until the target vLLM module loads (avoids import cycles)."""
-
-    def find_spec(self, fullname, path, target=None):
-        if fullname != _TARGET_MODULE:
-            return None
-        if self in sys.meta_path:
-            sys.meta_path.remove(self)
-
-        spec = importlib.util.find_spec(fullname)
-        if spec is None or spec.loader is None:
-            return None
-
-        original_exec = spec.loader.exec_module
-
-        def _exec_then_patch(module):
-            original_exec(module)
-            _apply_int8_moe_patch_to_module(module)
-
-        spec.loader.exec_module = _exec_then_patch
-        return spec
+    return run_moe_patch_apply(
+        mod,
+        target=getattr(mod, _TARGET_CLASS, None),
+        flag="_zentorch_int8_moe_patched",
+        register_fn=_register_int8_moe_patches,
+        success_log=(
+            f"[zentorch] Patched {_TARGET_CLASS}: "
+            "monolithic zentorch W8A8 int8 MoE"
+        ),
+        fail_log="[zentorch] int8 MoE patch FAILED",
+        missing_log=(
+            f"[zentorch] {_TARGET_CLASS} not found in {_TARGET_MODULE}; "
+            "int8 MoE patch skipped"
+        ),
+        extra_guard=_ops_guard,
+    )
 
 
 def _apply_int8_moe_patch_impl() -> bool:
     """Schedule the W8A8 int8 MoE patch on first import of the target module."""
-    global _HOOK_INSTALLED
-
-    mod = sys.modules.get(_TARGET_MODULE)
-    if mod is not None:
-        return _apply_int8_moe_patch_to_module(mod)
-
-    if not _HOOK_INSTALLED:
-        sys.meta_path.insert(0, _Int8MoeImportHook())
-        _HOOK_INSTALLED = True
-    return True
+    return schedule_module_patches(
+        {_TARGET_MODULE: _apply_int8_moe_patch_to_module},
+    )

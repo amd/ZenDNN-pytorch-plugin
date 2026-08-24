@@ -59,7 +59,6 @@ _GEMMA_MODULES = [
 # Hook-install state to clear so register() re-applies cleanly in this process.
 _OWN_HOOK_FLAGS = [
     ("zentorch.vllm._gptoss_moe_loader_patch", "_HOOK_INSTALLED"),
-    ("zentorch.vllm._int8_moe_patch", "_HOOK_INSTALLED"),
     ("zentorch.vllm._moe_class", "_MOE_HOOK_INSTALLED"),
 ]
 

@@ -40,6 +40,9 @@ from zentorch.vllm._moe_class import (  # noqa: E402, F401
 from zentorch.vllm._int8_moe_patch import (  # noqa: E402, F401
     _apply_int8_moe_patch_impl,
 )
+from zentorch.vllm._wna16_moe_patch import (  # noqa: E402, F401
+    _apply_wna16_moe_patch_impl,
+)
 from zentorch.vllm._gptoss_moe_loader_patch import (  # noqa: E402, F401
     _apply_gptoss_loader_patch_impl,
 )
@@ -322,6 +325,7 @@ _PATCHES = (
     ("Gemma4HeteroConfig", _apply_gemma4_hetero_patch),
     ("TorchAO", _apply_torchao_patch),
     ("Int8MoE", _apply_int8_moe_patch_impl),
+    ("Wna16MoE", _apply_wna16_moe_patch_impl),
     ("GptOssMoELoader", _apply_gptoss_loader_patch_impl),
     ("MixtralMoELoader", _apply_mixtral_loader_patch_impl),
     ("RMSNorm", _apply_rmsnorm_patch),
