@@ -8,7 +8,10 @@ import types
 import unittest
 import unittest.mock
 
+from ._test_constants import VLLM_AVAILABLE
 
+
+@unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
 class TestGemma4HeteroConfigPatch(unittest.TestCase):
     """Validate gemma-4 heterogeneous head-dimension compatibility."""
 

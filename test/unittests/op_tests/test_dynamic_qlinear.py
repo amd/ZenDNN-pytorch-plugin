@@ -102,6 +102,31 @@ class Test_DynamicQLinear(QLinearTestCase):
         self.assertEqual(out.dtype, torch.float32)
         self.assertEqual(ref, out, atol=1e-2, rtol=1e-2)
 
+        prepacked_weight = (
+            torch.ops.zentorch.zentorch_weight_prepack_for_dynamic_qlinear(weight_int8)
+        )
+        out_prepacked = torch.ops.zentorch.zentorch_dynamic_qlinear(
+            input_2d, prepacked_weight, weight_scales, bias,
+            is_weight_prepacked=True,
+        )
+        self.assertEqual(ref, out_prepacked, atol=1e-2, rtol=1e-2)
+        self.assertEqual(out, out_prepacked, atol=0, rtol=0)
+
+    @torch.inference_mode()
+    def test_dynamic_qlinear_prepack_rejects_da8w4(self):
+        if not zentorch._C.is_avx512_supported():
+            self.skipTest("AVX512 not supported")
+
+        k, n = 64, 32
+        with self.assertRaisesRegex(RuntimeError, "only on the DA8W8"):
+            torch.ops.zentorch.zentorch_dynamic_qlinear(
+                torch.randn(8, k, dtype=torch.bfloat16),
+                torch.zeros(n, k // 8, dtype=torch.int32),
+                torch.ones(k // 32, n),
+                None,
+                is_weight_prepacked=True,
+            )
+
 
 if __name__ == "__main__":
     run_tests()

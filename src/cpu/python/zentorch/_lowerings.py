@@ -2274,7 +2274,7 @@ class zentorch_DynamicQlinear(ExternKernelOut):
         super().codegen(wrapper)
 
     @classmethod
-    def create(cls, input, weight, weight_scales, bias, name):
+    def create(cls, input, weight, weight_scales, bias, is_weight_prepacked, name):
         # Pin storage contiguity for every tensor the kernel reads via raw
         # data_ptr() (it does not call .contiguous()). Logical layout is
         # unchanged; require_contiguous is a no-op when already contiguous.
@@ -2304,7 +2304,10 @@ class zentorch_DynamicQlinear(ExternKernelOut):
             ),
             inputs=inputs,
             constant_args=(),
-            kwargs={"zentorch_op_name": name},
+            kwargs={
+                "is_weight_prepacked": is_weight_prepacked,
+                "zentorch_op_name": name,
+            },
         )
 
     def apply_constraint(self):
@@ -2320,6 +2323,7 @@ def zentorch_dynamic_qlinear_lowering(
     weight: TensorBox,
     weight_scales: TensorBox,
     bias: TensorBox = None,
+    is_weight_prepacked=False,
     zentorch_op_name="zentorch_dynamic_qlinear",
 ):
     # The functional node lowers to the out-variant shim via ExternKernelOut
@@ -2331,6 +2335,7 @@ def zentorch_dynamic_qlinear_lowering(
             weight,
             weight_scales,
             bias,
+            is_weight_prepacked,
             zentorch_op_name,
         )
     )

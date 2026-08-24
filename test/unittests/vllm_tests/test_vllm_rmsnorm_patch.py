@@ -10,9 +10,11 @@ import unittest.mock
 
 import torch
 
+from ._test_constants import VLLM_AVAILABLE
 from ._test_utils import load_source_vllm_module
 
 
+@unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
 class TestRMSNormPatch(unittest.TestCase):
     """_do_patch_rmsnorm swaps RMSNorm.forward and is idempotent."""
 

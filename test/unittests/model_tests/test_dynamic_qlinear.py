@@ -135,6 +135,11 @@ class Test_DynamicQLinear_Model(QLinearTestCase):
             self, model, (input_nd,), freeze_opt, cpp_wrapper,
             shim_name="aoti_torch_cpu_zentorch_dynamic_qlinear",
         )
+        if freeze_opt:
+            self.assertEqual(
+                counters["zentorch"]["zentorch_weight_prepack_for_dynamic_qlinear"],
+                1,
+            )
 
     @QLinearTestCase.hypothesis_params_qlinear_itr(
         input_dim_opt_list=input_dim_opt,

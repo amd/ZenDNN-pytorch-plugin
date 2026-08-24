@@ -851,6 +851,7 @@ def meta_zentorch_dynamic_qlinear(
     weight,
     weight_scales,
     bias=None,
+    is_weight_prepacked=False,
     zentorch_op_name="zentorch::zentorch_dynamic_qlinear",
 ):
     # Output channel count N is weight.size(0) for the s8 [N, K] (DA8W8) and
@@ -866,6 +867,7 @@ def meta_zentorch_dynamic_qlinear_out(
     weight,
     weight_scales,
     bias=None,
+    is_weight_prepacked=False,
     zentorch_op_name="zentorch::zentorch_dynamic_qlinear.out",
     out=None,
 ):

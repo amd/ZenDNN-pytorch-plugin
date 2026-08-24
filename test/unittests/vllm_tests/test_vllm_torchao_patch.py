@@ -14,6 +14,7 @@ from ._test_constants import TORCHAO_AVAILABLE, VLLM_AVAILABLE, vllm
 from ._test_utils import load_source_vllm_module
 
 
+@unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
 class TestTorchAODispatchNoTorchAO(unittest.TestCase):
     """_apply_torchao_patch must not import torchao when it is absent."""
 
@@ -50,6 +51,7 @@ class TestTorchAODispatchApplied(unittest.TestCase):
         self.assertIn("TorchAO", plugin.APPLIED_PATCHES)
 
 
+@unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
 @unittest.skipUnless(TORCHAO_AVAILABLE, "torchao not installed")
 class TestInt8TensorHandlers(unittest.TestCase):
     """End-to-end checks for the Int8Tensor shape and linear handlers."""

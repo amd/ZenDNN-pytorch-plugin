@@ -18,12 +18,7 @@ import importlib
 import unittest
 import unittest.mock
 
-try:
-    import vllm
-
-    VLLM_AVAILABLE = True
-except ImportError:
-    VLLM_AVAILABLE = False
+from ._test_constants import VLLM_AVAILABLE, vllm
 
 
 # (patch_name, target_module, target_attr_or_None, marker_attr, required_attr)

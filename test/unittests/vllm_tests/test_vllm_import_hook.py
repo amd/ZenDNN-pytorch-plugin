@@ -8,7 +8,10 @@ import types
 import unittest
 import unittest.mock
 
+from ._test_constants import VLLM_AVAILABLE
 
+
+@unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
 class TestImportHookFailure(unittest.TestCase):
     """Optional patch failures must not change target-module import semantics."""
 

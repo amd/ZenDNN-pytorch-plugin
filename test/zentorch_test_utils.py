@@ -472,6 +472,7 @@ def compare_inductor_vs_zentorch(
 
     reset_dynamo()
     zentorch_graph = torch.compile(model, backend="zentorch")
+    counters["zentorch"].clear()
     zentorch_out, cpp_code = test_with_freeze_opt_and_cpp_wrapper(
         zentorch_graph, inputs, freeze_opt, cpp_wrapper
     )

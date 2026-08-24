@@ -40,6 +40,7 @@ REMOVED_PATCHES = [
 ]
 
 
+@unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
 class TestVersionContract(unittest.TestCase):
     """Accept only the validated vLLM window on PyTorch 2.13 or newer."""
 
@@ -109,7 +110,6 @@ class TestVersionContract(unittest.TestCase):
                     f"torch {version} -> {expected}",
                 )
 
-    @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
     def test_installed_vllm_is_supported(self):
         from zentorch.vllm import is_supported_vllm
 
@@ -119,6 +119,7 @@ class TestVersionContract(unittest.TestCase):
         )
 
 
+@unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
 class TestRegisterContract(unittest.TestCase):
     """register() gates on vLLM, PyTorch, and AVX-512."""
 
@@ -212,7 +213,6 @@ class TestRegisterContract(unittest.TestCase):
         self.assertEqual(second, "zentorch.vllm._platform.ZenCPUPlatform")
         apply_all.assert_called_once_with()
 
-    @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
     def test_register_returns_platform_for_installed_vllm(self):
         from zentorch.vllm import is_supported_vllm, register
 
@@ -227,6 +227,7 @@ class TestRegisterContract(unittest.TestCase):
             )
 
 
+@unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
 class TestPatchWiring(unittest.TestCase):
     """register() wires only the Zen-specific vLLM 0.27 hooks."""
 
@@ -251,7 +252,6 @@ class TestPatchWiring(unittest.TestCase):
         with self.assertRaises(ImportError):
             import zentorch.vllm._core  # noqa: F401
 
-    @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
     def test_apply_all_records_applied_patches(self):
         from zentorch import vllm as plugin
 
@@ -268,17 +268,16 @@ class TestPatchWiring(unittest.TestCase):
             self.assertIn(name, plugin.APPLIED_PATCHES)
 
 
+@unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
 class TestPlatformConfiguration(unittest.TestCase):
     """ZenCPUPlatform identity."""
 
-    @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
     def test_platform_device_name_and_type(self):
         from zentorch.vllm._platform import ZenCPUPlatform
 
         self.assertEqual(ZenCPUPlatform.device_name, "cpu")
         self.assertEqual(ZenCPUPlatform.device_type, "cpu")
 
-    @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
     def test_platform_is_zen_cpu(self):
         from zentorch.vllm._platform import ZenCPUPlatform
 
@@ -286,10 +285,10 @@ class TestPlatformConfiguration(unittest.TestCase):
         self.assertTrue(ZenCPUPlatform.is_zen_cpu(instance))
 
 
+@unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
 class TestZentorchOptimizePass(unittest.TestCase):
     """zentorch optimize_pass must be importable and callable."""
 
-    @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
     def test_optimize_pass_is_callable(self):
         from zentorch._compile_backend import optimize_pass
 

@@ -8,13 +8,17 @@ import types
 import unittest
 import unittest.mock
 
-from zentorch.vllm._mixtral_moe_loader_patch import (
-    _TARGET_MODULE,
-    _do_patch_mixtral_loader,
-    _remap_mixtral_expert_names,
-)
+from ._test_constants import VLLM_AVAILABLE
+
+if VLLM_AVAILABLE:
+    from zentorch.vllm._mixtral_moe_loader_patch import (
+        _TARGET_MODULE,
+        _do_patch_mixtral_loader,
+        _remap_mixtral_expert_names,
+    )
 
 
+@unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
 class TestMixtralLoaderPatch(unittest.TestCase):
     def test_remaps_only_alternate_expert_projection_names(self):
         weights = [

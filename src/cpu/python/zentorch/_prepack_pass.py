@@ -12,6 +12,7 @@ from torch._inductor import config
 from torch._inductor.pattern_matcher import (
     Arg,
     CallFunction,
+    CallFunctionVarArgs,
     Match,
     KeywordArg,
     PatternMatcherPass,
@@ -238,6 +239,40 @@ def zentorch_weight_prepack_for_qlinear_mul_add_replacement(
             output_dtype,
         ],
     )
+
+
+def dynamic_qlinear_weight_prepack_check(match: Match) -> bool:
+    is_weight_prepacked = any(
+        node.kwargs.get("is_weight_prepacked", False) for node in match.nodes
+    )
+    if is_weight_prepacked:
+        return False
+
+    activation_val = match.args[0].meta["val"]
+    weight_val = match.args[1].meta["val"]
+    if weight_val.dim() != 2:
+        return False
+    return weight_val.size(1) == activation_val.size(-1)
+
+
+@register_graph_pattern(
+    CallFunctionVarArgs(zentorch.zentorch_dynamic_qlinear),
+    extra_check=dynamic_qlinear_weight_prepack_check,
+    pass_dict=pass_pattern,
+)
+def zentorch_weight_prepack_for_dynamic_qlinear_replacement(
+    match: Match, *args: Any, **kwargs: Any
+) -> None:
+    new_kwargs = {**kwargs, "is_weight_prepacked": True}
+
+    def repl(*args: Any) -> torch.Tensor:
+        counters["zentorch"]["zentorch_weight_prepack_for_dynamic_qlinear"] += 1
+        weight_prepacked = zentorch.zentorch_weight_prepack_for_dynamic_qlinear(args[1])
+        return zentorch.zentorch_dynamic_qlinear(
+            args[0], weight_prepacked, *args[2:], **new_kwargs
+        )
+
+    match.replace_by_example(repl, list(args))
 
 
 def add_zentorch_weight_prepack_ops(fx_graph: Graph) -> Graph:

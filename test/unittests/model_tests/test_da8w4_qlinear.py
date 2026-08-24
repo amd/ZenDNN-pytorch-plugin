@@ -18,6 +18,7 @@ from unittest_utils import (  # noqa: E402
     freeze_opt,
     cpp_wrapper_opt,
     compare_inductor_vs_zentorch,
+    counters,
     WOQ_INT4_BATCH_RANGE,
     WOQ_INT4_IN_FEATURES_MULT_OPT,
     WOQ_INT4_OUT_FEATURES_OPT,
@@ -113,6 +114,9 @@ class Test_DA8W4_DynamicQuantLinear_Model(WOQTestCase):
 
         model = Custom_Model_DA8W4(packed, weight_scales, bias).eval()
         compare_inductor_vs_zentorch(self, model, (input_nd,), freeze_opt, cpp_wrapper)
+        self.assertEqual(
+            counters["zentorch"]["zentorch_weight_prepack_for_dynamic_qlinear"], 0
+        )
 
 
 if __name__ == "__main__":

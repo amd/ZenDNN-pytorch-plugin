@@ -69,19 +69,18 @@ inline bool check_weight_and_infer_is_da8w4(const TensorT &input,
 }
 
 // Dynamic-quantization linear op (DA8W8 / DA8W4).
-torch::stable::Tensor
-zentorch_dynamic_qlinear(const torch::stable::Tensor &input,
-                         const torch::stable::Tensor &weight,
-                         const torch::stable::Tensor &weight_scales,
-                         const std::optional<torch::stable::Tensor> &bias,
-                         std::string zentorch_op_name);
+torch::stable::Tensor zentorch_dynamic_qlinear(
+    const torch::stable::Tensor &input, const torch::stable::Tensor &weight,
+    const torch::stable::Tensor &weight_scales,
+    const std::optional<torch::stable::Tensor> &bias, bool is_weight_prepacked,
+    std::string zentorch_op_name);
 
 // Out variant: writes into the caller-provided `out` (last, kwarg-only per the
 // aten out convention) and returns nothing.
 void zentorch_dynamic_qlinear_out(
     const torch::stable::Tensor &input, const torch::stable::Tensor &weight,
     const torch::stable::Tensor &weight_scales,
-    const std::optional<torch::stable::Tensor> &bias,
+    const std::optional<torch::stable::Tensor> &bias, bool is_weight_prepacked,
     std::string zentorch_op_name, torch::stable::Tensor &out);
 
 } // namespace zentorch

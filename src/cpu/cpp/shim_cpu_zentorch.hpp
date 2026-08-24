@@ -262,14 +262,15 @@ AOTI_TORCH_EXPORT AOTITorchError aoti_torch_cpu_zentorch_woq_linear_add_add_out(
 // optional tensor.
 AOTI_TORCH_EXPORT AOTITorchError aoti_torch_cpu_zentorch_dynamic_qlinear(
     AtenTensorHandle X, AtenTensorHandle W, AtenTensorHandle weight_scales,
-    AtenTensorHandle *B, const char *zentorch_op_name, AtenTensorHandle *ret0);
+    AtenTensorHandle *B, bool is_weight_prepacked, const char *zentorch_op_name,
+    AtenTensorHandle *ret0);
 
 // Out variant of the above: writes into `out` (first arg, per the *_out shim
 // convention); no return handle.
 AOTI_TORCH_EXPORT AOTITorchError aoti_torch_cpu_zentorch_dynamic_qlinear_out(
     AtenTensorHandle out, AtenTensorHandle X, AtenTensorHandle W,
     AtenTensorHandle weight_scales, AtenTensorHandle *B,
-    const char *zentorch_op_name);
+    bool is_weight_prepacked, const char *zentorch_op_name);
 
 // Fused MoE FFN block. `output` (Tensor(a!)) is mutated in place; the op
 // returns void (no ret handle). w13_bias/w2_bias/w13_scales/w2_scales are

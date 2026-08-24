@@ -61,7 +61,7 @@ static void zentorch_dynamic_qlinear_impl(
     const torch::stable::Tensor &input_2d, const torch::stable::Tensor &weight,
     const torch::stable::Tensor &bias, torch::stable::Tensor &result_2d,
     const torch::stable::Tensor &weight_scales, bool is_da8w4,
-    const std::string &zentorch_op_name) {
+    const bool is_weight_prepacked, const std::string &zentorch_op_name) {
 
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__
@@ -73,6 +73,10 @@ static void zentorch_dynamic_qlinear_impl(
             << c10::Join(", ", weight_scales.sizes()) << "]";
   LOG(INFO) << "result dimensions: [" << c10::Join(", ", result_2d.sizes())
             << "]";
+
+  ZENTORCH_CHECK(!is_weight_prepacked || !is_da8w4,
+                 "zentorch_dynamic_qlinear: prepacked weights are supported "
+                 "only on the DA8W8 (int8 weight) path, not DA8W4.");
 
   const int64_t M = input_2d.size(0);
   const int64_t K = input_2d.size(1);
@@ -92,6 +96,10 @@ static void zentorch_dynamic_qlinear_impl(
   // lowoha_algo is left unset: ZenDNN auto-detects W4A8 (dynamic s8 x s4) and
   // routes it to AOCL-DLP, honoring any runtime algo override.
   params.plugin_op = zentorch_op_name;
+
+  if (is_weight_prepacked) {
+    params.mem_format_b = 'r';
+  }
 
   // Dynamic per-token source scale: buffer computed at runtime by the kernel.
   // src_scale.dt must match wei_scale.dt (DLP backend requirement).
@@ -149,6 +157,7 @@ static void dispatch_dynamic_qlinear(const torch::stable::Tensor &input,
                                      const torch::stable::Tensor &weight_scales,
                                      const torch::stable::Tensor &bias_t,
                                      torch::stable::Tensor &result,
+                                     const bool is_weight_prepacked,
                                      const std::string &zentorch_op_name) {
   auto input_2d =
       view_tensor(get_contiguous_view(input), get_2d_size_for_tensor(input));
@@ -201,15 +210,15 @@ static void dispatch_dynamic_qlinear(const torch::stable::Tensor &input,
 
   auto result_2d = view_tensor(result, get_2d_size_for_tensor(result));
   zentorch_dynamic_qlinear_impl(input_2d, weight, bias_t, result_2d,
-                                weight_scales, is_da8w4, zentorch_op_name);
+                                weight_scales, is_da8w4, is_weight_prepacked,
+                                zentorch_op_name);
 }
 
-torch::stable::Tensor
-zentorch_dynamic_qlinear(const torch::stable::Tensor &input,
-                         const torch::stable::Tensor &weight,
-                         const torch::stable::Tensor &weight_scales,
-                         const std::optional<torch::stable::Tensor> &bias,
-                         std::string zentorch_op_name) {
+torch::stable::Tensor zentorch_dynamic_qlinear(
+    const torch::stable::Tensor &input, const torch::stable::Tensor &weight,
+    const torch::stable::Tensor &weight_scales,
+    const std::optional<torch::stable::Tensor> &bias, bool is_weight_prepacked,
+    std::string zentorch_op_name) {
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
 
@@ -226,14 +235,14 @@ zentorch_dynamic_qlinear(const torch::stable::Tensor &input,
   auto result = torch::stable::new_empty(input, output_sz);
 
   dispatch_dynamic_qlinear(input, weight, weight_scales, bias_t, result,
-                           zentorch_op_name);
+                           is_weight_prepacked, zentorch_op_name);
   return result;
 }
 
 void zentorch_dynamic_qlinear_out(
     const torch::stable::Tensor &input, const torch::stable::Tensor &weight,
     const torch::stable::Tensor &weight_scales,
-    const std::optional<torch::stable::Tensor> &bias,
+    const std::optional<torch::stable::Tensor> &bias, bool is_weight_prepacked,
     std::string zentorch_op_name, torch::stable::Tensor &out) {
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
@@ -260,16 +269,18 @@ void zentorch_dynamic_qlinear_out(
   }
 
   dispatch_dynamic_qlinear(input, weight, weight_scales, bias_t, out,
-                           zentorch_op_name);
+                           is_weight_prepacked, zentorch_op_name);
 }
 
 STABLE_TORCH_LIBRARY_FRAGMENT(zentorch, m) {
   m.def("zentorch_dynamic_qlinear(Tensor input, Tensor weight, "
         "Tensor weight_scales, Tensor? bias=None, *, "
+        "bool is_weight_prepacked=False, "
         "str zentorch_op_name="
         "'zentorch::zentorch_dynamic_qlinear') -> Tensor");
   m.def("zentorch_dynamic_qlinear.out(Tensor input, Tensor weight, "
         "Tensor weight_scales, Tensor? bias=None, *, "
+        "bool is_weight_prepacked=False, "
         "str zentorch_op_name='zentorch::zentorch_dynamic_qlinear.out', "
         "Tensor(a!) out) -> ()");
 }

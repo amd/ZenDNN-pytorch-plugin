@@ -19,7 +19,10 @@ import unittest.mock
 
 import zentorch  # noqa: F401 - ensures zentorch native extension is loaded
 
+from ._test_constants import VLLM_AVAILABLE
 
+
+@unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
 class TestDa8w4KernelPatch(unittest.TestCase):
     """DA8W4 is wired into _PATCHES and respects VLLM_CPU_INT4_W4A8."""
 
