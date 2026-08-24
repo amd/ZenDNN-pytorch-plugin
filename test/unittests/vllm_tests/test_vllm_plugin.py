@@ -25,6 +25,7 @@ EXPECTED_PATCHES = [
     "MixtralMoELoader",
     "RMSNorm",
     "FusedMoE",
+    "CPUSdpa",
     "Da8w4Kernel",
 ]
 

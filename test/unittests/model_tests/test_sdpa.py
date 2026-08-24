@@ -3,6 +3,7 @@
 # All rights reserved.
 # ******************************************************************************
 
+import itertools
 import math
 import unittest
 import torch
@@ -13,7 +14,10 @@ from packaging.version import parse
 
 sys.path.append(str(Path(__file__).parent.parent))
 from unittest_utils import (  # noqa: 402
+    DataTypes,
     SDPATestCase,
+    Zentorch_TestCase,
+    default_tolerance,
     has_zentorch,
     reset_dynamo,
     run_tests,
@@ -134,6 +138,7 @@ class Test_Sdpa_Gqa(SDPATestCase):
         gqa_head_config_opt_list=gqa_head_config_opt,
         head_dim_opt_list=head_dim_opt,
     )
+    @torch.inference_mode()
     def test_sdpa_gqa(self, dtype, mask_type, head_dim):
         query = self.data.sdpa_query
         key = self.data.sdpa_key
@@ -166,11 +171,12 @@ class Test_Sdpa_Gqa(SDPATestCase):
             attn_mask=attn_mask,
             scale=scale,
         )
+        atol, rtol = default_tolerance(DataTypes.get_torch_type(dtype))
         self.assertEqual(
             native_output,
             zentorch_output,
-            atol=1e-3,
-            rtol=1e-2,
+            atol=atol,
+            rtol=rtol,
             msg=(
                 f"GQA output mismatch for dtype={dtype}, mask={mask_type}, "
                 f"num_heads={num_heads}, kv_num_heads={kv_num_heads}"
@@ -214,13 +220,81 @@ class Test_Sdpa_Gqa(SDPATestCase):
             torch.isnan(zen_output).any().item(),
             "zentorch_sdpa produced NaN with sliding-window mask",
         )
+        atol, rtol = default_tolerance(torch.bfloat16)
         self.assertEqual(
             ref_output,
             zen_output,
-            atol=1e-3,
-            rtol=1e-2,
+            atol=atol,
+            rtol=rtol,
             msg="Sliding-window output mismatch at long sequence length",
         )
+
+
+@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
+@unittest.skipIf(
+    not zentorch._C.is_avx512_supported(),
+    "zentorch_sdpa fp32 requires AVX512 on this hardware",
+)
+class Test_Sdpa_Out_Variant(Zentorch_TestCase):
+    num_heads, kv_num_heads, seq_len, head_dim = 3, 1, 8, 16  # embeddinggemma-300m
+    sliding_window = 4
+    sentinel = 1024.0  # exactly representable in every dtype under test
+
+    # Order in which the caller's buffer holds (batch, head, seq, head_dim) in
+    # memory; the op is always handed it viewed back as [B, H, S, D].
+    layouts = {
+        "contiguous": (2, (0, 1, 2, 3)),
+        "packed_batch": (2, (0, 2, 1, 3)),  # vLLM dense: packed [tokens, H, D]
+        "per_sequence": (1, (0, 2, 1, 3)),  # vLLM ragged: one sequence slice
+        "strided_head": (2, (0, 1, 3, 2)),  # head dim the kernels cannot store to
+    }
+
+    def _sliding_window_mask(self, dtype):
+        """Symmetric bidirectional window, as vLLM builds it for Gemma3."""
+        mask = torch.ones(1, 1, self.seq_len, self.seq_len, dtype=dtype)
+        mask = torch.tril(mask, diagonal=self.sliding_window)
+        return torch.log(torch.triu(mask, diagonal=-self.sliding_window))
+
+    def test_out_writes_callers_buffer(self):
+        dtypes = [torch.float32]
+        if zentorch._C.is_bf16_supported():
+            dtypes.append(torch.bfloat16)
+        cases = itertools.product(self.layouts.items(), dtypes, (False, True))
+
+        for (layout, (batch, order)), dtype, masked in cases:
+            with self.subTest(layout=layout, dtype=dtype, masked=masked):
+                dims = (batch, self.num_heads, self.seq_len, self.head_dim)
+                generator = torch.Generator(device="cpu").manual_seed(7)
+                query, key, value = (
+                    torch.randn(batch, heads, self.seq_len, self.head_dim,
+                                generator=generator, dtype=dtype)
+                    for heads in (self.num_heads,
+                                  self.kv_num_heads, self.kv_num_heads)
+                )
+                mask = self._sliding_window_mask(dtype) if masked else None
+
+                repeat = self.num_heads // self.kv_num_heads
+                reference = scaled_dot_product_attention(
+                    query,
+                    key.repeat_interleave(repeat, dim=1),
+                    value.repeat_interleave(repeat, dim=1),
+                    attn_mask=mask,
+                    dropout_p=0.0,
+                )
+
+                buffer = torch.full([dims[i] for i in order], self.sentinel,
+                                    dtype=dtype)
+                out = buffer.permute(*sorted(range(4), key=order.__getitem__))
+                torch.ops.zentorch.zentorch_sdpa.out(
+                    query, key, value, dropout_p=0.0, is_causal=False,
+                    attn_mask=mask, scale=None, out=out,
+                )
+
+                self.assertFalse(
+                    bool((buffer == self.sentinel).any().item()),
+                    "zentorch_sdpa.out did not fill the caller's buffer",
+                )
+                self.assertEqual(out, reference, atol=1e-3, rtol=1e-2)
 
 
 if __name__ == "__main__":

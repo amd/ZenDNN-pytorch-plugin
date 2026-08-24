@@ -201,6 +201,22 @@ if hasattr(torch.ops.zentorch, "zentorch_sdpa"):
             logsumexp,
         )
 
+    @register_meta("zentorch_sdpa", "out")
+    def meta_zentorch_sdpa_out(
+        query,
+        key,
+        value,
+        dropout_p=0.0,
+        is_causal=False,
+        attn_mask=None,
+        scale=None,
+        zentorch_op_name="zentorch::zentorch_sdpa.out",
+        out=None,
+    ):
+        # The kernel writes through `out` and returns nothing (matches the
+        # other zentorch .out ops).
+        return
+
 
 @register_meta("zentorch_embedding_bag")
 def meta_zentorch_embedding_bag(
@@ -957,6 +973,7 @@ make_fallback(torch.ops.zentorch.zentorch_woq_repack_weight)
 make_fallback(torch.ops.zentorch.zentorch_woq_repack_from_int4pack)
 if hasattr(torch.ops.zentorch, "zentorch_sdpa"):
     make_fallback(torch.ops.zentorch.zentorch_sdpa)
+    make_fallback(torch.ops.zentorch.zentorch_sdpa.out)
 
 
 # GatedDeltaNet (GDN) ops for Qwen3.5 / Qwen3-Next CPU attention.

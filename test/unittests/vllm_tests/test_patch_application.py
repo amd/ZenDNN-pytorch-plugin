@@ -30,6 +30,8 @@ _PATCH_TARGETS = [
      "_zentorch_rmsnorm_patched", None),
     ("FusedMoE", "vllm.model_executor.layers.fused_moe.cpu_fused_moe",
      "CPUFusedMOE", "_zentorch_fused_moe_patched", None),
+    ("CPUSdpa", "vllm.v1.attention.backends.cpu_attn",
+     "CPUAttentionBackendImpl", "_zentorch_sdpa_patched", "forward"),
     ("Int8MoE",
      "vllm.model_executor.layers.quantization.compressed_tensors."
      "compressed_tensors_moe.compressed_tensors_moe_w8a8_int8",
