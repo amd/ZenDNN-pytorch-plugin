@@ -11,19 +11,45 @@
 #include "Memory.hpp"
 #include "Utils.hpp"
 #include "kernels/zen_cpukernels.hpp"
-#include <ATen/ATen.h>
+
 #include <ATen/OpMathType.h>
+#include <c10/util/StringUtil.h>
+#include <cmath>
+#include <optional>
+#include <torch/csrc/inductor/aoti_torch/utils.h>
+#include <torch/csrc/stable/library.h>
+#include <torch/csrc/stable/ops.h>
+#include <tuple>
 
 namespace zentorch {
 
+// Full-lib only: the AVX-512 flash kernel and the native ATen fallback still
+// take at::Tensor. Bridge without copying storage (refcount bump only).
+inline at::Tensor to_aten(const torch::stable::Tensor &t) {
+  return *torch::aot_inductor::tensor_handle_to_tensor_pointer(t.get());
+}
+
+inline torch::stable::Tensor to_stable(const at::Tensor &t) {
+  return torch::stable::Tensor(
+      torch::aot_inductor::new_tensor_handle(at::Tensor(t)));
+}
+
+inline std::optional<at::Tensor>
+to_aten_optional(const std::optional<torch::stable::Tensor> &opt) {
+  if (opt.has_value() && opt->defined()) {
+    return to_aten(*opt);
+  }
+  return std::nullopt;
+}
+
 // Wrapper around zendnnl::lowoha::sdpa::sdpa_direct. Builds the sdpa_params
 // struct from the input tensors and invokes the direct kernel.
-inline void
-zendnnl_sdpa_direct_kernel(const at::Tensor &query, const at::Tensor &key,
-                           const at::Tensor &value, at::Tensor &output,
-                           const double dropout_p, const bool is_causal,
-                           const std::optional<at::Tensor> &attn_mask,
-                           const std::optional<double> &scale) {
+inline void zendnnl_sdpa_direct_kernel(
+    const torch::stable::Tensor &query, const torch::stable::Tensor &key,
+    const torch::stable::Tensor &value, torch::stable::Tensor &output,
+    const double dropout_p, const bool is_causal,
+    const std::optional<torch::stable::Tensor> &attn_mask,
+    const std::optional<double> &scale) {
   zendnnl::lowoha::sdpa::sdpa_params fp{};
   fp.batch = query.size(0);
   fp.num_heads = query.size(1);
@@ -58,11 +84,11 @@ zendnnl_sdpa_direct_kernel(const at::Tensor &query, const at::Tensor &key,
 
   const void *mask_ptr = nullptr;
   if (attn_mask.has_value() && attn_mask->defined()) {
-    const at::Tensor &mask = attn_mask.value();
+    const torch::stable::Tensor &mask = *attn_mask;
     mask_ptr = mask.data_ptr();
-    fp.mask_ndims = mask.dim();
+    fp.mask_ndims = static_cast<int>(mask.dim());
     fp.mask_dt = get_zendnnl_dtype(mask);
-    for (int i = 0; i < mask.dim(); ++i) {
+    for (int64_t i = 0; i < mask.dim(); ++i) {
       fp.mask_sizes[i] = mask.size(i);
       fp.mask_strides[i] = mask.stride(i);
     }
@@ -74,10 +100,12 @@ zendnnl_sdpa_direct_kernel(const at::Tensor &query, const at::Tensor &key,
                  "zentorch_sdpa: sdpa_direct failed");
 }
 
-std::tuple<at::Tensor, at::Tensor> zentorch_scaled_dot_product_attention_impl(
-    const at::Tensor &query, const at::Tensor &key, const at::Tensor &value,
-    double dropout_p, bool is_causal, std::optional<at::Tensor> attn_mask,
-    std::optional<double> scale, at::Tensor &output) {
+std::tuple<torch::stable::Tensor, torch::stable::Tensor>
+zentorch_scaled_dot_product_attention_impl(
+    const torch::stable::Tensor &query, const torch::stable::Tensor &key,
+    const torch::stable::Tensor &value, double dropout_p, bool is_causal,
+    std::optional<torch::stable::Tensor> attn_mask, std::optional<double> scale,
+    torch::stable::Tensor &output) {
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
   const auto dtype = query.scalar_type();
@@ -103,23 +131,24 @@ std::tuple<at::Tensor, at::Tensor> zentorch_scaled_dot_product_attention_impl(
       "zentorch_scaled_dot_product_attention_flash_attention: Q/K/V should "
       "have the same head size");
   ZENTORCH_CHECK(!attn_mask.has_value() ||
-                     attn_mask.value().scalar_type() == at::kFloat ||
-                     dtype == attn_mask.value().scalar_type(),
+                     attn_mask->scalar_type() == at::kFloat ||
+                     dtype == attn_mask->scalar_type(),
                  "zentorch_scaled_dot_product_attention_flash_attention: "
                  "Attention Mask should have the same data type as Query");
   ZENTORCH_CHECK(
       !attn_mask.has_value() ||
-          (attn_mask.value().dim() == 2 || attn_mask.value().dim() == 4),
+          (attn_mask->dim() == 2 || attn_mask->dim() == 4),
       "zentorch_scaled_dot_product_attention_flash_attention: Attention mask "
       "dim is {2, 4}");
   ZENTORCH_CHECK(output.scalar_type() == dtype,
                  "zentorch_sdpa.out: output should have the same data type as "
                  "Query, but got ",
                  output.scalar_type(), " instead.");
-  ZENTORCH_CHECK(output.sizes() == query.sizes(),
+  ZENTORCH_CHECK(output.sizes().equals(query.sizes()),
                  "zentorch_sdpa.out: output should have the same shape as "
-                 "Query, expected ",
-                 query.sizes(), " but got ", output.sizes());
+                 "Query, expected [",
+                 c10::Join(", ", query.sizes()), "] but got [",
+                 c10::Join(", ", output.sizes()), "]");
   // Input validation for tensor types, shapes,attention mask and AVX512
   // support.
   bool is_dtype_supported =
@@ -132,27 +161,27 @@ std::tuple<at::Tensor, at::Tensor> zentorch_scaled_dot_product_attention_impl(
     // never sees. They emit BSHD through stride(0/1/2), so a transposed view
     // is all they need; only a strided head dim forces a staging copy, which
     // is written back below.
-    at::Tensor caller_out = output;
-    output = output.transpose(1, 2);
+    torch::stable::Tensor caller_out = output;
+    output = torch::stable::transpose(output, 1, 2);
 
     const auto accumulate_dtype = at::toOpMathType(dtype);
-    at::Tensor logsumexp = at::empty({batchSize, qSize, num_head},
-                                     query.options().dtype(accumulate_dtype));
-    // Assuming key and value have the same dtype as query
+    torch::stable::Tensor logsumexp = torch::stable::new_empty(
+        query, {batchSize, qSize, num_head}, accumulate_dtype);
 
     const int int_env_value =
         EnvReader::getEnvVariableAsInt("ZENTORCH_USE_ZENDNN_SDPA");
     const bool requires_lse =
         at::GradMode::is_enabled() &&
-        (query.requires_grad() || key.requires_grad() || value.requires_grad());
+        (to_aten(query).requires_grad() || to_aten(key).requires_grad() ||
+         to_aten(value).requires_grad());
 
     // Both downstream kernels (in-plugin AVX-512 flash and ZenDNN direct)
     // consume the mask via vectorized loads on its innermost (KV) axis and
     // require stride(-1) == 1. Normalize here for callers that do not
     // satisfy this (e.g. T5 cross-attention); a no-op when already so.
     if (attn_mask.has_value() && attn_mask->defined() &&
-        attn_mask->stride(-1) != 1) {
-      attn_mask = attn_mask->contiguous();
+        attn_mask->stride(attn_mask->dim() - 1) != 1) {
+      attn_mask = torch::stable::contiguous(*attn_mask);
     }
     const bool use_zendnnl_direct_sdpa = (int_env_value == 1) && !requires_lse;
     if (use_zendnnl_direct_sdpa) {
@@ -161,62 +190,68 @@ std::tuple<at::Tensor, at::Tensor> zentorch_scaled_dot_product_attention_impl(
       zendnnl_sdpa_direct_kernel(query, key, value, output, dropout_p,
                                  is_causal, attn_mask, scale);
     } else {
-      at::Tensor output_contiguous = output.contiguous();
+      torch::stable::Tensor output_contiguous =
+          torch::stable::contiguous(output);
+
+      std::optional<at::Tensor> attn_mask_aten = to_aten_optional(attn_mask);
+      at::Tensor output_contiguous_aten = to_aten(output_contiguous);
+      at::Tensor logsumexp_aten = to_aten(logsumexp);
+      at::Tensor query_aten = to_aten(query);
+      at::Tensor key_aten = to_aten(key);
+      at::Tensor value_aten = to_aten(value);
 
       if (query.scalar_type() == at::kBFloat16) {
         ZENTORCH_CHECK(!attn_mask.has_value() ||
-                           attn_mask.value().scalar_type() == at::kFloat ||
-                           attn_mask.value().scalar_type() == at::kBFloat16,
+                           attn_mask->scalar_type() == at::kFloat ||
+                           attn_mask->scalar_type() == at::kBFloat16,
                        "zentorch_scaled_dot_product_attention_flash_"
                        "attention: Attention mask "
                        "is supported for FP32 and BF16 dtype when the query "
                        "is of type BF16");
         // passing type as float when attention mask is None or float
-        if (!attn_mask.has_value() ||
-            attn_mask.value().scalar_type() == at::kFloat) {
+        if (!attn_mask.has_value() || attn_mask->scalar_type() == at::kFloat) {
           flash_attention_kernel_impl_512<at::BFloat16, float>(
-              output_contiguous, logsumexp, query, key, value, dropout_p,
-              is_causal, attn_mask, scale);
+              output_contiguous_aten, logsumexp_aten, query_aten, key_aten,
+              value_aten, dropout_p, is_causal, attn_mask_aten, scale);
         } else {
           flash_attention_kernel_impl_512<at::BFloat16, at::BFloat16>(
-              output_contiguous, logsumexp, query, key, value, dropout_p,
-              is_causal, attn_mask, scale);
+              output_contiguous_aten, logsumexp_aten, query_aten, key_aten,
+              value_aten, dropout_p, is_causal, attn_mask_aten, scale);
         }
       } else if (query.scalar_type() == at::kHalf) {
         ZENTORCH_CHECK(!attn_mask.has_value() ||
-                           attn_mask.value().scalar_type() == at::kFloat ||
-                           attn_mask.value().scalar_type() == at::kHalf,
+                           attn_mask->scalar_type() == at::kFloat ||
+                           attn_mask->scalar_type() == at::kHalf,
                        "zentorch_scaled_dot_product_attention_flash_"
                        "attention: Attention mask "
                        "is supported for FP32 and FP16 dtype when the query "
                        "is of type FP16");
-        if (!attn_mask.has_value() ||
-            attn_mask.value().scalar_type() == at::kFloat) {
+        if (!attn_mask.has_value() || attn_mask->scalar_type() == at::kFloat) {
           flash_attention_kernel_impl_512<at::Half, float>(
-              output_contiguous, logsumexp, query, key, value, dropout_p,
-              is_causal, attn_mask, scale);
+              output_contiguous_aten, logsumexp_aten, query_aten, key_aten,
+              value_aten, dropout_p, is_causal, attn_mask_aten, scale);
         } else {
           flash_attention_kernel_impl_512<at::Half, at::Half>(
-              output_contiguous, logsumexp, query, key, value, dropout_p,
-              is_causal, attn_mask, scale);
+              output_contiguous_aten, logsumexp_aten, query_aten, key_aten,
+              value_aten, dropout_p, is_causal, attn_mask_aten, scale);
         }
       } else {
         ZENTORCH_CHECK(
-            !attn_mask.has_value() ||
-                attn_mask.value().scalar_type() == at::kFloat,
+            !attn_mask.has_value() || attn_mask->scalar_type() == at::kFloat,
             "zentorch_scaled_dot_product_attention_flash_"
             "attention: Attention mask "
             "is supported for FP32 dtype when the query is of type FP32");
         flash_attention_kernel_impl_512<float, float>(
-            output_contiguous, logsumexp, query, key, value, dropout_p,
-            is_causal, attn_mask, scale);
+            output_contiguous_aten, logsumexp_aten, query_aten, key_aten,
+            value_aten, dropout_p, is_causal, attn_mask_aten, scale);
       }
-      if (!output_contiguous.is_alias_of(caller_out)) {
-        caller_out.copy_(output_contiguous.transpose(1, 2));
+      if (!to_aten(output_contiguous).is_alias_of(to_aten(caller_out))) {
+        torch::stable::copy_(caller_out,
+                             torch::stable::transpose(output_contiguous, 1, 2));
       }
     }
 
-    logsumexp = logsumexp.transpose(1, 2);
+    logsumexp = torch::stable::transpose(logsumexp, 1, 2);
 
     return std::make_tuple(std::move(caller_out), std::move(logsumexp));
   } else {
@@ -226,9 +261,10 @@ std::tuple<at::Tensor, at::Tensor> zentorch_scaled_dot_product_attention_impl(
     // runtime output.
     // Hence using native - same as ipex.
     auto native_result = at::native::_scaled_dot_product_flash_attention_cpu(
-        query, key, value, dropout_p, is_causal, attn_mask, scale);
-    output.copy_(std::get<0>(native_result));
-    return std::make_tuple(output, std::get<1>(native_result));
+        to_aten(query), to_aten(key), to_aten(value), dropout_p, is_causal,
+        to_aten_optional(attn_mask), scale);
+    torch::stable::copy_(output, to_stable(std::get<0>(native_result)));
+    return std::make_tuple(output, to_stable(std::get<1>(native_result)));
   }
 }
 
@@ -237,32 +273,35 @@ std::tuple<at::Tensor, at::Tensor> zentorch_scaled_dot_product_attention_impl(
 // attention backend, which is handed a pre-allocated output tensor) skip the
 // full-size copy that the allocating variant forces on them. logsumexp is
 // still computed as kernel scratch but dropped, since the op returns ().
-void zentorch_sdpa_out(const at::Tensor &query, const at::Tensor &key,
-                       const at::Tensor &value, double dropout_p,
-                       bool is_causal, std::optional<at::Tensor> attn_mask,
-                       std::optional<double> scale,
-                       std::string zentorch_op_name, at::Tensor &out) {
+void zentorch_sdpa_out(
+    const torch::stable::Tensor &query, const torch::stable::Tensor &key,
+    const torch::stable::Tensor &value, double dropout_p, bool is_causal,
+    std::optional<torch::stable::Tensor> attn_mask, std::optional<double> scale,
+    std::string zentorch_op_name, torch::stable::Tensor &out) {
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
-            << "Executing function: " << __FUNCTION__;
+            << "Executing function: " << __FUNCTION__
+            << " zentorch_op_name: " << zentorch_op_name;
   zentorch_scaled_dot_product_attention_impl(query, key, value, dropout_p,
                                              is_causal, std::move(attn_mask),
                                              scale, out);
 }
 
-std::tuple<at::Tensor, at::Tensor>
-zentorch_sdpa(const at::Tensor &query, const at::Tensor &key,
-              const at::Tensor &value, double dropout_p, bool is_causal,
-              std::optional<at::Tensor> attn_mask, std::optional<double> scale,
-              std::string zentorch_op_name) {
+std::tuple<torch::stable::Tensor, torch::stable::Tensor>
+zentorch_sdpa(const torch::stable::Tensor &query,
+              const torch::stable::Tensor &key,
+              const torch::stable::Tensor &value, double dropout_p,
+              bool is_causal, std::optional<torch::stable::Tensor> attn_mask,
+              std::optional<double> scale, std::string zentorch_op_name) {
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
-            << "Executing function: " << __FUNCTION__;
-  at::Tensor output = at::empty_like(query, query.options());
+            << "Executing function: " << __FUNCTION__
+            << " zentorch_op_name: " << zentorch_op_name;
+  torch::stable::Tensor output = torch::stable::empty_like(query);
   return zentorch_scaled_dot_product_attention_impl(
       query, key, value, dropout_p, is_causal, std::move(attn_mask), scale,
       output);
 }
 
-TORCH_LIBRARY_FRAGMENT(zentorch, m) {
+STABLE_TORCH_LIBRARY_FRAGMENT(zentorch, m) {
   m.def("zentorch_sdpa(Tensor query, Tensor key, "
         "Tensor value , float dropout_p=0.0, "
         "bool is_causal=False, *, Tensor? attn_mask=None, float? scale=None, "
@@ -274,8 +313,8 @@ TORCH_LIBRARY_FRAGMENT(zentorch, m) {
         "str zentorch_op_name = "
         "'zentorch::zentorch_sdpa.out', Tensor(a!) out)-> ()");
 }
-TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
-  m.impl("zentorch_sdpa", zentorch_sdpa);
-  m.impl("zentorch_sdpa.out", zentorch_sdpa_out);
+STABLE_TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
+  m.impl("zentorch_sdpa", TORCH_BOX(&zentorch::zentorch_sdpa));
+  m.impl("zentorch_sdpa.out", TORCH_BOX(&zentorch::zentorch_sdpa_out));
 }
 } // namespace zentorch
