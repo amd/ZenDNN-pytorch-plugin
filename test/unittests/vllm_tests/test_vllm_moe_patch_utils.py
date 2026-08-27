@@ -6,6 +6,7 @@
 
 import types
 import unittest
+from unittest import mock
 
 import torch
 import zentorch  # noqa: F401
@@ -150,6 +151,61 @@ class TestMoePatchUtils(unittest.TestCase):
             )
         )
         self.assertFalse(hasattr(target, "_patched"))
+
+    def _fake_select_experts(self):
+        captured = {}
+
+        def select_experts(**kwargs):
+            captured.clear()
+            captured.update(kwargs)
+            return "weights", "ids"
+
+        return select_experts, captured
+
+    def test_run_select_experts_forwards_custom_callable_and_renormalize(self):
+        from vllm.model_executor.layers.fused_moe.config import RoutingMethodType
+        from zentorch.vllm import _moe_patch_utils as utils
+
+        select_experts, captured = self._fake_select_experts()
+        custom_fn = object()
+        moe_config = types.SimpleNamespace(
+            routing_method=RoutingMethodType.Custom,
+            experts_per_token=8,
+        )
+        with mock.patch.object(
+            utils, "import_select_experts", return_value=select_experts
+        ):
+            result = utils.run_select_experts(
+                "hidden",
+                "logits",
+                moe_config,
+                custom_routing_fn=custom_fn,
+            )
+            self.assertEqual(result, ("weights", "ids"))
+            self.assertIs(captured["custom_routing_function"], custom_fn)
+            self.assertTrue(captured["renormalize"])
+            self.assertEqual(captured["top_k"], 8)
+
+            utils.run_select_experts(
+                "hidden",
+                "logits",
+                moe_config,
+                custom_routing_fn=custom_fn,
+                renormalize=False,
+            )
+            self.assertIs(captured["custom_routing_function"], custom_fn)
+            self.assertFalse(captured["renormalize"])
+
+    def test_run_select_experts_custom_without_callable_raises(self):
+        from vllm.model_executor.layers.fused_moe.config import RoutingMethodType
+        from zentorch.vllm._moe_patch_utils import run_select_experts
+
+        moe_config = types.SimpleNamespace(
+            routing_method=RoutingMethodType.Custom,
+            experts_per_token=8,
+        )
+        with self.assertRaisesRegex(RuntimeError, "custom_routing_function"):
+            run_select_experts("hidden", "logits", moe_config)
 
 
 if __name__ == "__main__":

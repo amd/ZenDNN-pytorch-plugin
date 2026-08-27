@@ -220,6 +220,15 @@ class TestOracleSupportGates(unittest.TestCase):
                     expected,
                 )
 
+    def test_custom_routing_is_accepted(self):
+        """Gemma4 uses RoutingMethodType.Custom; native CPUExpertsInt4 does not."""
+        from vllm.model_executor.layers.fused_moe.config import RoutingMethodType
+
+        cls = self._experts_cls()
+        self.assertTrue(
+            cls._supports_routing_method(RoutingMethodType.Custom, None, None)
+        )
+
     def test_single_expert_routing_is_declined(self):
         """experts_per_token == 1 cannot reach two active experts."""
         import vllm.model_executor.layers.fused_moe.modular_kernel as mk

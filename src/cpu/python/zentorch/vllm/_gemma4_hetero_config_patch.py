@@ -5,19 +5,14 @@
 
 """Enable gemma-4 (heterogeneous per-layer configs) under vLLM 0.27.
 
-transformers >= 5.15 marks gemma-4's ``head_dim`` per-layer, so global reads
-(``config.head_dim``) raise ``AmbiguousGlobalPerLayerAttributeError``. vLLM reads
-it globally in a few places while loading gemma-4, so the model fails to load.
+transformers >= 5.15 treats gemma-4 attributes such as ``head_dim`` as
+per-layer, so vLLM's global reads raise ``AmbiguousGlobalPerLayerAttributeError``.
 
-``head_dim`` is in fact uniform (the heterogeneity is in ``layer_types``), so the
-fix arms transformers' ``allow_global_per_layer_attribute_access`` escape hatch on
-each heterogeneous config, making global reads return that uniform value. The
-larger full-attention dimension lives in a separate ``global_head_dim`` attribute
-(rebuilt by ``_restore_global_head_dim`` if transformers drops it).
+The patch sets ``allow_global_per_layer_attribute_access`` on heterogeneous
+configs and restores full-attention ``global_head_dim`` /
+``num_global_key_value_heads`` via ``_restore_global_head_dim`` when needed.
 
-``get_config`` is imported by name into several modules, each capturing its own
-binding, so the hook wraps it on the source and every consumer in
-``_TARGET_MODULES``.
+Wraps ``get_config`` in every module listed in ``_TARGET_MODULES``.
 """
 
 from __future__ import annotations
@@ -41,20 +36,23 @@ _TARGET_MODULES = (
 
 
 def _restore_global_head_dim(node) -> None:
-    """Rebuild ``global_head_dim`` from ``per_layer_config`` if the scalar absent.
+    """Rebuild full-attention scalars from ``per_layer_config`` if absent.
 
-    Released configs carry ``global_head_dim`` directly, so this usually no-ops.
-    ``per_layer_config`` shape is not guaranteed (list, view, or dict), so every
-    lookup is defensive: an unexpected shape skips reconstruction rather than
-    raising into vLLM's model loader.
+    transformers may drop ``global_head_dim`` and ``num_global_key_value_heads``
+    into per-layer overrides; vLLM still reads the scalars. Restore each
+    independently. ``per_layer_config`` shape is not guaranteed, so a bad lookup
+    skips that layer rather than raising into the model loader.
     """
-    if getattr(node, "global_head_dim", None) is not None:
+    need_head = getattr(node, "global_head_dim", None) is None
+    need_kv = getattr(node, "num_global_key_value_heads", None) is None
+    if not need_head and not need_kv:
         return
     layer_types = getattr(node, "layer_types", None)
     per_layer = getattr(node, "per_layer_config", None)
     if not layer_types or per_layer is None:
         return
     full_dims = []
+    full_kv = []
     for i, layer_type in enumerate(layer_types):
         if layer_type != "full_attention":
             continue
@@ -62,9 +60,16 @@ def _restore_global_head_dim(node) -> None:
             layer_cfg = per_layer[i]
         except (IndexError, KeyError, TypeError):
             continue
-        full_dims.append(getattr(layer_cfg, "head_dim", 0) or 0)
-    if full_dims:
+        if need_head:
+            full_dims.append(getattr(layer_cfg, "head_dim", 0) or 0)
+        if need_kv:
+            n_kv = getattr(layer_cfg, "num_key_value_heads", 0) or 0
+            if n_kv:
+                full_kv.append(n_kv)
+    if need_head and full_dims:
         node.global_head_dim = max(full_dims)
+    if need_kv and full_kv:
+        node.num_global_key_value_heads = full_kv[0]
 
 
 def _push_config_children(value, stack) -> None:
@@ -92,7 +97,8 @@ def _enable_global_per_layer_access(cfg) -> None:
     Walks the tree via each node's raw ``__dict__`` (never ``getattr``, which
     could itself trip a per-layer access), following direct attributes and
     list/tuple/dict collections. On each heterogeneous node it sets
-    ``allow_global_per_layer_attribute_access`` and rebuilds ``global_head_dim``.
+    ``allow_global_per_layer_attribute_access`` and rebuilds full-attention
+    scalars (``global_head_dim``, ``num_global_key_value_heads``).
     """
     seen: set[int] = set()
     stack = [cfg]

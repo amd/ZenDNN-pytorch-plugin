@@ -46,22 +46,40 @@ def run_select_experts(
     e_score_correction_bias=None,
     routed_scaling_factor=None,
     topk_group=None,
+    custom_routing_fn=None,
+    renormalize=None,
 ):
-    """Monolithic-experts top-k routing used by both INT8 and WNA16 apply()."""
+    """Monolithic-experts top-k routing used by both INT8 and WNA16 apply().
+
+    Custom routers (Gemma4) supply ``custom_routing_function``; invoke it here
+    because monolithic experts own routing instead of the modular router.
+    """
     from vllm.model_executor.layers.fused_moe.config import RoutingMethodType
+
+    if (
+        moe_config.routing_method == RoutingMethodType.Custom
+        and custom_routing_fn is None
+    ):
+        raise RuntimeError(
+            "zentorch fused MoE: RoutingMethodType.Custom requires the "
+            "model's custom_routing_function (e.g. Gemma4)."
+        )
+    if renormalize is None:
+        renormalize = moe_config.routing_method in (
+            RoutingMethodType.Renormalize,
+            RoutingMethodType.RenormalizeNaive,
+            RoutingMethodType.Custom,
+        )
 
     return import_select_experts()(
         hidden_states=hidden_states,
         router_logits=router_logits,
         use_grouped_topk=num_expert_group is not None,
         top_k=moe_config.experts_per_token,
-        renormalize=moe_config.routing_method
-        in (
-            RoutingMethodType.Renormalize,
-            RoutingMethodType.RenormalizeNaive,
-        ),
+        renormalize=renormalize,
         topk_group=topk_group,
         num_expert_group=num_expert_group,
+        custom_routing_function=custom_routing_fn,
         scoring_func="softmax",
         routed_scaling_factor=(
             routed_scaling_factor if routed_scaling_factor is not None else 1.0

@@ -193,12 +193,13 @@ def _register_int8_moe_patches(mod) -> None:
             weight_key: QuantKey | None,
             activation_key: QuantKey | None,
         ) -> bool:
-            # Routing runs in select_experts(), so opt into CPUExpertsInt8's set.
-            # vllm/model_executor/layers/fused_moe/experts/cpu_moe.py
+            # Routing runs in select_experts() for the in-tree methods;
+            # Custom (Gemma4) is handled via custom_routing_function in apply().
             return routing_method in (
                 RoutingMethodType.Default,
                 RoutingMethodType.Renormalize,
                 RoutingMethodType.RenormalizeNaive,
+                RoutingMethodType.Custom,
             )
 
         @staticmethod
@@ -235,6 +236,8 @@ def _register_int8_moe_patches(mod) -> None:
                 e_score_correction_bias=e_score_correction_bias,
                 routed_scaling_factor=routed_scaling_factor,
                 topk_group=topk_group,
+                custom_routing_fn=getattr(self, "_custom_routing_fn", None),
+                renormalize=getattr(self, "_renormalize", None),
             )
             output = torch.empty_like(hidden_states)
             torch.ops.zentorch_vllm.cpu_int8_moe(
@@ -382,6 +385,13 @@ def _register_int8_moe_patches(mod) -> None:
         finally:
             if saved is not None:
                 mod.convert_to_int8_moe_kernel_format = saved
+        kernel = getattr(self, "moe_kernel", None)
+        experts = getattr(kernel, "fused_experts", None) if kernel is not None else None
+        if experts is not None:
+            experts._custom_routing_fn = getattr(
+                layer, "custom_routing_function", None
+            )
+            experts._renormalize = getattr(layer, "renormalize", True)
         logger.info(
             "[zentorch] W8A8 int8 MoE kernel built via OOT patch "
             "(experts=%d, has_bias=%s)",

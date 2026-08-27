@@ -18,12 +18,13 @@ class TestGemma4HeteroConfigPatch(unittest.TestCase):
     @staticmethod
     def _fake_gemma_config():
         class _Layer:
-            def __init__(self, head_dim):
+            def __init__(self, head_dim, num_key_value_heads=8):
                 self.head_dim = head_dim
+                self.num_key_value_heads = num_key_value_heads
 
         class _PerLayerView:
-            def __init__(self, dims):
-                self._layers = [_Layer(d) for d in dims]
+            def __init__(self, layers):
+                self._layers = [_Layer(*spec) for spec in layers]
 
             def __getitem__(self, i):
                 return self._layers[i]
@@ -38,7 +39,9 @@ class TestGemma4HeteroConfigPatch(unittest.TestCase):
                     "sliding_attention",
                     "full_attention",
                 ]
-                self._plc = _PerLayerView([256, 256, 256, 512])
+                self._plc = _PerLayerView(
+                    [(256, 8), (256, 8), (256, 8), (512, 2)]
+                )
                 self.allow_global_per_layer_attribute_access = False
 
             @property
@@ -64,6 +67,7 @@ class TestGemma4HeteroConfigPatch(unittest.TestCase):
 
         self.assertTrue(text.allow_global_per_layer_attribute_access)
         self.assertEqual(text.global_head_dim, 512)
+        self.assertEqual(text.num_global_key_value_heads, 2)
 
     def test_homogeneous_config_is_untouched(self):
         from zentorch.vllm._gemma4_hetero_config_patch import (
@@ -79,6 +83,7 @@ class TestGemma4HeteroConfigPatch(unittest.TestCase):
         cfg = _Homo()
         _enable_global_per_layer_access(cfg)
         self.assertFalse(hasattr(cfg, "global_head_dim"))
+        self.assertFalse(hasattr(cfg, "num_global_key_value_heads"))
         self.assertFalse(hasattr(cfg, "allow_global_per_layer_attribute_access"))
 
     def test_patches_get_config_on_every_load_path(self):
@@ -122,6 +127,7 @@ class TestGemma4HeteroConfigPatch(unittest.TestCase):
                 f"escape hatch not armed through {name}.get_config",
             )
             self.assertEqual(text.global_head_dim, 512)
+            self.assertEqual(text.num_global_key_value_heads, 2)
 
     def test_patched_get_config_fails_open_on_walk_error(self):
         from zentorch.vllm import _gemma4_hetero_config_patch as patch
@@ -174,10 +180,34 @@ class TestGemma4HeteroConfigPatch(unittest.TestCase):
         )
         _restore_global_head_dim(dict_backed)
         self.assertIsNone(getattr(dict_backed, "global_head_dim", None))
+        self.assertIsNone(getattr(dict_backed, "num_global_key_value_heads", None))
 
         short = _Node(["sliding_attention", "full_attention"], [])
         _restore_global_head_dim(short)
         self.assertIsNone(getattr(short, "global_head_dim", None))
+        self.assertIsNone(getattr(short, "num_global_key_value_heads", None))
+
+    def test_restore_kv_heads_when_global_head_dim_already_set(self):
+        from zentorch.vllm._gemma4_hetero_config_patch import (
+            _restore_global_head_dim,
+        )
+
+        _top, text = self._fake_gemma_config()
+        text.global_head_dim = 512
+        _restore_global_head_dim(text)
+        self.assertEqual(text.global_head_dim, 512)
+        self.assertEqual(text.num_global_key_value_heads, 2)
+
+    def test_restore_does_not_overwrite_existing_kv_heads(self):
+        from zentorch.vllm._gemma4_hetero_config_patch import (
+            _restore_global_head_dim,
+        )
+
+        _top, text = self._fake_gemma_config()
+        text.num_global_key_value_heads = 4
+        _restore_global_head_dim(text)
+        self.assertEqual(text.num_global_key_value_heads, 4)
+        self.assertEqual(text.global_head_dim, 512)
 
     def test_walk_tolerates_slots_nodes(self):
         from zentorch.vllm._gemma4_hetero_config_patch import (

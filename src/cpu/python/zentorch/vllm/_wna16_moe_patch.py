@@ -162,10 +162,13 @@ def _get_zentorch_experts_cls():
             weight_key: QuantKey | None,
             activation_key: QuantKey | None,
         ) -> bool:
+            # Custom (Gemma4): apply() uses custom_routing_function. Native
+            # CPUExpertsInt4 rejects gelu_tanh and Custom, so we must opt in.
             return routing_method in [
                 RoutingMethodType.Default,
                 RoutingMethodType.Renormalize,
                 RoutingMethodType.RenormalizeNaive,
+                RoutingMethodType.Custom,
             ]
 
         @staticmethod
@@ -231,6 +234,8 @@ def _get_zentorch_experts_cls():
                 e_score_correction_bias=e_score_correction_bias,
                 routed_scaling_factor=routed_scaling_factor,
                 topk_group=topk_group,
+                custom_routing_fn=getattr(self, "_custom_routing_fn", None),
+                renormalize=getattr(self, "_renormalize", None),
             )
 
             assert (
@@ -588,6 +593,15 @@ def _register_wna16_method_patch(mod) -> None:
         layer.w2_weight = layer.w2_weight_packed
 
         self._setup_kernel(layer)
+        kernel = getattr(self, "moe_kernel", None)
+        experts = getattr(kernel, "fused_experts", None) if kernel is not None else None
+        if experts is not None:
+            # Monolithic experts own routing; stash Gemma4's callable so
+            # apply() does not fall back to fused_topk.
+            experts._custom_routing_fn = getattr(
+                layer, "custom_routing_function", None
+            )
+            experts._renormalize = getattr(layer, "renormalize", True)
         logger.info(
             "[zentorch] W4A8 (DA8W4) MoE kernel built via OOT patch "
             "(experts=%d, has_bias=%s)",
