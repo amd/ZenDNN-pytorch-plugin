@@ -188,37 +188,37 @@ void zendnnl_quantized_matmul_impl(
     // src scale
     quantization_params.src_scale.buff = input_scales.data_ptr();
     quantization_params.src_scale.dt = data_type_t::f32;
-    quantization_params.src_scale.dims =
-        sizes_to_int64_vec(input_scales.sizes());
+    quantization_params.src_scale.dims = std::vector<int64_t>(
+        input_scales.sizes().begin(), input_scales.sizes().end());
 
     // weight scale
     quantization_params.wei_scale.buff = weight_scales.data_ptr();
     quantization_params.wei_scale.dt = data_type_t::f32;
-    quantization_params.wei_scale.dims =
-        sizes_to_int64_vec(weight_scales.sizes());
+    quantization_params.wei_scale.dims = std::vector<int64_t>(
+        weight_scales.sizes().begin(), weight_scales.sizes().end());
 
     // dst scale
     if (output_scales_defined) {
       quantization_params.dst_scale.buff = inv_output_scales.data_ptr();
       quantization_params.dst_scale.dt = data_type_t::f32;
-      quantization_params.dst_scale.dims =
-          sizes_to_int64_vec(inv_output_scales.sizes());
+      quantization_params.dst_scale.dims = std::vector<int64_t>(
+          inv_output_scales.sizes().begin(), inv_output_scales.sizes().end());
     }
 
     // src zero point
     if (input_zero_points_defined) {
       quantization_params.src_zp.buff = input_zero_points.data_ptr();
       quantization_params.src_zp.dt = data_type_t::s32;
-      quantization_params.src_zp.dims =
-          sizes_to_int64_vec(input_zero_points.sizes());
+      quantization_params.src_zp.dims = std::vector<int64_t>(
+          input_zero_points.sizes().begin(), input_zero_points.sizes().end());
     }
 
     // weight zero point
     if (weight_zero_points.defined()) {
       quantization_params.wei_zp.buff = weight_zero_points.data_ptr();
       quantization_params.wei_zp.dt = data_type_t::s32;
-      quantization_params.wei_zp.dims =
-          sizes_to_int64_vec(weight_zero_points.sizes());
+      quantization_params.wei_zp.dims = std::vector<int64_t>(
+          weight_zero_points.sizes().begin(), weight_zero_points.sizes().end());
     }
 
     // dst zero point
@@ -226,7 +226,8 @@ void zendnnl_quantized_matmul_impl(
       quantization_params.dst_zp.buff = output_zero_points_t.data_ptr();
       quantization_params.dst_zp.dt = data_type_t::s32;
       quantization_params.dst_zp.dims =
-          sizes_to_int64_vec(output_zero_points_t.sizes());
+          std::vector<int64_t>(output_zero_points_t.sizes().begin(),
+                               output_zero_points_t.sizes().end());
     }
 
     zendnnl_direct_kernel(is_input_quantized ? input : q_input, weight, bias_t,

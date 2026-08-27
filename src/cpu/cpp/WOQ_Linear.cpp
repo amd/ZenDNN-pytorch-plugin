@@ -71,15 +71,16 @@ void zentorch_woq_linear_impl(
     // weight scale
     quantization_params.wei_scale.buff = weight_scales.data_ptr();
     quantization_params.wei_scale.dt = get_zendnnl_dtype(weight_scales);
-    quantization_params.wei_scale.dims =
-        sizes_to_int64_vec(weight_scales.sizes());
+    quantization_params.wei_scale.dims = std::vector<int64_t>(
+        weight_scales.sizes().begin(), weight_scales.sizes().end());
 
     // weight zero point
     if (weight_zero_points.has_value()) {
       quantization_params.wei_zp.buff = weight_zero_points->data_ptr();
       quantization_params.wei_zp.dt = get_zendnnl_dtype(*weight_zero_points);
       quantization_params.wei_zp.dims =
-          sizes_to_int64_vec(weight_zero_points->sizes());
+          std::vector<int64_t>(weight_zero_points->sizes().begin(),
+                               weight_zero_points->sizes().end());
     }
 
     zendnnl::lowoha::matmul::matmul_data_types dtypes;
@@ -202,10 +203,10 @@ void zentorch_woq_linear_unary_out(
   check_linear_and_matmul_out_tensor(input, weight, out);
 
   // `input` is viewed as 2d for matmul computation.
-  auto input_2d_view =
-      view_tensor(get_contiguous_view(input), get_2d_size_for_tensor(input));
+  auto input_2d_view = torch::stable::view(get_contiguous_view(input),
+                                           get_2d_size_for_tensor(input));
   // `out` is viewed as 2d for matmul computation.
-  auto out_2d = view_tensor(out, get_2d_size_for_tensor(out));
+  auto out_2d = torch::stable::view(out, get_2d_size_for_tensor(out));
 
   // Set unary post ops.
   std::vector<torch::stable::Tensor> post_op_buffers = {};
@@ -254,12 +255,12 @@ void zentorch_woq_linear_unary_binary_out(
   check_linear_and_matmul_out_tensor(input, weight, out);
 
   // `input` is viewed as 2d for matmul computation.
-  auto input_2d_view =
-      view_tensor(get_contiguous_view(input), get_2d_size_for_tensor(input));
-  auto binary_input_2d_view = view_tensor(get_contiguous_view(binary_input),
-                                          get_2d_size_for_tensor(binary_input));
+  auto input_2d_view = torch::stable::view(get_contiguous_view(input),
+                                           get_2d_size_for_tensor(input));
+  auto binary_input_2d_view = torch::stable::view(
+      get_contiguous_view(binary_input), get_2d_size_for_tensor(binary_input));
   // `out` is viewed as 2d for matmul computation.
-  auto out_2d = view_tensor(out, get_2d_size_for_tensor(out));
+  auto out_2d = torch::stable::view(out, get_2d_size_for_tensor(out));
 
   std::vector<torch::stable::Tensor> post_op_buffers = {binary_input_2d_view};
   std::vector<int64_t> post_op_ids = {fuse1, fuse2};
@@ -310,16 +311,16 @@ void zentorch_woq_linear_binary_binary_out(
   check_linear_and_matmul_out_tensor(input, weight, out);
 
   // `input` is viewed as 2d for matmul computation.
-  auto input_2d_view =
-      view_tensor(get_contiguous_view(input), get_2d_size_for_tensor(input));
+  auto input_2d_view = torch::stable::view(get_contiguous_view(input),
+                                           get_2d_size_for_tensor(input));
   auto binary1_input_2d_view =
-      view_tensor(get_contiguous_view(binary1_input),
-                  get_2d_size_for_tensor(binary1_input));
+      torch::stable::view(get_contiguous_view(binary1_input),
+                          get_2d_size_for_tensor(binary1_input));
   auto binary2_input_2d_view =
-      view_tensor(get_contiguous_view(binary2_input),
-                  get_2d_size_for_tensor(binary2_input));
+      torch::stable::view(get_contiguous_view(binary2_input),
+                          get_2d_size_for_tensor(binary2_input));
   // `out` is viewed as 2d for matmul computation.
-  auto out_2d = view_tensor(out, get_2d_size_for_tensor(out));
+  auto out_2d = torch::stable::view(out, get_2d_size_for_tensor(out));
 
   std::vector<torch::stable::Tensor> post_op_buffers = {binary1_input_2d_view,
                                                         binary2_input_2d_view};

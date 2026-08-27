@@ -114,7 +114,8 @@ static void zentorch_dynamic_qlinear_impl(
     params.quant_params.wei_scale.dims = {weight_scales.size(0), N};
   } else {
     // Per-channel: normalize 1D {N} to 2D {1, N} as required by LowOHA.
-    auto ws_dims = sizes_to_int64_vec(weight_scales.sizes());
+    auto ws_dims = std::vector<int64_t>(weight_scales.sizes().begin(),
+                                        weight_scales.sizes().end());
     if (ws_dims.size() == 1) {
       ws_dims = {1, ws_dims[0]};
     }
@@ -159,8 +160,8 @@ static void dispatch_dynamic_qlinear(const torch::stable::Tensor &input,
                                      torch::stable::Tensor &result,
                                      const bool is_weight_prepacked,
                                      const std::string &zentorch_op_name) {
-  auto input_2d =
-      view_tensor(get_contiguous_view(input), get_2d_size_for_tensor(input));
+  auto input_2d = torch::stable::view(get_contiguous_view(input),
+                                      get_2d_size_for_tensor(input));
 
   // Infers the mode and validates the weight dtype/shape in one step.
   const bool is_da8w4 = check_weight_and_infer_is_da8w4(input, weight);
@@ -208,7 +209,7 @@ static void dispatch_dynamic_qlinear(const torch::stable::Tensor &input,
     }
   }
 
-  auto result_2d = view_tensor(result, get_2d_size_for_tensor(result));
+  auto result_2d = torch::stable::view(result, get_2d_size_for_tensor(result));
   zentorch_dynamic_qlinear_impl(input_2d, weight, bias_t, result_2d,
                                 weight_scales, is_da8w4, is_weight_prepacked,
                                 zentorch_op_name);
@@ -230,7 +231,8 @@ torch::stable::Tensor zentorch_dynamic_qlinear(
 
   // Output last dim is N = weight.size(0) for the s8 [N, K] and packed-s4
   // [N, K/2] / [N, K/8] weight layouts.
-  auto output_sz = sizes_to_int64_vec(input.sizes());
+  auto output_sz =
+      std::vector<int64_t>(input.sizes().begin(), input.sizes().end());
   output_sz.back() = weight.size(0);
   auto result = torch::stable::new_empty(input, output_sz);
 
@@ -254,7 +256,8 @@ void zentorch_dynamic_qlinear_out(
   check_valid_dims_for_qlinear(input, weight);
 
   if (zentorch_checks_enabled()) {
-    auto output_sz = sizes_to_int64_vec(input.sizes());
+    auto output_sz =
+        std::vector<int64_t>(input.sizes().begin(), input.sizes().end());
     output_sz.back() = weight.size(0);
     ZENTORCH_CHECK(out.scalar_type() == input.scalar_type(),
                    "zentorch_dynamic_qlinear.out: out dtype (",
