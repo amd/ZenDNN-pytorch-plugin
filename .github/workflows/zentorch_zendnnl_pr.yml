@@ -34,6 +34,9 @@ on:
   repository_dispatch:
     types: [zendnn-zentorch-zendnnl-pr , zendnnTools-zentorch-zendnnl-pr]
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: [amd-zenai-arc-xlarge-dind]
