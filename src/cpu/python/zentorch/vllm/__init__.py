@@ -114,46 +114,17 @@ def is_supported_torch() -> bool:
 
 
 # ---------------------------------------------------------------------------
-# RMSNorm CPU Forward Patch (deferred via import hook)
+# RMSNorm: register a zentorch vLLM IR provider
 # ---------------------------------------------------------------------------
-
-_LAYERNORM_MODULE = "vllm.model_executor.layers.layernorm"
-
-
-def _do_patch_rmsnorm() -> bool:
-    """Patch RMSNorm.forward to use zentorch fused add-RMS-norm kernel."""
-    try:
-        from vllm.model_executor.layers.layernorm import RMSNorm
-    except ImportError:
-        return False
-
-    if hasattr(RMSNorm, "_zentorch_rmsnorm_patched"):
-        return True
-
-    def patched_forward(
-        self,
-        x: torch.Tensor,
-        residual: torch.Tensor | None = None,
-    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
-        if self.variance_size_override is not None:
-            return self.forward_native(x, residual)
-        if residual is not None:
-            torch.ops.zentorch.zentorch_add_rms_norm_(
-                x, self.weight.data, residual, self.variance_epsilon
-            )
-            return x, residual
-        # The non-residual custom op causes accuracy issues with Qwen models,
-        # so fall back to the native path there.
-        return self.forward_native(x, residual)
-
-    RMSNorm.forward = patched_forward
-    RMSNorm._zentorch_rmsnorm_patched = True
-    logger.info("[zentorch] Patched RMSNorm.forward (bf16/fp32/fp16 -> zentorch)")
-    return True
 
 
 def _apply_rmsnorm_patch() -> bool:
-    return patch_now_or_on_import(_LAYERNORM_MODULE, _do_patch_rmsnorm)
+    """Register a zentorch provider for the residual ``fused_add_rms_norm`` IR
+    op (the platform raises it above native); the non-residual ``rms_norm``
+    stays on native."""
+    from zentorch.vllm._ir_rms_norm import register_zentorch_ir_norm_impls
+
+    return register_zentorch_ir_norm_impls()
 
 
 # ---------------------------------------------------------------------------

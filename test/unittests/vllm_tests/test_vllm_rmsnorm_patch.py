@@ -10,72 +10,46 @@ import unittest.mock
 
 import torch
 
-from ._test_constants import VLLM_AVAILABLE
-from ._test_utils import load_source_vllm_module
+from zentorch.vllm import _ir_rms_norm
 
 
-@unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
-class TestRMSNormPatch(unittest.TestCase):
-    """_do_patch_rmsnorm swaps RMSNorm.forward and is idempotent."""
+class _FakeOp:
+    """Records providers registered via ``register_impl``."""
 
-    @staticmethod
-    def _make_fake_layernorm_module():
-        module = types.ModuleType("vllm.model_executor.layers.layernorm")
+    def __init__(self):
+        self.impls = {}
 
-        class RMSNorm:
-            def __init__(self):
-                self.variance_size_override = None
-                self.variance_epsilon = 1e-6
-                self.weight = torch.nn.Parameter(torch.ones(8))
+    def register_impl(self, provider, **_):
+        def deco(fn):
+            self.impls[provider] = fn
+            return fn
 
-            def forward_native(self, x, residual=None):
-                if residual is None:
-                    return x
-                return x, residual
+        return deco
 
-        module.RMSNorm = RMSNorm
-        return module
 
-    def test_patch_swaps_forward_and_is_idempotent(self):
-        spec, plugin = load_source_vllm_module()
-        with unittest.mock.patch.dict(
-            sys.modules, {"zentorch.vllm": plugin}
-        ):
-            spec.loader.exec_module(plugin)
+class TestRMSNormIRProvider(unittest.TestCase):
+    def test_registers_zentorch_for_fused_add_only(self):
+        fused, rms = _FakeOp(), _FakeOp()
+        ir = types.ModuleType("vllm.ir")
+        ir.ops = types.SimpleNamespace(fused_add_rms_norm=fused, rms_norm=rms)
+        vllm = types.ModuleType("vllm")
+        vllm.ir = ir
 
-        fake = self._make_fake_layernorm_module()
-        with unittest.mock.patch.dict(
-            sys.modules,
-            {"vllm.model_executor.layers.layernorm": fake},
-        ):
-            self.assertTrue(plugin._do_patch_rmsnorm())
-            self.assertTrue(fake.RMSNorm._zentorch_rmsnorm_patched)
-            self.assertTrue(plugin._do_patch_rmsnorm())
+        _ir_rms_norm._ZENTORCH_IR_NORM_REGISTERED = False
+        with unittest.mock.patch.dict(sys.modules, {"vllm": vllm, "vllm.ir": ir}):
+            self.assertTrue(_ir_rms_norm.register_zentorch_ir_norm_impls())
+            self.assertTrue(_ir_rms_norm.register_zentorch_ir_norm_impls())  # idempotent
 
-    def test_patched_forward_uses_zentorch_for_residual(self):
-        spec, plugin = load_source_vllm_module()
-        with unittest.mock.patch.dict(
-            sys.modules, {"zentorch.vllm": plugin}
-        ):
-            spec.loader.exec_module(plugin)
+        self.assertIn("zentorch", fused.impls)      # residual op -> zentorch
+        self.assertNotIn("zentorch", rms.impls)     # non-residual stays native
 
-        fake = self._make_fake_layernorm_module()
-        with unittest.mock.patch.dict(
-            sys.modules,
-            {"vllm.model_executor.layers.layernorm": fake},
-        ):
-            plugin._do_patch_rmsnorm()
-
-        layer = fake.RMSNorm()
-        x = torch.randn(4, 8)
-        residual = torch.randn(4, 8)
-        with unittest.mock.patch.object(
-            torch.ops.zentorch, "zentorch_add_rms_norm_"
-        ) as fused:
-            out_x, out_residual = layer.forward(x, residual)
-            fused.assert_called_once()
-        self.assertIs(out_x, x)
-        self.assertIs(out_residual, residual)
+    def test_supports_args_gating(self):
+        sa = _ir_rms_norm._add_rms_supports_args
+        x, r, w = torch.randn(4, 8), torch.randn(4, 8), torch.ones(8)
+        self.assertTrue(sa(x, r, w, 1e-6))
+        self.assertFalse(sa(x, r, w, 1e-6, 4))             # variance_size override
+        self.assertFalse(sa(x, r, None, 1e-6))            # weightless
+        self.assertFalse(sa(x, torch.randn(4, 16), w, 1e-6))  # shape mismatch
 
 
 if __name__ == "__main__":

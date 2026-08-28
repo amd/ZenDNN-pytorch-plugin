@@ -26,8 +26,6 @@ from ._test_constants import VLLM_AVAILABLE, vllm
 # patch is INAPPLICABLE on this build (the patch itself no-ops), so the test skips
 # with a reason instead of failing. None => the patch must always apply.
 _PATCH_TARGETS = [
-    ("RMSNorm", "vllm.model_executor.layers.layernorm", "RMSNorm",
-     "_zentorch_rmsnorm_patched", None),
     ("FusedMoE", "vllm.model_executor.layers.fused_moe.cpu_fused_moe",
      "CPUFusedMOE", "_zentorch_fused_moe_patched", None),
     ("CPUSdpa", "vllm.v1.attention.backends.cpu_attn",
@@ -114,6 +112,26 @@ class TestPatchApplication(unittest.TestCase):
                     "Gemma4HeteroConfig", modname, None,
                     "_zentorch_gemma4_hetero_patched",
                 )
+
+    def test_applies_RMSNorm(self):
+        """zentorch registers an IR provider for the residual
+        ``fused_add_rms_norm`` (the platform raises it above native); the
+        non-residual ``rms_norm`` stays on native.
+
+        RMSNorm applies by registering a provider in the ``vllm.ir`` op stack
+        (a dict), not by a class-attr marker, so it doesn't fit the generic
+        ``_PATCH_TARGETS`` tuple -- hence a dedicated check, like Gemma4.
+        """
+        from vllm import ir
+
+        self.assertIn(
+            "zentorch", ir.ops.fused_add_rms_norm.impls,
+            "RMSNorm: zentorch IR provider not registered for fused_add_rms_norm",
+        )
+        self.assertNotIn(
+            "zentorch", ir.ops.rms_norm.impls,
+            "RMSNorm: non-residual rms_norm should stay on native",
+        )
 
 
 # One independently-skippable test method per marker-based patch.
