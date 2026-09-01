@@ -454,7 +454,9 @@ def meta_zentorch_weight_prepack_for_linear(weight):
 
 
 @register_meta("zentorch_weight_prepack_for_dynamic_qlinear")
-def meta_zentorch_weight_prepack_for_dynamic_qlinear(weight, zentorch_op_name=None):
+def meta_zentorch_weight_prepack_for_dynamic_qlinear(
+    weight, input_zero_points_defined=False, zentorch_op_name=None
+):
     return weight.new_empty(weight.size())
 
 

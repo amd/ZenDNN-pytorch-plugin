@@ -131,10 +131,9 @@ void zendnnl_quantized_matmul_impl(
       input.scalar_type() == c10::kByte || input.scalar_type() == c10::kChar;
   const auto input_zero_points_defined = input_zero_points.defined();
 
-  ZENTORCH_CHECK(!is_weight_prepacked || (!input_zero_points_defined &&
-                                          !weight_zero_points.defined()),
+  ZENTORCH_CHECK(!is_weight_prepacked || !weight_zero_points.defined(),
                  "zentorch_qlinear does not support prepacked weights along "
-                 "with input or weight zero points, since the quantized kernel "
+                 "with weight zero points, since the quantized kernel "
                  "computes its zero point compensation from the un-blocked "
                  "weight.");
 

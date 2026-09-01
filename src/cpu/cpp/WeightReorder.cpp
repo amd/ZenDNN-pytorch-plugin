@@ -104,9 +104,9 @@ zentorch_weight_prepack_for_linear(const at::Tensor &weight,
   return prepack_weight_for_blocked_matmul(weight, get_zendnnl_dtype(weight));
 }
 
-at::Tensor zentorch_weight_prepack_for_dynamic_qlinear(const at::Tensor &weight,
-                                                       const std::string &
-                                                       /*zentorch_op_name*/) {
+at::Tensor zentorch_weight_prepack_for_dynamic_qlinear(
+    const at::Tensor &weight, bool input_zero_points_defined,
+    const std::string & /*zentorch_op_name*/) {
   ZENTORCH_CHECK(weight.dim() == 2,
                  "Weight tensor must be 2D for qlinear layer prepacking, got ",
                  weight.dim(), "D tensor.");
@@ -115,9 +115,15 @@ at::Tensor zentorch_weight_prepack_for_dynamic_qlinear(const at::Tensor &weight,
                  "dtype for weight tensor, got ",
                  weight.scalar_type(), ".");
 
-  // Prepacked weights are gated on symmetric quantization, whose activations
-  // qlinear quantizes to s8.
-  return prepack_weight_for_blocked_matmul(weight, data_type_t::s8);
+  // AOCL's blocked reorder is selected per (wei_dtype, src_dtype). qlinear
+  // quantizes activations to u8 when input zero points are present and s8
+  // otherwise, so the caller passes that flag rather than the activation
+  // tensor, keeping this node independent of the tensor.
+  const c10::ScalarType src_dtype =
+      input_zero_points_defined ? c10::kByte : c10::kChar;
+
+  return prepack_weight_for_blocked_matmul(weight,
+                                           get_zendnnl_dtype(src_dtype));
 }
 
 TORCH_LIBRARY_FRAGMENT(zentorch, m) {
@@ -125,7 +131,7 @@ TORCH_LIBRARY_FRAGMENT(zentorch, m) {
         "str zentorch_op_name='zentorch::zentorch_weight_prepack_for_linear') "
         "-> Tensor");
   m.def("zentorch_weight_prepack_for_dynamic_qlinear(Tensor weight, "
-        "str "
+        "bool input_zero_points_defined=False, str "
         "zentorch_op_name='zentorch::zentorch_weight_prepack_for_dynamic_"
         "qlinear') "
         "-> Tensor");

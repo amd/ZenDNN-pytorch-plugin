@@ -205,15 +205,11 @@ class Test_Qlinear_Model(QLinearTestCase):
             cpp_wrapper,
         )
         self.assertEqual(counters["zentorch"]["optimized_reorder"], 2)
-        prepacked_weights = (
-            1
-            if freeze_opt
-            and get_comp_zero_points(
-                self.data.x_zero_points["per_tensor"][dtype][q_zero_points_dtype]
-            )
-            is None
-            else 0
-        )
+        # Prepack is gated on missing weight zp (not input zp). These models
+        # always pass int8 weight zp, which get_comp_zero_points maps to None.
+        # Mix graph: only the first op is zentorch_qlinear (relu/sigmoid are not
+        # prepacked).
+        prepacked_weights = 1 if freeze_opt else 0
         self.assertEqual(
             counters["zentorch"]["zentorch_weight_prepack_for_dynamic_qlinear"],
             prepacked_weights,
@@ -287,15 +283,10 @@ class Test_Qlinear_Model(QLinearTestCase):
             cpp_wrapper,
         )
         self.assertEqual(counters["zentorch"]["optimized_reorder"], 2)
-        prepacked_weights = (
-            3
-            if freeze_opt
-            and get_comp_zero_points(
-                self.data.x_zero_points["per_tensor"][dtype][q_zero_points_dtype]
-            )
-            is None
-            else 0
-        )
+        # Prepack is gated on missing weight zp (not input zp). These models
+        # always pass int8 weight zp, which get_comp_zero_points maps to None.
+        # Three zentorch_qlinear ops → three prepacks when frozen.
+        prepacked_weights = 3 if freeze_opt else 0
         self.assertEqual(
             counters["zentorch"]["zentorch_weight_prepack_for_dynamic_qlinear"],
             prepacked_weights,

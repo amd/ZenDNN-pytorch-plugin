@@ -18,9 +18,8 @@ using namespace zendnnl::interface;
 
 namespace zentorch {
 
-template <typename TensorT>
-inline data_type_t get_zendnnl_dtype(const TensorT &tensor) {
-  switch (tensor.scalar_type()) {
+inline data_type_t get_zendnnl_dtype(c10::ScalarType dtype) {
+  switch (dtype) {
   case c10::kByte:
     return data_type_t::u8;
   case c10::kChar:
@@ -43,6 +42,11 @@ inline data_type_t get_zendnnl_dtype(const TensorT &tensor) {
     ZENTORCH_CHECK(false, "Unsupported data type.");
     return data_type_t::f32; // unreachable; satisfies -Werror=return-type
   }
+}
+
+template <typename TensorT>
+inline data_type_t get_zendnnl_dtype(const TensorT &tensor) {
+  return get_zendnnl_dtype(tensor.scalar_type());
 }
 
 /**

@@ -97,8 +97,8 @@ def qlinear_weight_prepack_check(match: Match) -> bool:
     if is_weight_prepacked:
         return False
 
-    input_zero_points, weight_zero_points = match.args[3], match.args[5]
-    return input_zero_points is None and weight_zero_points is None
+    weight_zero_points = match.args[5]
+    return weight_zero_points is None
 
 
 qlinear_args = [Arg() for _ in range(10)]
@@ -124,6 +124,10 @@ def zentorch_weight_prepack_for_qlinear_replacement(
     output_zero_points: Any,
     output_dtype: Any,
 ) -> None:
+    # Resolve from the matched args before tracing: inside `repl`,
+    # `input_zero_points` is the traced example value, not the fx arg.
+    input_zero_points_defined = input_zero_points is not None
+
     def repl(
         input: Any,
         weight: Any,
@@ -137,7 +141,9 @@ def zentorch_weight_prepack_for_qlinear_replacement(
         output_dtype: Any,
     ) -> torch.Tensor:
         counters["zentorch"]["zentorch_weight_prepack_for_dynamic_qlinear"] += 1
-        weight_prepacked = zentorch.zentorch_weight_prepack_for_dynamic_qlinear(weight)
+        weight_prepacked = zentorch.zentorch_weight_prepack_for_dynamic_qlinear(
+            weight, input_zero_points_defined
+        )
         return zentorch.zentorch_qlinear(
             input,
             weight_prepacked,
@@ -190,6 +196,10 @@ def zentorch_weight_prepack_for_qlinear_mul_add_replacement(
     output_zero_points: Any,
     output_dtype: Any,
 ) -> None:
+    # Resolve from the matched args before tracing: inside `repl`,
+    # `input_zero_points` is the traced example value, not the fx arg.
+    input_zero_points_defined = input_zero_points is not None
+
     def repl(
         input: Any,
         weight: Any,
@@ -205,7 +215,9 @@ def zentorch_weight_prepack_for_qlinear_mul_add_replacement(
         output_dtype: Any,
     ) -> torch.Tensor:
         counters["zentorch"]["zentorch_weight_prepack_for_dynamic_qlinear"] += 1
-        weight_prepacked = zentorch.zentorch_weight_prepack_for_dynamic_qlinear(weight)
+        weight_prepacked = zentorch.zentorch_weight_prepack_for_dynamic_qlinear(
+            weight, input_zero_points_defined
+        )
         return zentorch.zentorch_qlinear_mul_add(
             input,
             weight_prepacked,
@@ -267,7 +279,11 @@ def zentorch_weight_prepack_for_dynamic_qlinear_replacement(
 
     def repl(*args: Any) -> torch.Tensor:
         counters["zentorch"]["zentorch_weight_prepack_for_dynamic_qlinear"] += 1
-        weight_prepacked = zentorch.zentorch_weight_prepack_for_dynamic_qlinear(args[1])
+        # zentorch_dynamic_qlinear takes no input zero points; its per-token
+        # activation quantization is symmetric, so the source dtype is s8.
+        weight_prepacked = zentorch.zentorch_weight_prepack_for_dynamic_qlinear(
+            args[1], False
+        )
         return zentorch.zentorch_dynamic_qlinear(
             args[0], weight_prepacked, *args[2:], **new_kwargs
         )

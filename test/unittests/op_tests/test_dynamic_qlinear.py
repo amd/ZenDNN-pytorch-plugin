@@ -103,7 +103,9 @@ class Test_DynamicQLinear(QLinearTestCase):
         self.assertEqual(ref, out, atol=1e-2, rtol=1e-2)
 
         prepacked_weight = (
-            torch.ops.zentorch.zentorch_weight_prepack_for_dynamic_qlinear(weight_int8)
+            torch.ops.zentorch.zentorch_weight_prepack_for_dynamic_qlinear(
+                weight_int8, False
+            )
         )
         out_prepacked = torch.ops.zentorch.zentorch_dynamic_qlinear(
             input_2d, prepacked_weight, weight_scales, bias,

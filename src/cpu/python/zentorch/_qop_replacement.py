@@ -14,7 +14,10 @@ from torch._inductor.pattern_matcher import (
     Match,
     stable_topological_sort,
 )
+from ._logging import get_logger
 from ._utils import counters, is_valid_fp16
+
+logger = get_logger(__name__)
 
 
 matcher_pass = PatternMatcherPass(pass_name="quantization_replacement_pass")
@@ -149,6 +152,8 @@ def _ensure_tensor_node(graph, arg, dtype, name_hint, before_node):
     )
 
 
+# The only place where we are using this function was in `_splice_zentorch_qlinear`
+# and we are removing the call to it as a part of this PR. Currently, keeping it here for reference.
 def _convert_to_int32_node(graph, node, before_node):
     """Cast `node` to int32 via prims.convert_element_type before `before_node`
     (per-channel weight zp can arrive int64 but must reach the kernel int32);
@@ -208,11 +213,12 @@ def _splice_zentorch_qlinear(
     weight_scales = _ensure_tensor_node(
         graph, weight_scale_arg, torch.float32, "weight_scale", root
     )
-    weight_zps = _ensure_tensor_node(
-        graph, weight_zp_arg, torch.int32, "weight_zp", root
+    logger.info(
+        "Hardcoding zentorch_qlinear weight_zero_points to None: matched "
+        "patterns use symmetric int8 weights (qmin=-127), and prepacked "
+        "weights cannot carry weight zero points."
     )
-    if weight_zp_needs_int32_cast:
-        weight_zps = _convert_to_int32_node(graph, weight_zps, root)
+    weight_zps = None
 
     # Fall back to the root's dtype when the input carries no meta, else
     # output_dtype=None and the kernel silently defaults the output to float32.

@@ -62,7 +62,9 @@ class Test_Qlinear(QLinearTestCase):
             return
 
         prepacked_weight = (
-            torch.ops.zentorch.zentorch_weight_prepack_for_dynamic_qlinear(weight)
+            torch.ops.zentorch.zentorch_weight_prepack_for_dynamic_qlinear(
+                weight, input_zero_points is not None
+            )
         )
         zen_output_prepacked = torch.ops.zentorch.zentorch_qlinear(
             input,
