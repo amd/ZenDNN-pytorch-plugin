@@ -27,6 +27,7 @@ EXPECTED_PATCHES = [
     "FusedMoE",
     "CPUSdpa",
     "Da8w4Kernel",
+    "WhisperW4A16",
 ]
 
 REMOVED_PATCHES = [

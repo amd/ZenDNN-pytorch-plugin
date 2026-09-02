@@ -55,6 +55,9 @@ from zentorch.vllm._gemma4_hetero_config_patch import (  # noqa: E402, F401
 from zentorch.vllm._da8w4_kernel_patch import (  # noqa: E402, F401
     _apply_da8w4_patch,
 )
+from zentorch.vllm._whisper_w4a16_patch import (  # noqa: E402, F401
+    _apply_whisper_w4a16_patch,
+)
 from zentorch.vllm._import_hook import patch_now_or_on_import  # noqa: E402
 
 logger = get_logger(__name__)
@@ -606,6 +609,7 @@ _PATCHES = (
     ("FusedMoE", _apply_fused_moe_patch),
     ("CPUSdpa", _apply_cpu_sdpa_patch),
     ("Da8w4Kernel", _apply_da8w4_patch),
+    ("WhisperW4A16", _apply_whisper_w4a16_patch),
 )
 
 # Names of patches whose apply() returned True in this process (test hook).

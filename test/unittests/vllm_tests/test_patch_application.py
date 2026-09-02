@@ -42,6 +42,9 @@ _PATCH_TARGETS = [
      "TorchAOConfig", "_zentorch_moe_patched", None),
     ("Da8w4Kernel", "vllm.model_executor.kernels.linear.mixed_precision.zentorch",
      "ZentorchWNA16LinearKernel", "_zentorch_da8w4_patched", None),
+    ("WhisperW4A16", "vllm.model_executor.models.whisper",
+     "WhisperForConditionalGeneration", "_zentorch_whisper_w4a16_patched",
+     "load_weights"),
 ]
 
 # Gemma-4 wraps get_config by name in each of these; marker sits on the module.
