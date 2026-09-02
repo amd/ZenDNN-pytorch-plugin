@@ -25,6 +25,7 @@ from unittest_utils import (  # noqa: 402
     cpp_wrapper_opt,
     test_with_freeze_opt_and_cpp_wrapper,
     counters,
+    bias_opt,
 )
 
 supported_dtypes = update_supported_dtypes(supported_dtypes, "zentorch_linear")
@@ -52,11 +53,6 @@ LINEAR_BINARY_BINARY_OPS = {
         "op2": operator.add,
         "counter": "zentorch_linear_mul_add",
     },
-}
-
-LINEAR_BIAS_CASES = {
-    "with_bias": True,
-    "no_bias": False,
 }
 
 LINEAR_TOLERANCES = {
@@ -152,37 +148,37 @@ class Test_Linear_Binary_Binary_Model(AddmmTestCase):
             FileCheck().check("aoti_torch_cpu_zentorch").run(cpp_code)
 
     @AddmmTestCase.hypothesis_params_addmm_itr(
-        dtype_list=supported_dtypes, freeze_list=freeze_opt,
+        dtype_list=supported_dtypes,
+        freeze_list=freeze_opt,
         cpp_wrapper_opt_list=cpp_wrapper_opt,
+        bias_opt_list=bias_opt,
         # cold cpp_wrapper compile exceeds the default deadline; see
         # test_with_freeze_opt_and_cpp_wrapper in zentorch_test_utils.
         time_out=60000,
     )
     @torch.inference_mode()
-    def test_linear_add_add_model(self, dtype, freeze_opt, cpp_wrapper):
-        for bias_name, bias_flag in LINEAR_BIAS_CASES.items():
-            with self.subTest(bias=bias_name):
-                self._run_binary_binary_post_op("add_add", bias_flag, dtype, freeze_opt, cpp_wrapper)
+    def test_linear_add_add_model(self, dtype, freeze_opt, cpp_wrapper, bias):
+        self._run_binary_binary_post_op("add_add", bias, dtype, freeze_opt, cpp_wrapper)
 
     # The mul_add case also asserts the linear was lowered to its `.out`
     # variant (via check_out_variant). Caching is disabled since the lowering
     # counter is short-circuited on an FxGraphCache hit.
     @inductor_config.patch(force_disable_caches=True)
     @AddmmTestCase.hypothesis_params_addmm_itr(
-        dtype_list=supported_dtypes, freeze_list=freeze_opt,
+        dtype_list=supported_dtypes,
+        freeze_list=freeze_opt,
         cpp_wrapper_opt_list=cpp_wrapper_opt,
+        bias_opt_list=bias_opt,
         # cold cpp_wrapper compile exceeds the default deadline; see
         # test_with_freeze_opt_and_cpp_wrapper in zentorch_test_utils.
         time_out=60000,
     )
     @torch.inference_mode()
-    def test_linear_mul_add_model(self, dtype, freeze_opt, cpp_wrapper):
-        for bias_name, bias_flag in LINEAR_BIAS_CASES.items():
-            with self.subTest(bias=bias_name):
-                self._run_binary_binary_post_op(
-                    "mul_add", bias_flag, dtype, freeze_opt, cpp_wrapper,
-                    check_out_variant=True,
-                )
+    def test_linear_mul_add_model(self, dtype, freeze_opt, cpp_wrapper, bias):
+        self._run_binary_binary_post_op(
+            "mul_add", bias, dtype, freeze_opt, cpp_wrapper,
+            check_out_variant=True,
+        )
 
 
 if __name__ == "__main__":

@@ -542,6 +542,7 @@ class AddmmTestCase(Zentorch_TestCase):
             dtype,
             freeze,
             cpp_wrapper,
+            bias,
             b,
             m,
             k,
@@ -687,6 +688,7 @@ class AddmmTestCase(Zentorch_TestCase):
         matrix_dim_2_Range=MATRIX_DIM_2_RANGE,
         matrix_dim_3_Range=MATRIX_DIM_3_RANGE,
         matrix_dim_4_Range=MATRIX_DIM_4_RANGE,
+        bias_opt_list=BIAS_OPT_DEF,
         tensor_seed=0,
     ):
         hypStr = ""
@@ -702,6 +704,8 @@ class AddmmTestCase(Zentorch_TestCase):
         hypStr += f"freeze_list=[{freeze}], "
         cpp_wrapper = draw(st.sampled_from(cpp_wrapper_opt_list))
         hypStr += f"cpp_wrapper_opt_list=[{cpp_wrapper}], "
+        bias = draw(st.sampled_from(bias_opt_list))
+        hypStr += f"bias_opt_list=[{bias}], "
         b = draw(st.integers(bRange.get_min(), bRange.get_max()))
         hypStr += f"bRange=Range({b},{b}), "
         m = draw(st.integers(mRange.get_min(), mRange.get_max()))
@@ -805,6 +809,7 @@ class AddmmTestCase(Zentorch_TestCase):
             dtype,
             freeze,
             cpp_wrapper,
+            bias,
             b,
             m,
             k,
@@ -839,6 +844,7 @@ class AddmmTestCase(Zentorch_TestCase):
         matrix_dim_2_Range=MATRIX_DIM_2_RANGE,
         matrix_dim_3_Range=MATRIX_DIM_3_RANGE,
         matrix_dim_4_Range=MATRIX_DIM_4_RANGE,
+        bias_opt_list=BIAS_OPT_DEF,
         time_out=None,
         tensor_seed=0,
     ):
@@ -877,13 +883,14 @@ class AddmmTestCase(Zentorch_TestCase):
                     matrix_dim_2_Range=matrix_dim_2_Range,
                     matrix_dim_3_Range=matrix_dim_3_Range,
                     matrix_dim_4_Range=matrix_dim_4_Range,
+                    bias_opt_list=bias_opt_list,
                     tensor_seed=tensor_seed,
                 ),
             )
             def wrapper(obj, val, *args, **kwargs):
                 try:
                     _clear_weight_cache()
-                    hypStr, tensor_seed, dtype, freeze, cpp_wrapper, *_ = val
+                    hypStr, tensor_seed, dtype, freeze, cpp_wrapper, bias, *_ = val
 
                     if not hasattr(obj, "getData") or not isinstance(
                         obj.getData(), Test_Data
@@ -901,6 +908,7 @@ class AddmmTestCase(Zentorch_TestCase):
                         "dtype": dtype,
                         "freeze_opt": freeze,
                         "cpp_wrapper": cpp_wrapper,
+                        "bias": bias,
                     }
 
                     required_args = inspect.signature(function).parameters.keys()
