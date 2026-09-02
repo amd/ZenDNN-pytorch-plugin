@@ -6,6 +6,10 @@
 #include "Memory.hpp"
 #include "zendnnl.hpp"
 
+#include <torch/csrc/inductor/aoti_torch/c/shim.h>
+#include <torch/csrc/stable/library.h>
+#include <torch/csrc/stable/ops.h>
+
 #include <algorithm>
 
 namespace zendnnl::lowoha::matmul {
@@ -20,6 +24,20 @@ namespace zentorch {
 
 using namespace zendnnl::interface;
 
+namespace {
+
+torch::stable::Tensor
+stable_as_strided(const torch::stable::Tensor &self,
+                  torch::headeronly::IntHeaderOnlyArrayRef sizes,
+                  torch::headeronly::IntHeaderOnlyArrayRef strides) {
+  AtenTensorHandle result = nullptr;
+  TORCH_ERROR_CODE_CHECK(
+      aoti_torch_as_strided(self.get(), sizes.data(), strides.data(), &result));
+  return torch::stable::Tensor(result);
+}
+
+} // namespace
+
 // Clears all ZenDNN matmul weight-reorder caches.
 void clear_zendnn_weight_caches() {
   zendnnl::lowoha::matmul::native::clear_all_weight_caches();
@@ -28,13 +46,14 @@ void clear_zendnn_weight_caches() {
 }
 
 // AOCL picks its reorder routine per (wei_dtype, src_dtype) pair.
-at::Tensor prepack_weight_for_blocked_matmul(const at::Tensor &weight_in,
-                                             const data_type_t src_dtype) {
-  const at::Tensor weight = weight_in.contiguous();
+torch::stable::Tensor
+prepack_weight_for_blocked_matmul_stable(const torch::stable::Tensor &weight_in,
+                                         const data_type_t src_dtype) {
+  const torch::stable::Tensor weight = torch::stable::contiguous(weight_in);
 
   // Matmul weight B = weight.t() = [K, N] = [in_features, out_features];
   // a contiguous [N, K] weight makes this view column-major ("ba").
-  at::Tensor reorder_input = weight.transpose(0, 1);
+  torch::stable::Tensor reorder_input = torch::stable::transpose(weight, 0, 1);
   const auto in_sizes = reorder_input.sizes();
   const auto in_strides = reorder_input.strides();
 
@@ -76,7 +95,8 @@ at::Tensor prepack_weight_for_blocked_matmul(const at::Tensor &weight_in,
   const int64_t view_elements = (weight.size(0) - 1) * weight.stride(0) +
                                 (weight.size(1) - 1) * weight.stride(1) + 1;
   const int64_t num_elements = std::max(packed_elements, view_elements);
-  at::Tensor packed = at::empty({num_elements}, weight.options());
+  torch::stable::Tensor packed =
+      torch::stable::new_empty(weight, {1, num_elements});
 
   // Step 3: one-time prepack directly on the raw pointers.
   const status_t status = zendnnl::lowoha::reorder::reorder_direct(
@@ -84,11 +104,11 @@ at::Tensor prepack_weight_for_blocked_matmul(const at::Tensor &weight_in,
   ZENTORCH_CHECK(status == status_t::success,
                  "weight prepack reorder_direct failed.");
 
-  return at::as_strided(packed, weight.sizes(), weight.strides());
+  return stable_as_strided(packed, weight.sizes(), weight.strides());
 }
 
-at::Tensor
-zentorch_weight_prepack_for_linear(const at::Tensor &weight,
+torch::stable::Tensor
+zentorch_weight_prepack_for_linear(const torch::stable::Tensor &weight,
                                    const std::string & /*zentorch_op_name*/) {
   ZENTORCH_CHECK(weight.dim() == 2,
                  "Weight tensor must be 2D for linear layer prepacking, got ",
@@ -101,11 +121,12 @@ zentorch_weight_prepack_for_linear(const at::Tensor &weight,
                  "bfloat16 or float16 dtype for weight tensor");
 
   // Non-quantized GEMMs run activations and weights at the same precision.
-  return prepack_weight_for_blocked_matmul(weight, get_zendnnl_dtype(weight));
+  return prepack_weight_for_blocked_matmul_stable(weight,
+                                                  get_zendnnl_dtype(weight));
 }
 
-at::Tensor zentorch_weight_prepack_for_dynamic_qlinear(
-    const at::Tensor &weight, bool input_zero_points_defined,
+torch::stable::Tensor zentorch_weight_prepack_for_dynamic_qlinear(
+    const torch::stable::Tensor &weight, bool input_zero_points_defined,
     const std::string & /*zentorch_op_name*/) {
   ZENTORCH_CHECK(weight.dim() == 2,
                  "Weight tensor must be 2D for qlinear layer prepacking, got ",
@@ -122,11 +143,11 @@ at::Tensor zentorch_weight_prepack_for_dynamic_qlinear(
   const c10::ScalarType src_dtype =
       input_zero_points_defined ? c10::kByte : c10::kChar;
 
-  return prepack_weight_for_blocked_matmul(weight,
-                                           get_zendnnl_dtype(src_dtype));
+  return prepack_weight_for_blocked_matmul_stable(weight,
+                                                  get_zendnnl_dtype(src_dtype));
 }
 
-TORCH_LIBRARY_FRAGMENT(zentorch, m) {
+STABLE_TORCH_LIBRARY_FRAGMENT(zentorch, m) {
   m.def("zentorch_weight_prepack_for_linear(Tensor weight, "
         "str zentorch_op_name='zentorch::zentorch_weight_prepack_for_linear') "
         "-> Tensor");
@@ -137,11 +158,11 @@ TORCH_LIBRARY_FRAGMENT(zentorch, m) {
         "-> Tensor");
 }
 
-TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
+STABLE_TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
   m.impl("zentorch_weight_prepack_for_linear",
-         zentorch::zentorch_weight_prepack_for_linear);
+         TORCH_BOX(&zentorch::zentorch_weight_prepack_for_linear));
   m.impl("zentorch_weight_prepack_for_dynamic_qlinear",
-         zentorch::zentorch_weight_prepack_for_dynamic_qlinear);
+         TORCH_BOX(&zentorch::zentorch_weight_prepack_for_dynamic_qlinear));
 }
 
 } // namespace zentorch
