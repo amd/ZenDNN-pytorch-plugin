@@ -98,13 +98,11 @@ static void validate_dtypes_and_shapes(
     const std::vector<std::optional<torch::stable::Tensor>> &w13_bias,
     const std::vector<std::optional<torch::stable::Tensor>> &w13_scales) {
 
-  ZENTORCH_CHECK(inputs.size() > 1,
-                 "zentorch_group_matmul: sequential mode (inputs.size() == 1) "
-                 "is not supported; only parallel mode (one input per expert) "
-                 "is currently implemented");
-
   const int num_active = static_cast<int>(inputs.size());
   const int num_total = static_cast<int>(w13_weights.size());
+
+  ZENTORCH_CHECK(num_active > 0,
+                 "zentorch_group_matmul: inputs cannot be empty");
 
   ZENTORCH_CHECK(inputs.size() == w13_bias.size(),
                  "zentorch_group_matmul: inputs.size() (", inputs.size(),
@@ -482,6 +480,8 @@ void zentorch_group_matmul_out_impl(
   std::vector<int> lda_vec(num_active);
   std::vector<const void *> bias_ptrs(num_active, nullptr);
   std::vector<void *> dst_ptrs(num_active, nullptr);
+  std::vector<void *> fused_moe_dst_ptrs(num_active, nullptr);
+  std::vector<int> fused_moe_ldc_down(num_active, 0);
   std::vector<int> ldc_vec(num_active);
   // Holds src_scale tensors for dynamic DA8W8 (keeps them alive until kernel
   // returns)
@@ -519,6 +519,10 @@ void zentorch_group_matmul_out_impl(
   // so the tail's defaulted fields are never observed.
   std::vector<zendnnl::lowoha::matmul::matmul_params> params(num_total);
 
+  // Fused MoE (Op1 → activation → Op2) setup
+  const bool use_fused_moe = !w2_weights.empty();
+  zendnnl::lowoha::matmul::grp_matmul_fused_moe_params fused_moe{};
+
   // Weight metadata population: every expert (active prefix + inactive tail).
   for (int op_idx = 0; op_idx < num_total; ++op_idx) {
     const auto &w13_weight = w13_weights[op_idx];
@@ -550,9 +554,14 @@ void zentorch_group_matmul_out_impl(
     }
 
     // When gemm_outputs is empty, pass nullptr — ZenDNN handles allocation
-    // internally
-    if (!gemm_outputs.empty()) {
+    // internally. Incase of fused MOE. Gemm outputs contains the output of
+    // both the GEMMs.
+    if (!gemm_outputs.empty() and !use_fused_moe) {
       dst_ptrs[op_idx] = gemm_outputs[op_idx].data_ptr();
+      params[op_idx].dtypes.dst = get_zendnnl_dtype(gemm_outputs[op_idx]);
+    } else if (!gemm_outputs.empty() and use_fused_moe) {
+      fused_moe_dst_ptrs[op_idx] = gemm_outputs[op_idx].data_ptr();
+      fused_moe_ldc_down[op_idx] = gemm_outputs[op_idx].stride(0);
       params[op_idx].dtypes.dst = get_zendnnl_dtype(gemm_outputs[op_idx]);
     } else {
       params[op_idx].dtypes.dst = get_zendnnl_dtype(input);
@@ -645,10 +654,6 @@ void zentorch_group_matmul_out_impl(
     moe_params.row_ptrs = reinterpret_cast<const void **>(row_ptrs->data_ptr());
   }
 
-  // Fused MoE (Op1 → activation → Op2) setup
-  const bool use_fused_moe = !w2_weights.empty();
-  zendnnl::lowoha::matmul::grp_matmul_fused_moe_params fused_moe{};
-
   if (use_fused_moe) {
 
     // W2 down-weight metadata follows the same prepack-extras layout as
@@ -674,6 +679,11 @@ void zentorch_group_matmul_out_impl(
       } else {
         fused_moe.ldb_down[op_idx] = w2_weights[op_idx]->stride(0);
       }
+    }
+    // When fused_moe is active, the dst_down are the gemm_outputs.
+    if (!gemm_outputs.empty()) {
+      fused_moe.dst_down = fused_moe_dst_ptrs;
+      fused_moe.ldc_down = fused_moe_ldc_down;
     }
 
     for (int op_idx = 0; op_idx < num_active; ++op_idx) {

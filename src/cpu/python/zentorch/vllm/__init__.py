@@ -59,6 +59,9 @@ from zentorch.vllm._whisper_w4a16_patch import (  # noqa: E402, F401
     _apply_whisper_w4a16_patch,
 )
 from zentorch.vllm._import_hook import patch_now_or_on_import  # noqa: E402
+from zentorch.vllm._fused_mlp_patch import (  # noqa: E402, F401
+    _apply_fused_mlp_patch_impl,
+)
 
 logger = get_logger(__name__)
 
@@ -607,6 +610,7 @@ _PATCHES = (
     ("MixtralMoELoader", _apply_mixtral_loader_patch_impl),
     ("RMSNorm", _apply_rmsnorm_patch),
     ("FusedMoE", _apply_fused_moe_patch),
+    ("FusedMLP", _apply_fused_mlp_patch_impl),
     ("CPUSdpa", _apply_cpu_sdpa_patch),
     ("Da8w4Kernel", _apply_da8w4_patch),
     ("WhisperW4A16", _apply_whisper_w4a16_patch),

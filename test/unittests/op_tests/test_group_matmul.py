@@ -51,12 +51,6 @@ def moe_output_buffer(num_tokens, hidden_dim, dtype):
 class Test_GroupMatmul(GroupMatmulTestCase):
     """Hypothesis-based tests for zentorch_group_matmul.out."""
 
-    def setUp(self):
-        super().setUp()
-        # Drop FusedMoE's per-expert view caches so each case starts clean
-        # and never reuses slices keyed on a TensorImpl* from a prior test.
-        torch.ops.zentorch.zentorch_flush_moe_weight_cache()
-
     # ------------------------------------------------------------------
     # Reference helpers
     # ------------------------------------------------------------------
@@ -111,74 +105,6 @@ class Test_GroupMatmul(GroupMatmulTestCase):
                 )
                 expert_cursor[expert_id] += 1
         return inputs, gemm_outputs, row_ptrs
-
-    def _reference_expert_outputs(
-        self,
-        inputs,
-        weights,
-        bias,
-        activation="none",
-        w2_weights=None,
-        w2_bias=None,
-        compute_in_fp32=False,
-    ):
-        """Per-expert reference: linear → optional activation → optional w2."""
-        expert_outputs = []
-        for i in range(len(inputs)):
-            expert_input = inputs[i].float() if compute_in_fp32 else inputs[i]
-            expert_weight = weights[i].float() if compute_in_fp32 else weights[i]
-            expert_bias = (
-                bias[i].float()
-                if (bias[i] is not None and compute_in_fp32)
-                else bias[i]
-            )
-            result = torch.nn.functional.linear(
-                expert_input, expert_weight, expert_bias
-            )
-            if activation != "none":
-                result = self._apply_gated_activation(result, activation)
-            if w2_weights is not None:
-                down_weight = (
-                    w2_weights[i].float() if compute_in_fp32 else w2_weights[i]
-                )
-                down_bias = (
-                    w2_bias[i].float()
-                    if (w2_bias[i] is not None and compute_in_fp32)
-                    else w2_bias[i]
-                )
-                result = torch.nn.functional.linear(result, down_weight, down_bias)
-            expert_outputs.append(result)
-        return expert_outputs
-
-    def _apply_gated_activation(self, tensor, activation):
-        """Gated activation: split → act(gate) * value. Input [M, 2*D] → [M, D].
-
-        Matches cpp/GroupMatmul.cpp::map_activation_to_gated_act:
-          "none" / ""       → none
-          "silu"    → silu_and_mul
-          "gelu" / "gelu_tanh" → gelu_and_mul
-          "swigluoai"  → swiglu_oai_mul
-        """
-        self.assertEqual(
-            tensor.shape[1] % 2,
-            0,
-            f"Gated activation requires even last dim, got {tensor.shape[1]}",
-        )
-        half_dim = tensor.shape[1] // 2
-        gate = tensor[:, :half_dim]
-        value = tensor[:, half_dim:]
-        if activation == "silu":
-            return torch.nn.functional.silu(gate) * value
-        elif activation in ("gelu", "gelu_tanh"):
-            # LowOHA gelu_and_mul uses gelu_erf (see group_matmul_act_avx512.hpp).
-            return torch.nn.functional.gelu(gate) * value
-        elif activation == "swigluoai":
-            alpha, limit = 1.702, 7.0
-            gate, up = tensor[..., ::2], tensor[..., 1::2]
-            gate = gate.clamp(min=None, max=limit)
-            up = up.clamp(min=-limit, max=limit)
-            return (up + 1) * (gate * torch.sigmoid(gate * alpha))
-        raise ValueError(f"Unsupported activation: {activation!r}")
 
     @GroupMatmulTestCase.hypothesis_params_group_matmul_itr(
         dtype_list=supported_dtypes,
@@ -781,8 +707,8 @@ class Test_GroupMatmul(GroupMatmulTestCase):
         - High-level: zentorch_fused_moe (token grouping + W13 + act + W2 +
             weighted reduce in a single op call)
 
-        ZenDNN reuses the input buffers for w2 output, so row_ptrs must
-        point into the input tensors (which will hold the down projection
+        ZenDNN reuses the gemm_outputs buffers for w2 output, so row_ptrs must
+        point into the gemm_outputs tensors (which will hold the down projection
         results after the kernel completes).
         Constraint: K_out must equal K (buffer reuse).
         """
@@ -809,17 +735,21 @@ class Test_GroupMatmul(GroupMatmulTestCase):
             hidden_states, topk_indices, num_experts, K, K_out
         )
 
-        row_ptrs_into_inputs = torch.zeros(num_tokens * topk, dtype=torch.int64)
+        gate_up_outputs = [
+            torch.empty(t.size(0), N, dtype=torch_dtype) for t in inputs
+        ]
+
+        row_ptrs_into_gate_up = torch.zeros(num_tokens * topk, dtype=torch.int64)
         per_expert_row = [0] * num_experts
         for token_idx in range(num_tokens):
             for topk_idx in range(topk):
                 expert_id = topk_indices[token_idx, topk_idx].item()
                 row_in_expert = per_expert_row[expert_id]
-                row_ptrs_into_inputs[token_idx * topk + topk_idx] = (
-                    inputs[expert_id].data_ptr()
+                row_ptrs_into_gate_up[token_idx * topk + topk_idx] = (
+                    gate_up_outputs[expert_id].data_ptr()
                     + row_in_expert
-                    * inputs[expert_id].stride(0)
-                    * inputs[expert_id].element_size()
+                    * gate_up_outputs[expert_id].stride(0)
+                    * gate_up_outputs[expert_id].element_size()
                 )
                 per_expert_row[expert_id] += 1
 
@@ -848,18 +778,16 @@ class Test_GroupMatmul(GroupMatmulTestCase):
         w2_bias_active = [w2_bias[e] for e in active_ids]
 
         moe_reduce_output = moe_output_buffer(num_tokens, K_out, torch_dtype)
-        gate_up_outputs = [
-            torch.empty(t.size(0), N, dtype=torch_dtype) for t in inputs_active
-        ]
+        gate_up_outputs_active = [gate_up_outputs[e] for e in active_ids]
 
         torch.ops.zentorch.zentorch_group_matmul.out(
-            gate_up_outputs,
+            gate_up_outputs_active,
             inputs_active,
             w13_ordered,
             w2_ordered,
             moe_reduce_output,
             topk_weights_t,
-            row_ptrs_into_inputs,
+            row_ptrs_into_gate_up,
             activation,
             w13_bias_active,
             w2_bias_active,

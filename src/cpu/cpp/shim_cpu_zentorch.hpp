@@ -272,18 +272,19 @@ AOTI_TORCH_EXPORT AOTITorchError aoti_torch_cpu_zentorch_dynamic_qlinear_out(
     AtenTensorHandle weight_scales, AtenTensorHandle *B,
     bool is_weight_prepacked, const char *zentorch_op_name);
 
-// Fused MoE FFN block. `output` (Tensor(a!)) is mutated in place; the op
-// returns void (no ret handle). w13_bias/w2_bias/w13_scales/w2_scales are
-// optional; skip_weighted is a bool and act is a string. The interleaving of
-// tensor / optional-tensor / bool / string args (and the void return) is why
-// this op is routed via a FallbackKernel lowering rather than the
-// ExternKernelAlloc + _qlinear_codegen_args path used by the linear ops.
 AOTI_TORCH_EXPORT AOTITorchError aoti_torch_cpu_zentorch_fused_moe(
     AtenTensorHandle output, AtenTensorHandle input, AtenTensorHandle w13,
     AtenTensorHandle w2, AtenTensorHandle *w13_bias, AtenTensorHandle *w2_bias,
     AtenTensorHandle topk_weights, AtenTensorHandle topk_id, bool skip_weighted,
     const char *act, AtenTensorHandle *w13_scales, AtenTensorHandle *w2_scales,
     const char *zentorch_op_name);
+
+AOTI_TORCH_EXPORT AOTITorchError aoti_torch_cpu_zentorch_fused_ffn_concat_out(
+    AtenTensorHandle output, AtenTensorHandle input,
+    AtenTensorHandle w13_weight, AtenTensorHandle w2_weight,
+    AtenTensorHandle *w13_bias, AtenTensorHandle *w2_bias,
+    const char *activation, AtenTensorHandle *w13_scale,
+    AtenTensorHandle *w2_scale, const char *zentorch_op_name);
 
 // ============================================================================
 // RMS norm. `zentorch_rms_norm` returns a normalized output tensor.

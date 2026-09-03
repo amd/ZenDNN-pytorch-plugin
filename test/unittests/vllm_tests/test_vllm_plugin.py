@@ -25,6 +25,7 @@ EXPECTED_PATCHES = [
     "MixtralMoELoader",
     "RMSNorm",
     "FusedMoE",
+    "FusedMLP",
     "CPUSdpa",
     "Da8w4Kernel",
     "WhisperW4A16",
@@ -271,6 +272,43 @@ class TestPatchWiring(unittest.TestCase):
 
 
 @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
+class TestFusedMLPPatch(unittest.TestCase):
+    """FusedMLP dense-MLP fusion is wired in and opt-in via ZENTORCH_FUSED_FFN."""
+
+    def test_wired_right_after_fused_moe(self):
+        from zentorch.vllm import _PATCHES
+
+        names = [name for name, _ in _PATCHES]
+        self.assertIn("FusedMLP", names)
+        self.assertEqual(names[names.index("FusedMoE") + 1], "FusedMLP")
+
+    def test_disabled_by_default(self):
+        import os
+
+        from zentorch.vllm import _fused_mlp_patch as fmp
+
+        with unittest.mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("ZENTORCH_FUSED_FFN", None)
+            self.assertFalse(fmp._apply_fused_mlp_patch_impl())
+
+    def test_enabled_via_env_arms_hook(self):
+        import os
+
+        from zentorch.vllm import _fused_mlp_patch as fmp
+
+        with (
+            unittest.mock.patch.dict(os.environ, {"ZENTORCH_FUSED_FFN": "1"}),
+            unittest.mock.patch.object(
+                fmp, "patch_now_or_on_import", return_value=True
+            ) as arm,
+        ):
+            self.assertTrue(fmp._apply_fused_mlp_patch_impl())
+            arm.assert_called_once_with(
+                fmp._TARGET_MODULE, fmp._do_patch_fused_mlp
+            )
+
+
+@unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
 class TestPlatformConfiguration(unittest.TestCase):
     """ZenCPUPlatform identity."""
 
@@ -305,6 +343,7 @@ def run_tests():
         TestVersionContract,
         TestRegisterContract,
         TestPatchWiring,
+        TestFusedMLPPatch,
         TestPlatformConfiguration,
         TestZentorchOptimizePass,
     ):

@@ -954,6 +954,23 @@ def meta_zentorch_woq_repack_from_int4pack(
     return packed_weight.new_empty((N, K_packed), dtype=torch.int32)
 
 
+@register_meta("zentorch_fused_ffn_concat", "out")
+def meta_zentorch_fused_ffn_concat_out(
+    output,
+    input,
+    w13_weight,
+    w2_weight,
+    w13_bias=None,
+    w2_bias=None,
+    activation="silu",
+    w13_scale=None,
+    w2_scale=None,
+    zentorch_op_name="zentorch::zentorch_fused_ffn_concat.out",
+) -> None:
+    """Meta/fake impl for torch.compile. Out-variant: nothing to return."""
+    return
+
+
 make_fallback(torch.ops.zentorch.zentorch_addmm)
 make_fallback(torch.ops.zentorch.zentorch_addmm_1dbias)
 make_fallback(torch.ops.zentorch.zentorch_embedding_bag)
@@ -964,9 +981,9 @@ make_fallback(torch.ops.zentorch.zentorch_mm)
 make_fallback(torch.ops.zentorch.zentorch_horizontal_embedding_bag_group)
 make_fallback(torch.ops.zentorch.zentorch_horizontal_embedding_group)
 # `zentorch_rms_norm`, `zentorch_add_rms_norm_`, (`zentorch_quant_embedding_bag.{default,out}`, `zentorch_embedding`,
-# `zentorch_horizontal_quant_embedding_bag_group.{default,out}`), zentorch_dynamic_qlinear and zentorch_fused_moe
-# are routed through dedicated AOTI shims via `register_lowering` in `_lowerings.py` (so cpp_wrapper emits a
-# direct `aoti_torch_cpu_zentorch_*` C-shim call instead of the slow
+# `zentorch_horizontal_quant_embedding_bag_group.{default,out}`), zentorch_dynamic_qlinear, zentorch_fused_moe and
+# zentorch_fused_ffn_concat are routed through dedicated AOTI shims via `register_lowering` in `_lowerings.py` (so cpp_wrapper
+# emits a direct `aoti_torch_cpu_zentorch_*` C-shim call instead of the slow
 # `custom_op_wrapper` Python path); they must NOT go through `make_fallback`.
 make_fallback(torch.ops.zentorch.zentorch_weight_prepack_for_linear)
 make_fallback(torch.ops.zentorch.zentorch_weight_prepack_for_dynamic_qlinear)

@@ -5,6 +5,7 @@
 #include "shim_cpu_zentorch.hpp"
 #include "DynamicQLinear.hpp"
 #include "Embedding.hpp"
+#include "FusedFFN.hpp"
 #include "FusedMoE.hpp"
 #include "Linear.hpp"
 #include "QLinear.hpp"
@@ -756,10 +757,6 @@ AOTITorchError aoti_torch_cpu_zentorch_fused_moe(
     const char *act, AtenTensorHandle *w13_scales, AtenTensorHandle *w2_scales,
     const char *zentorch_op_name) {
   AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
-    // Named local: the kernel takes a non-const torch::stable::Tensor & for the
-    // mutated output, which cannot bind to the temporary stable_from_handle
-    // returns. Writes still land in the caller's buffer since the bumped handle
-    // references the same storage.
     auto output_stable = stable_from_handle(output);
     zentorch::zentorch_fused_moe(
         output_stable, stable_from_handle(input), stable_from_handle(w13),
@@ -768,6 +765,27 @@ AOTITorchError aoti_torch_cpu_zentorch_fused_moe(
         stable_from_handle(topk_id), skip_weighted, act,
         stable_optional_from_handle(w13_scales),
         stable_optional_from_handle(w2_scales), zentorch_op_name);
+  });
+}
+
+// Void-returning, output-mutating op: `output` (Tensor(a!)) is written in
+// place, no return handle. `activation` and `zentorch_op_name` arrive as const
+// char* (std::string_view / std::string construct from them implicitly).
+AOTITorchError aoti_torch_cpu_zentorch_fused_ffn_concat_out(
+    AtenTensorHandle output, AtenTensorHandle input,
+    AtenTensorHandle w13_weight, AtenTensorHandle w2_weight,
+    AtenTensorHandle *w13_bias, AtenTensorHandle *w2_bias,
+    const char *activation, AtenTensorHandle *w13_scale,
+    AtenTensorHandle *w2_scale, const char *zentorch_op_name) {
+  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+    auto output_stable = stable_from_handle(output);
+    zentorch::zentorch_fused_ffn_concat_out_impl(
+        output_stable, stable_from_handle(input),
+        stable_from_handle(w13_weight), stable_from_handle(w2_weight),
+        stable_optional_from_handle(w13_bias),
+        stable_optional_from_handle(w2_bias), activation,
+        stable_optional_from_handle(w13_scale),
+        stable_optional_from_handle(w2_scale), zentorch_op_name);
   });
 }
 

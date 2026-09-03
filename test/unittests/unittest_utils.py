@@ -1157,6 +1157,7 @@ class GroupMatmulTestCase(Zentorch_TestCase):
 
     Provides a composite strategy and decorator for generating randomized
     dimension parameters (num_experts, M, K, N, D, K_out, topk, num_tokens).
+    Also contains a few common utils needed for group matmul tests.
     """
     # Each example builds per-expert w13/w2 weights, biases, scales and MoE
     # routing tensors, making it much heavier than a single matmul, so we run
@@ -1702,6 +1703,75 @@ class GroupMatmulTestCase(Zentorch_TestCase):
             return wrapper
 
         return hypothesis_params_group_matmul_itr_impl
+
+    def _apply_gated_activation(self, tensor, activation):
+        """Gated activation: split → act(gate) * value. Input [M, 2*D] → [M, D].
+
+        Matches cpp/GroupMatmul.cpp::map_activation_to_gated_act:
+          "none" / ""       → none
+          "silu"    → silu_and_mul
+          "gelu" / "gelu_tanh" → gelu_and_mul
+          "swigluoai"  → swiglu_oai_mul
+        """
+        half_dim = tensor.shape[-1] // 2
+        gate = tensor[..., :half_dim]
+        value = tensor[..., half_dim:]
+        if activation == "silu":
+            return torch.nn.functional.silu(gate) * value
+        elif activation in ("gelu", "gelu_tanh"):
+            # LowOHA gelu_and_mul uses gelu_erf (see group_matmul_act_avx512.hpp).
+            return torch.nn.functional.gelu(gate) * value
+        elif activation == "swigluoai":
+            alpha, limit = 1.702, 7.0
+            gate, up = tensor[..., ::2], tensor[..., 1::2]
+            gate = gate.clamp(min=None, max=limit)
+            up = up.clamp(min=-limit, max=limit)
+            return (up + 1) * (gate * torch.sigmoid(gate * alpha))
+        raise ValueError(f"Unsupported activation: {activation!r}")
+
+    def _reference_expert_outputs(
+        self,
+        inputs,
+        weights,
+        bias,
+        activation="none",
+        w2_weights=None,
+        w2_bias=None,
+        compute_in_fp32=False,
+    ):
+        """Per-expert reference: linear → optional activation → optional w2."""
+        expert_outputs = []
+        for i in range(len(inputs)):
+            expert_input = inputs[i].float() if compute_in_fp32 else inputs[i]
+            expert_weight = weights[i].float() if compute_in_fp32 else weights[i]
+            expert_bias = (
+                bias[i].float()
+                if (bias[i] is not None and compute_in_fp32)
+                else bias[i]
+            )
+            result = torch.nn.functional.linear(
+                expert_input, expert_weight, expert_bias
+            )
+            if activation != "none":
+                result = self._apply_gated_activation(result, activation)
+            if w2_weights is not None:
+                down_weight = (
+                    w2_weights[i].float() if compute_in_fp32 else w2_weights[i]
+                )
+                down_bias = (
+                    w2_bias[i].float()
+                    if (w2_bias[i] is not None and compute_in_fp32)
+                    else w2_bias[i]
+                )
+                result = torch.nn.functional.linear(result, down_weight, down_bias)
+            expert_outputs.append(result)
+        return expert_outputs
+
+    def setUp(self):
+        super().setUp()
+        # Drop FusedMoE's per-expert view caches so each case starts clean
+        # and never reuses slices keyed on a TensorImpl* from a prior test.
+        torch.ops.zentorch.zentorch_flush_moe_weight_cache()
 
 
 class ConvTestCase(Zentorch_TestCase):
