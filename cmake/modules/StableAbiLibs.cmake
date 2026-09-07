@@ -64,15 +64,20 @@ list(REMOVE_ITEM _ZENTORCH_STABLE_SOURCES
   "${_ZENTORCH_STABLE_CPP}/shim_cpu_zentorch.cpp")
 
 add_library(zentorch_stable SHARED ${_ZENTORCH_STABLE_SOURCES})
-add_dependencies(zentorch_stable CPUkernels zendnnl::zendnnl_archive)
+# CPUkernels is not needed here: its only consumers (Sdpa_ref.cpp and
+# GDN_ops.cpp) are excluded from _ZENTORCH_STABLE_SOURCES above.
+add_dependencies(zentorch_stable zendnnl::zendnnl_archive)
 target_compile_features(zentorch_stable PUBLIC cxx_std_17)
 # Lets a shared op file drop code that only libzentorch.so needs, such as
 # at::Tensor template instantiations used by ATen-only callers.
 target_compile_definitions(zentorch_stable PRIVATE ZENTORCH_STABLE_ABI_LIB)
-target_compile_options(zentorch_stable PRIVATE -fopenmp)
+# Same remap as the zentorch target so ZENTORCH_CHECK and similar macros
+# print paths relative to the source tree instead of absolute build-host paths.
+target_compile_options(zentorch_stable PRIVATE
+  -fopenmp
+  -ffile-prefix-map=${CMAKE_SOURCE_DIR}/=)
 target_include_directories(zentorch_stable PRIVATE
   ${_ZENTORCH_STABLE_CPP}
-  ${MHA_INCLUDE_DIR}
   ${ZENDNNL_LIBRARY_INC_DIR})
 # SYSTEM so -Wall -Werror does not apply inside torch's own headers. The
 # zentorch target gets this for free by linking the Torch imported target,
@@ -81,7 +86,6 @@ target_include_directories(zentorch_stable PRIVATE
 # headers that libzentorch.so compiled through fine.
 target_include_directories(zentorch_stable SYSTEM PRIVATE ${TORCH_INCLUDE_DIRS})
 target_link_libraries(zentorch_stable PRIVATE
-  ${MHA_LIBRARIES}
   zendnnl::zendnnl_archive
   OpenMP::OpenMP_CXX
   ${CMAKE_DL_LIBS}
@@ -100,6 +104,8 @@ set_target_properties(zentorch_stable PROPERTIES
 if(DEFINED INSTALL_LIB_DIR)
   add_custom_command(
     TARGET zentorch_stable POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+      ${CMAKE_SOURCE_DIR}/${INSTALL_LIB_DIR}/${PROJECT_NAME}
     COMMAND ${CMAKE_COMMAND} -E copy
       $<TARGET_FILE:zentorch_stable>
       ${CMAKE_SOURCE_DIR}/${INSTALL_LIB_DIR}/${PROJECT_NAME}/)

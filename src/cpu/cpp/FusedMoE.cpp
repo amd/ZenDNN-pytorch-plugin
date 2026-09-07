@@ -17,16 +17,6 @@
 #include <utility>
 #include <vector>
 
-// at::RecordFunction is an ATen symbol with no stable-ABI equivalent, so the
-// portable build drops the profiler scopes rather than linking against it.
-#ifdef ZENTORCH_STABLE_ABI_LIB
-#define ZENTORCH_MOE_RECORD_SCOPE(name) ((void)0)
-#else
-#include <ATen/record_function.h>
-#define ZENTORCH_MOE_RECORD_SCOPE(name)                                        \
-  RECORD_FUNCTION(name, c10::ArrayRef<c10::IValue>({}))
-#endif
-
 namespace zentorch {
 
 namespace {
@@ -321,7 +311,7 @@ build_token_expert_mapping(const torch::stable::Tensor &input,
   mapping.topk_to_expert_row.resize(total_pairs);
   std::vector<int32_t> tokens_per_active; // grows alongside active_expert_ids
   {
-    ZENTORCH_MOE_RECORD_SCOPE("zentorch::fused_moe::pass1_active_set_build");
+    ZENTORCH_RECORD_SCOPE("zentorch::fused_moe::pass1_active_set_build");
     for (int64_t i = 0; i < total_pairs; ++i) {
       const int32_t e = topk_id_serialized[i];
       const int32_t t = static_cast<int32_t>(i / K);
@@ -364,7 +354,7 @@ build_token_expert_mapping(const torch::stable::Tensor &input,
 
   mapping.grouped_inputs.resize(E_a);
   {
-    ZENTORCH_MOE_RECORD_SCOPE("zentorch::fused_moe::scratchpad_allocation");
+    ZENTORCH_RECORD_SCOPE("zentorch::fused_moe::scratchpad_allocation");
     if (use_scratchpad) {
       const size_t row_bytes_sz = static_cast<size_t>(row_bytes);
       std::vector<size_t> region_offsets(E_a);
@@ -422,7 +412,7 @@ build_token_expert_mapping(const torch::stable::Tensor &input,
 
   std::vector<std::byte *> dst_base(E_a);
   {
-    ZENTORCH_MOE_RECORD_SCOPE("zentorch::fused_moe::pass2_dst_base_setup");
+    ZENTORCH_RECORD_SCOPE("zentorch::fused_moe::pass2_dst_base_setup");
     for (int64_t a = 0; a < E_a; ++a) {
       dst_base[a] =
           reinterpret_cast<std::byte *>(mapping.grouped_inputs[a].data_ptr());
@@ -430,7 +420,7 @@ build_token_expert_mapping(const torch::stable::Tensor &input,
   } // RECORD_FUNCTION pass2_dst_base_setup
 
   {
-    ZENTORCH_MOE_RECORD_SCOPE("zentorch::fused_moe::pass2_parallel_memcpy");
+    ZENTORCH_RECORD_SCOPE("zentorch::fused_moe::pass2_parallel_memcpy");
     torch::stable::parallel_for(
         0, E_a, /*grain_size=*/1, [&](int64_t a_begin, int64_t a_end) {
           for (int64_t a = a_begin; a < a_end; ++a) {
@@ -521,7 +511,7 @@ void zentorch_fused_moe(torch::stable::Tensor &output,
   // ---------------------- Phase 1: token-expert grouping ---------------------
   TokenExpertMapping mapping;
   {
-    ZENTORCH_MOE_RECORD_SCOPE("zentorch::fused_moe::token_expert_grouping");
+    ZENTORCH_RECORD_SCOPE("zentorch::fused_moe::token_expert_grouping");
     mapping = build_token_expert_mapping(input, topk_id);
   }
   const int64_t E_a = static_cast<int64_t>(mapping.active_expert_ids.size());
@@ -678,8 +668,7 @@ void zentorch_fused_moe(torch::stable::Tensor &output,
         empty_optional_vec_Ea{};
 
     {
-      ZENTORCH_MOE_RECORD_SCOPE(
-          "zentorch::fused_moe::two_pass::w13_activation");
+      ZENTORCH_RECORD_SCOPE("zentorch::fused_moe::two_pass::w13_activation");
       zentorch_group_matmul_out_impl(
           /*gemm_outputs=*/w13_gemm_outs,
           /*inputs=*/mapping.grouped_inputs,
@@ -717,7 +706,7 @@ void zentorch_fused_moe(torch::stable::Tensor &output,
     }
 
     {
-      ZENTORCH_MOE_RECORD_SCOPE("zentorch::fused_moe::two_pass::w2_reduce");
+      ZENTORCH_RECORD_SCOPE("zentorch::fused_moe::two_pass::w2_reduce");
       zentorch_group_matmul_out_impl(
           /*gemm_outputs=*/mapping.grouped_inputs,
           /*inputs=*/activation_outputs,

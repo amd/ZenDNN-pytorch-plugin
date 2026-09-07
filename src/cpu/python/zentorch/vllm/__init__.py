@@ -664,22 +664,6 @@ def register() -> str | None:
         logger.warning("[zentorch] vllm not loaded")
         return None
 
-    # Only libzentorch_stable.so is loaded when the runtime torch minor differs
-    # from the build, and every patch below needs the full backend. is_supported_torch()
-    # is a lower bound, so a newer runtime passes it and reaches the zentorch._C
-    # import further down - which raises out of vLLM's general-plugin loader,
-    # the one path that does not wrap the call.
-    from zentorch import __stable_abi_only__
-
-    if __stable_abi_only__:
-        logger.warning(
-            "[zentorch] PyTorch %s does not match the zentorch build, so only "
-            "the stable-ABI ops are loaded. Falling back to the stock vLLM CPU "
-            "platform.",
-            torch.__version__,
-        )
-        return None
-
     vllm_ver = get_vllm_version()
 
     if not is_supported_vllm(vllm_ver):

@@ -60,6 +60,7 @@ def _get_minor_version(torch_version):
 
 _runtime_minor = _get_minor_version(runtime_torchversion)
 _buildtime_minor = _get_minor_version(buildtime_torchversion)
+# _info.py reads this during package init; keep the assignment before that import.
 __stable_abi_only__ = _runtime_minor != _buildtime_minor
 
 _lib_dir = os.path.dirname(os.path.abspath(__file__))
@@ -90,26 +91,25 @@ else:
         f"with PyTorch versions {_buildtime_minor}.x"
     )
 
+# Neither of these depends on which native library loaded: the fp16 registry is
+# pure Python keyed off an env var, and the version metadata comes from
+# _build_info. Keeping them outside the branch keeps the package's Python
+# surface identical in both modes.
+from ._info import (  # noqa: F401,E402
+    __config__,
+    __version__,
+    __source_tag__,
+    __release_type__,
+)
+from ._fp16_capabilities import update_fp16_registry  # noqa: E402
+
+update_fp16_registry()
+
 if not __stable_abi_only__:
-    from ._optimize import optimize  # noqa
-    from ._optimize_for_export import export_optimize_pass  # noqa
-    from ._info import __config__, __version__, __source_tag__, __release_type__  # noqa
-    from ._compile_backend import *  # noqa
-    from ._meta_registrations import *  # noqa
-    from ._lowerings import *  # noqa
-    from ._freeze_utils import freezing_enabled  # noqa
-    from . import utils  # noqa F401
-    from . import llm  # noqa F401
-    from ._fp16_capabilities import update_fp16_registry, get_fp16_registry, is_fp16_capable # noqa
-
-    # update the fp16 capabilities registry
-    update_fp16_registry()
-else:
-    # Neither of these depends on which native library loaded: the fp16 registry
-    # is pure Python keyed off an env var, and the version metadata comes from
-    # _build_info. Exporting them here keeps the package's Python surface the
-    # same in both modes, so callers do not have to special-case the mismatch.
-    from ._info import __config__, __version__, __source_tag__, __release_type__  # noqa
-    from ._fp16_capabilities import update_fp16_registry, get_fp16_registry, is_fp16_capable # noqa
-
-    update_fp16_registry()
+    from ._optimize import optimize  # noqa: F401,E402
+    from ._optimize_for_export import export_optimize_pass  # noqa: F401,E402
+    from ._compile_backend import *  # noqa: F401,F403,E402
+    from ._meta_registrations import *  # noqa: F401,F403,E402
+    from ._lowerings import *  # noqa: F401,F403,E402
+    from ._freeze_utils import freezing_enabled  # noqa: F401,E402
+    from . import utils, llm  # noqa: F401,E402

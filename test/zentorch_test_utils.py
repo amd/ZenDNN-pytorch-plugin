@@ -18,7 +18,7 @@ try:
 
     # for pattern matcher
     from zentorch._utils import counters
-    from zentorch import is_fp16_capable, get_fp16_registry
+    from zentorch._fp16_capabilities import is_fp16_capable, get_fp16_registry
 
     has_zentorch = True
 except ImportError:

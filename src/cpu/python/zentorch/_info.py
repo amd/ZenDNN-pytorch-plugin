@@ -6,16 +6,14 @@
 from . import __stable_abi_only__
 
 if __stable_abi_only__:
-    # Deliberately not importing _C. It carries libzentorch.so in its NEEDED
-    # list, and that is the library already ruled out for this torch, while the
-    # portable one is loaded by the time this runs - both register the same
-    # zentorch::* schemas. Guarding with try/except ImportError would not help:
-    # the loader does not necessarily reject the mismatched library, so the case
-    # that breaks the exactly-one-library invariant is the dlopen *succeeding*.
-    # The version metadata below comes from _build_info and is meaningful in
-    # either mode, so only the config string is lost.
-    __config__ = "zentorch built for a different PyTorch minor version; \
-config unavailable from the portable library"
+    # Do not import _C here. It would also load libzentorch.so, which is the
+    # library we already skipped for this torch. try/except ImportError is not
+    # enough: a successful load of both .so files is the failure we must avoid.
+    # Version metadata still comes from _build_info; only show_config() is lost.
+    __config__ = (
+        "zentorch built for a different PyTorch minor version; "
+        "config unavailable from the portable library"
+    )
 else:
     # No try/except: in full mode a failure here means a broken install, and
     # reporting that as a version mismatch would send the reader the wrong way.

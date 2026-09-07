@@ -30,8 +30,7 @@ try:
 except ImportError:
     sys.exit(
         "error: torch-abi-audit is not installed, so the stable-ABI audit "
-        "cannot run.\n"
-        "       It ships in requirements.txt: pip install -r requirements.txt"
+        "cannot run."
     )
 
 # Symbols tolerated in the portable library, matched by prefix.
@@ -93,31 +92,33 @@ def audit(paths: list[str]) -> int:
             if not any(s.startswith(prefix) for s in symbols)
         ]
 
-        if not unexpected:
+        if not unexpected and not stale:
             note = f", {len(allowed)} allowlisted" if allowed else ", no ATen imports"
             print(
                 f"stable-ABI audit passed: {path} "
                 f"({report.torch.stable_shim_count} shim calls{note})"
             )
-            if stale:
-                print(
-                    "stable-ABI audit FAILED: these ALLOWED_UNSTABLE_PREFIXES no "
-                    "longer match anything and should be deleted from "
-                    f"{__file__}: {', '.join(stale)}",
-                    file=sys.stderr,
-                )
-                failures += 1
             continue
 
-        print(
-            f"stable-ABI audit FAILED: {path} imports {len(unexpected)} "
-            f"unstable torch symbol(s) outside the allowlist:",
-            file=sys.stderr,
-        )
-        for symbol in unexpected:
-            print(f"    {symbol}", file=sys.stderr)
-        print(_GUIDANCE, file=sys.stderr)
-        failures += 1
+        if stale:
+            print(
+                f"stable-ABI audit FAILED: {path} no longer imports "
+                f"{', '.join(stale)}; delete those entries from "
+                "ALLOWED_UNSTABLE_PREFIXES",
+                file=sys.stderr,
+            )
+            failures += 1
+
+        if unexpected:
+            print(
+                f"stable-ABI audit FAILED: {path} imports {len(unexpected)} "
+                f"unstable torch symbol(s) outside the allowlist:",
+                file=sys.stderr,
+            )
+            for symbol in unexpected:
+                print(f"    {symbol}", file=sys.stderr)
+            print(_GUIDANCE, file=sys.stderr)
+            failures += 1
 
     return 1 if failures else 0
 

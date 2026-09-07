@@ -104,7 +104,7 @@ class Test_DynamicQLinear(QLinearTestCase):
 
         prepacked_weight = (
             torch.ops.zentorch.zentorch_weight_prepack_for_dynamic_qlinear(
-                weight_int8
+                weight_int8, False
             )
         )
         out_prepacked = torch.ops.zentorch.zentorch_dynamic_qlinear(

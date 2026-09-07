@@ -82,20 +82,12 @@ class CustomBuildExtension(BuildExtension):
         super().run()
 
     def audit_stable_abi(self) -> None:
-        """Fail the build if libzentorch_stable.so imports an ATen symbol.
+        """Fail the build if libzentorch_stable.so uses an ATen symbol.
 
-        Nothing else catches this. A shared object may leave symbols undefined,
-        so the linker does not object, and ATen resolves at load time out of the
-        libtorch_cpu.so that library already links - the build succeeds and the
-        wheel ships, and the breakage only shows up on the torch version the
-        library was supposed to tolerate. The source list in
-        cmake/modules/StableAbiLibs.cmake is also a glob, so a newly added .cpp
-        is compiled in without anyone opting it in.
-
-        Run here rather than as a cmake POST_BUILD step so it checks the copy
-        that actually gets packaged, and runs on every build rather than only
-        when the library relinks. sys.executable is used because torch-abi-audit
-        is installed per environment.
+        The linker will not catch this: the .so can leave those symbols
+        undefined and they resolve later from libtorch_cpu.so, so a bad
+        wheel still builds. Run the audit here so we check the packaged copy
+        on every build, not only when cmake relinks.
         """
         library = os.path.join(self.build_lib, PACKAGE_NAME, "libzentorch_stable.so")
         if not os.path.exists(library):

@@ -17,14 +17,6 @@ from ._logging import get_logger
 from ._fp16_capabilities import is_fp16_capable
 
 
-def is_fp16_supported():
-    # Read through the op rather than _C: _C links libzentorch.so and cannot be
-    # imported when the portable library is the one that loaded. Capabilities.cpp
-    # registers this probe into both, so this module stays importable in either
-    # mode and its callers (the vLLM plugin, the test suite) keep working.
-    return torch.ops.zentorch.zentorch_is_fp16_supported()
-
-
 # make a logger for this file
 logger = get_logger(__name__)
 
@@ -90,7 +82,9 @@ def is_valid_fp16(op_name, match):
         val = meta.get("val", None)
         dtype = getattr(val, "dtype", None)
         if dtype is torch.float16:
-            return is_fp16_supported() and is_fp16_capable(op_name)
+            return torch.ops.zentorch.zentorch_is_fp16_supported() and is_fp16_capable(
+                op_name
+            )
     for _, value in getattr(match, "kwargs", {None: None}).items():
         if not isinstance(value, torch.fx.Node):
             continue
@@ -100,7 +94,9 @@ def is_valid_fp16(op_name, match):
         val = meta.get("val", None)
         dtype = getattr(val, "dtype", None)
         if dtype is torch.float16:
-            return is_fp16_supported() and is_fp16_capable(op_name)
+            return torch.ops.zentorch.zentorch_is_fp16_supported() and is_fp16_capable(
+                op_name
+            )
     return True
 
 

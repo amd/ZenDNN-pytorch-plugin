@@ -15,7 +15,7 @@ BASE_REQUIREMENTS = [
     "parameterized",
     "hypothesis",
     "deprecated",
-    "torch-abi-audit",
+    "torch-abi-audit==0.0.1",
 ]
 
 
