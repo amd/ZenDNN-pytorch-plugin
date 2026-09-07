@@ -129,6 +129,8 @@ The plugin leverages AMD EPYC specific intrinsics and optimizations to accelerat
 
 No code changes are required. Once installed, simply run your vLLM inference workload as usual. The plugin will be automatically detected and used for inference on supported x86 CPUs that meet the required ISA features. While optimized for AMD EPYC™ CPUs, it may also function on other compatible x86 processors.
 
+> **Recommended:** Enable FP8 KV-cache quantization with `--kv-cache-dtype fp8_e4m3`. This stores the KV cache in `fp8_e4m3`, which substantially improves throughput and has shown no accuracy drop in our validation.
+
 > **Note:**
 >
 > - On the out-of-tree plugin path, importing vLLM should log:
@@ -178,6 +180,7 @@ print(output)
 ```bash
 vllm bench throughput \
     --model meta-llama/Llama-3.1-8B \
+    --kv-cache-dtype fp8_e4m3 \
     --random-input-len 128 \
     --random-output-len 128 \
     --num-prompts 100
@@ -189,6 +192,7 @@ vllm bench throughput \
 export VLLM_TORCH_PROFILER_DIR="."
 vllm bench throughput \
     --model meta-llama/Llama-3.1-8B \
+    --kv-cache-dtype fp8_e4m3 \
     --random-input-len 128 \
     --random-output-len 128 \
     --num-prompts 10 \
