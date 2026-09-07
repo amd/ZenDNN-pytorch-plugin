@@ -15,25 +15,15 @@ import subprocess
 import torch
 import warnings
 
-if parse(torch_version) < parse("2.11.0"):
+_pt_parsed = parse(torch_version)
+if (_pt_parsed.major, _pt_parsed.minor) < (2, 13):
     raise ImportError(
         "zentorch Plugin requires torch version "
-        "2.11.0 or higher. Please upgrade your torch version "
+        "2.13.0 or higher. Please upgrade your torch version "
         "and retry the build."
     )
 
-if parse(torch_version) < parse("2.13.0"):
-    warnings.warn(
-        "Consider upgrading to torch version 2.13.0 for improved performance.",
-        stacklevel=1,
-    )
-
-# torch >= 2.13 c10 headers require C++20 (e.g. default member initializers for
-# bit-fields in AutogradState.h); older supported torch versions build with C++17.
-# Compare on (major, minor) so prereleases (e.g. 2.13.0a0/2.13.0rc1 from nightly
-# or RC wheels) are correctly treated as 2.13 rather than "< 2.13.0".
-_pt_parsed = parse(torch_version)
-ZENTORCH_CXX_STANDARD = 20 if (_pt_parsed.major, _pt_parsed.minor) >= (2, 13) else 17
+ZENTORCH_CXX_STANDARD = 20
 
 
 class CustomBuildExtension(BuildExtension):
@@ -166,16 +156,13 @@ def get_tag_commit(base_dir, tag):
 # Define env values
 PACKAGE_NAME = "zentorch"
 # The 4th version component ("plugin patch") is tracked per torch base version
-# (major.minor.micro). zentorch supports the latest (N), previous (N-1), and
-# N-2 torch lines, so this map stays small. A torch base that is not listed
+# (major.minor.micro), so this map stays small. A torch base that is not listed
 # defaults to 0, so a brand-new torch release automatically starts at
 # <torch>.0 without a code change. Only bump a value when cutting a follow-up
 # zentorch release for the same torch base.
 _PLUGIN_PATCH_BY_TORCH = {
-    "2.11.0": 3,
-    "2.12.0": 3,
-    "2.12.1": 1,
     "2.13.0": 0,
+    "2.14.0": 0,
 }
 _DEFAULT_PLUGIN_PATCH = 0
 _pt_ver = parse(torch_version)

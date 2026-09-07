@@ -54,7 +54,7 @@ detect_pytorch_version() {
     branch="$(current_branch)"
     case "${branch}" in
         r5.2) echo "2.10.0" ;;
-        *) echo "2.13.0" ;;
+        *) echo "2.14.0" ;;
     esac
 }
 
@@ -64,7 +64,7 @@ detect_pytorch_alternates() {
     branch="$(current_branch)"
     case "${branch}" in
         r5.2) echo "2.9.1" ;;
-        *) echo "2.12.1 2.12.0 2.11.0" ;;
+        *) echo "2.13.0" ;;
     esac
 }
 

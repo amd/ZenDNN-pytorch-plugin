@@ -60,48 +60,13 @@ if __name__ == "__main__":
     torch_version = torch.__version__
     torch_version = torch_version.split("+")[0]
     torchvision_compatibility = {
-        # "2.0.0": "torchvision==0.15.0",
-        # "2.0.1": "torchvision==0.15.2",
-        # "2.1.0": "torchvision==0.16.0",
-        # "2.1.1": "torchvision==0.16.1",
-        # "2.1.2": "torchvision==0.16.2",
-        # "2.2.0": "torchvision==0.17.0",
-        # "2.2.1": "torchvision==0.17.1",
-        # "2.2.2": "torchvision==0.17.2",
-        # "2.3.0": "torchvision==0.18.0",
-        # "2.3.1": "torchvision==0.18.1",
-        # "2.4.0": "torchvision==0.19.0",
-        # "2.4.1": "torchvision==0.19.1",
-        # "2.5.0": "torchvision==0.20.0",
-        # "2.5.1": "torchvision==0.20.1",
-        "2.6.0": "torchvision==0.21.0",
-        "2.7.0": "torchvision==0.22.0",
-        "2.8.0": "torchvision==0.23.0",
-        "2.9.0": "torchvision==0.24.0",
-        "2.9.1": "torchvision==0.24.1",
-        "2.10.0": "torchvision==0.25.0",
-        "2.11.0": "torchvision==0.26.0",
-        "2.12.0": "torchvision==0.27.0",
-        "2.12.1": "torchvision==0.27.1",
         "2.13.0": "torchvision==0.28.0",
+        "2.14.0": "torchvision==0.29.0",
     }
 
     torchao_compatibility = {
-        "2.9.1": "torchao==0.16.0",
-        # Torch 2.10 might give a warning suggesting to install torchao of latest version, but 0.16.0 is the latest
-        # version currently.
-        "2.10.0": "torchao==0.16.0",
-        "2.11.0": "torchao==0.17.0",
-        # torchao 0.17.0 is validated against the torch 2.12 line; its
-        # Python-only APIs (which zentorch uses) work with both torch 2.12.0
-        # and 2.12.1. Revisit once a newer torchao ships with explicit torch
-        # 2.12 support.
-        "2.12.0": "torchao==0.17.0",
-        "2.12.1": "torchao==0.17.0",
-        # torchao 0.17.0 remains the latest release; its Python-only APIs (used
-        # by zentorch) work with torch 2.13.0. Revisit once a newer torchao
-        # ships with explicit torch 2.13 support.
         "2.13.0": "torchao==0.17.0",
+        "2.14.0": "torchao==0.17.0",
     }
 
     if find_spec("torchao") is not None:
@@ -123,7 +88,7 @@ if __name__ == "__main__":
         else:
             print("Could not find the valid torchao version which is \
                 compatible with installed torch version. Supported Torch versions \
-                are 2.9.1, 2.10.0, 2.11.0, 2.12.0, 2.12.1, and 2.13.0")
+                are 2.13.0 and 2.14.0")
             sys.exit(1)
 
     if find_spec("torchvision") is not None:
@@ -147,5 +112,5 @@ if __name__ == "__main__":
         else:
             print("Could not find the valid torchvision version which is \
                 compatible with installed torch version. Supported Torch versions \
-                are 2.6.0/2.7.0/2.8.0/2.9.0/2.9.1/2.10.0/2.11.0/2.12.0/2.12.1/2.13.0")
+                are 2.13.0/2.14.0")
             sys.exit(1)

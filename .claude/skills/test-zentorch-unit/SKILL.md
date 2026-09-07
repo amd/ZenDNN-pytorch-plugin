@@ -89,7 +89,10 @@ installed PyTorch.
 
 ### Test categories
 
-Every category is discovered the same way (`python -m unittest discover -s <path>`):
+Every category is discovered the same way
+(`python -m unittest discover -s <path> -t ./test`). The `-t ./test` anchor is
+required: the test directories are packages and some modules use relative
+imports, which break if discovery treats the category directory as the top level.
 
 | User says something like        | Scope                 | Path                                    |
 |---------------------------------|-----------------------|-----------------------------------------|

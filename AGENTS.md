@@ -68,7 +68,7 @@ third_party/              # Auto-populated at build time (ZenDNN)
 
 ## Branches
 
-- **main**/**master** — latest development (supports PyTorch 2.13.0 (recommended), 2.12.1, 2.12.0, and 2.11.0)
+- **main**/**master** — latest development (supports PyTorch 2.14.0 (recommended) and 2.13.0)
 - **r5.2** — stable release (supports PyTorch 2.10.0 and 2.9.1)
 
 See [README.md](README.md) for the authoritative PyTorch/Python compatibility matrix.

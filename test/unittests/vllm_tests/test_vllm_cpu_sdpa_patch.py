@@ -9,9 +9,11 @@ import types
 import unittest
 import unittest.mock
 
+from ._test_constants import VLLM_AVAILABLE
 from ._test_utils import load_source_vllm_module
 
 
+@unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
 class TestCPUSdpaPatch(unittest.TestCase):
     """_do_patch_cpu_sdpa wraps CPUAttentionBackendImpl.forward and is idempotent."""
 

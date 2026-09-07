@@ -25,17 +25,19 @@ require_repo_root
 require_active_env
 
 scope="${1:-unittests}"
+# The test directories are packages and some modules use relative imports, so
+# discovery must always be anchored at ./test rather than the scope directory.
 declare -a cmd
 case "${scope}" in
-    all) cmd=(python -m unittest discover -s ./test) ;;
-    unittests) cmd=(python -m unittest discover -s ./test/unittests) ;;
-    op_tests) cmd=(python -m unittest discover -s ./test/unittests/op_tests) ;;
-    model_tests) cmd=(python -m unittest discover -s ./test/unittests/model_tests) ;;
-    miscellaneous_tests) cmd=(python -m unittest discover -s ./test/unittests/miscellaneous_tests) ;;
-    export_tests) cmd=(python -m unittest discover -s ./test/unittests/export_tests) ;;
-    vllm_tests) cmd=(python -m unittest discover -s ./test/unittests/vllm_tests) ;;
-    llm) cmd=(python -m unittest discover -s ./test/llm_tests) ;;
-    pre_trained) cmd=(python -m unittest discover -s ./test/pre_trained_model_tests) ;;
+    all) cmd=(python -m unittest discover -s ./test -t ./test) ;;
+    unittests) cmd=(python -m unittest discover -s ./test/unittests -t ./test) ;;
+    op_tests) cmd=(python -m unittest discover -s ./test/unittests/op_tests -t ./test) ;;
+    model_tests) cmd=(python -m unittest discover -s ./test/unittests/model_tests -t ./test) ;;
+    miscellaneous_tests) cmd=(python -m unittest discover -s ./test/unittests/miscellaneous_tests -t ./test) ;;
+    export_tests) cmd=(python -m unittest discover -s ./test/unittests/export_tests -t ./test) ;;
+    vllm_tests) cmd=(python -m unittest discover -s ./test/unittests/vllm_tests -t ./test) ;;
+    llm) cmd=(python -m unittest discover -s ./test/llm_tests -t ./test) ;;
+    pre_trained) cmd=(python -m unittest discover -s ./test/pre_trained_model_tests -t ./test) ;;
     *)
         if [[ -f "${scope}" ]]; then
             cmd=(python -m unittest "${scope}")

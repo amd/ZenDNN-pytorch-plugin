@@ -10,7 +10,10 @@ import unittest.mock
 
 import torch
 
-from zentorch.vllm import _ir_rms_norm
+from ._test_constants import VLLM_AVAILABLE
+
+if VLLM_AVAILABLE:
+    from zentorch.vllm import _ir_rms_norm
 
 
 class _FakeOp:
@@ -27,6 +30,7 @@ class _FakeOp:
         return deco
 
 
+@unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
 class TestRMSNormIRProvider(unittest.TestCase):
     def test_registers_zentorch_for_fused_add_only(self):
         fused, rms = _FakeOp(), _FakeOp()

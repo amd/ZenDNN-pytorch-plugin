@@ -8,7 +8,6 @@ import torch
 from torch._inductor import config
 from torch._inductor.custom_graph_pass import CustomGraphPass, get_hash_for_files
 from torch._inductor.fx_utils import FakeTensorUpdater
-import inspect
 
 
 from ._prepack_pass import add_zentorch_weight_prepack_ops
@@ -26,22 +25,7 @@ from ._binary_binary_fusions import zentorch_binary_binary_post_op_fusions
 # function can be removed and we will reuse the old optimize in export as well.
 def optimize_for_export(fx_graph):
     fx_graph = replace_with_zentorch_ops_new(fx_graph)
-    # torch 2.13's FakeTensorUpdater expects the owning GraphModule, while
-    # torch <= 2.12 expected the torch.fx.Graph. We pick what to pass from the
-    # constructor's declared argument type, so this stays correct across torch
-    # versions without a version check.
-    #
-    # The constructor takes a single argument whose NAME differs between versions
-    # ("gm" vs "graph"), so we read its type positionally rather than by name:
-    # inspect.signature() omits "self", and next(iter(params.values())) returns
-    # the first (and only) parameter, whose .annotation is the expected type.
-    expected_arg_type = next(
-        iter(inspect.signature(FakeTensorUpdater).parameters.values())
-    ).annotation
-    if expected_arg_type is torch.fx.GraphModule:
-        fake_tensor_updater = FakeTensorUpdater(fx_graph.owning_module)
-    else:
-        fake_tensor_updater = FakeTensorUpdater(fx_graph)
+    fake_tensor_updater = FakeTensorUpdater(fx_graph.owning_module)
     if config.freezing:
         fx_graph = qkv_fusion(fx_graph)
         fake_tensor_updater.incremental_update()

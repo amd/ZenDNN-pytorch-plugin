@@ -25,6 +25,7 @@ from ._test_constants import VLLM_AVAILABLE
 # =============================================================================
 
 
+@unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
 class TestWna16MoEPatchRegistration(unittest.TestCase):
     """The patch is wired into the 0.27 plugin's flat ``_PATCHES`` list.
 
