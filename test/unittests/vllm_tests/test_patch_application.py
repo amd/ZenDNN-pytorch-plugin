@@ -45,6 +45,10 @@ _PATCH_TARGETS = [
     ("WhisperW4A16", "vllm.model_executor.models.whisper",
      "WhisperForConditionalGeneration", "_zentorch_whisper_w4a16_patched",
      "load_weights"),
+    ("SWBlockSize",
+     "vllm.model_executor.layers.attention.attention",
+     "Attention", "_zentorch_sw_blocksize_patched",
+     "get_kv_cache_spec"),
 ]
 
 # Gemma-4 wraps get_config by name in each of these; marker sits on the module.
