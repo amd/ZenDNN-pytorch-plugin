@@ -301,10 +301,26 @@ class TestOracleSupportGates(unittest.TestCase):
     def test_init_with_missing_bias_reads_none_from_the_property(self):
         """Bias-free checkpoints must not assign the read-only w1_bias property."""
         cls = self._experts_cls()
-        experts = cls(
-            types.SimpleNamespace(),
-            types.SimpleNamespace(w1_bias=None, w2_bias=None),
+        # vLLM 0.28's FusedMoEExpertsMonolithic.__init__ builds an
+        # ApplyMoEActivationConfig from both configs, reading the gemm1_* fields
+        # off quant_config and the swiglu_* / activation_situ_* fields off
+        # moe_config. Stub them as None so construction reaches the bias
+        # properties under test.
+        moe_config = types.SimpleNamespace(
+            swiglu_limit=None,
+            swiglu_alpha=None,
+            swiglu_beta=None,
+            activation_situ_beta=None,
+            activation_situ_linear_beta=None,
         )
+        quant_config = types.SimpleNamespace(
+            w1_bias=None,
+            w2_bias=None,
+            gemm1_clamp_limit=None,
+            gemm1_alpha=None,
+            gemm1_beta=None,
+        )
+        experts = cls(moe_config, quant_config)
         self.assertIsNone(experts.w1_bias)
         self.assertIsNone(experts.w2_bias)
 

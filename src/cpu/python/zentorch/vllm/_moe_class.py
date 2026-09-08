@@ -40,6 +40,7 @@ def _register_torchao_moe_patches(torchao_mod) -> None:
     importable before vLLM's layer modules exist.
     """
     from vllm.model_executor.layers.fused_moe.config import FusedMoEConfig
+    from vllm.model_executor.layers.fused_moe.experts.cpu_moe import select_experts
     from vllm.model_executor.layers.fused_moe.unquantized_fused_moe_method import (
         UnquantizedFusedMoEMethod,
     )
@@ -48,6 +49,8 @@ def _register_torchao_moe_patches(torchao_mod) -> None:
         UnquantizedLinearMethod,
     )
     from vllm.model_executor.utils import set_weight_attrs
+
+    from zentorch.vllm import _moe_forward_zentorch, extract_int8_moe_scales
 
     _moe_layer_types = _resolve_moe_layer_types()
     TorchAOConfig = torchao_mod.TorchAOConfig
@@ -228,9 +231,49 @@ def _register_torchao_moe_patches(torchao_mod) -> None:
 
             _pack("w13_weight", w13_up_dim, hidden_size)
             _pack("w2_weight", hidden_size, intermediate_size_per_partition)
-            from vllm.model_executor.layers.fused_moe import cpu_fused_moe
+            # Split the torchao Int8Tensor experts into raw int8 qdata + fp
+            # scales on the layer, matching what the vLLM 0.27 CPUFusedMOE patch
+            # did in its __init__. apply_monolithic then feeds those scales to
+            # torch.ops.zentorch.zentorch_fused_moe.
+            extract_int8_moe_scales(layer)
 
-            self.cpu_fused_moe = cpu_fused_moe.CPUFusedMOE(layer)
+        def apply_monolithic(self, layer, x, router_logits, input_ids=None):
+            """Monolithic MoE apply for torchao-quantized experts (vLLM >=0.28).
+
+            The method leaves ``moe_kernel`` None, so ``is_monolithic`` resolves
+            True via ``experts_cls`` and the layer dispatches here. Routing runs
+            through the in-tree ``select_experts``; the fused expert FFN is the
+            zentorch ZenDNN kernel (same dispatch the 0.27 CPUFusedMOE patch used),
+            keeping torchao-quantized MoE plugin-accelerated."""
+            routed_scaling_factor = layer.routed_scaling_factor
+            topk_weights, topk_ids = select_experts(
+                hidden_states=x,
+                router_logits=router_logits,
+                top_k=self.moe.experts_per_token,
+                use_grouped_topk=layer.use_grouped_topk,
+                renormalize=layer.renormalize,
+                topk_group=layer.topk_group,
+                num_expert_group=layer.num_expert_group,
+                custom_routing_function=layer.custom_routing_function,
+                scoring_func=layer.scoring_func,
+                routed_scaling_factor=(
+                    routed_scaling_factor
+                    if routed_scaling_factor is not None
+                    else 1.0
+                ),
+                e_score_correction_bias=layer.e_score_correction_bias,
+            )
+
+            return _moe_forward_zentorch(
+                self,
+                layer,
+                x,
+                topk_weights,
+                topk_ids,
+                layer.activation,
+                layer.global_num_experts,
+                layer.apply_router_weight_on_input,
+            )
 
     TorchAOFusedMoEMethod.__module__ = torchao_mod.__name__
 

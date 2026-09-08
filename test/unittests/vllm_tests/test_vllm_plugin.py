@@ -21,7 +21,6 @@ EXPECTED_PATCHES = [
     "TorchAO",
     "Int8MoE",
     "Wna16MoE",
-    "GptOssMoELoader",
     "MixtralMoELoader",
     "RMSNorm",
     "FusedMoE",
@@ -30,6 +29,7 @@ EXPECTED_PATCHES = [
     "Da8w4Kernel",
     "SWBlockSize",
     "WhisperW4A16",
+    "GptOssStreamedExpert",
 ]
 
 REMOVED_PATCHES = [
@@ -41,6 +41,7 @@ REMOVED_PATCHES = [
     "CPUProfiler",
     "CompilationConfigRepr",
     "GptOssMoEWeightRemap",
+    "GptOssMoELoader",
 ]
 
 
@@ -67,6 +68,11 @@ class TestVersionContract(unittest.TestCase):
             "0.27.0+cpu",
             "0.27.1",
             "0.27.1+cpu",
+            "0.27.2",
+            "0.27.5+cpu",
+            "0.27.99",
+            "0.28.0",
+            "0.28.0+cpu",
         ]:
             self.assertTrue(
                 is_supported_vllm(version),
@@ -84,11 +90,9 @@ class TestVersionContract(unittest.TestCase):
             "0.25.1",
             "0.27.0rc1+cpu",
             "0.27.0.dev123+cpu",
-            "0.27.2",
-            "0.27.5+cpu",
-            "0.27.99",
-            "0.28.0",
             "0.28.0rc1+cpu",
+            "0.28.1",
+            "0.28.1+cpu",
             "1.0.0",
             "not-a-version",
         ]:
@@ -173,9 +177,15 @@ class TestRegisterContract(unittest.TestCase):
         self.assertIsNone(result)
         apply_all.assert_not_called()
 
-    def test_rejects_future_vllm(self):
+    def test_accepts_supported_runtime_028(self):
         plugin = self._fresh_source_module()
         result, apply_all = self._register_with(plugin, "0.28.0+cpu")
+        self.assertEqual(result, "zentorch.vllm._platform.ZenCPUPlatform")
+        apply_all.assert_called_once_with()
+
+    def test_rejects_future_vllm(self):
+        plugin = self._fresh_source_module()
+        result, apply_all = self._register_with(plugin, "0.28.1+cpu")
         self.assertIsNone(result)
         apply_all.assert_not_called()
 

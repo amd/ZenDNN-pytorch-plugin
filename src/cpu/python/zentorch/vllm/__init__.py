@@ -43,9 +43,6 @@ from zentorch.vllm._int8_moe_patch import (  # noqa: E402, F401
 from zentorch.vllm._wna16_moe_patch import (  # noqa: E402, F401
     _apply_wna16_moe_patch_impl,
 )
-from zentorch.vllm._gptoss_moe_loader_patch import (  # noqa: E402, F401
-    _apply_gptoss_loader_patch_impl,
-)
 from zentorch.vllm._mixtral_moe_loader_patch import (  # noqa: E402, F401
     _apply_mixtral_loader_patch_impl,
 )
@@ -61,6 +58,9 @@ from zentorch.vllm._whisper_w4a16_patch import (  # noqa: E402, F401
 from zentorch.vllm._sw_blocksize_patch import (  # noqa: E402, F401
     _apply_sw_blocksize_patch,
 )
+from zentorch.vllm._gptoss_streamed_expert_patch import (  # noqa: E402, F401
+    _apply_gptoss_streamed_expert_patch_impl,
+)
 from zentorch.vllm._import_hook import patch_now_or_on_import  # noqa: E402
 from zentorch.vllm._fused_mlp_patch import (  # noqa: E402, F401
     _apply_fused_mlp_patch_impl,
@@ -75,7 +75,7 @@ logger = get_logger(__name__)
 # upper bound is explicit, not an open "< next minor" range: bump VLLM_MAX_VERSION
 # after validating each new patch release.
 VLLM_MIN_VERSION = "0.27.0"
-VLLM_MAX_VERSION = "0.27.1"
+VLLM_MAX_VERSION = "0.28.0"
 TORCH_MIN_VERSION = (2, 13)
 
 
@@ -196,6 +196,62 @@ def _moe_forward_zentorch(
     return output
 
 
+def extract_int8_moe_scales(layer) -> None:
+    """Split torchao ``Int8Tensor`` expert weights into raw int8 ``qdata`` plus
+    floating-point scales (``w13_scale`` / ``w2_scale``) on ``layer``, and make
+    both weight tensors contiguous.
+
+    ``zentorch_fused_moe`` consumes the ``[E, ...]`` weights via per-expert
+    ``.select(0, e)``; ZenDNN's group_matmul expects each per-expert slice to be
+    row-major contiguous, which only holds when the parent ``[E, ...]`` tensor is
+    contiguous. Normalizing once here keeps the hot path free of per-call copies.
+
+    Shared by the vLLM 0.27 ``CPUFusedMOE.__init__`` patch and the 0.28
+    ``TorchAOFusedMoEMethod`` (where ``CPUFusedMOE`` no longer exists).
+    """
+    from vllm.model_executor.layers.quantization.utils.layer_utils import (
+        replace_parameter,
+    )
+
+    if importlib.util.find_spec("torchao") is None:
+        logger.info(
+            "[zentorch] torchao not installed, skipping Int8Tensor scale extraction"
+        )
+    else:
+        from torchao.quantization.quantize_.workflows.int8.int8_tensor import (
+            Int8Tensor,
+        )
+
+        for weight_attr, scale_attr in [
+            ("w13_weight", "w13_scale"),
+            ("w2_weight", "w2_scale"),
+        ]:
+            w = getattr(layer, weight_attr, None)
+            if isinstance(w, Int8Tensor):
+                weight_scales = w.scale
+                if weight_scales.shape[-1] == 1:
+                    weight_scales = weight_scales.squeeze(-1).contiguous()
+                if weight_scales.dtype not in (
+                    torch.float32,
+                    torch.bfloat16,
+                    torch.float16,
+                ):
+                    raise ValueError(
+                        f"[zentorch] {weight_attr}.scale must be float32 "
+                        f"or bfloat16 or float16, got {weight_scales.dtype}"
+                    )
+                setattr(layer, scale_attr, weight_scales)
+                replace_parameter(layer, weight_attr, w.qdata)
+
+    if not layer.w13_weight.is_contiguous():
+        replace_parameter(layer, "w13_weight", layer.w13_weight.contiguous())
+    if not layer.w2_weight.is_contiguous():
+        replace_parameter(layer, "w2_weight", layer.w2_weight.contiguous())
+
+    # Bump the per-replacement counter (matches _custom_op_replacement.py).
+    counters["zentorch"]["zentorch_fused_moe"] += 1
+
+
 def _do_patch_fused_moe() -> bool:
     """Patch CPUFusedMOE.__init__ to dispatch through zentorch_fused_moe."""
     try:
@@ -213,53 +269,7 @@ def _do_patch_fused_moe() -> bool:
         # [E, ...] layout that zentorch_fused_moe expects.
         self.isa = "none"
         self.forward_method = self._zentorch_forward
-        # zentorch_fused_moe consumes the [E, ...] weights via per-expert
-        # .select(0, e). ZenDNN's group_matmul expects each per-expert slice to
-        # be row-major contiguous, which only holds when the parent [E, ...]
-        # tensor itself is contiguous. Normalize once here (a no-op when already
-        # contiguous) to keep the hot path free of per-call .contiguous() copies.
-        from vllm.model_executor.layers.quantization.utils.layer_utils import (
-            replace_parameter,
-        )
-
-        # Extract int8 weight scales from torchao Int8Tensor.
-        if importlib.util.find_spec("torchao") is None:
-            logger.info(
-                "[zentorch] torchao not installed, skipping Int8Tensor scale extraction"
-            )
-        else:
-            from torchao.quantization.quantize_.workflows.int8.int8_tensor import (
-                Int8Tensor,
-            )
-
-            for weight_attr, scale_attr in [
-                ("w13_weight", "w13_scale"),
-                ("w2_weight", "w2_scale"),
-            ]:
-                w = getattr(layer, weight_attr, None)
-                if isinstance(w, Int8Tensor):
-                    weight_scales = w.scale
-                    if weight_scales.shape[-1] == 1:
-                        weight_scales = weight_scales.squeeze(-1).contiguous()
-                    if weight_scales.dtype not in (
-                        torch.float32,
-                        torch.bfloat16,
-                        torch.float16,
-                    ):
-                        raise ValueError(
-                            f"[zentorch] {weight_attr}.scale must be float32 "
-                            f"or bfloat16 or float16, got {weight_scales.dtype}"
-                        )
-                    setattr(layer, scale_attr, weight_scales)
-                    replace_parameter(layer, weight_attr, w.qdata)
-
-        if not layer.w13_weight.is_contiguous():
-            replace_parameter(layer, "w13_weight", layer.w13_weight.contiguous())
-        if not layer.w2_weight.is_contiguous():
-            replace_parameter(layer, "w2_weight", layer.w2_weight.contiguous())
-
-        # Bump the per-replacement counter (matches _custom_op_replacement.py).
-        counters["zentorch"]["zentorch_fused_moe"] += 1
+        extract_int8_moe_scales(layer)
 
     CPUFusedMOE.__init__ = _patched_init
     CPUFusedMOE._zentorch_fused_moe_patched = True
@@ -609,7 +619,6 @@ _PATCHES = (
     ("TorchAO", _apply_torchao_patch),
     ("Int8MoE", _apply_int8_moe_patch_impl),
     ("Wna16MoE", _apply_wna16_moe_patch_impl),
-    ("GptOssMoELoader", _apply_gptoss_loader_patch_impl),
     ("MixtralMoELoader", _apply_mixtral_loader_patch_impl),
     ("RMSNorm", _apply_rmsnorm_patch),
     ("FusedMoE", _apply_fused_moe_patch),
@@ -618,6 +627,7 @@ _PATCHES = (
     ("Da8w4Kernel", _apply_da8w4_patch),
     ("SWBlockSize", _apply_sw_blocksize_patch),
     ("WhisperW4A16", _apply_whisper_w4a16_patch),
+    ("GptOssStreamedExpert", _apply_gptoss_streamed_expert_patch_impl),
 )
 
 # Names of patches whose apply() returned True in this process (test hook).

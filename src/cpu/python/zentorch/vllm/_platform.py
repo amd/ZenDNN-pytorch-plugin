@@ -5,7 +5,7 @@
 
 """zentorch CPU Platform for vLLM.
 
-Targets vLLM 0.27.x / PyTorch 2.13. vLLM's stock CpuPlatform already configures
+Targets vLLM 0.27.x-0.28.0 / PyTorch 2.13. vLLM's stock CpuPlatform already configures
 the CPU compile defaults (DYNAMO_TRACE_ONCE + inductor, dce/size_asserts/
 nan_asserts/epilogue_fusion) and CPU-only profiler handling, so this subclass
 only marks the platform as Zen and injects the zentorch inductor optimize pass.

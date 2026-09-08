@@ -34,8 +34,6 @@ _PATCH_TARGETS = [
      "vllm.model_executor.layers.quantization.compressed_tensors."
      "compressed_tensors_moe.compressed_tensors_moe_w8a8_int8",
      "CompressedTensorsW8A8Int8MoEMethod", "_zentorch_int8_moe_patched", None),
-    ("GptOssMoELoader", "vllm.model_executor.models.gpt_oss", "GptOssModel",
-     "_zentorch_gptoss_loader_patched", "_load_weights_other"),
     ("MixtralMoELoader", "vllm.model_executor.models.mixtral", "MixtralModel",
      "_zentorch_mixtral_loader_patched", "load_weights"),
     ("TorchAO", "vllm.model_executor.layers.quantization.torchao",
@@ -49,6 +47,8 @@ _PATCH_TARGETS = [
      "vllm.model_executor.layers.attention.attention",
      "Attention", "_zentorch_sw_blocksize_patched",
      "get_kv_cache_spec"),
+    ("GptOssStreamedExpert", "vllm.model_executor.models.gpt_oss", "GptOssModel",
+     "_zentorch_gptoss_streamed_patched", "_load_weights_other"),
 ]
 
 # Gemma-4 wraps get_config by name in each of these; marker sits on the module.
@@ -60,7 +60,6 @@ _GEMMA_MODULES = [
 
 # Hook-install state to clear so register() re-applies cleanly in this process.
 _OWN_HOOK_FLAGS = [
-    ("zentorch.vllm._gptoss_moe_loader_patch", "_HOOK_INSTALLED"),
     ("zentorch.vllm._moe_class", "_MOE_HOOK_INSTALLED"),
 ]
 
