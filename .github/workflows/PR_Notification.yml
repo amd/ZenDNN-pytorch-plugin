@@ -40,7 +40,10 @@ jobs:
         id: monitor_checks
         uses: actions/github-script@v9
         with:
-          github-token: ${{ secrets.ZIAIE_PAT }}
+          # Same-repo listing must use GITHUB_TOKEN. ZIAIE_PAT is a fine-grained
+          # PAT without Actions read, so listWorkflowRunsForRepo returns 403 and
+          # the old catch-all treated that as "0 checks / all passed".
+          github-token: ${{ github.token }}
           script: |
             const pr = JSON.parse(`${{ steps.pr_info.outputs.result }}`);
 
@@ -94,11 +97,12 @@ jobs:
                 allChecks.push({ name: name.trim(), status, url, type: 'local' });
               };
 
-              try {
-                console.log(`📊 Getting all checks for commit ${ref.substring(0, 7)}...`);
+              console.log(`📊 Getting all checks for commit ${ref.substring(0, 7)}...`);
+              const jobNames = new Set();
 
-                // 1) Workflow runs (parent level). Their conclusion is the aggregate of
-                //    all their jobs, so we report at this level and hide the child jobs.
+              // 1) Workflow runs (parent level). Their conclusion is the aggregate of
+              //    all their jobs, so we report at this level and hide the child jobs.
+              try {
                 const workflowResp = await github.rest.actions.listWorkflowRunsForRepo({
                   owner, repo, head_sha: ref, per_page: 100
                 });
@@ -111,9 +115,6 @@ jobs:
                   return true;
                 });
 
-                // Collect the job names belonging to those runs so we can hide job-level
-                // checks (e.g. "build") and show the workflow instead (e.g. "ZenDNN PYTORCH CI").
-                const jobNames = new Set();
                 for (const run of includedRuns) {
                   try {
                     const jobsResp = await github.rest.actions.listJobsForWorkflowRun({
@@ -125,12 +126,15 @@ jobs:
                   }
                 }
 
-                // Add workflow runs first (aggregate status wins over any same-named check)
                 includedRuns.forEach(run => {
                   addCheck(prettifyRunName(run), run.conclusion || run.status, run.html_url);
                 });
+              } catch (error) {
+                console.log(`⚠️ listWorkflowRuns failed: ${error.message}`);
+              }
 
-                // 2) Check runs — skip anything that is a job of a workflow run above
+              // 2) Check runs — skip anything that is a job of a workflow run above
+              try {
                 const checkResp = await github.rest.checks.listForRef({
                   owner, repo, ref, per_page: 100
                 });
@@ -146,8 +150,12 @@ jobs:
                   }
                   addCheck(check.name, check.conclusion || check.status, check.html_url);
                 });
+              } catch (error) {
+                console.log(`⚠️ listForRef checks failed: ${error.message}`);
+              }
 
-                // 3) Commit status checks
+              // 3) Commit status checks
+              try {
                 const statusResp = await github.rest.repos.getCombinedStatusForRef({
                   owner, repo, ref
                 });
@@ -159,14 +167,12 @@ jobs:
                   }
                   addCheck(status.context, status.state, status.target_url);
                 });
-
-                console.log(`📋 Total checks collected: ${allChecks.length}`);
-                return allChecks;
-
               } catch (error) {
-                console.log(`❌ Error getting checks: ${error.message}`);
-                return [];
+                console.log(`⚠️ getCombinedStatus failed: ${error.message}`);
               }
+
+              console.log(`📋 Total checks collected: ${allChecks.length}`);
+              return allChecks;
             };
 
             // Initial wait for checks to start
@@ -195,8 +201,12 @@ jobs:
               console.log(`   📊 Total: ${checks.length}`);
 
               if (running.length === 0) {
-                console.log(`\n🎉 All ${checks.length} checks completed after ${attempts} minutes!`);
-                break;
+                if (checks.length === 0 && attempts < 10) {
+                  console.log(`\n⏳ No checks visible yet; waiting for workflows to register...`);
+                } else {
+                  console.log(`\n🎉 All ${checks.length} checks completed after ${attempts} minutes!`);
+                  break;
+                }
               }
 
               console.log(`\n⏳ Still waiting for:`);
@@ -259,16 +269,22 @@ jobs:
           echo "   Success: $SUCCESS_COUNT, Failed: $FAILED_COUNT, Skipped: $SKIPPED_COUNT"
           echo "   Completion time: ${COMPLETION_TIME}m, Still running: $STILL_RUNNING"
 
-          # Overall status + MessageCard theme color (this webhook renders the legacy
-          # Office 365 "MessageCard" format, NOT Adaptive Cards).
+          # Teams "Workflows" webhooks accept MessageCard payloads but drop every
+          # link and button in them, so this posts an Adaptive Card instead, where
+          # Action.OpenUrl and markdown links both render.
+          #
+          # Overall status, plus the Adaptive Card container style and text colour
+          # used for the header.
           if [ "$FAILED_COUNT" -gt 0 ] || [ "$ERROR_COUNT" -gt 0 ]; then
-            ICON="🔴"; STATUS="❌ SOME CHECKS FAILED"; THEME="D93F0B"
+            ICON="🔴"; STATUS="❌ SOME CHECKS FAILED"; STYLE="attention"; COLOR="Attention"
           elif [ "$PENDING_COUNT" -gt 0 ]; then
-            ICON="🟡"; STATUS="⏳ CHECKS STILL RUNNING"; THEME="F2C744"
+            ICON="🟡"; STATUS="⏳ CHECKS STILL RUNNING"; STYLE="warning"; COLOR="Warning"
           elif [ "$CANCELLED_COUNT" -gt 0 ]; then
-            ICON="🟠"; STATUS="🟠 SOME CHECKS CANCELLED"; THEME="F2A100"
+            ICON="🟠"; STATUS="🟠 SOME CHECKS CANCELLED"; STYLE="warning"; COLOR="Warning"
+          elif [ "$TOTAL_COUNT" -eq 0 ]; then
+            ICON="⚪"; STATUS="⚪ NO WORKFLOWS FOUND"; STYLE="default"; COLOR="Default"
           else
-            ICON="🟢"; STATUS="✅ ALL CHECKS PASSED"; THEME="2EB67D"
+            ICON="🟢"; STATUS="✅ ALL CHECKS PASSED"; STYLE="good"; COLOR="Good"
           fi
 
           # Completion message
@@ -279,10 +295,17 @@ jobs:
           fi
 
           FALLBACK_URL="https://github.com/${REPO}/pull/${PR_NUMBER}/checks"
+          COMMIT_URL="https://github.com/${REPO}/commit/${HEAD_SHA_FULL}"
+
+          case "$PR_URL" in
+            http*) ;;
+            *) PR_URL="https://github.com/${REPO}/pull/${PR_NUMBER}" ;;
+          esac
 
           # Build check list as markdown (safe escaping via jq). Each row: emoji [name](url) — STATUS
           echo "🔨 Building filtered check list..."
           CHECKS_MD=$(echo "$CHECKS" | jq -r --arg fallback "$FALLBACK_URL" '
+            def mdlabel: gsub("\\\\"; "\\\\") | gsub("\\["; "\\[") | gsub("\\]"; "\\]");
             [ .[] as $c
               | ($c.status | ascii_upcase) as $s
               | (if   $s=="SUCCESS"   then "✅"
@@ -293,55 +316,69 @@ jobs:
                  elif $s=="NEUTRAL"   then "⚪"
                  else "🔄" end) as $emoji
               | (if ($c.url==null or $c.url=="") then $fallback else $c.url end) as $url
-              | $emoji + " [" + $c.name + "](" + $url + ") — **" + $s + "**"
+              | $emoji + " [" + ($c.name | mdlabel) + "](" + $url + ") — **" + $s + "**"
             ] | join("\n\n")')
           [ -z "$CHECKS_MD" ] && CHECKS_MD="_No checks found for this commit._"
 
-          # Assemble a legacy MessageCard with jq so it is ALWAYS valid JSON
-          echo "🔨 Creating Teams MessageCard..."
+          # Assemble the Adaptive Card with jq so it is ALWAYS valid JSON
+          echo "🔨 Creating Teams Adaptive Card..."
           jq -n \
-            --arg summary "ZenTorch PR #$PR_NUMBER status" \
-            --arg theme "$THEME" \
             --arg title "$ICON ZenTorch PR #$PR_NUMBER — $PR_TITLE" \
             --arg status "$STATUS" \
+            --arg style "$STYLE" --arg color "$COLOR" \
             --arg author "$PR_AUTHOR" --arg sha "$HEAD_SHA" --arg msg "$COMPLETION_MSG" \
             --arg total "$TOTAL_COUNT" --arg passed "$SUCCESS_COUNT" --arg failed "$FAILED_COUNT" \
             --arg cancelled "$CANCELLED_COUNT" --arg skipped "$SKIPPED_COUNT" \
             --arg checksmd "$CHECKS_MD" \
             --arg prurl "$PR_URL" --arg checksurl "$FALLBACK_URL" \
-            --arg commiturl "https://github.com/${REPO}/commit/${HEAD_SHA_FULL}" '
+            --arg commiturl "$COMMIT_URL" '
+            def mdlabel: gsub("\\\\"; "\\\\") | gsub("\\["; "\\[") | gsub("\\]"; "\\]");
             {
-              "@type": "MessageCard",
-              "@context": "http://schema.org/extensions",
-              summary: $summary,
-              themeColor: $theme,
-              title: $title,
-              sections: [
+              type: "message",
+              attachments: [
                 {
-                  activityTitle: $status,
-                  facts: [
-                    {name:"Repository:",      value:"ZenDNN_PyTorch_Plugin"},
-                    {name:"Author:",          value:$author},
-                    {name:"Commit:",          value:$sha},
-                    {name:"Status:",          value:$msg},
-                    {name:"Total Workflows:", value:$total},
-                    {name:"✅ Passed:",        value:$passed},
-                    {name:"❌ Failed:",        value:$failed},
-                    {name:"🟠 Cancelled:",     value:$cancelled},
-                    {name:"⏭️ Skipped:",       value:$skipped}
-                  ],
-                  markdown: true
-                },
-                {
-                  title: "All PR Checks:",
-                  text: $checksmd,
-                  markdown: true
+                  contentType: "application/vnd.microsoft.card.adaptive",
+                  content: {
+                    "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                    type: "AdaptiveCard",
+                    version: "1.4",
+                    body: [
+                      {
+                        type: "Container",
+                        style: $style,
+                        bleed: true,
+                        items: [
+                          {type:"TextBlock", text:("[" + ($title | mdlabel) + "](" + $prurl + ")"),
+                           weight:"Bolder", size:"Medium", wrap:true},
+                          {type:"TextBlock", text:$status, weight:"Bolder", color:$color,
+                           size:"Large", wrap:true, spacing:"Small"}
+                        ]
+                      },
+                      {
+                        type: "FactSet",
+                        facts: [
+                          {title:"Repository:",      value:"ZenDNN_PyTorch_Plugin"},
+                          {title:"Author:",          value:$author},
+                          {title:"Commit:",          value:("[" + $sha + "](" + $commiturl + ")")},
+                          {title:"Status:",          value:$msg},
+                          {title:"Total Workflows:", value:$total},
+                          {title:"✅ Passed:",        value:$passed},
+                          {title:"❌ Failed:",        value:$failed},
+                          {title:"🟠 Cancelled:",     value:$cancelled},
+                          {title:"⏭️ Skipped:",       value:$skipped}
+                        ]
+                      },
+                      {type:"TextBlock", text:"**All PR Checks:**", weight:"Bolder",
+                       spacing:"Medium", wrap:true},
+                      {type:"TextBlock", text:$checksmd, wrap:true, spacing:"Small"}
+                    ],
+                    actions: [
+                      {type:"Action.OpenUrl", title:"View PR",         url:$prurl},
+                      {type:"Action.OpenUrl", title:"View All Checks", url:$checksurl},
+                      {type:"Action.OpenUrl", title:"View Commit",     url:$commiturl}
+                    ]
+                  }
                 }
-              ],
-              potentialAction: [
-                {"@type":"OpenUri", name:"View PR",         targets:[{os:"default", uri:$prurl}]},
-                {"@type":"OpenUri", name:"View All Checks", targets:[{os:"default", uri:$checksurl}]},
-                {"@type":"OpenUri", name:"View Commit",     targets:[{os:"default", uri:$commiturl}]}
               ]
             }' > card.json
 
