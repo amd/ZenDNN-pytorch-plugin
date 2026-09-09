@@ -100,6 +100,58 @@ def is_valid_fp16(op_name, match):
     return True
 
 
+def _zen_make_alibi_bias(alibi_slopes, dtype, seq_len):
+    """Per-head ALiBi distance bias, without a causal triangle.
+
+    Causality is applied by zentorch_sdpa's is_causal flag, not this tensor,
+    so bidirectional encoder ALiBi (and ALiBi+window) stay unmasked on the
+    right of the diagonal.
+    """
+    bias = torch.arange(seq_len, dtype=dtype)
+    bias = bias[None, :] - bias[:, None]
+    num_heads = alibi_slopes.shape[0]
+    bias = bias[None, :].repeat((num_heads, 1, 1))
+    bias.mul_(alibi_slopes[:, None, None]).unsqueeze_(0)
+    return bias.to(dtype)
+
+
+def _zen_make_sliding_window_bias(seq_len, left_window_size, right_window_size, dtype):
+    """Vendored sliding-window mask builder (no longer shipped by vLLM cpu_attn)."""
+    mask = torch.full((1, seq_len, seq_len), fill_value=1, dtype=dtype)
+    if right_window_size != -1:
+        mask = torch.tril(mask, diagonal=right_window_size)
+    if left_window_size != -1:
+        mask = torch.triu(mask, diagonal=-left_window_size)
+    return torch.log(mask)
+
+
+def _zen_encoder_attn_mask(
+    seq_len, dtype, alibi_slopes=None, left_window_size=-1, right_window_size=-1
+):
+    """One additive attn_mask for a sequence of length seq_len, or None.
+
+    Returns None when there is no ALiBi and no sliding window. Bidirectional
+    encoder attention (is_causal=False) still uses this mask for ALiBi/window;
+    the causal triangle is the kernel's is_causal flag, not this tensor.
+    ALiBi and a sliding window may both be set; the two biases add. Window
+    masks are promoted to rank 4 because zentorch_sdpa rejects rank 3.
+    """
+    seq_len = int(seq_len)
+    if alibi_slopes is None and left_window_size == -1 and right_window_size == -1:
+        return None
+    mask = None
+    if alibi_slopes is not None:
+        mask = _zen_make_alibi_bias(alibi_slopes, dtype, seq_len)
+    if left_window_size != -1 or right_window_size != -1:
+        window = _zen_make_sliding_window_bias(
+            seq_len, left_window_size, right_window_size, dtype
+        )
+        if window.dim() == 3:
+            window = window.unsqueeze(1)
+        mask = window if mask is None else mask + window
+    return mask
+
+
 def numdims_tensor(fx_graph, node, arg_index=None):
     return get_tensor(fx_graph, node, arg_index).ndim
 

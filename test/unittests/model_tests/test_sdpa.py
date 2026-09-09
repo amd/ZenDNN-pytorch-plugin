@@ -297,5 +297,114 @@ class Test_Sdpa_Out_Variant(Zentorch_TestCase):
                 self.assertEqual(out, reference, atol=1e-3, rtol=1e-2)
 
 
+@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
+@unittest.skipIf(
+    not zentorch._C.is_avx512_supported(),
+    "zentorch_sdpa fp32 requires AVX512 on this hardware",
+)
+@unittest.skipIf(
+    not hasattr(torch.ops.zentorch, "zentorch_sdpa_attn"),
+    "zentorch_sdpa_attn is not registered",
+)
+class Test_Sdpa_Attn(SDPATestCase):
+    """Causal / ALiBi / sliding-window coverage for zentorch_sdpa_attn."""
+
+    attn_mask_types = (
+        "none",
+        "causal",
+        "alibi",
+        "window",
+        "alibi_window",
+        "causal_alibi",
+    )
+
+    @SDPATestCase.hypothesis_params_sdpa_itr(
+        dtype_list=supported_dtypes,
+        seq_length_opt_list=[32, 64],
+        batch_size_opt_list=batch_size_opt,
+        mask_opt_list=attn_mask_types,
+        gqa_head_config_opt_list=gqa_head_config_opt,
+        head_dim_opt_list=head_dim_opt,
+    )
+    @torch.inference_mode()
+    def test_sdpa_attn_causal_alibi_window(self, dtype, mask_type, head_dim):
+        from zentorch._utils import _zen_encoder_attn_mask
+
+        query = self.data.sdpa_query
+        key = self.data.sdpa_key
+        value = self.data.sdpa_value
+        num_heads = query.size(1)
+        kv_num_heads = key.size(1)
+        seq_len = query.size(2)
+        torch_dtype = query.dtype
+        scale = 1.0 / math.sqrt(head_dim)
+
+        is_causal = mask_type in ("causal", "causal_alibi")
+        alibi_slopes = None
+        if "alibi" in mask_type:
+            alibi_slopes = torch.pow(
+                2.0, -torch.arange(1, num_heads + 1, dtype=torch.float32)
+            )
+        left = right = -1
+        if "window" in mask_type:
+            left = right = min(8, max(1, seq_len // 4))
+
+        out = torch.empty_like(query)
+        torch.ops.zentorch.zentorch_sdpa_attn(
+            query,
+            key,
+            value,
+            out,
+            scale=scale,
+            is_causal=is_causal,
+            alibi_slopes=alibi_slopes,
+            left_window_size=left,
+            right_window_size=right,
+        )
+        mask = _zen_encoder_attn_mask(
+            seq_len, torch_dtype, alibi_slopes, left, right
+        )
+        # zentorch_sdpa applies the causal triangle on top of attn_mask, but
+        # ATen rejects the two together, so fold causality into the mask.
+        if is_causal and mask is not None:
+            causal = torch.zeros(
+                (seq_len, seq_len), dtype=torch_dtype
+            ).masked_fill_(
+                torch.ones(seq_len, seq_len, dtype=torch.bool).triu_(1),
+                float("-inf"),
+            )
+            mask = mask + causal
+            is_causal = False
+        repeat = num_heads // kv_num_heads
+        reference = scaled_dot_product_attention(
+            query,
+            key.repeat_interleave(repeat, dim=1),
+            value.repeat_interleave(repeat, dim=1),
+            attn_mask=mask,
+            scale=scale,
+            is_causal=is_causal,
+            dropout_p=0.0,
+        )
+        self.assertEqual(
+            out,
+            reference,
+            atol=1e-3,
+            rtol=1e-2,
+        )
+
+    def test_encoder_attn_mask_none_without_bias(self):
+        from zentorch._utils import _zen_encoder_attn_mask
+
+        self.assertIsNone(_zen_encoder_attn_mask(8, torch.float32))
+        alibi = _zen_encoder_attn_mask(
+            8, torch.float32, alibi_slopes=torch.tensor([0.5, 0.25])
+        )
+        self.assertEqual(tuple(alibi.shape), (1, 2, 8, 8))
+        window = _zen_encoder_attn_mask(
+            8, torch.float32, left_window_size=2, right_window_size=2
+        )
+        self.assertEqual(tuple(window.shape), (1, 1, 8, 8))
+
+
 if __name__ == "__main__":
     run_tests()

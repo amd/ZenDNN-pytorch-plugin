@@ -7,6 +7,8 @@ import torch
 from torch._inductor.lowering import make_fallback
 import functools
 
+from ._utils import _zen_encoder_attn_mask
+
 
 @functools.lru_cache(None)
 def get_meta_lib():
@@ -172,6 +174,56 @@ def meta_zentorch_baddbmm(
 
 
 if hasattr(torch.ops.zentorch, "zentorch_sdpa"):
+
+    @torch.library.custom_op("zentorch::zentorch_sdpa_attn", mutates_args={"out"})
+    def zentorch_sdpa_attn(
+        query: torch.Tensor,
+        key: torch.Tensor,
+        value: torch.Tensor,
+        out: torch.Tensor,
+        scale: float | None = None,
+        is_causal: bool = False,
+        alibi_slopes: torch.Tensor | None = None,
+        left_window_size: int = -1,
+        right_window_size: int = -1,
+    ) -> None:
+        """zentorch_sdpa that builds its own attn_mask.
+
+        Callers pass ALiBi slopes and the window instead of a mask, so no dense
+        S x S tensor is built outside the plugin. Both may be set, in which
+        case the two biases add, and the kernel applies the causal triangle on
+        top of them. Attention is written into `out`.
+        """
+        torch.ops.zentorch.zentorch_sdpa.out(
+            query,
+            key,
+            value,
+            dropout_p=0.0,
+            is_causal=is_causal,
+            attn_mask=_zen_encoder_attn_mask(
+                query.size(2),
+                query.dtype,
+                alibi_slopes,
+                left_window_size,
+                right_window_size,
+            ),
+            scale=scale,
+            out=out,
+        )
+
+    @zentorch_sdpa_attn.register_fake
+    def _(
+        query,
+        key,
+        value,
+        out,
+        scale=None,
+        is_causal=False,
+        alibi_slopes=None,
+        left_window_size=-1,
+        right_window_size=-1,
+    ) -> None:
+        return None
 
     @register_meta("zentorch_sdpa")
     def meta_zentorch_sdpa(

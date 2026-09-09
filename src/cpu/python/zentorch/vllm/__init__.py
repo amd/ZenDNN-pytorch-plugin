@@ -316,9 +316,9 @@ def _apply_torchao_patch() -> bool:
 # CPU SDPA patch (encoder-only; opt out with ZENTORCH_SDPA=0)
 # ---------------------------------------------------------------------------
 # Wraps CPUAttentionBackendImpl.forward and routes encoder / encoder-only
-# attention through zentorch_sdpa.out. Decoder and cross-attention still use
-# the native cpu_attention_with_kv_cache path. Mask builders are vendored here
-# because vLLM no longer ships them. Experimental; enabled by default.
+# attention through zentorch_sdpa_attn (same op as in-tree vLLM). Decoder and
+# cross-attention still use the native cpu_attention_with_kv_cache path.
+# Experimental; enabled by default.
 
 _CPU_ATTN_MODULE = "vllm.v1.attention.backends.cpu_attn"
 
@@ -345,72 +345,13 @@ def _zentorch_sdpa_supports_dtype(dtype: torch.dtype) -> bool:
     return False
 
 
-def _zen_make_alibi_bias(alibi_slopes, dtype, start_loc):
-    """Vendored ALiBi mask builder (no longer shipped by vLLM cpu_attn)."""
-    attn_biases = []
-    seq_num = start_loc.size(0) - 1
-    start_loc = start_loc.numpy()
-    for i in range(seq_num):
-        seq_len = start_loc[i + 1] - start_loc[i]
-        bias = torch.arange(seq_len, dtype=dtype)
-        bias = bias[None, :] - bias[:, None]
-        num_heads = alibi_slopes.shape[0]
-        bias = bias[None, :].repeat((num_heads, 1, 1))
-        bias.mul_(alibi_slopes[:, None, None]).unsqueeze_(0)
-        inf_mask = (
-            torch.empty((1, seq_len, seq_len), dtype=bias.dtype)
-            .fill_(-torch.inf)
-            .triu_(diagonal=1)
-        )
-        attn_biases.append((bias + inf_mask).to(dtype))
-    return attn_biases
-
-
-def _zen_make_sliding_window_bias(
-    start_loc, left_window_size, right_window_size, dtype
-):
-    """Vendored sliding-window mask builder (no longer shipped by vLLM cpu_attn)."""
-    attn_biases = []
-    seq_num = start_loc.size(0) - 1
-    start_loc = start_loc.numpy()
-    for i in range(seq_num):
-        seq_len = start_loc[i + 1] - start_loc[i]
-        mask = torch.full((1, seq_len, seq_len), fill_value=1, dtype=dtype)
-        if right_window_size != -1:
-            mask = torch.tril(mask, diagonal=right_window_size)
-        if left_window_size != -1:
-            mask = torch.triu(mask, diagonal=-left_window_size)
-        mask = torch.log(mask)
-        attn_biases.append(mask)
-    return attn_biases
-
-
-def _masks_are_uniform(attn_masks) -> bool:
-    """True when every sequence in the batch would get the same mask.
-
-    The dense path folds the whole batch into a single zentorch_sdpa call with
-    one broadcast mask, which is only correct if the per-sequence masks are
-    interchangeable. The vendored builders derive masks from seq_len alone, so
-    equal-length batches produce equal (though distinct) tensors and stay on
-    the dense path; masks taken from attn_metadata.sdpa_attn_masks come from
-    vLLM and may differ per request.
-    """
-    first = attn_masks[0]
-    for mask in attn_masks[1:]:
-        if mask is first:
-            continue
-        if (mask is None) != (first is None):
-            return False
-        if mask.shape != first.shape or not torch.equal(mask, first):
-            return False
-    return True
-
-
 def _run_encoder_sdpa_zentorch(self, query, key, value, output, attn_metadata):
     """Encoder-only / encoder attention via zentorch_sdpa.
 
-    Uses attn_metadata.query_start_loc for per-sequence offsets, vendored mask
-    builders, and a symmetric bidirectional window derived from self.sliding_window.
+    Uses attn_metadata.query_start_loc for per-sequence offsets and a symmetric
+    bidirectional window derived from self.sliding_window. ALiBi slopes and
+    window sizes are passed to zentorch_sdpa_attn, which builds the mask
+    internally.
     """
     start_loc = attn_metadata.query_start_loc
 
@@ -423,18 +364,7 @@ def _run_encoder_sdpa_zentorch(self, query, key, value, output, attn_metadata):
     else:
         sw_left = sw_right = int(sw) - 1
 
-    attn_masks = getattr(attn_metadata, "sdpa_attn_masks", None)
-    if attn_masks is None:
-        if self.alibi_slopes is not None:
-            attn_masks = _zen_make_alibi_bias(self.alibi_slopes, query.dtype, start_loc)
-        elif sw_left != -1 or sw_right != -1:
-            attn_masks = _zen_make_sliding_window_bias(
-                start_loc, sw_left, sw_right, query.dtype
-            )
-        else:
-            attn_masks = [None] * (start_loc.size(0) - 1)
-        # Cache on the (per-group) metadata so sibling layers reuse it.
-        attn_metadata.sdpa_attn_masks = attn_masks
+    is_causal = attn_metadata.causal
 
     query = query.movedim(0, query.dim() - 2)
     key = key.movedim(0, key.dim() - 2)
@@ -447,15 +377,9 @@ def _run_encoder_sdpa_zentorch(self, query, key, value, output, attn_metadata):
     seq_lens = start_loc_np[1:] - start_loc_np[:-1]
 
     # vLLM packs all encoder sequences along the token dimension. When every
-    # sequence has the same length and shares one mask, recover a dense BHSD
-    # batch and invoke zentorch_sdpa once for the whole scheduler batch. Keep
-    # the loop below as the fallback for ragged batches and for batches whose
-    # requests carry different masks.
-    if (
-        len(seq_lens) > 0
-        and (seq_lens == seq_lens[0]).all()
-        and _masks_are_uniform(attn_masks)
-    ):
+    # sequence has the same length, recover a dense BHSD batch and invoke the
+    # op once. Keep the loop below for ragged batches.
+    if len(seq_lens) > 0 and (seq_lens == seq_lens[0]).all():
         batch_size = len(seq_lens)
         seq_len = int(seq_lens[0])
 
@@ -463,55 +387,35 @@ def _run_encoder_sdpa_zentorch(self, query, key, value, output, attn_metadata):
             # [H, total_tokens, D] -> [B, H, S, D]
             return tensor.unflatten(1, (batch_size, seq_len)).permute(1, 0, 2, 3)
 
-        q = _packed_hsd_to_bhsd(query)
-        k = _packed_hsd_to_bhsd(key)
-        v = _packed_hsd_to_bhsd(value)
-
-        # Every sequence shares this mask (checked above). Preserve a leading
-        # size-1 batch dimension so the C++ operator broadcasts it across the
-        # dense batch.
-        mask = attn_masks[0]
-        if mask is not None and mask.dim() == 3:
-            mask = mask.unsqueeze(1)
-
-        # The op writes {B, H, S, D} into `out`. vLLM's buffer is packed
-        # {tokens, H, D}, so hand over the matching view and let the kernel
-        # store straight into it instead of materializing a second tensor.
-        torch.ops.zentorch.zentorch_sdpa.out(
-            q,
-            k,
-            v,
-            dropout_p=0.0,
-            is_causal=False,  # encoder attention is bidirectional
-            attn_mask=mask,
+        torch.ops.zentorch.zentorch_sdpa_attn(
+            _packed_hsd_to_bhsd(query),
+            _packed_hsd_to_bhsd(key),
+            _packed_hsd_to_bhsd(value),
+            # The op writes {B, H, S, D} into `out`. vLLM's buffer is packed
+            # {tokens, H, D}, so hand over the matching view and let the kernel
+            # store straight into it instead of materializing a second tensor.
+            output.unflatten(0, (batch_size, seq_len)).permute(0, 2, 1, 3),
             scale=self.scale,
-            out=output.unflatten(0, (batch_size, seq_len)).permute(0, 2, 1, 3),
+            is_causal=is_causal,
+            alibi_slopes=self.alibi_slopes,
+            left_window_size=sw_left,
+            right_window_size=sw_right,
         )
         return output
 
-    for i in range(len(attn_masks)):
-        mask = attn_masks[i]
-        # zentorch_sdpa only accepts a 2D or 4D attn_mask; the vendored builders
-        # produce 3D [1, S, S], so promote to [1, 1, S, S].
-        if mask is not None and mask.dim() == 3:
-            mask = mask.unsqueeze(1)
-
+    for i in range(len(seq_lens)):
         start_q = start_loc_np[i]
         end_q = start_loc_np[i + 1]
-
-        q = query[None, :, start_q:end_q, :]
-        k = key[None, :, start_q:end_q, :]
-        v = value[None, :, start_q:end_q, :]
-
-        torch.ops.zentorch.zentorch_sdpa.out(
-            q,
-            k,
-            v,
-            dropout_p=0.0,
-            is_causal=False,  # encoder attention is bidirectional
-            attn_mask=mask,
+        torch.ops.zentorch.zentorch_sdpa_attn(
+            query[None, :, start_q:end_q, :],
+            key[None, :, start_q:end_q, :],
+            value[None, :, start_q:end_q, :],
+            output[start_q:end_q, :, :].movedim(0, 1).unsqueeze(0),
             scale=self.scale,
-            out=output[start_q:end_q, :, :].movedim(0, 1).unsqueeze(0),
+            is_causal=is_causal,
+            alibi_slopes=self.alibi_slopes,
+            left_window_size=sw_left,
+            right_window_size=sw_right,
         )
     return output
 
