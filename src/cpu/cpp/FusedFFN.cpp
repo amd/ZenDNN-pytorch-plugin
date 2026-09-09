@@ -77,6 +77,7 @@ void zentorch_fused_ffn_concat_out_impl(
       /*w2_bias=*/w2_biases,
       /*w13_scales=*/w13_scales,
       /*w2_scales=*/w2_scales,
+      /*src_scales=*/{},
       /*zentorch_op_name=*/zentorch_op_name);
 }
 

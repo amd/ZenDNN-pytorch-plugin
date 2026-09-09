@@ -8,6 +8,7 @@
 
 ```
 input [T, H]
+   ├─ unique-token s8 quant (DA8W8 fused path; ZENTORCH_MOE_PREQUANT, default on)
    ├─ token-expert grouping (per-active-expert input buffers)
    ├─ W13 gate+up projection                 (per-expert GEMM, batched)
    ├─ gated activation (SiLU / GELU / SwigluOAI)
@@ -24,8 +25,8 @@ The op is the C++ landing pad for vLLM's `CPUFusedMOE` forward (patched by `src/
 | Regime | `w13` / `w2` dtype | Scales | Activation quant |
 |--------|--------------------|--------|------------------|
 | **bf16 / f32** | same as `input` | none | none |
-| **DA8W8** | `torch.int8`, full-width `[E, N, K]` | per-channel or per-group | dynamic per-token s8 |
-| **DA8W4** | packed s4: `torch.int32` `[E, N, K/8]` or `torch.int8` `[E, N, K/2]` | per-group `[E, G, N]` | dynamic per-token s8 |
+| **DA8W8** | `torch.int8`, full-width `[E, N, K]` | per-channel or per-group | unique-token s8, then grouping (fused path; `ZENTORCH_MOE_PREQUANT=0` groups bf16 instead) |
+| **DA8W4** | packed s4: `torch.int32` `[E, N, K/8]` or `torch.int8` `[E, N, K/2]` | per-group `[E, G, N]` | bf16 grouping, ZenDNN quantizes per expert row (`dynamic_quant=true`). Unique-token is DA8W8-only |
 
 Both DA8W4 containers hold the same s4 nibble stream, so they are interchangeable. `torch.int8` therefore serves both quantized regimes and is disambiguated by its last dim: full width is DA8W8, half width is packed s4.
 
@@ -33,8 +34,8 @@ The DA8W4 regime is symmetric-only (no zero-points) and needs no `expert_map` (C
 
 > **Note:**
 > - The op is an **out variant**: `output` is allocated by the caller and mutated in place. The schema marks it `Tensor(a!)` and the op returns `()`. The caller does **not** need to zero-initialise it — the weighted-reduce post-op writes every `[T, H]` element (the `k = 0` slot initialises, `k > 0` accumulate).
-> - Shape / dtype / bias validation is performed once by the producing Python layer — the `CPUFusedMOE` patch (`vllm/__init__.py`) for bf16 / DA8W8, or the DA8W4 experts backend (`vllm/model_executor/layers/fused_moe/experts/zentorch_moe.py`) for DA8W4. The C++ op trusts its inputs (it only fails fast on the DA8W4-requires-bf16 and `E_a > 1` invariants).
-> - Only experts that actually receive at least one routed token are materialised in Phase 1 and forwarded to the backend (the **active set** of size E_a ≤ E).
+> - Shape / dtype / bias validation is performed once by the producing Python layer — the `CPUFusedMOE` patch (`vllm/__init__.py`) for bf16 / DA8W8, or the DA8W4 experts backend (`vllm/model_executor/layers/fused_moe/experts/zentorch_moe.py`) for DA8W4. The C++ op still fail-fasts on `E_a > 1`, `topk_id` values in `[0, E)`, unique-token preconditions (contiguous bf16, AVX-512, `T>0`), and grouped-buffer contiguity. DA8W8/DA8W4 activation dtype is enforced in `GroupMatmul.cpp`.
+> - GEMM work is the **active set** of size E_a ≤ E (experts that received at least one token). `w13` / `w2` lists passed to GroupMatmul are still sized **E** (active prefix + inactive prepack tail); bias, weight-scale, and `src_scales` lists are sized E_a.
 
 ## 2. Motivation
 
@@ -47,11 +48,12 @@ The MicroGemm path requires offline prepacking of weights (and a separate quanti
 
 `zentorch_fused_moe` collapses the whole MoE FFN block into a single backend call:
 
-- **Token-expert grouping in C++** with no atomics — positions for each routed `(t, k)` pair are pre-assigned during a cheap single-threaded sweep, then a `parallel_for` does the actual memcpy in Phase 1.
-- **Active-set narrowing** — experts that receive zero routed tokens are skipped entirely; we forward only E_a slices of `w13` / `w2` / biases to the backend.
+- **Token-expert grouping in C++** with no atomics — positions for each routed `(t, k)` pair are pre-assigned during a cheap single-threaded sweep (`expert_to_active[E]` lookup), then `torch::stable::parallel_for` copies unique rows in Pass 2.
+- **Active-set GEMMs + prepack tail** — only E_a experts participate in this call's GEMMs. Inactive `w13` / `w2` slices are still appended so ZenDNN's weight-cache warmer sees every expert.
+- **Scratchpad grouping buffers** — default `ZENTORCH_USE_SCRATCHPAD=1` packs per-expert `[M_e, H]` (and `[M_e, 1]` scales on the unique-token path) into a process-lifetime aligned block; set `0` for `new_empty` per expert.
 - **Buffer aliasing** — the per-expert input buffers are reused as W2 output buffers, since W13 has already consumed them by the time W2 writes. No second allocation per active expert.
 - **Fused post-op chain** — W13 → gated activation → W2 → router-weighted reduce executes inside one `group_matmul_direct` call.
-- **Standard `[E, ...]` weight layout** — no prepack step, weights are consumed in the same layout vLLM stores them in.
+- **Standard `[E, ...]` weight layout** — no offline prepack of the stacked tensors; per-expert views are cached (`ExpertSliceCache`) and consumed in the layout vLLM stores them in.
 
 ## 3. API
 
@@ -115,7 +117,7 @@ torch.ops.zentorch.zentorch_fused_moe(
 | `act` | One of `'silu'`, `'gelu'`, `'gelu_tanh'`, `'swigluoai'` |
 | Active experts | `E_a > 1` required (`group_matmul_direct` needs ≥ 2 active experts); `E_a == 1` raises |
 
-Validation lives in the producing Python layer — `_moe_forward_zentorch` / patch install in `src/cpu/python/zentorch/vllm/__init__.py` for bf16/DA8W8, or the DA8W4 experts backend for DA8W4. The C++ op assumes the contract holds; it only fails fast on the packed-s4 layout of `w13`, on `w13.dtype == w2.dtype` and `input.is_bfloat16()` for packed-s4 weights, and on the `E_a > 1` grouped-GEMM precondition.
+Validation of stacked 3D weights / biases / scales lives in the producing Python layer — `_moe_forward_zentorch` / patch install in `src/cpu/python/zentorch/vllm/__init__.py` for bf16/DA8W8, or the DA8W4 experts backend for DA8W4. The C++ fused-MoE op still checks `E_a > 1`, `topk_id[i] ∈ [0, E)`, unique-token preconditions, and grouped-buffer contiguity. Packed-s4 vs DA8W8 classification, `w13`/`w2` dtype agreement, and “DA8W4/DA8W8 require bf16 or int8 activations” are enforced in `zentorch_group_matmul_out_impl`.
 
 ### Dynamic A8W8 quantization support
 
@@ -129,21 +131,21 @@ The op runs in two phases: **Phase 1 — Token-Expert Grouping** (custom C++ in 
 
 For each routed pair `(t, k)`, expert `e = topk_id[t][k]` must receive a copy of `input[t]` in its per-expert input buffer. This is done with two sub-passes:
 
-**Pass 1 — single-threaded bookkeeping (O(T·K·E_a)):**
+**Pass 1 — single-threaded bookkeeping (O(T·K)):**
 
-1. Walk the T·K `(t, k)` pairs in flat order, `i = t*K + k`.
-2. On first encounter of an expert `e`, append it to `active_expert_ids` (linear scan over the existing list to detect first-encounter; E_a is small in practice, the scan stays in L1). Push a new counter onto `tokens_per_active`.
-3. For each `i`, record `topk_to_expert_row[i] = (a, pos)` where `a` is the active slot for `e` and `pos = tokens_per_active[a]++` is the deterministic row this pair will occupy in expert `a`'s eventual input buffer. **No atomics are needed in Pass 2** because positions are pre-assigned here.
+1. Walk the T·K `(t, k)` pairs in flat order, `i = t*K + k`. `topk_id[i]` must be in `[0, E)`.
+2. On first encounter of an expert `e`, append it to `active_expert_ids` (first-seen order is unchanged) and set `expert_to_active[e] = a`. Already-seen experts resolve with that size-E table (`-1` = unseen), not a linear scan of the growing active list. Reserve each expert's source-token list to `T` on first encounter.
+3. For each `i`, record `topk_to_expert_row[i] = (a, pos)` where `a` is the active slot for `e` and `pos = tokens_per_active[a]++` is the deterministic row this pair will occupy in expert `a`'s eventual input buffer. Append source token `t` to `source_tokens_per_active[a]`. **No atomics are needed in Pass 2** because positions are pre-assigned here.
 
-`active_expert_ids` is the single source of truth for the active set — there is no parallel `expert_to_active[E]` reverse map.
+`active_expert_ids` remains the ordered active set handed to later phases. `expert_to_active` exists only for the T·K walk and is discarded when mapping returns.
 
 **Allocation:**
 
-After Pass 1, allocate `grouped_inputs[a] = at::empty({tokens_per_active[a], H})` for each active slot. The vector is size E_a and is handed directly to `group_matmul`.
+After Pass 1, allocate `grouped_inputs[a]` as `[tokens_per_active[a], H]` in the **activation dtype** (bf16 for unique-token). The vector is size E_a. Default `ZENTORCH_USE_SCRATCHPAD=1` places every `[M_e, H]` region (and `[M_e, 1]` scale region when unique-token scales are present) in one 64-byte-aligned process-lifetime block and exposes them as `from_blob` tensors. `ZENTORCH_USE_SCRATCHPAD=0` uses `new_empty` per expert.
 
-**Pass 2 — parallel data movement (`at::parallel_for`):**
+**Pass 2 — parallel data movement (`torch::stable::parallel_for` over E_a):**
 
-For each pair `i`, look up the pre-assigned `(a, pos)` and `memcpy` row `t = i / K` of `input` into row `pos` of `grouped_inputs[a]`. No locks, no atomics — Pass 1 guarantees every `(a, pos)` is unique.
+Each worker owns one destination buffer and walks `source_tokens_per_active[a]`. Float path: `memcpy` row `t` of `input` into row `pos` of `grouped_inputs[a]`. Unique-token (DA8W8/DA8W4 fused path): first quantize unique `[T, H]` bf16 tokens out-of-place to int8 + f32 `[T, 1]` scales via `dynamic_per_token_quant_bf16_s8_native`, then memcpy **H int8 bytes** per row into the leading `M_e*H` bytes of the bf16 grouping buffer (plus a scale broadcast into `grouped_src_scales`). Grouping never quantizes. Dest-base pointer setup is serial; the row copies use `parallel_for` with `grain_size=1`. No locks, no atomics — Pass 1 guarantees every `(a, pos)` is unique.
 
 ### 6.2 Worked example
 
@@ -186,14 +188,16 @@ grouped_inputs[2]  (active_idx 2 = expert 1, M=2) = [ input[1], input[2] ]
 
 With the active set known, the op:
 
-1. Builds size-E_a slice vectors for `w13`, `w2`, `w13_bias`, `w2_bias`, `w13_scales`, `w2_scales` via `select(0, e)` for each `e = active_expert_ids[a]`. Inactive experts contribute nothing to the backend call. Scale slicing only occurs when the corresponding weights are DA8W8 (checked via `torchao` availability and weight dtype).
-2. Builds `row_ptrs[T·K]`: for each `i`, `row_ptrs[i] = &grouped_inputs[a].data[pos * row_bytes]`. The W2 down-projection writes per-expert outputs back into these same `grouped_inputs` buffers (W13 has already consumed them), so `row_ptrs[i]` is exactly where the `(t, k)`-th expert result will live by the time the weighted-reduce post-op runs.
+1. Builds **size-E** `w13` / `w2` slice lists (active experts in `active_expert_ids` order at `[0, E_a)`, then inactive experts in original `[0, E)` order) so ZenDNN's prepack warmer sees every expert. Bias and weight-scale lists stay **size E_a**. Slices come from `ExpertSliceCache` (process-lifetime per-tensor `select(0, e)` cache, keyed by `data_ptr()`; tests flush via `zentorch_flush_moe_weight_cache`). Scale slicing runs whenever `w13_scales` / `w2_scales` are defined (DA8W8 and DA8W4) — there is no torchao check in C++.
+2. Builds `row_ptrs[T·K]`: for each `i`, `row_ptrs[i] = &grouped_inputs[a].data[pos * row_bytes]` with `row_bytes` from the **bf16/fp** grouping buffers. W2 writes per-expert outputs into those same buffers (float: src-reuse; unique-token: `gemm_outputs` / `dst_down` after W13 has consumed the packed int8 prefix), so `row_ptrs[i]` is where the `(t, k)`-th expert result lives when weighted-reduce runs.
 3. If `skip_weighted` is set, substitutes an all-ones weight vector (router weights have been pre-applied to `input` by the caller).
-4. Calls `zentorch_group_matmul_out_impl` once with `gemm_outputs={}` (backend allocates W13 outputs internally), `w2_outputs = grouped_inputs` (aliased), and the post-op metadata (`topk_weights`, `row_ptrs`, `moe_output = output`).
+4. Calls `zentorch_group_matmul_out_impl` once:
+   - **float:** `gemm_outputs={}` (backend allocates W13 internally), `inputs=grouped_inputs` (W2 src-reuse), `src_scales=[]`.
+   - **unique-token:** `inputs` = int8 `from_blob` views of `grouped_inputs`, filled `src_scales` from `grouped_src_scales`, `gemm_outputs=grouped_inputs` (bf16 W2 dests).
 
-### 6.4 Buffer aliasing — why `w2_outputs == grouped_inputs` is safe
+### 6.4 Buffer aliasing — why W2 dests can reuse `grouped_inputs`
 
-Within `group_matmul_direct`'s fused chain, the lifetime of each `grouped_inputs[a]` buffer is:
+**Float path** (`gemm_outputs={}`): ZenDNN src-reuse. Within `group_matmul_direct`'s fused chain:
 
 ```
 W13 reads grouped_inputs[a]   ──►   W13 outputs (internal buffer)
@@ -202,35 +206,45 @@ W13 reads grouped_inputs[a]   ──►   W13 outputs (internal buffer)
                                                               ──► weighted reduce reads it
 ```
 
-W13 has finished reading `grouped_inputs[a]` before W2 starts writing it, so reusing the buffer saves an `at::empty({M_e, H})` per active expert without aliasing hazards. The `row_ptrs` table targets the same buffers, so the post-op reads the W2 outputs directly without an extra copy.
+W13 has finished reading `grouped_inputs[a]` before W2 starts writing it.
+
+**Unique-token path:** `grouped_inputs[a]` is a bf16 `[M_e, H]` allocation. Packed int8 occupies only the leading `M_e*H` bytes (W13 reads an int8 view). Op1 dest is library-internal; W2 writes the full bf16 buffer via `gemm_outputs` / `dst_down`. Int8 payload is consumed before that write. `row_ptrs` target the bf16 rows.
 
 ### 6.5 Execution flow
 
 ```
 zentorch_fused_moe()
-  ├─ build_token_expert_mapping(input, topk_id):
-  │     ├─ Pass 1 (single-threaded):
-  │     │     ├─ Linear-scan registration into active_expert_ids
+  ├─ If DA8W8, ZENTORCH_TWO_PASS is off, and ZENTORCH_MOE_PREQUANT is on (default):
+  │     unique-token dynamic_per_token_quant_bf16_s8_native → int8 [T,H] + f32 [T,1]
+  │     (DA8W4 skips this and groups bf16)
+  ├─ build_token_expert_mapping(input, topk_id, E, optional unique-token scales):
+  │     ├─ Pass 1 (single-threaded O(T·K)):
+  │     │     ├─ expert_to_active[E] lookup; first-seen order into active_expert_ids
   │     │     └─ Assign deterministic (active_idx, pos) per (t, k) pair
-  │     ├─ Allocate grouped_inputs[a] of shape [M_a, H] for each active slot
-  │     └─ Pass 2 (at::parallel_for, grain=64): memcpy input rows into slots
-  ├─ Build size-E_a slices: w13_slices, w2_slices, w13_bias_slices, w2_bias_slices,
-  │                         w13_scale_slices (if int8), w2_scale_slices (if int8)
-  ├─ Build row_ptrs[T*K]: pointers into grouped_inputs[a][pos]
+  │     ├─ Allocate grouped_inputs[a] [M_a, H] in activation dtype (scratchpad
+  │     │     from_blob by default; new_empty if ZENTORCH_USE_SCRATCHPAD=0)
+  │     └─ scatter_tokens_to_experts: parallel_for over E_a (bf16 rows, or packed
+  │           int8 + scale broadcast)
+  ├─ Unique-token: wrap grouped_inputs as int8 from_blob views; src_scale_slices
+  │     from grouped_src_scales
+  ├─ Build size-E w13/w2 slices (active prefix + inactive prepack tail) and
+  │     size-E_a bias / weight-scale slices (ExpertSliceCache)
+  ├─ Build row_ptrs[T*K]: pointers into grouped_inputs[a][pos] (bf16 W2 dests)
   ├─ If skip_weighted: effective_topk_weights = ones_like(topk_weights)
   └─ zentorch_group_matmul_out_impl(
-        gemm_outputs={},                         # backend allocates W13 dst internally
-        inputs=grouped_inputs,                   # size E_a
-        w13_weights=w13_slices,
-        w2_weights=w2_weight_slices,             # fused W2 post-op
-        moe_output=output,                       # weighted reduce target
+        gemm_outputs={} or grouped_inputs,       # empty: float src-reuse; unique-token: dst_down
+        inputs=grouped_inputs or int8 views,     # unique-token: kChar view of packed prefix
+        w13_weights=w13_slices,                  # sized E
+        w2_weights=w2_weight_slices,             # sized E; fused W2 post-op
+        moe_output=output,
         topk_weights=effective_topk_weights,
         row_ptrs=row_ptrs,
-        activation=act,                          # gated act post-op
-        w13_bias=w13_bias_slices,
+        activation=act,
+        w13_bias=w13_bias_slices,                # sized E_a
         w2_bias=w2_bias_slices,
-        w13_scales=w13_scale_slices,             # int8 w13 scales (or empty)
-        w2_scales=w2_scale_slices,               # int8 w2 scales (or empty)
+        w13_scales=w13_scale_slices,
+        w2_scales=w2_scale_slices,
+        src_scales=[] or grouped unique-token scales,
         zentorch_op_name=zentorch_op_name)
         # Backend runs W13 -> gated_act -> W2 -> weighted_reduce in one call
 ```
@@ -259,20 +273,53 @@ ZENTORCH_TWO_PASS=1
 ```
 
 When `ZENTORCH_TWO_PASS` is unset (the default), the
-single-call fused path in 6.5 is used. This split path is exercised by
-`test_int8_w13_and_w2_two_pass` when run with `ZENTORCH_TWO_PASS=1`.
+single-call fused path in 6.5 is used. Unique-token pre-quant is **fused-path
+only**: `use_prequant` is false whenever two-pass is set, so this split keeps
+the original bf16 grouping and lets each GEMM dynamically quantize inside
+ZenDNN. This split path is exercised by `test_int8_w13_and_w2_two_pass` when
+run with `ZENTORCH_TWO_PASS=1`.
+
+### 6.7 Unique-token kill switch (`ZENTORCH_MOE_PREQUANT`)
+
+On the fused **DA8W8** path, unique-token s8 quant is on by default (`ZENTORCH_MOE_PREQUANT=1`).
+**DA8W4 never unique-token quantizes**: ZenDNN `group_matmul_fused_moe` `op1_internal` allows mixed `src=s8` / `dst=bf16` only when `wei=s8`. Packed s4 (`wei=s4`) keeps bf16 grouping and `dynamic_quant=true`.
+Set `ZENTORCH_MOE_PREQUANT=0` to keep **one** fused `group_matmul_direct` call but
+group bf16 tokens on DA8W8 too (`dynamic_quant=true`).
+`ZENTORCH_TWO_PASS=1` still forces unique-token off (two plugin GEMMs).
+
+```
+ZENTORCH_MOE_PREQUANT=1 (default) + TWO_PASS unset + DA8W8
+  → unique-token quant, then int8 grouping, one fused call
+ZENTORCH_MOE_PREQUANT=1 (default) + TWO_PASS unset + DA8W4
+  → bf16 grouping, ZenDNN quantizes per expert row, one fused call
+ZENTORCH_MOE_PREQUANT=0            + TWO_PASS unset
+  → bf16 grouping for DA8W8 and DA8W4, one fused call
+ZENTORCH_TWO_PASS=1                (PREQUANT ignored)
+  → bf16 grouping, two plugin GEMMs
+```
+
+### 6.8 Environment variables
+
+Read once at process start via `EnvReader` (`src/cpu/cpp/EnvReader.hpp`). Values other than `0`/`1` fall back to the default.
+
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `ZENTORCH_MOE_PREQUANT` | `1` | Unique-token s8 quant on fused **DA8W8** only. DA8W4 always groups bf16. `0` groups bf16 on DA8W8 too. |
+| `ZENTORCH_TWO_PASS` | `0` | Split W13+act and W2+reduce into two `group_matmul_direct` calls. Forces unique-token off. |
+| `ZENTORCH_USE_SCRATCHPAD` | `1` | Pack grouped `[M_e, H]` (and unique-token `[M_e, 1]` scales) into a reused aligned block. `0` = `new_empty` per expert. |
+| `ZENTORCH_ENABLE_CHECKS` | `0` | GroupMatmul **weight-scale** validators only (`validate_weight_scales`, DA8W4 per-group scale shape). Shape/dtype/list-size checks and int8 `src_scales` checks still run. FusedMoE does not read this flag. |
 
 ## 7. Complexity
 
 | Stage | Cost |
 |-------|------|
-| Pass 1 (registration + position assignment) | O(T·K·E_a), single-threaded, in-L1 |
-| Allocation of per-active-expert input buffers | O(E_a) tensor allocs of total size `T·K·H · sizeof(dtype)` |
-| Pass 2 (memcpy) | O(T·K) parallel `memcpy`s of `H · sizeof(dtype)` bytes |
-| Slice / row_ptrs construction | O(E_a) + O(T·K) |
+| Pass 1 (registration + position assignment) | O(T·K) plus a size-E `expert_to_active` table, single-threaded |
+| Allocation of per-active-expert input buffers | O(E_a) `from_blob` (scratchpad) or `new_empty`; total size `T·K·H · sizeof(dtype)` plus unique-token scales |
+| Pass 2 (memcpy) | O(T·K) parallel `memcpy`s; unique-token copies `H` int8 bytes per row, float copies `H · sizeof(dtype)` |
+| Slice / row_ptrs construction | O(E) weight-list fill + O(T·K) row_ptrs; slice `select` amortized after `ExpertSliceCache` warms |
 | Fused backend call | Dominant term — see `zentorch_group_matmul.md` |
 
-E_a (number of active experts) is bounded by `min(E, T·K)` and in practice sits in the tens for typical inference workloads, so the linear scans inside Pass 1 stay cheap.
+E_a is bounded by `min(E, T·K)`. Pass 1 does not scan the growing active list.
 
 ## 8. Test Plan
 
@@ -294,8 +341,8 @@ is supported). The DA8W8 tests override `k_list` to satisfy their shape constrai
 | Test | Weights | Post-ops | Notes |
 |------|---------|----------|-------|
 | `test_fused_moe_pipeline` (Output 2) | bf16/f32 | Full pipeline (silu activation + w2 + MoE reduce) | Single-call fused path |
-| `test_int8_w13_and_w2_single_pass` (sub-test 3) | DA8W8 w13 + DA8W8 w2 | No activation + MoE reduce | `k_list = [4, 8]`, `K == K_out == N` |
-| `test_int8_w13_and_w2_two_pass` | DA8W8 w13 + DA8W8 w2 | silu activation + w2 + MoE reduce | `k_list = [8, 16]`, `K == K_out`; exercises the `ZENTORCH_TWO_PASS` split path when run with `ZENTORCH_TWO_PASS=1`|
+| `test_int8_w13_and_w2_single_pass` (sub-test 3) | DA8W8 w13 + DA8W8 w2 | silu + MoE reduce | Unique-token s8 + one fused `group_matmul_direct`; `k_list = [4, 8]` |
+| `test_int8_w13_and_w2_two_pass` | DA8W8 w13 + DA8W8 w2 | silu activation + w2 + MoE reduce | `k_list = [8, 16]`, `K == K_out`; requires `ZENTORCH_TWO_PASS=1` (bf16 grouping, two plugin GEMMs; unique-token is off) |
 
 `test_fused_moe_pipeline` verifies two output paths per config: (1) low-level `zentorch_group_matmul.out` with inline MoE weighted-reduce, and (2) high-level `zentorch_fused_moe` (token grouping + full pipeline in a single op call). Both are compared against the same reference.
 
@@ -304,10 +351,11 @@ is supported). The DA8W8 tests override `k_list` to satisfy their shape constrai
 When `w13_scales` or `w2_scales` is provided:
 
 1. **Python layer** (`vllm/__init__.py`): At init time (`_patched_init`), loops over `("w13_weight", "w13_scale")` and `("w2_weight", "w2_scale")` pairs. For each, checks `isinstance(w, Int8Tensor)`, extracts `w.scale`, applies a `weight_scales.shape[-1] == 1` check (handles both 2D `[N, 1]` and 3D `[E, N, 1]` scale layouts), squeezes and validates dtype (f32/bf16), stores as `layer.<scale_attr>`, and calls `replace_parameter(layer, weight_attr, w.qdata)` inside the loop to replace the Int8Tensor with its raw int8 data. Forward path fetches via `getattr(layer, "w13_scale", None)`. Same for w2.
-2. **FusedMoe.cpp**: Per-active-expert slicing via `w13_scales->select(0, e)` / `w2_scales->select(0, e)`. Passed to `zentorch_group_matmul_out_impl` as `w13_scales` / `w2_scales`.
+2. **FusedMoe.cpp**: Per-active-expert slicing from `ExpertSliceCache` (`w13_scales.select(0, e)` / `w2_scales.select(0, e)` on first encounter of that tensor). Passed to `zentorch_group_matmul_out_impl` as `w13_scales` / `w2_scales`. Unique-token `src_scales` are the grouped `[M_e, 1]` f32 buffers, not a schema arg on `zentorch_fused_moe`.
 3. **GroupMatmul.cpp**:
-   - **Op1 (w13)**: `params[i].quant_params.wei_scale` populated from `w13_scales[i]`. `src_scale` buffer allocated by caller (kernel fills at runtime).
-   - **Op2 (w2)**: `fused_moe.down_scale[i]` populated from `w2_scales[i]`. Op2 inherits `dynamic_quant`, `dtypes.compute`, `src_scale.dims` from `params[i]` — only the weight scale is per-pass. 1D scales `{K_out}` normalized to `{1, K_out}`.
+   - **Op1 (w13), unique-token:** int8 `inputs` + filled f32 `src_scales` from `dynamic_per_token_quant_bf16_s8_native` (converted to `wei_scale` dtype if they differ). `dynamic_quant = false`. Fused w2: caller bf16 `gemm_outputs` as `dst_down`.
+   - **Op1 (w13), bf16/two-pass:** `src_scale` buffer allocated by the wrapper; `dynamic_quant = true`; ZenDNN fills the scales.
+   - **Op2 (w2):** `fused_moe.down_scale[i]` from `w2_scales[i]`. Op2 inherits `dtypes.compute` / `dtypes.wei`. Unique-token Op1 (`src=s8`, `dynamic_quant=false`) makes ZenDNN re-enable Op2 `dynamic_quant` (W2 src is bf16 post-act). 1D scales `{K_out}` normalized to `{1, K_out}`.
 
 ### 8.4 Supported gated activation strings
 
@@ -383,17 +431,19 @@ The per-expert weight/scale views are passed to the grouped impl **without a `.t
 | W13 scale | `w13_scales.select(0, e)` → `[G, N]` | `wei_scale.dims = {G, N}` (per-group, unchanged) |
 | W2 scale | `w2_scales.select(0, e)` → `[G2, H]` | `fused.down_scale.dims = {G2, H}` (per-group) |
 
-Notes: the unpacked `K`/`ldb` is the activation's contraction dim in **nibble units**, independent of the container, and `run_dlp`'s `cvt_s4_to_s8` reads the buffer as a transposed s4 nibble stream. Both `w13` and `w2` must be contiguous in either container, since `ldb`/`ldb_down` come from that contraction dim rather than `stride(0)`. The per-group weight scale is passed through as-is (unlike the dynamic-A8W8 path, which normalizes `{N}` to `{1, N}`); the per-token source scale `{M, 1}` is filled by the kernel and broadcast across the `G` groups. Resulting per-expert config: `dtypes = {src: bf16, wei: s4, dst: bf16, compute: s8}`, `dynamic_quant = true`, `is_weights_const = true`.
+Notes: the unpacked `K`/`ldb` is the activation's contraction dim in **nibble units**, independent of the container, and `run_dlp`'s `cvt_s4_to_s8` reads the buffer as a transposed s4 nibble stream. Both `w13` and `w2` must be contiguous in either container, since `ldb`/`ldb_down` come from that contraction dim rather than `stride(0)`. The per-group weight scale is passed through as-is (unlike the dynamic-A8W8 path, which normalizes `{N}` to `{1, N}`).
+
+**DA8W4 fused path** always groups bf16 and uses Op1 `dynamic_quant=true` (kernel-filled `{M, 1}` scales, broadcast across `G`). Unique-token (`src=s8`, `dynamic_quant=false`) is DA8W8-only. **Two-pass:** both GEMMs are `src=bf16`, `dynamic_quant=true`.
 
 ### 9.4 Kernel / algo selection
 
-DA8W4 (`s4` weight + `dynamic_quant = true`) is **not** in ZenDNN's M-tile (ALGO 2) / N-tile (ALGO 3) regime set (those cover BF16, weight-only S4/U4, and dynamic-A8W8). It runs through the grouped dispatcher's **legacy per-expert path** (ALGO 1) — one AOCL-DLP DA8W4 kernel call per expert GEMM. Deeper cross-op fusion for DA8W4 is a future optimization.
+DA8W4 (`s4` weight) is **not** in ZenDNN's M-tile (ALGO 2) / N-tile (ALGO 3) regime set (those cover BF16, weight-only S4/U4, and dynamic-A8W8). It runs through the grouped dispatcher's **legacy per-expert path** (ALGO 1) — one AOCL-DLP DA8W4 kernel call per expert GEMM — with Op1 `dynamic_quant=true`. Deeper cross-op fusion for DA8W4 is a future optimization.
 
 ### 9.5 Constraints specific to DA8W4
 
 | Constraint | Condition |
 |-----------|-----------|
-| `input` dtype | `torch.bfloat16` only — f32 rejected (the C++ op fails fast when `w13` is packed s4, in either container) |
+| `input` dtype | `torch.bfloat16` only — f32/fp16 rejected in `GroupMatmul.cpp` when weights are packed s4 (unique-token also requires contiguous bf16 in `quantize_unique_tokens_s8`) |
 | Container agreement | `w13.dtype == w2.dtype` — both must be the int32 container or both the int8 one |
 | Packed `K` divisibility | int32 container: `K % 8 == 0`; int8 container: `K % 2 == 0`. Only `w13`'s `K` (the hidden size) is checked; `w2`'s intermediate size is not. |
 | Zero points | Unsupported (symmetric only) — asymmetric `uint4` / act-reordered checkpoints must use the native vLLM CPU WNA16 MoE path |
@@ -404,6 +454,8 @@ DA8W4 (`s4` weight + `dynamic_quant = true`) is **not** in ZenDNN's M-tile (ALGO
 ## 10. Reference
 
 - Backend operator: [zentorch_group_matmul.md](./zentorch_group_matmul.md) — the parallel group-matmul + MoE post-op chain that this op delegates to (including the DA8W4 metadata contract).
-- Source: `src/cpu/cpp/FusedMoE.cpp` (Phase 1 + dispatch) and `src/cpu/cpp/GroupMatmul.cpp` (backend wrapper, incl. the DA8W4 branch).
+- Source: `src/cpu/cpp/FusedMoE.cpp` (Phase 1 + dispatch) and `src/cpu/cpp/GroupMatmul.cpp` (backend wrapper, incl. the DA8W4 branch). Meta kernels: `_meta_registrations.py` (`zentorch_fused_moe` is an AOTI shim, not `make_fallback`; `zentorch_group_matmul.out` is `make_fallback`).
+- Env: `src/cpu/cpp/EnvReader.hpp` (`ZENTORCH_MOE_PREQUANT`, `ZENTORCH_TWO_PASS`, `ZENTORCH_USE_SCRATCHPAD`, `ZENTORCH_ENABLE_CHECKS`).
+- Tests: `test/unittests/op_tests/test_group_matmul.py`; flush hook `zentorch_flush_moe_weight_cache`.
 - vLLM integration: `src/cpu/python/zentorch/vllm/__init__.py` (`_moe_forward_zentorch`, `FusedMoEPatch`, `ZENTORCH_FUSED_MOE=1`) for bf16 / DA8W8; `vllm/model_executor/layers/fused_moe/experts/zentorch_moe.py` (`ZentorchExpertsInt4DA8W4`, `VLLM_CPU_INT4_W4A8`) for DA8W4.
 - LowOHA Op2 quantization: [zentorch_group_matmul.md](./zentorch_group_matmul.md) §6.4 "Dynamic quantization — DA8W8 and DA8W4" — documents `fused.down_scale` and the Op2-inherits-Op1 quant contract.

@@ -134,10 +134,10 @@ def _register_int8_moe_patches(mod) -> None:
             ), "CPUInt8Experts requires per-channel weight scales on the layer."
             E = self.w1_scale.shape[0]
             self._w13_scale = (
-                self.w1_scale.detach().to(torch.bfloat16).reshape(E, -1).contiguous()
+                self.w1_scale.detach().to(torch.float32).reshape(E, -1).contiguous()
             )
             self._w2_scale = (
-                self.w2_scale.detach().to(torch.bfloat16).reshape(E, -1).contiguous()
+                self.w2_scale.detach().to(torch.float32).reshape(E, -1).contiguous()
             )
             self._w13_bias = (
                 None

@@ -138,6 +138,7 @@ class Test_GroupMatmul(GroupMatmulTestCase):
             [],
             [],
             [],
+            [],
         )
 
         tol = TOLERANCES[torch_dtype]
@@ -188,6 +189,7 @@ class Test_GroupMatmul(GroupMatmulTestCase):
             [],
             [],
             [],
+            [],
         )
 
         tol = TOLERANCES[torch_dtype]
@@ -230,6 +232,7 @@ class Test_GroupMatmul(GroupMatmulTestCase):
                 [],
                 [],
                 [],
+                [],
             )
 
             tol = TOLERANCES[torch_dtype]
@@ -265,6 +268,7 @@ class Test_GroupMatmul(GroupMatmulTestCase):
                     None,
                     bad_activation,
                     w13_bias,
+                    [],
                     [],
                     [],
                     [],
@@ -307,6 +311,7 @@ class Test_GroupMatmul(GroupMatmulTestCase):
             [],
             w13_scales,
             [],
+            [],
         )
 
         for i in range(num_experts):
@@ -320,15 +325,17 @@ class Test_GroupMatmul(GroupMatmulTestCase):
     def test_int8_w13_and_w2_single_pass(self, dtype):
         """Dynamic int8 w13 + int8 w2 with per-channel scales (single-call path).
 
-        Three sub-tests, all driven through the int8 cascaded W13 -> W2 chain:
+        Three sub-tests:
 
-        1. ``zentorch_group_matmul.out`` — no activation, no MoE reduce.
+        1. ``zentorch_group_matmul.out`` — no activation, no MoE reduce
+           (square DA8W8, bf16 inputs, fused w2 reuses input buffers).
         2. ``zentorch_group_matmul.out`` — silu gated activation + MoE
-           weighted reduce.
-        3. ``zentorch_fused_moe`` — no activation, with MoE weighted reduce
-           handled internally by the high-level op.
+           weighted reduce (bf16 inputs, fused w2).
+        3. ``zentorch_fused_moe`` — silu + MoE weighted reduce. Unique-token
+           s8 pre-quant, then one fused ``group_matmul_direct`` (W13 + act +
+           W2 + reduce).
 
-        Constraint: K == K_out == N for fused w2 buffer reuse.
+        Sub-tests 1–2 require K == K_out == N for fused w2 buffer reuse.
         """
         num_experts = self.data.num_experts
         K = self.data.K
@@ -395,6 +402,7 @@ class Test_GroupMatmul(GroupMatmulTestCase):
             w2_bias,
             w13_scales,
             w2_scales,
+            [],
         )
 
         for i in range(num_experts):
@@ -469,6 +477,7 @@ class Test_GroupMatmul(GroupMatmulTestCase):
             w2_act_bias,
             w13_act_scales,
             w2_act_scales,
+            [],
         )
 
         self.assertEqual(moe_reduce_act.shape, (num_tokens, K_out))
@@ -476,8 +485,14 @@ class Test_GroupMatmul(GroupMatmulTestCase):
             moe_reduce_act.float(), ref_moe_act, **TOLERANCES["fused_bf16"]
         )
 
-        # --- Sub-test 3: fused_moe op, no activation, with MoE weighted reduce ---
-        inputs_fmoe, gemm_outputs_fmoe, row_ptrs_fmoe = (
+        # --- Sub-test 3: fused_moe, unique-token s8 + silu + MoE reduce ---
+        w13_fmoe_int8 = self.data.w13_weights_int8_gated
+        w13_fmoe_scales = self.data.w13_scales_gated
+        w2_fmoe_int8 = self.data.w2_weights_int8_gated
+        w2_fmoe_scales = self.data.w2_scales_gated
+        w2_fmoe_bias = self.data.w2_bias_gated
+
+        inputs_fmoe, unused_outputs_fmoe, unused_ptrs_fmoe = (
             self._scatter_and_build_row_ptrs(
                 hidden_states, topk_indices, num_experts, K, K_out
             )
@@ -486,21 +501,30 @@ class Test_GroupMatmul(GroupMatmulTestCase):
         ref_fmoe = []
         for i in range(num_experts):
             r = dynamic_quant_matmul(
-                inputs_fmoe[i], w13_int8[i], w13_scales[i], out_dtype=torch_dtype
+                inputs_fmoe[i],
+                w13_fmoe_int8[i],
+                w13_fmoe_scales[i],
+                out_dtype=torch_dtype,
             )
+            r = self._apply_gated_activation(r, "silu")
+            r = r.to(torch_dtype).float()
             r = dynamic_quant_matmul(
-                r, w2_int8[i], w2_scales[i], bias=w2_bias[i], out_dtype=torch_dtype
+                r,
+                w2_fmoe_int8[i],
+                w2_fmoe_scales[i],
+                bias=w2_fmoe_bias[i],
+                out_dtype=torch_dtype,
             )
             ref_fmoe.append(r)
         ref_moe_fmoe = self._reference_weighted_reduce(
             ref_fmoe, topk_weights_t, topk_indices, num_tokens, topk
         )
 
-        w13_3d = torch.stack(w13_int8, dim=0)
-        w2_3d = torch.stack(w2_int8, dim=0)
-        w13_scales_3d = torch.stack(w13_scales, dim=0)
-        w2_scales_3d = torch.stack(w2_scales, dim=0)
-        w2_bias_3d = torch.stack(w2_bias, dim=0)
+        w13_3d = torch.stack(w13_fmoe_int8, dim=0)
+        w2_3d = torch.stack(w2_fmoe_int8, dim=0)
+        w13_scales_3d = torch.stack(w13_fmoe_scales, dim=0)
+        w2_scales_3d = torch.stack(w2_fmoe_scales, dim=0)
+        w2_bias_3d = torch.stack(w2_fmoe_bias, dim=0)
 
         fused_moe_output = moe_output_buffer(num_tokens, K_out, torch_dtype)
         torch.ops.zentorch.zentorch_fused_moe(
@@ -513,7 +537,7 @@ class Test_GroupMatmul(GroupMatmulTestCase):
             topk_weights_t,
             topk_indices.to(torch.int32),
             False,  # skip_weighted
-            activation,
+            "silu",
             w13_scales_3d,
             w2_scales_3d,
         )
@@ -536,10 +560,11 @@ class Test_GroupMatmul(GroupMatmulTestCase):
         """Dynamic int8 w13 + int8 w2 with per-channel scales via zentorch_fused_moe.
 
         Exercises the full MoE chain (W13 -> gated activation -> W2 -> weighted
-        reduce) for int8 weights. Goes through zentorch_fused_moe so that, on
-        the int8 path, the internal split-call workaround for the ZenDNN
-        fused-chain bug (every-other-row scrambling under int8 + gated
-        activation + M>1) is exercised.
+        reduce) for int8 weights as two ``group_matmul_direct`` calls.
+        ``ZENTORCH_TWO_PASS=1`` skips unique-token pre-quant and keeps bf16
+        grouping; this test requires that env so it covers the split, not the
+        default fused unique-token path. For fused grouped-quant without the
+        split, set ``ZENTORCH_MOE_PREQUANT=0`` (and leave ``TWO_PASS`` unset).
 
         Constraint: K == K_out (W2 output dim).
         """
@@ -661,6 +686,7 @@ class Test_GroupMatmul(GroupMatmulTestCase):
                 [],
                 [None] * num_experts,
                 [],
+                [],
             )
 
     @GroupMatmulTestCase.hypothesis_params_group_matmul_itr(
@@ -691,6 +717,7 @@ class Test_GroupMatmul(GroupMatmulTestCase):
             activation,
             w13_bias,
             w2_bias,
+            [],
             [],
             [],
         )
@@ -791,6 +818,7 @@ class Test_GroupMatmul(GroupMatmulTestCase):
             activation,
             w13_bias_active,
             w2_bias_active,
+            [],
             [],
             [],
         )

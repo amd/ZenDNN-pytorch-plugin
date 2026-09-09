@@ -908,6 +908,7 @@ def meta_zentorch_group_matmul_out(
     w2_bias,
     w13_scales,
     w2_scales,
+    src_scales,
     zentorch_op_name="zentorch::zentorch_group_matmul.out",
 ):
     return

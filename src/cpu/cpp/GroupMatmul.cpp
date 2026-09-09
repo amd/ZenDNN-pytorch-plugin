@@ -8,6 +8,7 @@
 #include "EnvReader.hpp"
 #include "MatmulUtils.hpp"
 #include "Memory.hpp"
+#include "Utils.hpp"
 
 #include <torch/csrc/stable/library.h>
 #include <torch/csrc/stable/ops.h>
@@ -39,7 +40,6 @@ static bool checks_enabled() {
   return static_cast<bool>(
       EnvReader::getEnvVariableAsInt("ZENTORCH_ENABLE_CHECKS"));
 }
-
 // Shared validation for per-expert quantization scale lists.
 // Checks list size, per-element presence, dtype (f32/bf16), and dim
 // (1D/2D).
@@ -122,10 +122,11 @@ static void validate_dtypes_and_shapes(
   const auto ref_dtype = inputs[0].scalar_type();
   const int64_t K_ref = inputs[0].size(1);
   const auto w13_ref_dtype = w13_weights[0].scalar_type();
+  const bool input_is_s8 = ref_dtype == c10::kChar;
   ZENTORCH_CHECK(ref_dtype == c10::kFloat || ref_dtype == c10::kBFloat16 ||
-                     ref_dtype == c10::kHalf,
-                 "zentorch_group_matmul: input[0] must be float32 or "
-                 "bfloat16 or float16, got ",
+                     ref_dtype == c10::kHalf || ref_dtype == c10::kChar,
+                 "zentorch_group_matmul: input[0] must be float32, bfloat16, "
+                 "float16, or int8, got ",
                  ref_dtype);
 
   // Validate every weight (active + inactive prepack tail).
@@ -169,12 +170,18 @@ static void validate_dtypes_and_shapes(
   if (has_s8_weights || has_s4_weights) {
     validate_weight_scales(w13_scales, num_active, "weight_scales");
   }
+  if (input_is_s8) {
+    ZENTORCH_CHECK(has_s8_weights || has_s4_weights,
+                   "zentorch_group_matmul: int8 inputs require DA8W8/DA8W4 "
+                   "weights");
+  }
   // Gate the per-expert DA8W4 scale checks once: validate_weight_scales above
   // is what guarantees the list is sized and populated, and it only runs with
   // checks enabled, so the loop must not index the list otherwise.
   const bool check_da8w4_scales = has_s4_weights && checks_enabled();
 
-  // Validate active-only inputs, biases, and DA8W4 weight scales.
+  // s8 activations still pair with bf16 bias (hidden-state dtype).
+  const auto bias_dtype = input_is_s8 ? c10::kBFloat16 : ref_dtype;
   for (int op_idx = 0; op_idx < num_active; ++op_idx) {
     const auto &input = inputs[op_idx];
     const auto &w13_weight = w13_weights[op_idx];
@@ -195,12 +202,10 @@ static void validate_dtypes_and_shapes(
                      "zentorch_group_matmul: w13_bias[", op_idx, "] size (",
                      w13_bias[op_idx]->size(0), ") must match N (",
                      w13_weight.size(0), ")");
-      ZENTORCH_CHECK(w13_bias[op_idx]->scalar_type() == ref_dtype,
+      ZENTORCH_CHECK(w13_bias[op_idx]->scalar_type() == bias_dtype,
                      "zentorch_group_matmul: w13_bias[", op_idx, "] dtype (",
                      w13_bias[op_idx]->scalar_type(),
-                     ") must match input[0] "
-                     "dtype (",
-                     ref_dtype, ")");
+                     ") must match the activation dtype (", bias_dtype, ")");
     }
 
     // DA8W4 requires per-group [G, N] weight scales; K_ref is the shared
@@ -211,19 +216,10 @@ static void validate_dtypes_and_shapes(
     }
   }
 
-  if (has_s8_weights) {
-    ZENTORCH_CHECK(ref_dtype == c10::kBFloat16,
-                   "zentorch_group_matmul: input[0] must be bf16 when "
-                   "weights are int8");
-  }
-
-  if (has_s4_weights) {
-    // DA8W4 is bf16-only: the AOCL-DLP s4->s8 sym-quant kernel rejects f32
-    // and fp16 activations. Fail fast here rather than deep in the backend
-    ZENTORCH_CHECK(ref_dtype == c10::kBFloat16,
-                   "zentorch_group_matmul: DA8W4 (int32-packed s4) weights "
-                   "require a bfloat16 activation (the AOCL-DLP DA8W4 kernel "
-                   "supports neither float32 nor float16), got input[0] dtype ",
+  if (has_s8_weights || has_s4_weights) {
+    ZENTORCH_CHECK(ref_dtype == c10::kBFloat16 || ref_dtype == c10::kChar,
+                   "zentorch_group_matmul: DA8W8/DA8W4 weights require bf16 "
+                   "or int8 activations, got ",
                    ref_dtype);
   }
 
@@ -277,6 +273,7 @@ static void validate_w2_params(
   const int num_active = static_cast<int>(inputs.size());
   const int num_total = static_cast<int>(w2_weights.size());
   const auto ref_dtype = inputs[0].scalar_type();
+  const auto bias_dtype = ref_dtype == c10::kChar ? c10::kBFloat16 : ref_dtype;
 
   ZENTORCH_CHECK(has_tensor(w2_weights[0]),
                  "zentorch_group_matmul: w2_weights[0] must not be None when "
@@ -346,9 +343,9 @@ static void validate_w2_params(
     if (has_tensor(w2_bias[op_idx])) {
       ZENTORCH_CHECK(
           w2_bias[op_idx]->dim() == 1 && w2_bias[op_idx]->size(0) == K_out &&
-              w2_bias[op_idx]->scalar_type() == ref_dtype,
+              w2_bias[op_idx]->scalar_type() == bias_dtype,
           "zentorch_group_matmul: w2_bias[", op_idx, "] must be 1D with size ",
-          K_out, " and dtype ", ref_dtype, ", got ", w2_bias[op_idx]->dim(),
+          K_out, " and dtype ", bias_dtype, ", got ", w2_bias[op_idx]->dim(),
           "D, size ", w2_bias[op_idx]->size(0), ", dtype ",
           w2_bias[op_idx]->scalar_type());
     }
@@ -439,6 +436,7 @@ void zentorch_group_matmul_out_impl(
     const std::vector<std::optional<torch::stable::Tensor>> &w2_bias,
     const std::vector<std::optional<torch::stable::Tensor>> &w13_scales,
     const std::vector<std::optional<torch::stable::Tensor>> &w2_scales,
+    const std::vector<std::optional<torch::stable::Tensor>> &src_scales,
     const std::string &zentorch_op_name) {
 
   const auto gated_act_type = map_activation_to_gated_act(activation);
@@ -469,6 +467,30 @@ void zentorch_group_matmul_out_impl(
   // total_matmul, set just before the call below.
   const int num_active = static_cast<int>(inputs.size());
   const int num_total = static_cast<int>(w13_weights.size());
+  const bool input_is_s8 = inputs[0].scalar_type() == c10::kChar;
+  if (input_is_s8) {
+    ZENTORCH_CHECK(src_scales.size() == static_cast<size_t>(num_active),
+                   "zentorch_group_matmul: int8 inputs require src_scales "
+                   "for each active expert");
+    for (int op_idx = 0; op_idx < num_active; ++op_idx) {
+      ZENTORCH_CHECK(
+          has_tensor(src_scales[op_idx]) &&
+              (src_scales[op_idx]->scalar_type() == c10::kFloat ||
+               src_scales[op_idx]->scalar_type() == c10::kBFloat16) &&
+              src_scales[op_idx]->dim() == 2 &&
+              src_scales[op_idx]->size(0) == inputs[op_idx].size(0) &&
+              src_scales[op_idx]->size(1) == 1,
+          "zentorch_group_matmul: src_scales[", op_idx,
+          "] must be a defined [M_e, 1] f32/bf16 tensor");
+    }
+    // Fused W2 cannot reuse s8 W13 src as the bf16 down-proj dest.
+    // Caller-allocated gemm_outputs become fused.dst_down.
+    if (!w2_weights.empty()) {
+      ZENTORCH_CHECK(!gemm_outputs.empty(),
+                     "zentorch_group_matmul: int8 inputs with fused w2 "
+                     "require caller-allocated gemm_outputs (bf16 W2 dests)");
+    }
+  }
 
   // Input-side vectors (sized to the active count).
   const std::vector<char> layouts(num_active, 'r');
@@ -485,7 +507,7 @@ void zentorch_group_matmul_out_impl(
   std::vector<int> ldc_vec(num_active);
   // Holds src_scale tensors for dynamic DA8W8 (keeps them alive until kernel
   // returns)
-  std::vector<torch::stable::Tensor> temp_src_scales;
+  std::vector<torch::stable::Tensor> temp_src_scales(num_active);
   // DA8W4: packed s4 weights (int32 [N,K/8] or int8 [N,K/2]) + dynamic
   // per-token s8 activation quant. Shares the dynamic-quant wiring with the
   // DA8W8 path but forces dtypes.wei = s4 and derives K/ldb from the
@@ -564,7 +586,8 @@ void zentorch_group_matmul_out_impl(
       fused_moe_ldc_down[op_idx] = gemm_outputs[op_idx].stride(0);
       params[op_idx].dtypes.dst = get_zendnnl_dtype(gemm_outputs[op_idx]);
     } else {
-      params[op_idx].dtypes.dst = get_zendnnl_dtype(input);
+      params[op_idx].dtypes.dst =
+          input_is_s8 ? data_type_t::bf16 : get_zendnnl_dtype(input);
     }
     ldc_vec[op_idx] = N_vec[op_idx];
 
@@ -573,39 +596,48 @@ void zentorch_group_matmul_out_impl(
         bias_defined ? get_zendnnl_dtype(*w13_bias[op_idx]) : data_type_t::none;
     params[op_idx].plugin_op = zentorch_op_name;
 
-    // Dynamic quant paths (both quantize the activation to s8 per token):
-    //   * dynamic-A8W8: s8 weight, per-channel {1, N} scale.
-    //   * dynamic-A8W4: s4 weight, per-group {G, N} scale.
+    // DA8W8/DA8W4: s8 compute. s8 src uses caller scales (no re-quant);
+    // bf16 src allocates {M,1} and lets ZenDNN fill them.
     if (has_s8_weights || has_s4_weights) {
       params[op_idx].dtypes.compute = data_type_t::s8;
-      params[op_idx].dynamic_quant = true;
       zendnnl::lowoha::matmul::matmul_quantization_params_t qparams{};
 
-      // Weight scale (already validated in validate_dtypes_and_shapes)
       const auto &ws = *w13_scales[op_idx];
       qparams.wei_scale.buff = ws.data_ptr();
       qparams.wei_scale.dt = get_zendnnl_dtype(ws);
-      // Normalize 1D {N} to 2D {1, N} for per-channel format required by LowOHA
       auto ws_dims = ws.sizes().vec();
       if (ws_dims.size() == 1) {
         ws_dims = {1, ws_dims[0]};
       }
       qparams.wei_scale.dims = ws_dims;
 
-      // Source scale: caller-allocated buffer, kernel fills it at runtime.
-      // Granularity determined by weight scale shape:
-      //   wei_scale {1, N} (per-channel) → src_scale {M, 1} (per-token)
-      //   wei_scale {G, N} (per-group)   → src_scale {M, 1} (per-token,
-      //                                    broadcast across the G groups)
       const int64_t M = input.size(0);
-      // new_empty inherits ws's dtype and device and is contiguous, i.e. the
-      // {1, 1} strides the pre-migration empty_strided_cpu asked for.
-      auto src_scale_tensor = torch::stable::new_empty(ws, {M, 1});
-      qparams.src_scale.buff = src_scale_tensor.data_ptr();
-      qparams.src_scale.dt = get_zendnnl_dtype(ws);
-      qparams.src_scale.dims = {M, 1};
-      // Keep tensor alive until group_matmul_direct returns
-      temp_src_scales.push_back(std::move(src_scale_tensor));
+      if (input_is_s8) {
+        const auto &src_scale = *src_scales[op_idx];
+        params[op_idx].dynamic_quant = false;
+        // Unique-token FusedMoE writes f32 scales
+        // (dynamic_per_token_quant_bf16_s8_native). DLP rejects mixed
+        // src/wei scale dtypes; convert to wei_scale when they differ.
+        if (src_scale.scalar_type() != ws.scalar_type()) {
+          auto src_scale_as_wei_dtype =
+              torch::stable::to(src_scale, ws.scalar_type());
+          qparams.src_scale.buff = src_scale_as_wei_dtype.data_ptr();
+          qparams.src_scale.dt = get_zendnnl_dtype(src_scale_as_wei_dtype);
+          qparams.src_scale.dims = {M, 1};
+          temp_src_scales[op_idx] = std::move(src_scale_as_wei_dtype);
+        } else {
+          qparams.src_scale.buff = src_scale.data_ptr();
+          qparams.src_scale.dt = get_zendnnl_dtype(src_scale);
+          qparams.src_scale.dims = {M, 1};
+        }
+      } else {
+        params[op_idx].dynamic_quant = true;
+        auto src_scale_tensor = torch::stable::new_empty(ws, {M, 1});
+        qparams.src_scale.buff = src_scale_tensor.data_ptr();
+        qparams.src_scale.dt = get_zendnnl_dtype(ws);
+        qparams.src_scale.dims = {M, 1};
+        temp_src_scales[op_idx] = std::move(src_scale_tensor);
+      }
 
       params[op_idx].quant_params = qparams;
     }
@@ -688,16 +720,19 @@ void zentorch_group_matmul_out_impl(
 
     for (int op_idx = 0; op_idx < num_active; ++op_idx) {
       if (has_tensor(w2_bias[op_idx])) {
-        fused_moe.bias_down[op_idx] = w2_bias[op_idx]->data_ptr();
         if (fused_moe.bias_dt_down == data_type_t::none) {
           fused_moe.bias_dt_down = get_zendnnl_dtype(w2_bias[op_idx].value());
         }
+        break;
+      }
+    }
+    for (int op_idx = 0; op_idx < num_active; ++op_idx) {
+      if (has_tensor(w2_bias[op_idx])) {
+        fused_moe.bias_down[op_idx] = w2_bias[op_idx]->data_ptr();
       }
     }
 
     // Populate Op2 weight scales when w2 weights are quantized (DA8W8/DA8W4).
-    // Op2 inherits dynamic_quant, dtypes.compute, and src_scale.dims
-    // from params[i] — only the weight scale is per-pass.
     if (!w2_scales.empty()) {
       fused_moe.down_scale.resize(num_active);
       for (int op_idx = 0; op_idx < num_active; ++op_idx) {
@@ -724,12 +759,16 @@ void zentorch_group_matmul_out_impl(
 
   // Execute: Op1 GEMMs + optional gated activation + optional Op2 + optional
   // MoE reduce
-  status_t status = zendnnl::lowoha::matmul::group_matmul_direct(
-      layouts, transA_vec, transB_vec, M_vec, N_vec, K_vec, alpha_vec, src_ptrs,
-      lda_vec, weight_ptrs, ldb_vec, bias_ptrs, beta_vec, dst_ptrs, ldc_vec,
-      is_weights_const_vec, params, use_moe ? &moe_params : nullptr,
-      use_gated_act ? &gated_act : nullptr,
-      use_fused_moe ? &fused_moe : nullptr);
+  status_t status;
+  {
+    ZENTORCH_RECORD_SCOPE("zentorch::group_matmul::execute");
+    status = zendnnl::lowoha::matmul::group_matmul_direct(
+        layouts, transA_vec, transB_vec, M_vec, N_vec, K_vec, alpha_vec,
+        src_ptrs, lda_vec, weight_ptrs, ldb_vec, bias_ptrs, beta_vec, dst_ptrs,
+        ldc_vec, is_weights_const_vec, params, use_moe ? &moe_params : nullptr,
+        use_gated_act ? &gated_act : nullptr,
+        use_fused_moe ? &fused_moe : nullptr);
+  }
 
   ZENTORCH_CHECK(status == status_t::success,
                  "zentorch_group_matmul: group_matmul_direct execution failed");
@@ -749,7 +788,8 @@ STABLE_TORCH_LIBRARY_FRAGMENT(zentorch, m) {
         "Tensor? row_ptrs, str activation, "
         "Tensor?[] w13_bias, Tensor?[] w2_bias, "
         "Tensor?[] w13_scales, "
-        "Tensor?[] w2_scales, *, "
+        "Tensor?[] w2_scales, "
+        "Tensor?[] src_scales, *, "
         "str zentorch_op_name='zentorch::zentorch_group_matmul.out') "
         "-> ()");
 }

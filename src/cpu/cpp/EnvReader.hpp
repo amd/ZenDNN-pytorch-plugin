@@ -54,9 +54,16 @@ private:
     storeEnvVariable("ZENTORCH_ENABLE_CHECKS",
                      0); // Validation checks disabled by default
     storeEnvVariable("ZENTORCH_TWO_PASS",
-                     0); // Two-pass fused MoE (split W13+act and W2+reduce)
-                         // disabled by default; set to 1 to force two-pass
-                         // execution even for non-int8 weights.
+                     0); // Split W13+act and W2+reduce into two
+                         // group_matmul_direct calls. Off by default;
+                         // unique-token pre-quant uses the fused call.
+    storeEnvVariable("ZENTORCH_MOE_PREQUANT",
+                     1); // Unique-token s8 quant on the fused DA8W8
+                         // MoE path. On by default. DA8W4 stays on
+                         // bf16 grouping (fused_moe op1_internal only
+                         // allows unique-token when wei=s8). Set to 0
+                         // to group bf16 on DA8W8 too. TWO_PASS=1
+                         // still forces unique-token off.
   }
 
   // Function to convert and store environment variable value as integer
