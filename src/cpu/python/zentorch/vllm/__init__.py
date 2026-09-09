@@ -61,6 +61,9 @@ from zentorch.vllm._sw_blocksize_patch import (  # noqa: E402, F401
 from zentorch.vllm._gptoss_streamed_expert_patch import (  # noqa: E402, F401
     _apply_gptoss_streamed_expert_patch_impl,
 )
+from zentorch.vllm._gdn_patch import (  # noqa: E402, F401
+    _apply_gdn_patch,
+)
 from zentorch.vllm._import_hook import patch_now_or_on_import  # noqa: E402
 from zentorch.vllm._fused_mlp_patch import (  # noqa: E402, F401
     _apply_fused_mlp_patch_impl,
@@ -628,6 +631,7 @@ _PATCHES = (
     ("SWBlockSize", _apply_sw_blocksize_patch),
     ("WhisperW4A16", _apply_whisper_w4a16_patch),
     ("GptOssStreamedExpert", _apply_gptoss_streamed_expert_patch_impl),
+    ("GatedDeltaNet", _apply_gdn_patch),
 )
 
 # Names of patches whose apply() returned True in this process (test hook).

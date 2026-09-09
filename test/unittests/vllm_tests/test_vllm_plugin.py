@@ -30,6 +30,7 @@ EXPECTED_PATCHES = [
     "SWBlockSize",
     "WhisperW4A16",
     "GptOssStreamedExpert",
+    "GatedDeltaNet",
 ]
 
 REMOVED_PATCHES = [
@@ -37,7 +38,6 @@ REMOVED_PATCHES = [
     "CPURunnerShutdown",
     "CpuZeroBlockIds",
     "TorchcodecImportGuard",
-    "GatedDeltaNet",
     "CPUProfiler",
     "CompilationConfigRepr",
     "GptOssMoEWeightRemap",

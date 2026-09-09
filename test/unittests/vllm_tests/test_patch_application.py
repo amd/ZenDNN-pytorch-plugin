@@ -49,6 +49,9 @@ _PATCH_TARGETS = [
      "get_kv_cache_spec"),
     ("GptOssStreamedExpert", "vllm.model_executor.models.gpt_oss", "GptOssModel",
      "_zentorch_gptoss_streamed_patched", "_load_weights_other"),
+    ("GatedDeltaNet",
+     "vllm.model_executor.layers.mamba.gdn.qwen_gdn_linear_attn",
+     "QwenGatedDeltaNetAttention", "_zentorch_gdn_patched", "forward_cpu"),
 ]
 
 # Gemma-4 wraps get_config by name in each of these; marker sits on the module.

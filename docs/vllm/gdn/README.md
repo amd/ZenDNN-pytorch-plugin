@@ -19,9 +19,8 @@ measurable throughput improvement over upstream's reference CPU path.
 | `src/cpu/cpp/GDN_ops.cpp` | Single bindings file: forward decls + one `TORCH_LIBRARY_FRAGMENT` with all 14 `m.def` schemas + one `TORCH_LIBRARY_IMPL` with all 14 `m.impl` entries |
 | `src/cpu/cpp/kernels/layers/gdn/<OpName>.cpp` | 14 per-op kernel implementations (the C++ math); compiled into `libCPUkernels.a` with AVX-512 flags via `cmake/modules/FindCPUkernels.cmake` |
 | `src/cpu/python/zentorch/_meta_registrations.py` | `@register_meta` and `make_fallback` entries for every GDN op (Dynamo / FakeTensorMode / Inductor lowering) |
-| `src/cpu/python/zentorch/vllm/layers/gdn/forward.py` | `forward_cpu_zen` — the override that stitches `torch.ops.zentorch.gdn_*` calls together to implement `GatedDeltaNetAttention.forward_cpu` |
-| `src/cpu/python/zentorch/vllm/layers/gdn/patch.py` | Installs the `forward_cpu` override on `GatedDeltaNetAttention` at vLLM startup (deferred via a `sys.meta_path` import hook) |
-| `src/cpu/python/zentorch/vllm/__init__.py` | Registers `GatedDeltaNetPatch` with the vLLM plugin manager |
+| `src/cpu/python/zentorch/vllm/_gdn_patch.py` | `forward_cpu_zen` plus the deferred import-hook that installs it on `QwenGatedDeltaNetAttention.forward_cpu` |
+| `src/cpu/python/zentorch/vllm/__init__.py` | Registers `GatedDeltaNet` with the vLLM plugin manager |
 
 ## Source layout (tests, out of the wheel)
 
@@ -40,13 +39,13 @@ vLLM startup (in every process: driver / EngineCore / Worker)
     └── zentorch.vllm:register
         └── manager.apply_all()
             └── GatedDeltaNetPatch.apply()
-                └── zentorch.vllm.layers.gdn.patch.apply_deferred()
-                    │  (defers until gdn_linear_attn module is imported,
+                └── zentorch.vllm._gdn_patch._apply_gdn_patch()
+                    │  (defers until qwen_gdn_linear_attn is imported,
                     │   then installs the class-method override:)
-                    └── zentorch.vllm.layers.gdn.patch.apply()
-                        └── GatedDeltaNetAttention.forward_cpu  ←  forward_cpu_zen
-                              (the entire CPU heavy-lifting pipeline lives in
-                               forward.py and dispatches to torch.ops.zentorch.gdn_*)
+                    └── zentorch.vllm._gdn_patch._do_patch_gdn()
+                        └── QwenGatedDeltaNetAttention.forward_cpu  ←  forward_cpu_zen
+                              (the CPU pipeline lives in `_gdn_patch.py` and
+                               dispatches to torch.ops.zentorch.gdn_*)
 ```
 
 At inference time, vLLM calls `GatedDeltaNetAttention.forward(...)` which
