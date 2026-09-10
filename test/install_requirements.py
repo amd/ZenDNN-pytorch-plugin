@@ -15,8 +15,11 @@ BASE_REQUIREMENTS = [
     "parameterized",
     "hypothesis",
     "deprecated",
-    "torch-abi-audit==0.0.1",
 ]
+
+# torch-abi-audit 0.0.1 requires Python >= 3.11; zentorch still supports 3.10.
+if sys.version_info >= (3, 11):
+    BASE_REQUIREMENTS.append("torch-abi-audit==0.0.1")
 
 
 def install_package(cmd):

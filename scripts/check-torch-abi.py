@@ -28,6 +28,16 @@ import sys
 try:
     from torch_abi_audit import inspect_extension
 except ImportError:
+    # torch-abi-audit 0.0.1 requires Python >= 3.11. Skip on 3.10 rather than
+    # failing a source build the README still lists as supported.
+    if sys.version_info < (3, 11):
+        print(
+            "warning: skipping stable-ABI audit: torch-abi-audit requires "
+            "Python >= 3.11 (this interpreter is "
+            f"{sys.version_info.major}.{sys.version_info.minor}).",
+            file=sys.stderr,
+        )
+        sys.exit(0)
     sys.exit(
         "error: torch-abi-audit is not installed, so the stable-ABI audit "
         "cannot run."
