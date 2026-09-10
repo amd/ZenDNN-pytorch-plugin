@@ -14,6 +14,10 @@ permissions:
   contents: read
   actions: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   notify_teams:
     runs-on: amd-zenai-arc-xsmall-dind

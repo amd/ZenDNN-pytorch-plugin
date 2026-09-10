@@ -31,15 +31,26 @@ on:
         description: 'Set to 1 to use local BLIS'
         required: false
         default: '1'
+      zendnn_tools_ref:
+        description: 'ZenDNN_tools branch or PR ref (optional, e.g. refs/pull/123/head)'
+        required: false
+        default: ''
   repository_dispatch:
     types: [zendnn-pr , zendnnTools-pr , zendnnl-pr]
 
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.client_payload.zendnn_pr_number || github.event.client_payload.zendnnl_pr_number || github.event.client_payload.zendnntools_pr_number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'repository_dispatch' }}
+
 jobs:
-  build:
-    runs-on: [amd-zenai-arc-xlarge-dind]
+  zentorch-build:
+    name: zentorch-build
+    runs-on: amd-zenai-arc-large-dind
+    outputs:
+      plugin_sha: ${{ steps.plugin_sha.outputs.sha }}
     env:
       PYTHON_VERSION: '3.12'
       ZENTORCH_VERSION: '2.14.0.0'
@@ -52,6 +63,7 @@ jobs:
       ZENDNN_REF: ${{ github.event.inputs.zendnn_ref || github.event.client_payload.zendnn_ref || '' }}
       ZENTORCH_REF: ${{ github.event.inputs.zendnnTorch_ref || github.event.client_payload.zendnnTorch_ref || '' }}
       ZENDNNL_REF: ${{ github.event.inputs.zendnnl_ref || github.event.client_payload.zendnnl_ref || '' }}
+      ZENDNN_TOOLS_REF: ${{ github.event.inputs.zendnn_tools_ref || github.event.client_payload.zendnntools_ref || '' }}
       # Add ZenDNN triggering PR information
       ZENDNN_TRIGGERING_PR_NUMBER: ${{ github.event.client_payload.zendnn_pr_number || '' }}
       ZENDNN_TRIGGERING_PR_TITLE: ${{ github.event.client_payload.zendnn_pr_title || '' }}
@@ -521,9 +533,91 @@ jobs:
           cp /proj/zendai/datasets/ci_zendnn_presub_dependencies/$BLIS_TAR_BALL "$PARENT_DIR"
           tar -xzf "$PARENT_DIR/$BLIS_TAR_BALL" -C "$PARENT_DIR"
 
-      - name: Clone ZenDNN_tools
+      - name: Clone ZenDNN_tools (multi-ref/SHA aware with rebase on latest main)
+        shell: bash
         run: |
+          set -euo pipefail
+
           git clone --branch main https://${{ secrets.ZIAIE_PAT }}@github.com/AMD-Zenai/ZenDNN_tools.git "$PARENT_DIR/ZenDNN_tools"
+          cd "$PARENT_DIR/ZenDNN_tools"
+
+          git config user.name "CI Bot"
+          git config user.email "ci-bot@amd.com"
+
+          normalize_list() {
+            printf "%s" "${1:-}" | tr ', ' '\n' | sed '/^$/d'
+          }
+
+          checkout_tools_ref() {
+            local TARGET_LIST last_sha original_sha item ref fetched_sha MERGE_BASE MAIN_HEAD PR_NUM
+            TARGET_LIST="$(normalize_list "${1:-}")"
+            echo "Using ZenDNN_tools ref list:"
+            printf "%s\n" "$TARGET_LIST"
+
+            git fetch --no-tags --prune origin \
+              '+refs/heads/*:refs/remotes/origin/*' \
+              '+refs/tags/*:refs/tags/*' \
+              '+refs/pull/*/head:refs/remotes/origin/pull/*' || true
+            git fetch origin main:refs/remotes/origin/main
+
+            last_sha=""
+            original_sha=""
+            while IFS= read -r item; do
+              if printf '%s' "$item" | grep -qiE '^[0-9a-f]{7,40}$'; then
+                if git cat-file -e "${item}^{commit}" 2>/dev/null; then
+                  last_sha="$item"
+                  original_sha="$item"
+                else
+                  ref="$(git ls-remote origin | awk -v sha="$item" '$1==sha{print $2; exit}')"
+                  if [ -n "$ref" ] && git fetch origin "$ref"; then
+                    if git cat-file -e "${item}^{commit}" 2>/dev/null; then
+                      last_sha="$item"
+                      original_sha="$item"
+                    fi
+                  fi
+                fi
+              else
+                if echo "$item" | grep -q "refs/pull/"; then
+                  PR_NUM=$(echo "$item" | sed -n 's|refs/pull/\([0-9]*\)/head|\1|p')
+                  if [ -n "$PR_NUM" ]; then
+                    git fetch origin "$item" "+refs/pull/$PR_NUM/merge:refs/remotes/origin/pr-$PR_NUM-merge" 2>/dev/null || true
+                  fi
+                fi
+                if git fetch origin "$item"; then
+                  fetched_sha="$(git rev-parse FETCH_HEAD)"
+                  last_sha="$fetched_sha"
+                  original_sha="$fetched_sha"
+                fi
+              fi
+            done <<< "$TARGET_LIST"
+
+            if [ -z "${last_sha:-}" ]; then
+              echo "No ZenDNN_tools targets resolved — staying on main."
+              return 0
+            fi
+
+            echo "ORIGINAL_ZENDNN_TOOLS_SHA=$original_sha" >> "$GITHUB_ENV"
+            git checkout -q "$last_sha"
+            MERGE_BASE=$(git merge-base HEAD origin/main 2>/dev/null || echo "")
+            MAIN_HEAD=$(git rev-parse origin/main)
+            if [ -n "$MERGE_BASE" ] && [ "$MERGE_BASE" != "$MAIN_HEAD" ]; then
+              if ! git rebase origin/main; then
+                git rebase --abort || true
+                git checkout -q "$last_sha"
+                git merge origin/main -m "Merge latest main into ZenDNN_tools PR for CI" || {
+                  git merge --abort || true
+                  git checkout -q "$last_sha"
+                }
+              fi
+            fi
+            echo "ZenDNN_tools HEAD: $(git rev-parse HEAD)"
+          }
+
+          if [ -n "${ZENDNN_TOOLS_REF:-}" ]; then
+            checkout_tools_ref "${ZENDNN_TOOLS_REF}"
+          else
+            echo "Using ZenDNN_tools main: $(git rev-parse HEAD)"
+          fi
 
       - name: Checkout PR rebased on latest main
         if: github.event_name == 'pull_request' && env.ZENTORCH_REF == ''
@@ -757,6 +851,14 @@ jobs:
             echo "ZenDNN_tools directory not found — skipping."
           fi
       
+      - name: Record plugin SHA
+        id: plugin_sha
+        shell: bash
+        run: |
+          sha="$(git -C "${GITHUB_WORKSPACE}" rev-parse HEAD)"
+          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+          echo "Plugin SHA for child jobs: ${sha}"
+
       - name: Run CI script
         run: |
           export PYTHON_VERSION=${{ env.PYTHON_VERSION }}
@@ -769,7 +871,10 @@ jobs:
           export UNWANTED_KEYWORDS=${{ env.UNWANTED_KEYWORDS }}
           export BLIS_TAR_BALL=${{ env.BLIS_TAR_BALL }}
           export PARENT_DIR=${PARENT_DIR}
-          
+          export ZENTORCH_CI_PHASE=build
+          export ZENTORCH_SKIP_UNIT_TESTS=1
+          export ZENTORCH_UNIT_TEST_SCOPE=full
+
           echo "========= FILE: zendnn_ci_pt_plugin_presub_build.sh ========="
           cat "$PARENT_DIR/ZenDNN_tools/scripts/ci/zendnn_ci_pt_plugin_presub_build.sh"
           echo "============================================================="
@@ -779,6 +884,15 @@ jobs:
           echo "======================================================"
           bash "$PARENT_DIR/ZenDNN_tools/scripts/ci/zendnn_ci_pt_plugin_presub_build.sh"
         shell: bash
+
+      - name: Upload zentorch wheel
+        uses: actions/upload-artifact@v6
+        with:
+          name: zentorch-wheel
+          path: ${{ env.WORKSPACE }}/zentorch*.whl
+          if-no-files-found: error
+          retention-days: 2
+
 
       - name: Fail if script failed
         if: failure()
@@ -795,26 +909,257 @@ jobs:
           rm -rf "$PARENT_DIR/blis" "$PARENT_DIR/$BLIS_TAR_BALL"
           ls $PARENT_DIR
 
-      - name: Report status back to ZenDNN repo
-        if: always() && github.event_name == 'repository_dispatch'
+  unit-tests:
+    name: ${{ matrix.label }}
+    needs: zentorch-build
+    runs-on: amd-zenai-arc-small-dind
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shard: 0
+            label: unit-tests (1/5)
+          - shard: 1
+            label: unit-tests (2/5)
+          - shard: 2
+            label: unit-tests (3/5)
+          - shard: 3
+            label: unit-tests (4/5)
+          - shard: 4
+            label: unit-tests (5/5)
+    env:
+      PYTHON_VERSION: '3.12'
+      ZENTORCH_VERSION: '2.14.0.0'
+      NATIVE_TORCH_VERSION: '2.14.0'
+      ZENDNN_TOOLS_REF: ${{ github.event.inputs.zendnn_tools_ref || github.event.client_payload.zendnntools_ref || '' }}
+    steps:
+      - name: Checkout plugin at build SHA
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.zentorch-build.outputs.plugin_sha }}
+          fetch-depth: 0
+
+      - name: Set WORKSPACE and PARENT_DIR
+        shell: bash
         run: |
+          echo "PARENT_DIR=$(dirname "${GITHUB_WORKSPACE}")" >> "$GITHUB_ENV"
+          echo "WORKSPACE=$(dirname "${GITHUB_WORKSPACE}")" >> "$GITHUB_ENV"
+
+      - name: Clone ZenDNN_tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --branch main https://${{ secrets.ZIAIE_PAT }}@github.com/AMD-Zenai/ZenDNN_tools.git "$PARENT_DIR/ZenDNN_tools"
+          cd "$PARENT_DIR/ZenDNN_tools"
+          if [ -n "${ZENDNN_TOOLS_REF:-}" ]; then
+            git fetch origin "${ZENDNN_TOOLS_REF}"
+            git checkout --detach FETCH_HEAD
+          fi
+          echo "ZenDNN_tools HEAD: $(git rev-parse HEAD)"
+
+      - name: Download zentorch wheel
+        uses: actions/download-artifact@v7
+        with:
+          name: zentorch-wheel
+          path: dist
+
+      - name: Run ${{ matrix.label }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          wheel="$(find "$GITHUB_WORKSPACE/dist" -name 'zentorch*.whl' -type f -print -quit)"
+          test -n "$wheel"
+          export BUILD_PYTHON_VERSIONS="$PYTHON_VERSION"
+          export WORKSPACE PARENT_DIR
+          export ZENTORCH_CI_PHASE=unit
+          unset ZENTORCH_TEST_SUITE
+          export ZENTORCH_TEST_SHARD_INDEX="${{ matrix.shard }}"
+          export ZENTORCH_TEST_SHARD_TOTAL=5
+          export ZENTORCH_WHEEL_PATH="$wheel"
+          export ZENTORCH_UNIT_TEST_SCOPE=full
+          export ZENTORCH_SKIP_LINTER=1
+          export ZENTORCH_SKIP_UNIT_TESTS=0
+          export ZENTORCH_RUN_NIGHTLY_UNIT_TESTS=0
+          export ZENTORCH_USE_LOCAL_ZENDNN=0
+          export ZENTORCH_USE_LOCAL_BLIS=0
+          bash "$PARENT_DIR/ZenDNN_tools/scripts/ci/zendnn_ci_pt_plugin_presub_build.sh"
+
+      - name: Cleanup workspace
+        if: always()
+        run: |
+          rm -rf "$PARENT_DIR/ZenDNN_tools" || true
+
+  vllm-build:
+    name: vllm-build
+    runs-on: amd-zenai-arc-large-dind
+    env:
+      PYTHON_VERSION: '3.12'
+      ZENTORCH_VERSION: '2.14.0.0'
+      NATIVE_TORCH_VERSION: '2.14.0'
+      UNWANTED_KEYWORDS: 'stackoverflow,MSDN,wiki,microsoft'
+      ZENTORCH_USE_LOCAL_ZENDNN: ${{ github.event.inputs.zentorch_use_local_zendnn || github.event.client_payload.zentorch_use_local_zendnn || '1' }}
+      ZENTORCH_USE_LOCAL_BLIS: ${{ github.event.inputs.zentorch_use_local_blis || github.event.client_payload.zentorch_use_local_blis || '1' }}
+      BLIS_TAR_BALL: 'AOCL-Sep2025-b1.tar.gz'
+      ZENDNN_REF: ${{ github.event.inputs.zendnn_ref || github.event.client_payload.zendnn_ref || '' }}
+      ZENTORCH_REF: ${{ github.event.inputs.zendnnTorch_ref || github.event.client_payload.zendnnTorch_ref || '' }}
+      ZENDNNL_REF: ${{ github.event.inputs.zendnnl_ref || github.event.client_payload.zendnnl_ref || '' }}
+      ZENDNN_TOOLS_REF: ${{ github.event.inputs.zendnn_tools_ref || github.event.client_payload.zendnntools_ref || '' }}
+    steps:
+      - name: Clean workspace before checkout
+        run: |
+          rm -rf $GITHUB_WORKSPACE/* || true
+          rm -rf $GITHUB_WORKSPACE/.[!.]* || true
+        shell: bash
+
+      - name: Checkout ZenDNN_PyTorch_Plugin
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Fetch ZenDNN_PyTorch_Plugin refs and rebase on latest main (Zentorch)
+        if: env.ZENTORCH_REF != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "CI Bot"
+          git config user.email "ci-bot@amd.com"
+          git fetch --no-tags --prune origin \
+            '+refs/heads/*:refs/remotes/origin/*' \
+            '+refs/tags/*:refs/tags/*' \
+            '+refs/pull/*/head:refs/remotes/origin/pull/*' || true
+          git fetch origin main:refs/remotes/origin/main
+          item="$(printf "%s" "${ZENTORCH_REF}" | tr ', ' '\n' | sed '/^$/d' | tail -n 1)"
+          if printf '%s' "$item" | grep -qiE '^[0-9a-f]{7,40}$'; then
+            git fetch origin "$item" || git cat-file -e "${item}^{commit}"
+            git checkout -q "$item"
+          else
+            git fetch origin "$item"
+            git checkout -q FETCH_HEAD
+          fi
+          if ! git rebase origin/main; then
+            git rebase --abort || true
+            git merge origin/main -m "Merge latest main into PR for CI" || git merge --abort || true
+          fi
+
+      - name: Set WORKSPACE and PARENT_DIR to parent of repo
+        run: |
+          echo "PARENT_DIR=$(dirname "${GITHUB_WORKSPACE}")" >> $GITHUB_ENV
+          echo "WORKSPACE=$(dirname "${GITHUB_WORKSPACE}")" >> $GITHUB_ENV
+
+      - name: Clone ZenDNN if needed
+        if: env.ZENTORCH_USE_LOCAL_ZENDNN == '1'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --branch main https://${{ secrets.ZIAIE_PAT }}@github.com/AMD-Zenai/ZenDNN.git "$PARENT_DIR/ZenDNN"
+          cd "$PARENT_DIR/ZenDNN"
+          git config user.name "CI Bot"
+          git config user.email "ci-bot@amd.com"
+          TARGET="${ZENDNN_REF:-${ZENDNNL_REF:-}}"
+          if [ -n "$TARGET" ]; then
+            item="$(printf "%s" "$TARGET" | tr ', ' '\n' | sed '/^$/d' | tail -n 1)"
+            git fetch origin "$item" || true
+            git checkout -q FETCH_HEAD || git checkout -q "$item"
+            git fetch origin main:refs/remotes/origin/main
+            git rebase origin/main || { git rebase --abort || true; }
+          fi
+
+      - name: Copy and extract BLIS tarball if needed
+        if: env.ZENTORCH_USE_LOCAL_BLIS == '1'
+        run: |
+          cp /proj/zendai/datasets/ci_zendnn_presub_dependencies/$BLIS_TAR_BALL "$PARENT_DIR"
+          tar -xzf "$PARENT_DIR/$BLIS_TAR_BALL" -C "$PARENT_DIR"
+
+      - name: Clone ZenDNN_tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --branch main https://${{ secrets.ZIAIE_PAT }}@github.com/AMD-Zenai/ZenDNN_tools.git "$PARENT_DIR/ZenDNN_tools"
+          cd "$PARENT_DIR/ZenDNN_tools"
+          if [ -n "${ZENDNN_TOOLS_REF:-}" ]; then
+            git fetch origin "${ZENDNN_TOOLS_REF}"
+            git checkout --detach FETCH_HEAD
+          fi
+          echo "ZenDNN_tools HEAD: $(git rev-parse HEAD)"
+
+      - name: Checkout PR rebased on latest main
+        if: github.event_name == 'pull_request' && env.ZENTORCH_REF == ''
+        working-directory: ${{ github.workspace }}
+        shell: bash
+        run: |
+          git config user.name "CI Bot"
+          git config user.email "ci-bot@amd.com"
+          git fetch origin main:refs/remotes/origin/main
+          PR_HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          git checkout "$PR_HEAD_SHA"
+          git rebase origin/main || { git rebase --abort || true; git merge origin/main -m "Merge latest main into PR for CI" || git merge --abort || true; git checkout "$PR_HEAD_SHA"; }
+
+      - name: Run vLLM phase
+        shell: bash
+        run: |
+          set -euo pipefail
+          export BUILD_PYTHON_VERSIONS="$PYTHON_VERSION"
+          export WORKSPACE PARENT_DIR
+          export ZENTORCH_CI_PHASE=vllm
+          export ZENTORCH_TEST_SHARD_INDEX=0
+          export ZENTORCH_TEST_SHARD_TOTAL=1
+          unset ZENTORCH_WHEEL_PATH
+          export ZENTORCH_UNIT_TEST_SCOPE=full
+          export ZENTORCH_SKIP_LINTER=1
+          export ZENTORCH_SKIP_UNIT_TESTS=0
+          export ZENTORCH_RUN_NIGHTLY_UNIT_TESTS=0
+          export ZENTORCH_USE_LOCAL_ZENDNN=${{ env.ZENTORCH_USE_LOCAL_ZENDNN }}
+          export ZENTORCH_USE_LOCAL_BLIS=${{ env.ZENTORCH_USE_LOCAL_BLIS }}
+          export NATIVE_TORCH_VERSION=${{ env.NATIVE_TORCH_VERSION }}
+          export UNWANTED_KEYWORDS=${{ env.UNWANTED_KEYWORDS }}
+          export BLIS_TAR_BALL=${{ env.BLIS_TAR_BALL }}
+          bash "$PARENT_DIR/ZenDNN_tools/scripts/ci/zendnn_ci_pt_plugin_presub_build.sh"
+
+      - name: Cleanup workspace
+        if: always()
+        run: |
+          rm -rf "$PARENT_DIR/ZenDNN" "$PARENT_DIR/ZenDNN_tools" "$PARENT_DIR/$BLIS_TAR_BALL" "$PARENT_DIR/blis" || true
+
+  report-status:
+    name: report-status
+    needs: [zentorch-build, unit-tests, vllm-build]
+    if: always() && !cancelled()
+    runs-on: amd-zenai-arc-xsmall-dind
+    steps:
+      - name: Aggregate job results
+        id: agg
+        shell: bash
+        run: |
+          build="${{ needs.zentorch-build.result }}"
+          units="${{ needs.unit-tests.result }}"
+          vllm="${{ needs.vllm-build.result }}"
+          echo "zentorch-build=${build}"
+          echo "unit-tests=${units}"
+          echo "vllm-build=${vllm}"
           state="success"
-          if [ "${{ job.status }}" != "success" ]; then
+          if [ "$build" != "success" ] || [ "$units" != "success" ] || [ "$vllm" != "success" ]; then
             state="failure"
           fi
-
-          # Link the status back to THIS ZenTorch run so downstream notifications can
-          # resolve the exact build by commit SHA (deterministic correlation).
-          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-
-          # Use original SHA for status reporting (before rebase)
-          REPORT_SHA="${{ github.event.client_payload.zendnnl_ref_sha }}"
-          if [ -n "${ORIGINAL_ZENDNN_SHA:-}" ]; then
-            REPORT_SHA="${ORIGINAL_ZENDNN_SHA}"
+          echo "state=${state}" >> "$GITHUB_OUTPUT"
+          echo "Aggregated state: ${state}"
+          if [ "$state" != "success" ]; then
+            exit 1
           fi
-          
+
+      - name: Report status back to ZenDNN repo
+        if: always() && github.event_name == 'repository_dispatch'
+        shell: bash
+        run: |
+          state="${{ steps.agg.outputs.state }}"
+          if [ -z "$state" ] || [ "${{ job.status }}" != "success" ]; then
+            state="failure"
+          fi
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          REPORT_SHA="${{ github.event.client_payload.zendnnl_ref_sha }}"
+          if [ -z "$REPORT_SHA" ]; then
+            REPORT_SHA="${{ github.event.client_payload.zendnn_ref_sha }}"
+          fi
           if [ -n "$REPORT_SHA" ]; then
-            echo "Reporting status to ZenDNN commit: $REPORT_SHA"
             curl -s -X POST \
               -H "Accept: application/vnd.github.v3+json" \
               -H "Authorization: token ${{ secrets.ZIAIE_PAT }}" \
@@ -823,22 +1168,18 @@ jobs:
           else
             echo "No ZenDNN SHA to report status to"
           fi
-        shell: bash
 
       - name: Report status back to ZenDNNTOOLS repo
         if: always() && github.event_name == 'repository_dispatch'
+        shell: bash
         run: |
-          state="success"
-          if [ "${{ job.status }}" != "success" ]; then
+          state="${{ steps.agg.outputs.state }}"
+          if [ -z "$state" ] || [ "${{ job.status }}" != "success" ]; then
             state="failure"
           fi
-
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-
           REPORT_SHA="${{ github.event.client_payload.zendnntools_ref_sha }}"
-          
           if [ -n "$REPORT_SHA" ]; then
-            echo "Reporting status to ZenDNN_tools commit: $REPORT_SHA"
             curl -s -X POST \
               -H "Accept: application/vnd.github.v3+json" \
               -H "Authorization: token ${{ secrets.ZIAIE_PAT }}" \
@@ -847,53 +1188,28 @@ jobs:
           else
             echo "No ZenDNN_tools SHA to report status to"
           fi
-        shell: bash
 
       - name: Report status back for workflow_dispatch commits
         if: always() && github.event_name == 'workflow_dispatch'
+        shell: bash
         run: |
-          state="success"
-          if [ "${{ job.status }}" != "success" ]; then
+          state="${{ steps.agg.outputs.state }}"
+          if [ -z "$state" ] || [ "${{ job.status }}" != "success" ]; then
             state="failure"
           fi
-
-          echo "Final job state: $state"
-          echo "ZenDNNL_REF: ${{ github.event.inputs.zendnnl_ref }}"
-          echo "ZENTORCH_REF: ${{ github.event.inputs.zendnnTorch_ref }}"
-
-          # Report to ZenDNN-Zennnl repo if zendnnl_ref commit SHA was provided
           if [ -n "${{ github.event.inputs.zendnnl_ref }}" ]; then
-            # Use original SHA for status reporting
             REPORT_SHA="${{ github.event.inputs.zendnnl_ref }}"
-            if [ -n "${ORIGINAL_ZENDNN_SHA:-}" ]; then
-              REPORT_SHA="${ORIGINAL_ZENDNN_SHA}"
-            fi
-            
-            echo "Reporting $state to ZenDNNL commit $REPORT_SHA"
             curl -s -X POST \
               -H "Accept: application/vnd.github.v3+json" \
               -H "Authorization: token ${{ secrets.ZIAIE_PAT }}" \
               "https://api.github.com/repos/AMD-Zenai/ZenDNN/statuses/$REPORT_SHA" \
               -d "{\"state\":\"${state}\",\"context\":\"ZenDNN_PyTorch_Plugin CI\",\"description\":\"ZenDNN_PyTorch_Plugin run ${state}\"}"
-          else
-            echo "Skipping ZenDNNL status update (no commit SHA provided)"
           fi
-
-          # Report to ZenDNN_PyTorch_Plugin repo if zendnnTorch_ref commit SHA was provided
           if [ -n "${{ github.event.inputs.zendnnTorch_ref }}" ]; then
-            # Use original SHA for status reporting
             REPORT_SHA="${{ github.event.inputs.zendnnTorch_ref }}"
-            if [ -n "${ORIGINAL_ZENTORCH_SHA:-}" ]; then
-              REPORT_SHA="${ORIGINAL_ZENTORCH_SHA}"
-            fi
-            
-            echo "Reporting $state to ZenDNN_PyTorch_Plugin commit $REPORT_SHA"
             curl -s -X POST \
               -H "Accept: application/vnd.github.v3+json" \
               -H "Authorization: token ${{ secrets.ZIAIE_PAT }}" \
               "https://api.github.com/repos/AMD-Zenai/ZenDNN_PyTorch_Plugin/statuses/$REPORT_SHA" \
               -d "{\"state\":\"${state}\",\"context\":\"ZenDNN_PyTorch_Plugin CI\",\"description\":\"ZenDNN_PyTorch_Plugin run ${state}\"}"
-          else
-            echo "Skipping ZenDNN_PyTorch_Plugin status update (no commit SHA provided)"
           fi
-        shell: bash
