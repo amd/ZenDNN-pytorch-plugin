@@ -5,6 +5,7 @@
 
 import torch  # noqa
 import base64
+from pathlib import Path
 from torch._inductor import config
 from torch._dynamo import register_backend
 from torch._inductor.compile_fx import compile_fx
@@ -29,7 +30,12 @@ class OptimizePass(CustomGraphPass):
 
     def uuid(self):
         # needed for inductor caching
-        uuid_val = get_hash_for_files((__file__,))
+        uuid_val = get_hash_for_files(tuple(
+            str(Path(__file__).with_name(name)) for name in (
+                "_compile_backend.py", "_optimize.py", "_mmoe.py",
+                "_custom_op_replacement.py",
+            )
+        ))
         uuid_val_str = self.__bytes_to_str(uuid_val)
         return uuid_val_str
 

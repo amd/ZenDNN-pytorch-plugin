@@ -578,7 +578,7 @@ def qkv_fusion(fx_graph):
         with fx_graph.inserting_after(qkv_fused_node):
             split_node = fx_graph.create_node(
                 op="call_function",
-                target=at_ops.split.default,
+                target=at_ops.split_with_sizes.default,
                 args=(qkv_fused_node, split_sections, -1),
             )
 

@@ -9,11 +9,13 @@ from torch._inductor import config
 from torch._inductor.custom_graph_pass import CustomGraphPass, get_hash_for_files
 from torch._inductor.fx_utils import FakeTensorUpdater
 import inspect
+from pathlib import Path
 
 
 from ._prepack_pass import add_zentorch_weight_prepack_ops
 from ._op_replacements_new import replace_with_zentorch_ops_new
 from ._custom_op_replacement import qkv_fusion
+from ._mmoe import mmoe_fusion
 from ._unary_fusions import zentorch_unary_post_op_fusions
 from ._unary_binary_fusions import zentorch_unary_binary_post_op_fusions
 from ._binary_binary_fusions import zentorch_binary_binary_post_op_fusions
@@ -43,6 +45,8 @@ def optimize_for_export(fx_graph):
     else:
         fake_tensor_updater = FakeTensorUpdater(fx_graph)
     if config.freezing:
+        fx_graph = mmoe_fusion(fx_graph)
+        fake_tensor_updater.incremental_update()
         fx_graph = qkv_fusion(fx_graph)
         fake_tensor_updater.incremental_update()
         fx_graph = add_zentorch_weight_prepack_ops(fx_graph)
@@ -58,7 +62,11 @@ class OptimizePassExport(CustomGraphPass):
 
     def uuid(self):
         # needed for inductor caching
-        return get_hash_for_files((__file__,))
+        return get_hash_for_files(tuple(
+            str(Path(__file__).with_name(name)) for name in (
+                "_optimize_for_export.py", "_mmoe.py", "_custom_op_replacement.py",
+            )
+        ))
 
 
 export_optimize_pass = OptimizePassExport()

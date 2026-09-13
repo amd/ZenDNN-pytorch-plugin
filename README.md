@@ -251,6 +251,28 @@ with torch.no_grad(), zentorch.freezing_enabled():
 >* zentorch.freezing_enabled() is deprecated and will be removed in next release. Please use ```export TORCHINDUCTOR_FREEZING=1``` to enable freezing path for zentorch.
 >*  _zentorch_ is able to do the zentorch op replacements in both non-inference and inference modes. But some of the _zentorch_ optimizations are only supported for the inference mode, so it is recommended to use `torch.no_grad()` if you are running the model for inference only.
 
+### 4.1.2 Automatic MMoE linear fusion
+
+With freezing enabled, `torch.compile(model, backend='zentorch')` recognizes
+dense multi-gate mixture-of-experts (MMoE) regions automatically. The pattern
+is two or more task-specific softmax gates mixing the same stacked expert
+outputs, using an elementwise multiply and sum or batched matrix multiplication.
+No model class name, project-specific code, or additional backend option is needed.
+
+Within a recognized region, compatible parallel linears are combined and their
+outputs split back to the original sizes. Bias usage, post-op, weight dtype,
+and input width must agree within each group; output widths may differ.
+The region includes deeper layers inside experts; only independent linears
+sharing the same input are fused together. When fusion would displace a binary
+post-op, a rough tensor-traffic estimate filters the group; it does not model
+cache reuse or guarantee a latency improvement.
+Bias usage is not an expert/gate identifier: implementations may use either
+bias configuration for either role, and compatible experts and gates may share
+a fused linear. This grouping is a compatibility rule, not a guarantee of the
+fastest partition for every shape and dtype.
+The existing three-projection QKV pass remains separate. Unrecognized mixtures
+and unrelated parallel linears do not receive the MMoE transformation.
+
 ## 4.2 CNN Models
 For CNN models, set `dynamic=False` when calling for `torch.compile` as below:
 ```python

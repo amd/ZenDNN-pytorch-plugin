@@ -28,6 +28,7 @@ from ._custom_op_replacement import (
     qlinear_reorder_optimizations,
 )
 from ._prepack_pass import add_zentorch_weight_prepack_ops
+from ._mmoe import mmoe_fusion
 from ._eltwise_unary_fusions import zentorch_eltwise_unary_fusions
 from ._eltwise_binary_fusions import zentorch_eltwise_binary_fusions
 from ._graph_preprocess_matcher import preprocess_graph_pass
@@ -134,7 +135,9 @@ def optimize(fx_graph):
     optimized_graph = qlinear_fusion_pass(optimized_graph)
 
     if config.freezing:
-        # qkv_fusion pass with zentorch linear ops
+        optimized_graph = mmoe_fusion(optimized_graph)
+        fake_tensor_updater.incremental_update()
+        # Existing three-projection QKV fusion
         optimized_graph = qkv_fusion(optimized_graph)
         # update fake tensor metadata
         fake_tensor_updater.incremental_update()
