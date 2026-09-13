@@ -241,8 +241,7 @@ class Test_QKV_Fusion_Linear_Model(AddmmTestCase):
     )
     @torch.inference_mode()
     def test_qkv_fusion_linear_4_model(self, dtype, freeze_opt=True):
-        # Create model with 4 linear layers using parameterized dimensions
-        # input_dim = k, hidden_dim = n from test data
+        # QKV fusion must not apply the MMoE extension to four linears.
         model = Custom_Model_QKV_Linear_4(
             dtype=DataTypes.get_torch_type(dtype),
             input_dim=self.data.k,
@@ -253,16 +252,18 @@ class Test_QKV_Fusion_Linear_Model(AddmmTestCase):
         input_tensor = torch.randn(
             self.data.b, self.data.m, self.data.k, dtype=DataTypes.get_torch_type(dtype)
         )
+        native_output = model(input_tensor)
         reset_dynamo()
+        counters.clear()
+        self.assertEqual(counters["zentorch"]["qkv_fusion_linear"], 0)
         compiled_graph = torch.compile(model, backend="zentorch")
-        with self.assertLogs("zentorch", level="INFO") as cm:
-            test_with_freeze_opt(compiled_graph, (input_tensor,), freeze_opt=True)
+        compiled_output = test_with_freeze_opt(
+            compiled_graph, (input_tensor,), freeze_opt=True
+        )
+        self.assertEqual(counters["zentorch"]["qkv_fusion_linear"], 0)
+        tol = 1e-2 if dtype == "float16" else 1e-5
         self.assertTrue(
-            any(
-                "Fusion only supported for exactly 3 linear nodes currently, skipping fusion"
-                in message
-                for message in cm.output
-            )
+            torch.allclose(native_output, compiled_output, atol=tol, rtol=tol)
         )
 
     # Test Fails with default time_out=10000
@@ -355,8 +356,8 @@ class Test_QKV_Fusion_Linear_Model(AddmmTestCase):
         freeze_list=[True],
     )
     @torch.inference_mode()
-    def test_qkv_fusion_linear_skip_inconsistent_post_ops(self, dtype, freeze_opt=True):
-        """QKV fusion must be skipped when linears have different post-ops."""
+    def test_qkv_fusion_skips_mixed_post_ops(self, dtype, freeze_opt=True):
+        """QKV retains its all-three-compatible rule for mixed post-ops."""
         model = Custom_Model_QKV_Linear_ZenTorch(
             dtype=DataTypes.get_torch_type(dtype),
             input_dim=self.data.k,
@@ -374,15 +375,11 @@ class Test_QKV_Fusion_Linear_Model(AddmmTestCase):
         reset_dynamo()
         counters.clear()
         compiled_graph = torch.compile(model, backend="zentorch")
-        with self.assertLogs("zentorch", level="INFO") as cm:
-            compiled_output = test_with_freeze_opt(
-                compiled_graph, (input_tensor,), freeze_opt=True
-            )
-        self.assertEqual(counters["zentorch"]["qkv_fusion_linear"], 0)
-        self.assertTrue(
-            any("inconsistent post-ops" in msg for msg in cm.output),
-            f"Expected log about inconsistent post-ops, got: {cm.output}",
+        compiled_output = test_with_freeze_opt(
+            compiled_graph, (input_tensor,), freeze_opt=True
         )
+        # Without an MMoE pattern, ordinary QKV skips the whole mixed group.
+        self.assertEqual(counters["zentorch"]["qkv_fusion_linear"], 0)
         self.assertEqual(native_output, compiled_output)
 
     @AddmmTestCase.hypothesis_params_addmm_itr(
