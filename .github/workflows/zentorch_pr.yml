@@ -53,7 +53,7 @@ jobs:
       plugin_sha: ${{ steps.plugin_sha.outputs.sha }}
     env:
       PYTHON_VERSION: '3.12'
-      ZENTORCH_VERSION: '2.14.0.0'
+      ZENTORCH_VERSION: '2.14.0.1'
       NATIVE_TORCH_VERSION: '2.14.0'
       UNWANTED_KEYWORDS: 'stackoverflow,MSDN,wiki,microsoft'
       # WORKSPACE and PARENT_DIR will be set dynamically in the steps
@@ -929,7 +929,7 @@ jobs:
             label: unit-tests (5/5)
     env:
       PYTHON_VERSION: '3.12'
-      ZENTORCH_VERSION: '2.14.0.0'
+      ZENTORCH_VERSION: '2.14.0.1'
       NATIVE_TORCH_VERSION: '2.14.0'
       ZENDNN_TOOLS_REF: ${{ github.event.inputs.zendnn_tools_ref || github.event.client_payload.zendnntools_ref || '' }}
     steps:
@@ -994,7 +994,7 @@ jobs:
     runs-on: amd-zenai-arc-large-dind
     env:
       PYTHON_VERSION: '3.12'
-      ZENTORCH_VERSION: '2.14.0.0'
+      ZENTORCH_VERSION: '2.14.0.1'
       NATIVE_TORCH_VERSION: '2.14.0'
       UNWANTED_KEYWORDS: 'stackoverflow,MSDN,wiki,microsoft'
       ZENTORCH_USE_LOCAL_ZENDNN: ${{ github.event.inputs.zentorch_use_local_zendnn || github.event.client_payload.zentorch_use_local_zendnn || '1' }}

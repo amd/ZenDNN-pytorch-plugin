@@ -57,7 +57,7 @@ Post-training quantization (PTQ) for DLRMv2 using the PyTorch 2 Export (PT2E) fr
 ## Requirements
 
 - PyTorch 2.14.0 (recommended) or 2.13.0
-- zentorch (recommended version- 2.14.0.0)
+- zentorch (recommended version- 2.14.0.1)
 - vLLM
 - TorchAO (recommended version- 0.17.0) — TorchAO LLM and DLRM-v2 examples only
 - transformers (recommended version > 5.0.0)

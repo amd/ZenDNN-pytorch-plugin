@@ -124,7 +124,7 @@ compiled = torch.compile(quantized, backend="inductor")
 - DLRMv2 model (`dlrm_model.DLRMMLPerf`)
 - Dataset(`multihot-criteo`)
 - scikit-learn
-- zentorch (recommended version- 2.14.0.0)
+- zentorch (recommended version- 2.14.0.1)
 
 ## ROC AUC Accuracy Scores
 

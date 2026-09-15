@@ -44,7 +44,7 @@ jobs:
       PYTHON_VERSION: '3.10'
       # Kept on the alternate torch: the 2.14.0 build image only ships
       # Python 3.12 and 3.14 environments.
-      ZENTORCH_VERSION: '2.13.0.0'
+      ZENTORCH_VERSION: '2.13.0.1'
       NATIVE_TORCH_VERSION: '2.13.0'
       UNWANTED_KEYWORDS: 'stackoverflow,MSDN,wiki,microsoft'
       CI_ZENDNNL_ENABLE: '1'
