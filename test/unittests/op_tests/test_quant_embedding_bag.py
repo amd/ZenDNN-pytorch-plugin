@@ -21,6 +21,15 @@ from unittest_utils import (  # noqa: 402
 supported_dtypes = update_supported_dtypes(supported_dtypes)
 
 
+def _woq_dequant_weight_fp16_scale_bias(weight, scales, zero_points):
+    # Packed weights store scale/bias as float16 (see zendnnl_get_packed_embedding_weight).
+    scale_f32 = scales.squeeze(-1).float()
+    zp_f32 = zero_points.float()
+    scale_fp16 = scale_f32.to(torch.float16).float()
+    bias_fp16 = (zp_f32 * scale_f32 * -1).to(torch.float16).float()
+    return weight.float() * scale_fp16.unsqueeze(1) + bias_fp16.unsqueeze(1)
+
+
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class Test_WOQ_Embedding_Bag(QuantEmbTestCase):
     @QuantEmbTestCase.hypothesis_params_quant_emb_itr(
@@ -36,15 +45,15 @@ class Test_WOQ_Embedding_Bag(QuantEmbTestCase):
         scales = self.data.scales
         zero_points = self.data.zero_points
 
-        zero_points_expanded = zero_points.unsqueeze(1).expand(weight.shape)
-
         from op_tests._pack import create_pack_method
 
         packmethod = create_pack_method("awq", "int4")
         packed_weight = packmethod.pack(
             (weight.to(torch.int32)), False, transpose=False
         )
-        dequant_weight = (weight - zero_points_expanded) * scales
+        dequant_weight = _woq_dequant_weight_fp16_scale_bias(
+            weight, scales, zero_points
+        )
 
         ref_result = torch.nn.functional.embedding_bag(
             indices, dequant_weight, offsets, mode="sum",
@@ -88,15 +97,15 @@ class Test_WOQ_Embedding_Bag(QuantEmbTestCase):
         scales = self.data.scales
         zero_points = self.data.zero_points
 
-        zero_points_expanded = zero_points.unsqueeze(1).expand(weight.shape)
-
         from op_tests._pack import create_pack_method
 
         packmethod = create_pack_method("awq", "int4")
         packed_weight = packmethod.pack(
             (weight.to(torch.int32)), False, transpose=False
         )
-        dequant_weight = (weight - zero_points_expanded) * scales
+        dequant_weight = _woq_dequant_weight_fp16_scale_bias(
+            weight, scales, zero_points
+        )
 
         ref_result = torch.nn.functional.embedding_bag(
             indices, dequant_weight, offsets, mode="sum",
