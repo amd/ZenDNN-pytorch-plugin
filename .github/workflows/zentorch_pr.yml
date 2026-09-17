@@ -9,7 +9,7 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-    types: [opened, synchronize, reopened, labeled]
+    types: [opened, synchronize, reopened, labeled, unlabeled]
   workflow_dispatch:
     inputs:
       zendnn_ref:
@@ -55,9 +55,26 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.client_payload.zendnn_pr_number || github.event.client_payload.zendnnl_pr_number || github.event.client_payload.zendnntools_pr_number || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'repository_dispatch' }}
+  cancel-in-progress: ${{ github.event_name == 'repository_dispatch' || (github.event_name == 'pull_request' && github.event.action != 'unlabeled') }}
 
 jobs:
+  ready-required:
+    name: ready-required
+    if: github.event_name == 'pull_request'
+    runs-on: amd-zenai-arc-xsmall-dind
+    steps:
+      - name: Require READY label to merge
+        env:
+          HAS_READY: ${{ contains(github.event.pull_request.labels.*.name, 'READY') }}
+        run: |
+          set -euo pipefail
+          if [ "${HAS_READY}" = "true" ]; then
+            echo "READY label is present"
+            exit 0
+          fi
+          echo "::error::READY label is required before merge. Add READY after CI is green, then this check will pass."
+          exit 1
+
   drop-ready-on-push:
     name: drop-ready-on-push
     if: github.event_name == 'pull_request' && github.event.action == 'synchronize'
@@ -89,6 +106,7 @@ jobs:
 
   zentorch-build:
     name: zentorch-build
+    if: github.event_name != 'pull_request' || github.event.action != 'unlabeled'
     runs-on: amd-zenai-arc-large-dind
     outputs:
       plugin_sha: ${{ steps.plugin_sha.outputs.sha }}
@@ -1197,7 +1215,7 @@ jobs:
   report-status:
     name: report-status
     needs: [zentorch-build, unit-tests, vllm-build]
-    if: always() && !cancelled()
+    if: always() && !cancelled() && (github.event_name != 'pull_request' || github.event.action != 'unlabeled')
     runs-on: amd-zenai-arc-xsmall-dind
     steps:
       - name: Aggregate job results
