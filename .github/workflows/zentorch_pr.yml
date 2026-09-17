@@ -9,6 +9,7 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+    types: [opened, synchronize, reopened, labeled]
   workflow_dispatch:
     inputs:
       zendnn_ref:
@@ -32,25 +33,68 @@ on:
         required: false
         default: '1'
       zendnn_tools_ref:
-        description: 'ZenDNN_tools branch or PR ref (optional, e.g. refs/pull/123/head)'
+        description: 'ZenDNN_tools branch or PR ref (optional, e.g. refs/pull/434/head)'
         required: false
         default: ''
+      unit_test_scope:
+        description: 'Override unit test scope (empty=auto, op_tests, full)'
+        required: false
+        default: ''
+        type: choice
+        options:
+          - ''
+          - op_tests
+          - full
   repository_dispatch:
     types: [zendnn-pr , zendnnTools-pr , zendnnl-pr]
 
 permissions:
   contents: read
+  pull-requests: write
+  issues: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.client_payload.zendnn_pr_number || github.event.client_payload.zendnnl_pr_number || github.event.client_payload.zendnntools_pr_number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'repository_dispatch' }}
 
 jobs:
+  drop-ready-on-push:
+    name: drop-ready-on-push
+    if: github.event_name == 'pull_request' && github.event.action == 'synchronize'
+    runs-on: amd-zenai-arc-xsmall-dind
+    steps:
+      - name: Remove READY so a later re-apply can retrigger full CI
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          code="$(curl -sS -o /tmp/drop-ready.json -w '%{http_code}' -X DELETE \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/issues/${PR_NUMBER}/labels/READY")"
+          echo "DELETE READY HTTP ${code}"
+          cat /tmp/drop-ready.json || true
+          case "${code}" in
+            200|204)
+              echo "Removed READY from PR #${PR_NUMBER} after new commits"
+              ;;
+            404)
+              echo "PR #${PR_NUMBER} had no READY label"
+              ;;
+            *)
+              exit 1
+              ;;
+          esac
+
   zentorch-build:
     name: zentorch-build
     runs-on: amd-zenai-arc-large-dind
     outputs:
       plugin_sha: ${{ steps.plugin_sha.outputs.sha }}
+      unit_test_scope: ${{ steps.unit_test_scope.outputs.scope }}
+      shard_total: ${{ steps.unit_test_scope.outputs.shard_total }}
+      shard_matrix: ${{ steps.unit_test_scope.outputs.shard_matrix }}
     env:
       PYTHON_VERSION: '3.12'
       ZENTORCH_VERSION: '2.14.0.1'
@@ -790,6 +834,10 @@ jobs:
           echo "PR SOURCE BRANCH : $SOURCE_BRANCH"
           echo "PR HEAD SHA      : $HEAD_SHA"
           echo "CURRENT HEAD     : $(git rev-parse HEAD)"
+          echo "ZENDNN_TOOLS_REF : ${ZENDNN_TOOLS_REF:-<main>}"
+          echo "ZENTORCH_REF     : ${ZENTORCH_REF:-<checkout default>}"
+          echo "ZENDNN_REF       : ${ZENDNN_REF:-<main>}"
+          echo "ZENDNNL_REF      : ${ZENDNNL_REF:-<none>}"
           echo ""
 
           echo "Fetching branches..."
@@ -850,7 +898,40 @@ jobs:
           else
             echo "ZenDNN_tools directory not found — skipping."
           fi
-      
+
+      - name: Determine unit test scope
+        id: unit_test_scope
+        shell: bash
+        run: |
+          SCOPE="op_tests"
+          if [ -n "${{ github.event.inputs.unit_test_scope }}" ]; then
+            SCOPE="${{ github.event.inputs.unit_test_scope }}"
+            echo "Unit test scope from workflow_dispatch input: ${SCOPE}"
+          elif [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+            case "${{ github.event.action }}" in
+              zendnn-pr|zendnnl-pr)
+                SCOPE="full"
+                echo "Full unit tests: ZenDNN repository_dispatch (${{ github.event.action }})"
+                ;;
+            esac
+          elif [ "${{ github.event_name }}" = "pull_request" ] \
+              && [ "${{ github.event.action }}" = "labeled" ] \
+              && [ "${{ github.event.label.name }}" = "READY" ]; then
+            SCOPE="full"
+            echo "Full unit tests: READY label applied on PR #${{ github.event.pull_request.number }}"
+          else
+            echo "Presub op_tests only (event=${{ github.event_name }}, action=${{ github.event.action }})"
+          fi
+          echo "scope=${SCOPE}" >> "$GITHUB_OUTPUT"
+          if [ "${SCOPE}" = "full" ]; then
+            echo "shard_total=3" >> "$GITHUB_OUTPUT"
+            echo 'shard_matrix=[{"shard":0,"label":"unit-tests (1/3)"},{"shard":1,"label":"unit-tests (2/3)"},{"shard":2,"label":"unit-tests (3/3)"}]' >> "$GITHUB_OUTPUT"
+          else
+            echo "shard_total=2" >> "$GITHUB_OUTPUT"
+            echo 'shard_matrix=[{"shard":0,"label":"unit-tests (1/2)"},{"shard":1,"label":"unit-tests (2/2)"}]' >> "$GITHUB_OUTPUT"
+          fi
+          echo "Resolved ZENTORCH_UNIT_TEST_SCOPE=${SCOPE}"
+
       - name: Record plugin SHA
         id: plugin_sha
         shell: bash
@@ -873,8 +954,6 @@ jobs:
           export PARENT_DIR=${PARENT_DIR}
           export ZENTORCH_CI_PHASE=build
           export ZENTORCH_SKIP_UNIT_TESTS=1
-          export ZENTORCH_UNIT_TEST_SCOPE=full
-
           echo "========= FILE: zendnn_ci_pt_plugin_presub_build.sh ========="
           cat "$PARENT_DIR/ZenDNN_tools/scripts/ci/zendnn_ci_pt_plugin_presub_build.sh"
           echo "============================================================="
@@ -912,25 +991,16 @@ jobs:
   unit-tests:
     name: ${{ matrix.label }}
     needs: zentorch-build
-    runs-on: amd-zenai-arc-small-dind
+    runs-on: amd-zenai-arc-large-dind
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - shard: 0
-            label: unit-tests (1/5)
-          - shard: 1
-            label: unit-tests (2/5)
-          - shard: 2
-            label: unit-tests (3/5)
-          - shard: 3
-            label: unit-tests (4/5)
-          - shard: 4
-            label: unit-tests (5/5)
+        include: ${{ fromJSON(needs.zentorch-build.outputs.shard_matrix) }}
     env:
       PYTHON_VERSION: '3.12'
       ZENTORCH_VERSION: '2.14.0.1'
       NATIVE_TORCH_VERSION: '2.14.0'
+      # Empty uses ZenDNN_tools main (digest image cache from #434/#449 + op_tests default).
       ZENDNN_TOOLS_REF: ${{ github.event.inputs.zendnn_tools_ref || github.event.client_payload.zendnntools_ref || '' }}
     steps:
       - name: Checkout plugin at build SHA
@@ -974,9 +1044,9 @@ jobs:
           export ZENTORCH_CI_PHASE=unit
           unset ZENTORCH_TEST_SUITE
           export ZENTORCH_TEST_SHARD_INDEX="${{ matrix.shard }}"
-          export ZENTORCH_TEST_SHARD_TOTAL=5
+          export ZENTORCH_TEST_SHARD_TOTAL="${{ needs.zentorch-build.outputs.shard_total }}"
           export ZENTORCH_WHEEL_PATH="$wheel"
-          export ZENTORCH_UNIT_TEST_SCOPE=full
+          export ZENTORCH_UNIT_TEST_SCOPE="${{ needs.zentorch-build.outputs.unit_test_scope }}"
           export ZENTORCH_SKIP_LINTER=1
           export ZENTORCH_SKIP_UNIT_TESTS=0
           export ZENTORCH_RUN_NIGHTLY_UNIT_TESTS=0
@@ -991,6 +1061,10 @@ jobs:
 
   vllm-build:
     name: vllm-build
+    if: >
+      (github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'READY')
+      || (github.event_name == 'repository_dispatch' && (github.event.action == 'zendnn-pr' || github.event.action == 'zendnnl-pr'))
+      || (github.event_name == 'workflow_dispatch' && github.event.inputs.unit_test_scope == 'full')
     runs-on: amd-zenai-arc-large-dind
     env:
       PYTHON_VERSION: '3.12'
@@ -1137,6 +1211,9 @@ jobs:
           echo "unit-tests=${units}"
           echo "vllm-build=${vllm}"
           state="success"
+          if [ "$vllm" = "skipped" ]; then
+            vllm="success"
+          fi
           if [ "$build" != "success" ] || [ "$units" != "success" ] || [ "$vllm" != "success" ]; then
             state="failure"
           fi
