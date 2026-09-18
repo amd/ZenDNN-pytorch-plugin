@@ -26,6 +26,11 @@ if (_pt_parsed.major, _pt_parsed.minor) < (2, 13):
 
 ZENTORCH_CXX_STANDARD = 20
 
+# Strip before setup() so setuptools does not treat --stable as unknown.
+ZENTORCH_STABLE_ABI_LIB_BUILD = "--stable" in sys.argv
+while "--stable" in sys.argv:
+    sys.argv.remove("--stable")
+
 
 class CustomBuildExtension(BuildExtension):
     def run(self) -> None:
@@ -68,6 +73,7 @@ class CustomBuildExtension(BuildExtension):
             f"-DCMAKE_PREFIX_PATH={torch_cmake_prefix_path}",
             f"-DINSTALL_LIB_DIR={self.build_lib}",
             f"-DCMAKE_CXX_STANDARD={ZENTORCH_CXX_STANDARD}",
+            f"-DZENTORCH_STABLE_ABI_LIB_BUILD={'ON' if ZENTORCH_STABLE_ABI_LIB_BUILD else 'OFF'}",
         ]
 
         # Add compile flags to cmake
@@ -377,7 +383,7 @@ def main():
         package_data={
             PACKAGE_NAME: [
                 "include/*.hpp",
-                "libzentorch_stable.so",
+                *(["libzentorch_stable.so"] if ZENTORCH_STABLE_ABI_LIB_BUILD else []),
             ],
         },
         extras_require=extras_require,

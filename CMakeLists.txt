@@ -102,7 +102,12 @@ add_custom_command(
             ${CMAKE_SOURCE_DIR}/${INSTALL_LIB_DIR}/${PROJECT_NAME}/libzentorch.so)
 endif()
 
-include(StableAbiLibs)
+if(ZENTORCH_STABLE_ABI_LIB_BUILD)
+    include(StableAbiLibs)
+elseif(DEFINED INSTALL_LIB_DIR AND INSTALL_LIB_DIR)
+    file(REMOVE
+        "${CMAKE_SOURCE_DIR}/${INSTALL_LIB_DIR}/${PROJECT_NAME}/libzentorch_stable.so")
+endif()
 
 # Set default build type
 if(NOT CMAKE_BUILD_TYPE)
