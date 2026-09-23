@@ -30,6 +30,9 @@ _PATCH_TARGETS = [
      "CPUFusedMOE", "_zentorch_fused_moe_patched", None),
     ("CPUSdpa", "vllm.v1.attention.backends.cpu_attn",
      "CPUAttentionBackendImpl", "_zentorch_sdpa_patched", "forward"),
+    # Marker and wrapped function both sit on the module, not on a class.
+    ("MMEncoderSdpa", "vllm.v1.attention.ops.vit_attn_wrappers",
+     None, "_zentorch_mm_encoder_sdpa_patched", "apply_sdpa"),
     ("Int8MoE",
      "vllm.model_executor.layers.quantization.compressed_tensors."
      "compressed_tensors_moe.compressed_tensors_moe_w8a8_int8",

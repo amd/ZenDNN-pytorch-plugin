@@ -68,6 +68,12 @@ from zentorch.vllm._import_hook import patch_now_or_on_import  # noqa: E402
 from zentorch.vllm._fused_mlp_patch import (  # noqa: E402, F401
     _apply_fused_mlp_patch_impl,
 )
+from zentorch.vllm._mm_encoder_sdpa_patch import (  # noqa: E402, F401
+    _apply_mm_encoder_sdpa_patch,
+)
+from zentorch.vllm._sdpa_utils import (  # noqa: E402
+    zentorch_sdpa_supports_dtype,
+)
 
 logger = get_logger(__name__)
 
@@ -323,28 +329,6 @@ def _apply_torchao_patch() -> bool:
 _CPU_ATTN_MODULE = "vllm.v1.attention.backends.cpu_attn"
 
 
-def _zentorch_sdpa_supports_dtype(dtype: torch.dtype) -> bool:
-    """Mirror of the dtype/ISA gate in zentorch_sdpa_common (Sdpa_ref.cpp).
-
-    Below that gate zentorch_sdpa falls back to the native ATen flash kernel,
-    which is what vLLM would have run anyway, so the replacement only adds the
-    wrapper cost.
-    """
-    from zentorch._C import (
-        is_avx512_supported,
-        is_bf16_supported,
-        is_fp16_supported,
-    )
-
-    if dtype == torch.bfloat16:
-        return is_bf16_supported()
-    if dtype == torch.float16:
-        return is_fp16_supported()
-    if dtype == torch.float32:
-        return is_avx512_supported()
-    return False
-
-
 def _run_encoder_sdpa_zentorch(self, query, key, value, output, attn_metadata):
     """Encoder-only / encoder attention via zentorch_sdpa.
 
@@ -451,7 +435,7 @@ def _forward_cpu_attn_zentorch(
         or value is None
         or output_scale is not None
         or output_block_scale is not None
-        or not _zentorch_sdpa_supports_dtype(query.dtype)
+        or not zentorch_sdpa_supports_dtype(query.dtype)
     ):
         return self._zentorch_orig_forward(
             layer,
@@ -531,6 +515,7 @@ _PATCHES = (
     ("FusedMoE", _apply_fused_moe_patch),
     ("FusedMLP", _apply_fused_mlp_patch_impl),
     ("CPUSdpa", _apply_cpu_sdpa_patch),
+    ("MMEncoderSdpa", _apply_mm_encoder_sdpa_patch),
     ("Da8w4Kernel", _apply_da8w4_patch),
     ("SWBlockSize", _apply_sw_blocksize_patch),
     ("WhisperW4A16", _apply_whisper_w4a16_patch),

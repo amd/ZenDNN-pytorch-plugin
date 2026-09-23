@@ -26,6 +26,7 @@ EXPECTED_PATCHES = [
     "FusedMoE",
     "FusedMLP",
     "CPUSdpa",
+    "MMEncoderSdpa",
     "Da8w4Kernel",
     "SWBlockSize",
     "WhisperW4A16",

@@ -95,9 +95,9 @@ inline void zendnnl_sdpa_direct_kernel(
   }
 
   fp.is_qk_quant =
-    EnvReader::getEnvVariableAsInt("ZENTORCH_SDPA_QK_QUANT") != 0;
+      EnvReader::getEnvVariableAsInt("ZENTORCH_SDPA_QK_QUANT") != 0;
   fp.is_pv_quant =
-    EnvReader::getEnvVariableAsInt("ZENTORCH_SDPA_PV_QUANT") != 0;
+      EnvReader::getEnvVariableAsInt("ZENTORCH_SDPA_PV_QUANT") != 0;
 
   ZENTORCH_CHECK(zendnnl::lowoha::sdpa::sdpa_direct(
                      query.data_ptr(), key.data_ptr(), value.data_ptr(),
