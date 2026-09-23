@@ -3,7 +3,7 @@
 # All rights reserved.
 # ****************************************************************************
 
-"""SW block-size alignment patch (correctness fix; always enabled).
+"""SW block-size alignment patch for vLLM 0.27-0.28.
 
 Wraps ``Attention.get_kv_cache_spec()`` to realign
 ``SlidingWindowSpec.block_size`` to the CPU ISA's BlockSizeAlignment
@@ -14,7 +14,10 @@ backend.
 
 from __future__ import annotations
 
+import sys
 from typing import TYPE_CHECKING
+
+from packaging import version as pkg_version
 
 from zentorch._logging import get_logger
 
@@ -192,10 +195,14 @@ def _do_patch_sw_blocksize() -> bool:
 
 
 def _apply_sw_blocksize_patch() -> bool:
-    """Apply the SW block-size alignment patch.
-
-    Correctness fix; always on (no env-var opt-out).
-    """
+    """Apply only before vLLM 0.29's native 32-block alignment."""
+    vllm_ver = getattr(sys.modules.get("vllm"), "__version__", None)
+    if (
+        vllm_ver is not None
+        and pkg_version.parse(vllm_ver.split("+")[0])
+        >= pkg_version.parse("0.29.0")
+    ):
+        return False
     return patch_now_or_on_import(
         _SW_ATTN_MODULE, _do_patch_sw_blocksize
     )

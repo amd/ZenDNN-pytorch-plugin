@@ -6,6 +6,8 @@
 """Regression test for the TorchAO MoE quant-method patch in
 ``zentorch/vllm/_moe_class.py``."""
 
+import subprocess
+import sys
 import unittest
 import zentorch  # noqa: F401
 
@@ -18,6 +20,76 @@ from ._test_constants import TORCHAO_AVAILABLE, VLLM_AVAILABLE
 )
 class TestTorchAOMoEQuantMethodPatch(unittest.TestCase):
     """Covers the ``_moe_class.py`` TorchAO MoE quant-method patch."""
+
+    def test_patch_waits_for_fused_moe_package(self):
+        from zentorch.vllm import _moe_class
+
+        if not _moe_class._requires_fused_moe_parent_hook():
+            self.skipTest("fused-MoE parent hook is specific to vLLM 0.29+")
+
+        with unittest.mock.patch.object(
+            _moe_class,
+            "patch_now_or_on_import",
+            return_value=True,
+        ) as schedule:
+            self.assertTrue(_moe_class._apply_torchao_moe_patch_impl())
+
+        schedule.assert_called_once_with(
+            _moe_class._FUSED_MOE_MODULE,
+            _moe_class._patch_torchao_after_fused_moe_import,
+        )
+
+    def test_pre_029_keeps_torchao_module_hook(self):
+        from zentorch.vllm import _moe_class
+
+        old_installed = _moe_class._MOE_HOOK_INSTALLED
+        self.addCleanup(
+            setattr,
+            _moe_class,
+            "_MOE_HOOK_INSTALLED",
+            old_installed,
+        )
+        _moe_class._MOE_HOOK_INSTALLED = False
+
+        with (
+            unittest.mock.patch.object(
+                _moe_class,
+                "_requires_fused_moe_parent_hook",
+                return_value=False,
+            ),
+            unittest.mock.patch.dict(
+                sys.modules,
+                {_moe_class._TORCHAO_MOE_TARGET_MODULE: None},
+            ),
+            unittest.mock.patch.object(sys, "meta_path", []),
+            unittest.mock.patch.object(
+                _moe_class, "patch_now_or_on_import"
+            ) as parent_hook,
+        ):
+            self.assertTrue(_moe_class._apply_torchao_moe_patch_impl())
+            self.assertIsInstance(
+                sys.meta_path[0],
+                _moe_class._TorchAOMoeImportHook,
+            )
+
+        parent_hook.assert_not_called()
+
+    def test_gpt_oss_import_has_no_circular_patch_failure(self):
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "import vllm; import vllm.model_executor.models.gpt_oss",
+            ],
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=180,
+        )
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertNotIn("torchao FusedMoE patch FAILED", output)
+        self.assertNotIn("partially initialized module", output)
 
     def _install_patch(self, torchao_mod, should_skip):
         """Register the TorchAO MoE patches and confirm they installed.

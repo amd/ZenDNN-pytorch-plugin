@@ -92,11 +92,10 @@ def _gdn_attention_core_cpu(
     layer = forward_context.no_compile_layers[layer_name]
     attn_metadata = forward_context.attn_metadata
 
+    if isinstance(attn_metadata, dict):
+        attn_metadata = attn_metadata.get(layer.prefix)
     if attn_metadata is None:
         return
-
-    if isinstance(attn_metadata, dict):
-        attn_metadata = attn_metadata[layer.prefix]
     if not isinstance(attn_metadata, GDNAttentionMetadata):
         raise TypeError(
             "attn_metadata must be GDNAttentionMetadata; got "

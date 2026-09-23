@@ -27,6 +27,7 @@ This patch, applied only on a supported vLLM via the plugin's import hook:
 Scope is deliberately minimal: only the compressed-tensors / BF16 path
 (``_load_weights_other``) is covered -- native mxfp4 and quark keep their stock
 loaders -- and PR #52209's RL weight-sync reload (``reload/meta.py``) is omitted.
+vLLM 0.29 includes the streamed loader natively and is left unchanged.
 """
 
 from __future__ import annotations
@@ -373,6 +374,14 @@ def _do_patch() -> bool:
     if gpt_oss_model is None or mlp_block is None:
         return False
     if getattr(gpt_oss_model, _MARKER, False):
+        return True
+
+    if (
+        getattr(mod, "GptOssRoutedExperts", None) is not None
+        and hasattr(gpt_oss_model, "_try_load_streamed_expert")
+    ):
+        setattr(gpt_oss_model, _MARKER, True)
+        logger.info("[zentorch] GPT-OSS streamed-expert loading is native")
         return True
 
     routed_cls = _get_routed_experts_cls()

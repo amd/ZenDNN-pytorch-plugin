@@ -13,6 +13,8 @@ cpu_attn.cpp when running sliding-window models on the CPU backend.
 """
 
 import dataclasses
+import sys
+import types
 import unittest
 import unittest.mock
 
@@ -23,7 +25,7 @@ from ._test_constants import VLLM_AVAILABLE
 
 @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
 class TestSWBlockSizePatchWiring(unittest.TestCase):
-    """SWBlockSize is wired into _PATCHES (always-on correctness fix)."""
+    """SWBlockSize remains wired for supported pre-0.29 releases."""
 
     def test_wired_in_patches(self):
         import zentorch.vllm as zv
@@ -31,8 +33,7 @@ class TestSWBlockSizePatchWiring(unittest.TestCase):
         names = [name for name, _ in zv._PATCHES]
         self.assertIn("SWBlockSize", names)
 
-    def test_always_enabled(self):
-        """The patch has no env-var opt-out; it is a correctness fix."""
+    def test_has_no_env_var_toggle(self):
         import inspect
         from zentorch.vllm._sw_blocksize_patch import (
             _apply_sw_blocksize_patch,
@@ -43,8 +44,25 @@ class TestSWBlockSizePatchWiring(unittest.TestCase):
             "os.environ",
             source,
             "_apply_sw_blocksize_patch should not have an "
-            "env-var opt-out (correctness fix)",
+            "env-var opt-out",
         )
+
+    def test_vllm_029_uses_native_alignment(self):
+        from zentorch.vllm import _sw_blocksize_patch as patch
+
+        fake_vllm = types.ModuleType("vllm")
+        fake_vllm.__version__ = "0.29.0"
+        with (
+            unittest.mock.patch.dict(
+                sys.modules, {"vllm": fake_vllm}
+            ),
+            unittest.mock.patch.object(
+                patch, "patch_now_or_on_import"
+            ) as schedule,
+        ):
+            self.assertFalse(patch._apply_sw_blocksize_patch())
+
+        schedule.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

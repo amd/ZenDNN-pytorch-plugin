@@ -472,6 +472,31 @@ class TestKernelSetup(unittest.TestCase):
         method = self._run()
         self.assertEqual(len(method._setup_calls), 1)
 
+    def test_non_zentorch_quant_config_delegates_to_native_method(self):
+        from zentorch.vllm import _wna16_moe_patch as patch
+
+        sentinel = object()
+        module = self._stub_module([])
+        method_cls = module.CompressedTensorsWNA16MoEMethod
+
+        def native_quant_config(self, layer):
+            return sentinel
+
+        def native_packed_dim(self, dim):
+            return dim
+
+        method_cls._packed_dim = native_packed_dim
+        method_cls.get_fused_moe_quant_config = native_quant_config
+        patch._register_wna16_method_patch(module)
+        method = self._method(method_cls)
+
+        with mock.patch.object(
+            patch, "_is_zentorch_experts", return_value=False
+        ):
+            result = method.get_fused_moe_quant_config(object())
+
+        self.assertIs(result, sentinel)
+
     def test_group_act_ordering_falls_back_to_native_process(self):
         """GROUP act-order is declined before the zentorch repack; native path runs."""
         import sys

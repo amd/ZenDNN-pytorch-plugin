@@ -18,6 +18,8 @@ import importlib
 import unittest
 import unittest.mock
 
+from packaging import version as pkg_version
+
 from ._test_constants import VLLM_AVAILABLE, vllm
 
 
@@ -26,8 +28,6 @@ from ._test_constants import VLLM_AVAILABLE, vllm
 # patch is INAPPLICABLE on this build (the patch itself no-ops), so the test skips
 # with a reason instead of failing. None => the patch must always apply.
 _PATCH_TARGETS = [
-    ("FusedMoE", "vllm.model_executor.layers.fused_moe.cpu_fused_moe",
-     "CPUFusedMOE", "_zentorch_fused_moe_patched", None),
     ("CPUSdpa", "vllm.v1.attention.backends.cpu_attn",
      "CPUAttentionBackendImpl", "_zentorch_sdpa_patched", "forward"),
     # Marker and wrapped function both sit on the module, not on a class.
@@ -37,6 +37,14 @@ _PATCH_TARGETS = [
      "vllm.model_executor.layers.quantization.compressed_tensors."
      "compressed_tensors_moe.compressed_tensors_moe_w8a8_int8",
      "CompressedTensorsW8A8Int8MoEMethod", "_zentorch_int8_moe_patched", None),
+    ("Wna16MoEOracle",
+     "vllm.model_executor.layers.fused_moe.oracle.int_wna16",
+     None, "_zentorch_wna16_oracle_patched", "backend_to_kernel_cls"),
+    ("Wna16MoEMethod",
+     "vllm.model_executor.layers.quantization.compressed_tensors."
+     "compressed_tensors_moe.compressed_tensors_moe_wna16",
+     "CompressedTensorsWNA16MoEMethod", "_zentorch_wna16_moe_patched",
+     "process_weights_after_loading"),
     ("MixtralMoELoader", "vllm.model_executor.models.mixtral", "MixtralModel",
      "_zentorch_mixtral_loader_patched", "load_weights"),
     ("TorchAO", "vllm.model_executor.layers.quantization.torchao",
@@ -46,10 +54,6 @@ _PATCH_TARGETS = [
     ("WhisperW4A16", "vllm.model_executor.models.whisper",
      "WhisperForConditionalGeneration", "_zentorch_whisper_w4a16_patched",
      "load_weights"),
-    ("SWBlockSize",
-     "vllm.model_executor.layers.attention.attention",
-     "Attention", "_zentorch_sw_blocksize_patched",
-     "get_kv_cache_spec"),
     ("GptOssStreamedExpert", "vllm.model_executor.models.gpt_oss", "GptOssModel",
      "_zentorch_gptoss_streamed_patched", "_load_weights_other"),
     ("GatedDeltaNet",
@@ -64,7 +68,7 @@ _GEMMA_MODULES = [
     "vllm.tokenizers.registry",
 ]
 
-# Hook-install state to clear so register() re-applies cleanly in this process.
+# Pre-0.29 import-hook state to reset when testing those releases.
 _OWN_HOOK_FLAGS = [
     ("zentorch.vllm._moe_class", "_MOE_HOOK_INSTALLED"),
 ]
@@ -125,6 +129,23 @@ class TestPatchApplication(unittest.TestCase):
                     "_zentorch_gemma4_hetero_patched",
                 )
 
+    def test_qwen3_vl_text_config_backport_scope(self):
+        import zentorch.vllm as plugin
+
+        current = pkg_version.parse(vllm.__version__.split("+")[0])
+        if current == pkg_version.parse("0.29.0"):
+            self._assert_applied(
+                "Qwen3VLTextConfig",
+                "vllm.config.vllm",
+                "VllmConfig",
+                "_zentorch_qwen3_vl_text_config_patched",
+            )
+        else:
+            self.assertNotIn(
+                "Qwen3VLTextConfig",
+                plugin.APPLIED_PATCHES,
+            )
+
     def test_applies_RMSNorm(self):
         """zentorch registers an IR provider for the residual
         ``fused_add_rms_norm`` (the platform raises it above native); the
@@ -144,6 +165,51 @@ class TestPatchApplication(unittest.TestCase):
             "zentorch", ir.ops.rms_norm.impls,
             "RMSNorm: non-residual rms_norm should stay on native",
         )
+
+    def test_legacy_fused_moe_patch_scope(self):
+        import zentorch.vllm as plugin
+
+        current = pkg_version.parse(vllm.__version__.split("+")[0])
+        if current < pkg_version.parse("0.28.0"):
+            self._assert_applied(
+                "FusedMoE",
+                "vllm.model_executor.layers.fused_moe.cpu_fused_moe",
+                "CPUFusedMOE",
+                "_zentorch_fused_moe_patched",
+            )
+        elif current < pkg_version.parse("0.29.0"):
+            self.assertIn("FusedMoE", plugin.APPLIED_PATCHES)
+        else:
+            self.assertNotIn("FusedMoE", plugin.APPLIED_PATCHES)
+
+    def test_sliding_window_alignment_scope(self):
+        import zentorch.vllm as plugin
+
+        current = pkg_version.parse(vllm.__version__.split("+")[0])
+        if current < pkg_version.parse("0.29.0"):
+            self._assert_applied(
+                "SWBlockSize",
+                "vllm.model_executor.layers.attention.attention",
+                "Attention",
+                "_zentorch_sw_blocksize_patched",
+                "get_kv_cache_spec",
+            )
+        else:
+            from vllm.v1.attention.backend import MultipleOf
+            from vllm.v1.attention.backends.cpu_attn import (
+                CPUAttentionBackend,
+            )
+
+            self.assertNotIn("SWBlockSize", plugin.APPLIED_PATCHES)
+            supported_sizes = (
+                CPUAttentionBackend.get_supported_kernel_block_sizes()
+            )
+            self.assertTrue(
+                any(
+                    isinstance(size, MultipleOf) and size.base == 32
+                    for size in supported_sizes
+                )
+            )
 
 
 # One independently-skippable test method per marker-based patch.

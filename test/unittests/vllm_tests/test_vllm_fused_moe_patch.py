@@ -59,6 +59,22 @@ class TestFusedMoEPatch(unittest.TestCase):
         ):
             self.assertFalse(plugin._apply_fused_moe_patch())
 
+    def test_vllm_029_does_not_arm_removed_target(self):
+        spec, plugin = load_source_vllm_module()
+        fake_vllm = types.ModuleType("vllm")
+        fake_vllm.__version__ = "0.29.0"
+        with unittest.mock.patch.dict(
+            sys.modules,
+            {"zentorch.vllm": plugin, "vllm": fake_vllm},
+        ):
+            spec.loader.exec_module(plugin)
+            with unittest.mock.patch.object(
+                plugin, "patch_now_or_on_import"
+            ) as schedule:
+                self.assertFalse(plugin._apply_fused_moe_patch())
+
+        schedule.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

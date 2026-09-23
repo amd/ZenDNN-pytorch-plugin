@@ -5,10 +5,9 @@
 
 """zentorch CPU Platform for vLLM.
 
-Targets vLLM 0.27.x-0.28.0 / PyTorch 2.13. vLLM's stock CpuPlatform already configures
-the CPU compile defaults (DYNAMO_TRACE_ONCE + inductor, dce/size_asserts/
-nan_asserts/epilogue_fusion) and CPU-only profiler handling, so this subclass
-only marks the platform as Zen and injects the zentorch inductor optimize pass.
+Targets vLLM 0.27.0-0.29.0 / PyTorch 2.13. vLLM's stock CpuPlatform configures
+the CPU compile defaults and CPU-only profiler handling, so this subclass marks
+the platform as Zen and injects the zentorch inductor optimize pass.
 """
 
 from typing import TYPE_CHECKING
@@ -31,7 +30,7 @@ def _create_platform():
     logger = init_logger(__name__)
 
     class ZenCPUPlatformImpl(CpuPlatform):
-        """Out-of-tree CPU platform with zentorch optimizations (vLLM 0.27.x)."""
+        """Out-of-tree CPU platform with zentorch optimizations."""
 
         device_name: str = "cpu"
         device_type: str = "cpu"

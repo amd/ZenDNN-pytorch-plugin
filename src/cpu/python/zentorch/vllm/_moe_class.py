@@ -10,13 +10,17 @@ import importlib.util
 import sys
 
 import torch
+from packaging import version as pkg_version
 from torch.nn.parameter import Parameter
 
 from zentorch._logging import get_logger
+from zentorch.vllm._import_hook import patch_now_or_on_import
+from zentorch.vllm._moe_patch_utils import import_select_experts
 
 logger = get_logger(__name__)
 
 _TORCHAO_MOE_TARGET_MODULE = "vllm.model_executor.layers.quantization.torchao"
+_FUSED_MOE_MODULE = "vllm.model_executor.layers.fused_moe"
 
 
 def _resolve_moe_layer_types():
@@ -40,7 +44,6 @@ def _register_torchao_moe_patches(torchao_mod) -> None:
     importable before vLLM's layer modules exist.
     """
     from vllm.model_executor.layers.fused_moe.config import FusedMoEConfig
-    from vllm.model_executor.layers.fused_moe.experts.cpu_moe import select_experts
     from vllm.model_executor.layers.fused_moe.unquantized_fused_moe_method import (
         UnquantizedFusedMoEMethod,
     )
@@ -246,6 +249,7 @@ def _register_torchao_moe_patches(torchao_mod) -> None:
             zentorch ZenDNN kernel (same dispatch the 0.27 CPUFusedMOE patch used),
             keeping torchao-quantized MoE plugin-accelerated."""
             routed_scaling_factor = layer.routed_scaling_factor
+            select_experts = import_select_experts()
             topk_weights, topk_ids = select_experts(
                 hidden_states=x,
                 router_logits=router_logits,
@@ -305,11 +309,25 @@ def _apply_torchao_moe_patch_to_module(torchao_mod) -> bool:
         return False
 
 
+def _patch_torchao_after_fused_moe_import() -> bool:
+    torchao_mod = importlib.import_module(_TORCHAO_MOE_TARGET_MODULE)
+    return _apply_torchao_moe_patch_to_module(torchao_mod)
+
+
+def _requires_fused_moe_parent_hook() -> bool:
+    vllm_ver = getattr(sys.modules.get("vllm"), "__version__", None)
+    return (
+        vllm_ver is not None
+        and pkg_version.parse(vllm_ver.split("+")[0])
+        >= pkg_version.parse("0.29.0")
+    )
+
+
 _MOE_HOOK_INSTALLED = False
 
 
 class _TorchAOMoeImportHook:
-    """Defer patch until vLLM's torchao quant module loads (avoids circular import)."""
+    """Defer the pre-0.29 patch until vLLM's TorchAO module loads."""
 
     def find_spec(self, fullname, path, target=None):
         if fullname != _TORCHAO_MOE_TARGET_MODULE:
@@ -332,13 +350,17 @@ class _TorchAOMoeImportHook:
 
 
 def _apply_torchao_moe_patch_impl() -> bool:
-    """Schedule FusedMoE patch on first import of ``vllm...quantization.torchao``."""
-    global _MOE_HOOK_INSTALLED
+    """Schedule TorchAO MoE patching at a version-safe import boundary."""
+    if _requires_fused_moe_parent_hook():
+        return patch_now_or_on_import(
+            _FUSED_MOE_MODULE,
+            _patch_torchao_after_fused_moe_import,
+        )
 
+    global _MOE_HOOK_INSTALLED
     torchao_mod = sys.modules.get(_TORCHAO_MOE_TARGET_MODULE)
     if torchao_mod is not None:
         return _apply_torchao_moe_patch_to_module(torchao_mod)
-
     if not _MOE_HOOK_INSTALLED:
         sys.meta_path.insert(0, _TorchAOMoeImportHook())
         _MOE_HOOK_INSTALLED = True

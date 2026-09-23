@@ -465,7 +465,9 @@ def _register_wna16_method_patch(mod) -> None:
 
     method_cls = _modular_method_cls(mod)
     assert method_cls is not None
+    has_native_extended_quant_config = hasattr(method_cls, "_packed_dim")
     orig_create_weights = method_cls.create_weights
+    orig_get_fused_moe_quant_config = method_cls.get_fused_moe_quant_config
     orig_process = method_cls.process_weights_after_loading
     orig_make_kernel = mod.make_wna16_moe_kernel
 
@@ -525,6 +527,12 @@ def _register_wna16_method_patch(mod) -> None:
         )
 
     def _zen_get_fused_moe_quant_config(self, layer):
+        if (
+            has_native_extended_quant_config
+            and not _is_zentorch_experts(getattr(self, "experts_cls", None))
+        ):
+            return orig_get_fused_moe_quant_config(self, layer)
+
         # Vanilla plus w1_bias/w2_bias; backends without bias support ignore
         # them.
         return mod.make_wna16_moe_quant_config(

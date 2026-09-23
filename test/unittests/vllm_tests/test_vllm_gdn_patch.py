@@ -12,6 +12,8 @@ import types
 import unittest
 import unittest.mock
 
+import torch
+
 from ._test_constants import VLLM_AVAILABLE
 
 
@@ -104,6 +106,37 @@ class TestGDNPatch(unittest.TestCase):
             gdn_patch.forward_cpu_zen,
         )
         self.assertTrue(QwenGatedDeltaNetAttention._zentorch_gdn_patched)
+
+    def test_missing_layer_metadata_is_a_warmup_noop(self):
+        import vllm.forward_context as forward_context
+
+        gdn_patch = self._gdn_patch()
+        context = types.SimpleNamespace(
+            no_compile_layers={
+                "layer": types.SimpleNamespace(prefix="layer")
+            },
+            attn_metadata={},
+        )
+        tensor = torch.empty(0)
+        with (
+            unittest.mock.patch.object(
+                gdn_patch._vllm_torch_utils,
+                "_resolve_layer_name",
+                return_value="layer",
+            ),
+            unittest.mock.patch.object(
+                forward_context,
+                "get_forward_context",
+                return_value=context,
+            ),
+        ):
+            gdn_patch._gdn_attention_core_cpu(
+                tensor,
+                tensor,
+                tensor,
+                tensor,
+                "layer",
+            )
 
     def test_clean_vllm_startup_has_no_plugin_import_failure(self):
         """Catch imports from a partially initialized vllm.utils.torch_utils."""

@@ -92,6 +92,27 @@ class TestMixtralLoaderPatch(unittest.TestCase):
         )
         self.assertTrue(FakeMixtralModel._zentorch_mixtral_loader_patched)
 
+    def test_native_mapping_is_not_wrapped(self):
+        class FakeMixtralModel:
+            hf_to_vllm_mapper = types.SimpleNamespace(
+                orig_to_new_substr={
+                    ".gate_proj.": ".w1.",
+                    ".up_proj.": ".w3.",
+                    ".down_proj.": ".w2.",
+                }
+            )
+
+            def load_weights(self, weights):
+                return weights
+
+        original = FakeMixtralModel.load_weights
+        module = types.SimpleNamespace(MixtralModel=FakeMixtralModel)
+        with unittest.mock.patch.dict(sys.modules, {_TARGET_MODULE: module}):
+            self.assertTrue(_do_patch_mixtral_loader())
+
+        self.assertIs(FakeMixtralModel.load_weights, original)
+        self.assertTrue(FakeMixtralModel._zentorch_mixtral_loader_patched)
+
 
 if __name__ == "__main__":
     unittest.main()

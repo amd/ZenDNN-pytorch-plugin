@@ -11,6 +11,7 @@ import unittest
 import unittest.mock
 
 import torch
+from packaging import version as pkg_version
 
 from ._test_constants import VLLM_AVAILABLE, vllm
 from ._test_utils import load_source_vllm_module
@@ -18,6 +19,7 @@ from ._test_utils import load_source_vllm_module
 
 EXPECTED_PATCHES = [
     "Gemma4HeteroConfig",
+    "Qwen3VLTextConfig",
     "TorchAO",
     "Int8MoE",
     "Wna16MoE",
@@ -74,6 +76,8 @@ class TestVersionContract(unittest.TestCase):
             "0.27.99",
             "0.28.0",
             "0.28.0+cpu",
+            "0.29.0",
+            "0.29.0+cpu",
         ]:
             self.assertTrue(
                 is_supported_vllm(version),
@@ -92,8 +96,10 @@ class TestVersionContract(unittest.TestCase):
             "0.27.0rc1+cpu",
             "0.27.0.dev123+cpu",
             "0.28.0rc1+cpu",
-            "0.28.1",
-            "0.28.1+cpu",
+            "0.29.0rc1+cpu",
+            "0.29.1",
+            "0.29.1+cpu",
+            "0.30.0",
             "1.0.0",
             "not-a-version",
         ]:
@@ -184,9 +190,15 @@ class TestRegisterContract(unittest.TestCase):
         self.assertEqual(result, "zentorch.vllm._platform.ZenCPUPlatform")
         apply_all.assert_called_once_with()
 
+    def test_accepts_supported_runtime_029(self):
+        plugin = self._fresh_source_module()
+        result, apply_all = self._register_with(plugin, "0.29.0+cpu")
+        self.assertEqual(result, "zentorch.vllm._platform.ZenCPUPlatform")
+        apply_all.assert_called_once_with()
+
     def test_rejects_future_vllm(self):
         plugin = self._fresh_source_module()
-        result, apply_all = self._register_with(plugin, "0.28.1+cpu")
+        result, apply_all = self._register_with(plugin, "0.29.1+cpu")
         self.assertIsNone(result)
         apply_all.assert_not_called()
 
@@ -244,7 +256,7 @@ class TestRegisterContract(unittest.TestCase):
 
 @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
 class TestPatchWiring(unittest.TestCase):
-    """register() wires only the Zen-specific vLLM 0.27 hooks."""
+    """register() wires only the supported Zen-specific hooks."""
 
     def test_expected_patches_are_wired(self):
         from zentorch.vllm import _PATCHES
@@ -279,8 +291,13 @@ class TestPatchWiring(unittest.TestCase):
         ):
             plugin.register()
 
-        for name in ("RMSNorm", "FusedMoE"):
-            self.assertIn(name, plugin.APPLIED_PATCHES)
+        self.assertIn("RMSNorm", plugin.APPLIED_PATCHES)
+        if pkg_version.parse(vllm.__version__.split("+")[0]) < pkg_version.parse(
+            "0.29.0"
+        ):
+            self.assertIn("FusedMoE", plugin.APPLIED_PATCHES)
+        else:
+            self.assertNotIn("FusedMoE", plugin.APPLIED_PATCHES)
 
 
 @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")

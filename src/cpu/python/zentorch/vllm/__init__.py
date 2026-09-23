@@ -49,6 +49,9 @@ from zentorch.vllm._mixtral_moe_loader_patch import (  # noqa: E402, F401
 from zentorch.vllm._gemma4_hetero_config_patch import (  # noqa: E402, F401
     _apply_gemma4_hetero_patch,
 )
+from zentorch.vllm._qwen3_vl_text_config_patch import (  # noqa: E402, F401
+    _apply_qwen3_vl_text_config_patch,
+)
 from zentorch.vllm._da8w4_kernel_patch import (  # noqa: E402, F401
     _apply_da8w4_patch,
 )
@@ -84,7 +87,7 @@ logger = get_logger(__name__)
 # upper bound is explicit, not an open "< next minor" range: bump VLLM_MAX_VERSION
 # after validating each new patch release.
 VLLM_MIN_VERSION = "0.27.0"
-VLLM_MAX_VERSION = "0.28.0"
+VLLM_MAX_VERSION = "0.29.0"
 TORCH_MIN_VERSION = (2, 13)
 
 
@@ -287,8 +290,15 @@ def _do_patch_fused_moe() -> bool:
 
 
 def _apply_fused_moe_patch() -> bool:
-    """Opt out with ZENTORCH_FUSED_MOE=0 to keep vLLM's stock CPUFusedMOE."""
+    """Keep the legacy compatibility hook off the vLLM 0.29 native path."""
     if os.environ.get("ZENTORCH_FUSED_MOE", "1") == "0":
+        return False
+    vllm_ver = get_vllm_version()
+    if (
+        vllm_ver is not None
+        and pkg_version.parse(_base_version(vllm_ver))
+        >= pkg_version.parse("0.29.0")
+    ):
         return False
     return patch_now_or_on_import(_CPU_FUSED_MOE_MODULE, _do_patch_fused_moe)
 
@@ -507,6 +517,7 @@ def _apply_cpu_sdpa_patch() -> bool:
 # vLLM modules load; register() runs at process startup, well before that.
 _PATCHES = (
     ("Gemma4HeteroConfig", _apply_gemma4_hetero_patch),
+    ("Qwen3VLTextConfig", _apply_qwen3_vl_text_config_patch),
     ("TorchAO", _apply_torchao_patch),
     ("Int8MoE", _apply_int8_moe_patch_impl),
     ("Wna16MoE", _apply_wna16_moe_patch_impl),

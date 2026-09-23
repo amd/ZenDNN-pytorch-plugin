@@ -2,11 +2,10 @@
 # Copyright (c) 2026 Advanced Micro Devices, Inc.
 # All rights reserved.
 # ******************************************************************************
-"""Load Mixtral checkpoints with per-expert projection names on vLLM 0.27.
+"""Load Mixtral checkpoints with alternate per-expert projection names.
 
-vLLM's Mixtral loader expects expert projections named ``w1``/``w2``/``w3``.
-Some compressed checkpoints instead use ``gate_proj``/``up_proj``/``down_proj``.
-Only those expert-path components are remapped; native names remain unchanged.
+vLLM 0.27-0.28 expects ``w1``/``w2``/``w3``. Some compressed checkpoints use
+``gate_proj``/``up_proj``/``down_proj``. vLLM 0.29 maps those names natively.
 """
 
 from __future__ import annotations
@@ -43,8 +42,14 @@ def _remap_mixtral_expert_names(
         yield name, weight
 
 
+def _has_native_expert_name_mapping(cls) -> bool:
+    mapper = getattr(cls, "hf_to_vllm_mapper", None)
+    mapping = getattr(mapper, "orig_to_new_substr", {})
+    return all(mapping.get(source) == target for source, target in _PROJECTION_NAMES)
+
+
 def _do_patch_mixtral_loader() -> bool:
-    """Wrap the vLLM 0.27 Mixtral weight loader."""
+    """Wrap Mixtral weight loading only when vLLM lacks the native mapping."""
     module = sys.modules.get(_TARGET_MODULE)
     if module is None:
         return False
@@ -53,6 +58,11 @@ def _do_patch_mixtral_loader() -> bool:
     if cls is None or not hasattr(cls, "load_weights"):
         return False
     if getattr(cls, "_zentorch_mixtral_loader_patched", False):
+        return True
+
+    if _has_native_expert_name_mapping(cls):
+        cls._zentorch_mixtral_loader_patched = True
+        logger.info("[zentorch] Mixtral expert-name mapping is native")
         return True
 
     original_load_weights = cls.load_weights

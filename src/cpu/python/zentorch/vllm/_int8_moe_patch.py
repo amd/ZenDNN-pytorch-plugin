@@ -116,6 +116,7 @@ def _register_int8_moe_patches(mod) -> None:
         Int8MoeBackend,
         make_int8_moe_quant_config,
     )
+    from vllm.model_executor.layers.fused_moe.experts import cpu_moe
     from vllm.model_executor.layers.quantization.utils.quant_utils import (
         QuantKey,
         kInt8DynamicTokenSym,
@@ -185,7 +186,9 @@ def _register_int8_moe_patches(mod) -> None:
         def _supports_parallel_config(
             moe_parallel_config: FusedMoEParallelConfig,
         ) -> bool:
-            return True
+            if native_zen_experts_cls is None:
+                return True
+            return getattr(moe_parallel_config, "ep_size", 1) == 1
 
         @staticmethod
         def _supports_routing_method(
@@ -259,10 +262,23 @@ def _register_int8_moe_patches(mod) -> None:
     method_cls = getattr(mod, _TARGET_CLASS)
     orig_init = method_cls.__init__
     orig_create_weights = method_cls.create_weights
+    orig_get_fused_moe_quant_config = method_cls.get_fused_moe_quant_config
     orig_process_weights = method_cls.process_weights_after_loading
     int8_quant_config_params = inspect.signature(make_int8_moe_quant_config).parameters
+    native_zen_experts_cls = getattr(cpu_moe, "ZenCPUExpertsInt8", None)
 
     def _zen_init(self, *args, **kwargs):
+        moe = kwargs.get("moe", args[2] if len(args) > 2 else None)
+        use_native = (
+            native_zen_experts_cls is not None
+            and moe is not None
+            and moe.routing_method != RoutingMethodType.Custom
+        )
+        if use_native:
+            orig_init(self, *args, **kwargs)
+            self._zentorch_uses_native_int8 = True
+            return
+
         # select_int8_moe_backend() has no out-of-tree hook and raises on Zen CPU.
         # vllm/model_executor/layers/fused_moe/oracle/int8.py
         saved = getattr(mod, "select_int8_moe_backend", None)
@@ -299,6 +315,8 @@ def _register_int8_moe_patches(mod) -> None:
             params_dtype,
             **extra_weight_attrs,
         )
+        if getattr(self, "_zentorch_uses_native_int8", False):
+            return
         # The int8 method never allocates per-expert biases (e.g. gpt-oss).
         # vllm/model_executor/layers/fused_moe/unquantized_fused_moe_method.py
         allocate_expert_biases(
@@ -312,6 +330,9 @@ def _register_int8_moe_patches(mod) -> None:
         )
 
     def _zen_get_fused_moe_quant_config(self, layer) -> "FusedMoEQuantConfig":
+        if getattr(self, "_zentorch_uses_native_int8", False):
+            return orig_get_fused_moe_quant_config(self, layer)
+
         # make_int8_moe_quant_config takes w1_bias/w2_bias; the method never does.
         # vllm/model_executor/layers/fused_moe/oracle/int8.py
         quant_config_kwargs = {
@@ -371,6 +392,10 @@ def _register_int8_moe_patches(mod) -> None:
         return w13, w2
 
     def _zen_process_weights_after_loading(self, layer) -> None:
+        if getattr(self, "_zentorch_uses_native_int8", False):
+            orig_process_weights(self, layer)
+            return
+
         # Relayout first: the original then reads w13 scales/biases to build
         # the quant config and the MoE kernel.
         _maybe_permute_swigluoai(layer)
