@@ -64,7 +64,10 @@ private:
                          // allows unique-token when wei=s8). Set to 0
                          // to group bf16 on DA8W8 too. TWO_PASS=1
                          // still forces unique-token off.
-  }
+    storeEnvVariable("ZENTORCH_SDPA_QK_QUANT",
+                     0); // SDPA QK quantization is disabled by default; set to 1 to enable.
+    storeEnvVariable("ZENTORCH_SDPA_PV_QUANT",
+                     0); // SDPA QK quantization is disabled by default; set to 1 to enable.
 
   // Function to convert and store environment variable value as integer
   void storeEnvVariable(const std::string_view &varName_view,
