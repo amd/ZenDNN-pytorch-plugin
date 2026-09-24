@@ -70,6 +70,10 @@ private:
     storeEnvVariable(
         "ZENTORCH_SDPA_PV_QUANT",
         0); // SDPA QK quantization is disabled by default; set to 1 to enable.
+    storeEnvVariable("ZENTORCH_MOE_ROUTED",
+                     1); // DA8W8 MoE uses ZenDNN's routed superset API by
+                         // default. Set to 0 to retain the current
+                         // per-expert regular group_matmul path.
   }
 
   // Function to convert and store environment variable value as integer

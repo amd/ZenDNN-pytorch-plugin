@@ -8,11 +8,13 @@
 #include "GroupMatmul.hpp"
 #include "Memory.hpp"
 #include "Utils.hpp"
+#include "lowoha_operators/matmul/routed_moe/routed_moe.hpp"
 #include "lowoha_operators/reorder/lowoha_reorder.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <torch/csrc/stable/library.h>
 #include <torch/csrc/stable/ops.h>
 #include <unordered_map>
@@ -564,6 +566,128 @@ static void scatter_tokens_to_experts(TokenExpertMapping &mapping,
   } // RECORD_FUNCTION pass2_parallel_memcpy
 }
 
+// Marshal a full-width DA8W8 MoE call into ZenDNN's routed superset API.
+// ZenDNN owns fast-vs-generic dispatch; ZenTorch selects this frontend path
+// only through the DA8W8 dtype check and ZENTORCH_MOE_ROUTED.
+zendnnl::interface::status_t run_zendnn_routed_moe(
+    torch::stable::Tensor &output, const torch::stable::Tensor &input,
+    const torch::stable::Tensor &w13, const torch::stable::Tensor &w2,
+    const std::optional<torch::stable::Tensor> &w13_bias,
+    const std::optional<torch::stable::Tensor> &w2_bias,
+    const torch::stable::Tensor &topk_weights,
+    const torch::stable::Tensor &topk_id, bool skip_weighted,
+    std::string_view act,
+    const std::optional<torch::stable::Tensor> &w13_scales,
+    const std::optional<torch::stable::Tensor> &w2_scales,
+    const std::string &zentorch_op_name) {
+  using zendnnl::interface::data_type_t;
+  using zendnnl::lowoha::matmul::group_matmul_projection_params;
+  using zendnnl::lowoha::matmul::group_matmul_routing_params;
+  using zendnnl::lowoha::matmul::grp_matmul_gated_act_params;
+  using zendnnl::lowoha::matmul::grp_matmul_gated_act_t;
+  using zendnnl::lowoha::matmul::matmul_params;
+  using zendnnl::lowoha::matmul::routed_fused_moe_direct;
+
+  if (input.dim() != 2 || output.dim() != 2 || w13.dim() != 3 ||
+      w2.dim() != 3 || topk_weights.dim() != 2 || topk_id.dim() != 2) {
+    return zendnnl::interface::status_t::op_bad_io;
+  }
+  const auto fits_int = [](int64_t value) {
+    return value >= 0 &&
+           value <= static_cast<int64_t>(std::numeric_limits<int>::max());
+  };
+  if (!fits_int(input.size(0)) || !fits_int(input.size(1)) ||
+      !fits_int(input.stride(0)) || !fits_int(output.stride(0)) ||
+      !fits_int(w13.size(0)) || !fits_int(w13.size(1)) ||
+      !fits_int(w13.stride(1)) || !fits_int(w2.size(1)) ||
+      !fits_int(w2.size(2)) || !fits_int(w2.stride(1)) ||
+      !fits_int(topk_id.size(1)) || !fits_int(topk_id.stride(0)) ||
+      !fits_int(topk_weights.stride(0))) {
+    return zendnnl::interface::status_t::memory_bad_size;
+  }
+
+  const int tokens = static_cast<int>(input.size(0));
+  const int hidden = static_cast<int>(input.size(1));
+  const int experts = static_cast<int>(w13.size(0));
+  const int topk = static_cast<int>(topk_id.size(1));
+
+  const auto make_params =
+      [&](const torch::stable::Tensor &src, const torch::stable::Tensor &dst,
+          const torch::stable::Tensor &weight,
+          const std::optional<torch::stable::Tensor> &scale) {
+        matmul_params params;
+        params.dtypes.src = get_zendnnl_dtype(src);
+        params.dtypes.wei = get_zendnnl_dtype(weight);
+        params.dtypes.dst = get_zendnnl_dtype(dst);
+        params.dtypes.compute = data_type_t::s8;
+        params.dynamic_quant = true;
+        params.plugin_op = zentorch_op_name;
+        if (scale.has_value() && scale->defined()) {
+          params.quant_params.src_scale.buff = nullptr;
+          params.quant_params.src_scale.dt = get_zendnnl_dtype(*scale);
+          params.quant_params.src_scale.dims = {tokens, 1};
+          params.quant_params.wei_scale.buff = scale->const_data_ptr();
+          params.quant_params.wei_scale.dt = get_zendnnl_dtype(*scale);
+          params.quant_params.wei_scale.dims.assign(scale->sizes().begin(),
+                                                    scale->sizes().end());
+        }
+        return params;
+      };
+
+  group_matmul_projection_params primary;
+  primary.output_size = static_cast<int>(w13.size(1));
+  primary.input_size = hidden;
+  primary.trans_weight = true;
+  primary.weight = w13.const_data_ptr();
+  primary.ldb = static_cast<int>(w13.stride(1));
+  primary.bias = w13_bias.has_value() && w13_bias->defined()
+                     ? w13_bias->const_data_ptr()
+                     : nullptr;
+  primary.params = make_params(input, input, w13, w13_scales);
+  primary.params.dtypes.bias = primary.bias != nullptr
+                                   ? get_zendnnl_dtype(*w13_bias)
+                                   : data_type_t::none;
+
+  group_matmul_projection_params secondary;
+  secondary.output_size = static_cast<int>(w2.size(1));
+  secondary.input_size = static_cast<int>(w2.size(2));
+  secondary.trans_weight = true;
+  secondary.weight = w2.const_data_ptr();
+  secondary.ldb = static_cast<int>(w2.stride(1));
+  secondary.bias = w2_bias.has_value() && w2_bias->defined()
+                       ? w2_bias->const_data_ptr()
+                       : nullptr;
+  secondary.params = make_params(input, output, w2, w2_scales);
+  secondary.params.dtypes.bias = secondary.bias != nullptr
+                                     ? get_zendnnl_dtype(*w2_bias)
+                                     : data_type_t::none;
+
+  group_matmul_routing_params routing;
+  routing.topk_ids = topk_id.const_data_ptr<int32_t>();
+  routing.topk_ids_stride = static_cast<int>(topk_id.stride(0));
+  routing.topk_weights = topk_weights.const_data_ptr<float>();
+  routing.topk_weights_stride = static_cast<int>(topk_weights.stride(0));
+  routing.skip_weighted = skip_weighted;
+  routing.reduce_output = true;
+
+  grp_matmul_gated_act_params gated_act;
+  if (act == "silu") {
+    gated_act.act = grp_matmul_gated_act_t::silu_and_mul;
+  } else if (act == "gelu" || act == "gelu_tanh") {
+    gated_act.act = grp_matmul_gated_act_t::gelu_and_mul;
+  } else if (act == "swigluoai") {
+    gated_act.act = grp_matmul_gated_act_t::swiglu_oai_mul;
+  } else {
+    gated_act.act = grp_matmul_gated_act_t::none;
+  }
+
+  return routed_fused_moe_direct('r', false, input.const_data_ptr(),
+                                 static_cast<int>(input.stride(0)), tokens,
+                                 experts, topk, output.data_ptr(),
+                                 static_cast<int>(output.stride(0)), primary,
+                                 routing, &secondary, &gated_act);
+}
+
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -627,6 +751,22 @@ void zentorch_fused_moe(torch::stable::Tensor &output,
                         const std::optional<torch::stable::Tensor> &w13_scales,
                         const std::optional<torch::stable::Tensor> &w2_scales,
                         std::string zentorch_op_name) {
+
+  const bool routed_enabled =
+      static_cast<bool>(EnvReader::getEnvVariableAsInt("ZENTORCH_MOE_ROUTED"));
+  const bool is_da8w8 = input.dim() == 2 && w13.dim() == 3 &&
+                        w13.scalar_type() == c10::kChar &&
+                        w13.size(2) == input.size(1);
+  if (routed_enabled && is_da8w8) {
+    const auto status = run_zendnn_routed_moe(
+        output, input, w13, w2, w13_bias, w2_bias, topk_weights, topk_id,
+        skip_weighted, act, w13_scales, w2_scales, zentorch_op_name);
+    ZENTORCH_CHECK(
+        status == zendnnl::interface::status_t::success,
+        "zentorch_fused_moe: routed_fused_moe_direct failed with status ",
+        static_cast<int>(status));
+    return;
+  }
 
   const int64_t T = input.size(0);
   const int64_t K = topk_id.size(1);
@@ -956,7 +1096,10 @@ void zentorch_fused_moe(torch::stable::Tensor &output,
 
 // Drops all FusedMoE per-expert view caches (ExpertSliceCache). Primarily a
 // test hook so each case starts with no cross-call view-cache state.
-void zentorch_flush_moe_weight_cache() { flush_moe_weight_cache_impl(); }
+void zentorch_flush_moe_weight_cache() {
+  flush_moe_weight_cache_impl();
+  zendnnl::lowoha::matmul::group_matmul_routed_moe_flush_weight_cache();
+}
 
 STABLE_TORCH_LIBRARY_FRAGMENT(zentorch, m) {
   // `output` is the leading schema arg (mirroring vLLM's cpu_fused_moe), not a

@@ -4,7 +4,33 @@
 
 ## 1. Overview
 
-`zentorch_fused_moe` is a single-call operator that executes the full Mixture-of-Experts (MoE) FFN block:
+`zentorch_fused_moe` is a single-call operator that executes the full
+Mixture-of-Experts (MoE) FFN block.
+
+For full-width DA8W8, the default C++ frontend calls
+`routed_fused_moe_direct`:
+
+- Eligible prefill and decode calls use ZenDNN's routed tiny-GEMM executor.
+- Valid calls outside the fast envelope use ZenDNN's internal vector
+  `group_matmul_direct` fallback.
+- `ZENTORCH_MOE_ROUTED=0` bypasses the routed API and selects the legacy
+  ZenTorch grouping path.
+- Non-DA8W8 regimes always use the legacy path.
+
+After ZenTorch enters the routed API, `ZENDNNL_ENABLE_ROUTED_MOE` controls
+ZenDNN's executor. It defaults to `1`; setting it to `0` disables routed fast
+while retaining the routed API boundary and its internal generic fallback.
+
+The internal fallback preserves the legacy performance contract:
+
+- Existing grouped-Matmul algorithm, thread, cache, packing, and quantization
+  policies pass through unchanged.
+- Active experts precede the complete inactive tail, allowing first-call
+  prepacking to warm the full expert pool.
+- Symmetric DA8W8 calls quantize each unique token once before top-k grouping.
+- Bias-bearing or unsupported-activation models such as GPT-OSS
+  (`swigluoai`, interleaved gate/up) use grouped Matmul without
+  top-k-repeated source quantization or cold-expert repacking.
 
 ```
 input [T, H]
@@ -25,7 +51,7 @@ The op is the C++ landing pad for vLLM's `CPUFusedMOE` forward (patched by `src/
 | Regime | `w13` / `w2` dtype | Scales | Activation quant |
 |--------|--------------------|--------|------------------|
 | **bf16 / f32** | same as `input` | none | none |
-| **DA8W8** | `torch.int8`, full-width `[E, N, K]` | per-channel or per-group | unique-token s8, then grouping (fused path; `ZENTORCH_MOE_PREQUANT=0` groups bf16 instead) |
+| **DA8W8** | `torch.int8`, full-width `[E, N, K]` | per-channel or per-group | Routed ZenDNN dispatch by default; legacy unique-token grouping when `ZENTORCH_MOE_ROUTED=0` |
 | **DA8W4** | packed s4: `torch.int32` `[E, N, K/8]` or `torch.int8` `[E, N, K/2]` | per-group `[E, G, N]` | bf16 grouping, ZenDNN quantizes per expert row (`dynamic_quant=true`). Unique-token is DA8W8-only |
 
 Both DA8W4 containers hold the same s4 nibble stream, so they are interchangeable. `torch.int8` therefore serves both quantized regimes and is disambiguated by its last dim: full width is DA8W8, half width is packed s4.
@@ -212,6 +238,9 @@ W13 has finished reading `grouped_inputs[a]` before W2 starts writing it.
 
 ### 6.5 Execution flow
 
+The flow below is the existing non-DA8W8 path and the DA8W8 compatibility path
+selected by `ZENTORCH_MOE_ROUTED=0`.
+
 ```
 zentorch_fused_moe()
   ├─ If DA8W8, ZENTORCH_TWO_PASS is off, and ZENTORCH_MOE_PREQUANT is on (default):
@@ -251,6 +280,9 @@ zentorch_fused_moe()
 
 ### 6.6 Optional two-pass split (`ZENTORCH_TWO_PASS`)
 
+This switch applies to the legacy path. DA8W8 routed dispatch must be disabled
+with `ZENTORCH_MOE_ROUTED=0` before `ZENTORCH_TWO_PASS` can select it.
+
 The single-call path above runs W13 → gated activation → W2 → weighted-reduce inside one
 `group_matmul_direct` call. The op splits the chain into two backend calls when the `ZENTORCH_TWO_PASS` 
 environment variable is set:
@@ -281,6 +313,9 @@ run with `ZENTORCH_TWO_PASS=1`.
 
 ### 6.7 Unique-token kill switch (`ZENTORCH_MOE_PREQUANT`)
 
+This switch applies to the legacy DA8W8 path selected by
+`ZENTORCH_MOE_ROUTED=0`.
+
 On the fused **DA8W8** path, unique-token s8 quant is on by default (`ZENTORCH_MOE_PREQUANT=1`).
 **DA8W4 never unique-token quantizes**: ZenDNN `group_matmul_fused_moe` `op1_internal` allows mixed `src=s8` / `dst=bf16` only when `wei=s8`. Packed s4 (`wei=s4`) keeps bf16 grouping and `dynamic_quant=true`.
 Set `ZENTORCH_MOE_PREQUANT=0` to keep **one** fused `group_matmul_direct` call but
@@ -304,6 +339,8 @@ Read once at process start via `EnvReader` (`src/cpu/cpp/EnvReader.hpp`). Values
 
 | Variable | Default | Effect |
 |----------|---------|--------|
+| `ZENTORCH_MOE_ROUTED` | `1` | Use `routed_fused_moe_direct` for full-width DA8W8. `0` selects the existing ZenTorch grouping plus regular vector `group_matmul_direct` path. |
+| `ZENDNNL_ENABLE_ROUTED_MOE` | `1` | ZenDNN uses its routed fast executor when eligible. `0` keeps the routed API boundary but executes through ZenDNN's internal generic grouped-Matmul fallback. |
 | `ZENTORCH_MOE_PREQUANT` | `1` | Unique-token s8 quant on fused **DA8W8** only. DA8W4 always groups bf16. `0` groups bf16 on DA8W8 too. |
 | `ZENTORCH_TWO_PASS` | `0` | Split W13+act and W2+reduce into two `group_matmul_direct` calls. Forces unique-token off. |
 | `ZENTORCH_USE_SCRATCHPAD` | `1` | Pack grouped `[M_e, H]` (and unique-token `[M_e, 1]` scales) into a reused aligned block. `0` = `new_empty` per expert. |
@@ -455,7 +492,7 @@ DA8W4 (`s4` weight) is **not** in ZenDNN's M-tile (ALGO 2) / N-tile (ALGO 3) reg
 
 - Backend operator: [zentorch_group_matmul.md](./zentorch_group_matmul.md) — the parallel group-matmul + MoE post-op chain that this op delegates to (including the DA8W4 metadata contract).
 - Source: `src/cpu/cpp/FusedMoE.cpp` (Phase 1 + dispatch) and `src/cpu/cpp/GroupMatmul.cpp` (backend wrapper, incl. the DA8W4 branch). Meta kernels: `_meta_registrations.py` (`zentorch_fused_moe` is an AOTI shim, not `make_fallback`; `zentorch_group_matmul.out` is `make_fallback`).
-- Env: `src/cpu/cpp/EnvReader.hpp` (`ZENTORCH_MOE_PREQUANT`, `ZENTORCH_TWO_PASS`, `ZENTORCH_USE_SCRATCHPAD`, `ZENTORCH_ENABLE_CHECKS`).
+- Env: `src/cpu/cpp/EnvReader.hpp` (`ZENTORCH_MOE_ROUTED`, `ZENTORCH_MOE_PREQUANT`, `ZENTORCH_TWO_PASS`, `ZENTORCH_USE_SCRATCHPAD`, `ZENTORCH_ENABLE_CHECKS`).
 - Tests: `test/unittests/op_tests/test_group_matmul.py`; flush hook `zentorch_flush_moe_weight_cache`.
 - vLLM integration: `src/cpu/python/zentorch/vllm/__init__.py` (`_moe_forward_zentorch`, `FusedMoEPatch`, `ZENTORCH_FUSED_MOE=1`) for bf16 / DA8W8; `vllm/model_executor/layers/fused_moe/experts/zentorch_moe.py` (`ZentorchExpertsInt4DA8W4`, `VLLM_CPU_INT4_W4A8`) for DA8W4.
 - LowOHA Op2 quantization: [zentorch_group_matmul.md](./zentorch_group_matmul.md) §6.4 "Dynamic quantization — DA8W8 and DA8W4" — documents `fused.down_scale` and the Op2-inherits-Op1 quant contract.
