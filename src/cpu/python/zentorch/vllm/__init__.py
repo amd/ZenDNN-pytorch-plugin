@@ -55,6 +55,9 @@ from zentorch.vllm._qwen3_vl_text_config_patch import (  # noqa: E402, F401
 from zentorch.vllm._da8w4_kernel_patch import (  # noqa: E402, F401
     _apply_da8w4_patch,
 )
+from zentorch.vllm._wna16_can_implement_patch import (  # noqa: E402, F401
+    _apply_wna16_can_implement_patch,
+)
 from zentorch.vllm._whisper_w4a16_patch import (  # noqa: E402, F401
     _apply_whisper_w4a16_patch,
 )
@@ -528,6 +531,7 @@ _PATCHES = (
     ("CPUSdpa", _apply_cpu_sdpa_patch),
     ("MMEncoderSdpa", _apply_mm_encoder_sdpa_patch),
     ("Da8w4Kernel", _apply_da8w4_patch),
+    ("Wna16CanImplement", _apply_wna16_can_implement_patch),
     ("SWBlockSize", _apply_sw_blocksize_patch),
     ("WhisperW4A16", _apply_whisper_w4a16_patch),
     ("GptOssStreamedExpert", _apply_gptoss_streamed_expert_patch_impl),

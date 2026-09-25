@@ -30,6 +30,7 @@ EXPECTED_PATCHES = [
     "CPUSdpa",
     "MMEncoderSdpa",
     "Da8w4Kernel",
+    "Wna16CanImplement",
     "SWBlockSize",
     "WhisperW4A16",
     "GptOssStreamedExpert",

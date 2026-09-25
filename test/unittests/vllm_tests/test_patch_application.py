@@ -51,6 +51,10 @@ _PATCH_TARGETS = [
      "TorchAOConfig", "_zentorch_moe_patched", None),
     ("Da8w4Kernel", "vllm.model_executor.kernels.linear.mixed_precision.zentorch",
      "ZentorchWNA16LinearKernel", "_zentorch_da8w4_patched", None),
+    ("Wna16CanImplement",
+     "vllm.model_executor.kernels.linear.mixed_precision.zentorch",
+     "ZentorchWNA16LinearKernel", "_zentorch_wna16_can_implement_patched",
+     "can_implement"),
     ("WhisperW4A16", "vllm.model_executor.models.whisper",
      "WhisperForConditionalGeneration", "_zentorch_whisper_w4a16_patched",
      "load_weights"),
@@ -91,6 +95,7 @@ class TestPatchApplication(unittest.TestCase):
         import zentorch.vllm._import_hook as ih
 
         ih._handled.clear()
+        ih._fns.clear()
         for modname, flag in _OWN_HOOK_FLAGS:
             setattr(importlib.import_module(modname), flag, False)
 

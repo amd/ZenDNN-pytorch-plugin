@@ -15,7 +15,10 @@ from zentorch._logging import get_logger
 
 logger = get_logger(__name__)
 
+# Finders already installed for a module.
 _handled: set[str] = set()
+# Callbacks per module; DA8W4 and WNA16 can_implement share one target.
+_fns: dict[str, list[Callable[[], bool]]] = {}
 
 
 def _run_patch(module_name: str, patch_fn: Callable[[], bool]) -> bool:
@@ -58,17 +61,40 @@ class _PostImportPatcher:
         return spec
 
 
+def _register_fn(module_name: str, patch_fn: Callable[[], bool]) -> None:
+    """Record ``patch_fn`` for ``module_name`` at most once."""
+    fns = _fns.setdefault(module_name, [])
+    if patch_fn not in fns:
+        fns.append(patch_fn)
+
+
+def _run_registered(module_name: str) -> bool:
+    """Apply every registered callback for ``module_name``."""
+    fns = list(_fns.get(module_name, []))
+    if not fns:
+        return False
+    results = [_run_patch(module_name, fn) for fn in fns]
+    return all(results)
+
+
 def patch_now_or_on_import(module_name: str, patch_fn: Callable[[], bool]) -> bool:
     """Apply ``patch_fn`` now if ``module_name`` is loaded, else defer to import.
 
     Returns ``patch_fn``'s result when applied immediately, otherwise ``True``.
-    Repeated calls for the same module are no-ops.
+    Several callbacks may share one module; the first deferred call installs
+    the finder, later calls only register.
     """
+    _register_fn(module_name, patch_fn)
+
+    if module_name in sys.modules:
+        return _run_patch(module_name, patch_fn)
+
     if module_name in _handled:
         return True
     _handled.add(module_name)
 
-    if module_name in sys.modules:
-        return _run_patch(module_name, patch_fn)
-    sys.meta_path.insert(0, _PostImportPatcher(module_name, patch_fn))
+    def _run_all() -> bool:
+        return _run_registered(module_name)
+
+    sys.meta_path.insert(0, _PostImportPatcher(module_name, _run_all))
     return True
