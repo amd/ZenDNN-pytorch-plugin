@@ -7,15 +7,16 @@
 `zentorch_fused_moe` is a single-call operator that executes the full
 Mixture-of-Experts (MoE) FFN block.
 
-For full-width DA8W8, the default C++ frontend calls
+For BF16, full-width DA8W8, and packed-s4 DA8W4, the default C++ frontend calls
 `routed_fused_moe_direct`:
 
-- Eligible prefill and decode calls use ZenDNN's routed tiny-GEMM executor.
-- Valid calls outside the fast envelope use ZenDNN's internal vector
-  `group_matmul_direct` fallback.
+- Eligible DA8W8 prefill and decode calls use ZenDNN's routed tiny-GEMM
+  executor.
+- BF16, DA8W4, and other valid calls outside the fast envelope use ZenDNN's
+  internal vector `group_matmul_direct` fallback.
 - `ZENTORCH_MOE_ROUTED=0` bypasses the routed API and selects the legacy
   ZenTorch grouping path.
-- Non-DA8W8 regimes always use the legacy path.
+- f32 and f16 weight regimes retain the legacy path.
 
 After ZenTorch enters the routed API, `ZENDNNL_ENABLE_ROUTED_MOE` controls
 ZenDNN's executor. It defaults to `1`; setting it to `0` disables routed fast
@@ -46,13 +47,14 @@ The C++ op assembles the per-active-expert input buffers and the routing metadat
 
 The op is the C++ landing pad for vLLM's `CPUFusedMOE` forward (patched by `src/cpu/python/zentorch/vllm/__init__.py`); its schema mirrors vLLM's `cpu_fused_moe` signature so the patched dispatch can swap the op name without touching call sites.
 
-**One op, three weight regimes.** The same schema and single backend call serve three weight formats, dispatched by the weight tensor dtype inside `GroupMatmul.cpp`:
+**One op, three weight regimes.** The same schema and single backend call serve three weight formats:
 
 | Regime | `w13` / `w2` dtype | Scales | Activation quant |
 |--------|--------------------|--------|------------------|
-| **bf16 / f32** | same as `input` | none | none |
+| **BF16** | `torch.bfloat16`, full-width `[E, N, K]` | none | Routed API with ZenDNN's generic grouped-Matmul fallback by default; `ZENTORCH_MOE_ROUTED=0` retains legacy ZenTorch preparation |
+| **f32 / f16** | same as `input` | none | Legacy ZenTorch preparation |
 | **DA8W8** | `torch.int8`, full-width `[E, N, K]` | per-channel or per-group | Routed ZenDNN dispatch by default; legacy unique-token grouping when `ZENTORCH_MOE_ROUTED=0` |
-| **DA8W4** | packed s4: `torch.int32` `[E, N, K/8]` or `torch.int8` `[E, N, K/2]` | per-group `[E, G, N]` | bf16 grouping, ZenDNN quantizes per expert row (`dynamic_quant=true`). Unique-token is DA8W8-only |
+| **DA8W4** | packed s4: `torch.int32` `[E, N, K/8]` or `torch.int8` `[E, N, K/2]` | per-group `[E, G, N]` | Routed API with the ZenDNN generic grouped-Matmul fallback by default; bf16 grouping and per-expert-row dynamic quantization. `ZENTORCH_MOE_ROUTED=0` retains legacy ZenTorch preparation |
 
 Both DA8W4 containers hold the same s4 nibble stream, so they are interchangeable. `torch.int8` therefore serves both quantized regimes and is disambiguated by its last dim: full width is DA8W8, half width is packed s4.
 
@@ -123,7 +125,13 @@ torch.ops.zentorch.zentorch_fused_moe(
 | `w2_scales` | Tensor? (f32/bf16) | Per-expert quantization scales for quantized `w2`. DA8W8: `[E, K_out]` (per-channel) or `[E, G, K_out]` (per-group). DA8W4: per-group `[E, G, H]`. Default `None` (for bf16/f32/fp16). |
 | `zentorch_op_name` | str | Profiling / tracing name. Default `'zentorch::zentorch_fused_moe'`. |
 
-> **DA8W4 detection.** The DA8W4 path is selected from `w13` alone, with no extra schema arg, and classification runs on the per-expert 2D slice (`w13.select(0, e)`), not on the stacked 3D tensor. For the pack-factor rules and the `w2` inheritance contract, see [zentorch_group_matmul.md](./zentorch_group_matmul.md) §4 "DA8W4 detection".
+> **DA8W4 detection.** The routed frontend classifies the stacked `w13`
+> directly from `input.size(1) / w13.size(2)`: pack factor 2 with an int8
+> container or pack factor 8 with an int32 container is packed s4. It validates
+> `w2` against the logical post-activation width before entering ZenDNN. The
+> legacy path retains its equivalent per-expert-slice classification. For the
+> pack-factor rules and the `w2` inheritance contract, see
+> [zentorch_group_matmul.md](./zentorch_group_matmul.md) §4 "DA8W4 detection".
 
 ## 5. Input Contract (Constraints)
 
@@ -143,7 +151,7 @@ torch.ops.zentorch.zentorch_fused_moe(
 | `act` | One of `'silu'`, `'gelu'`, `'gelu_tanh'`, `'swigluoai'` |
 | Active experts | `E_a > 1` required (`group_matmul_direct` needs ≥ 2 active experts); `E_a == 1` raises |
 
-Validation of stacked 3D weights / biases / scales lives in the producing Python layer — `_moe_forward_zentorch` / patch install in `src/cpu/python/zentorch/vllm/__init__.py` for bf16/DA8W8, or the DA8W4 experts backend for DA8W4. The C++ fused-MoE op still checks `E_a > 1`, `topk_id[i] ∈ [0, E)`, unique-token preconditions, and grouped-buffer contiguity. Packed-s4 vs DA8W8 classification, `w13`/`w2` dtype agreement, and “DA8W4/DA8W8 require bf16 or int8 activations” are enforced in `zentorch_group_matmul_out_impl`.
+Validation of stacked 3D weights / biases / scales lives in the producing Python layer — `_moe_forward_zentorch` / patch install in `src/cpu/python/zentorch/vllm/__init__.py` for BF16/DA8W8, or the DA8W4 experts backend for DA8W4. The C++ fused-MoE op still checks `E_a > 1`, `topk_id[i] ∈ [0, E)`, unique-token preconditions, and grouped-buffer contiguity. The routed frontend classifies stacked BF16/DA8W8/DA8W4 weights and checks that `w13` and `w2` use the same regime; the legacy path performs the corresponding per-expert checks in `zentorch_group_matmul_out_impl`.
 
 ### Dynamic A8W8 quantization support
 

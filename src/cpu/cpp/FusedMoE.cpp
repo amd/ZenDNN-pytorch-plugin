@@ -566,9 +566,39 @@ static void scatter_tokens_to_experts(TokenExpertMapping &mapping,
   } // RECORD_FUNCTION pass2_parallel_memcpy
 }
 
-// Marshal a full-width DA8W8 MoE call into ZenDNN's routed superset API.
-// ZenDNN owns fast-vs-generic dispatch; ZenTorch selects this frontend path
-// only through the DA8W8 dtype check and ZENTORCH_MOE_ROUTED.
+enum class routed_moe_weight_kind_t { unsupported, bf16, s8, s4 };
+
+// Classify one stacked [E, N, stored_K] weight from its logical contraction
+// width. DA8W4 may use either two signed nibbles per int8 or eight per int32.
+// The routed fast executor accepts only s8, while the routed API's generic
+// fallback forwards bf16 and s4 metadata to group_matmul_direct.
+static routed_moe_weight_kind_t
+classify_routed_moe_weight(const torch::stable::Tensor &weight,
+                           int64_t logical_k) {
+  if (weight.dim() != 3 || logical_k <= 0 || weight.size(2) <= 0 ||
+      logical_k % weight.size(2) != 0) {
+    return routed_moe_weight_kind_t::unsupported;
+  }
+
+  const int64_t pack_factor = logical_k / weight.size(2);
+  const auto dtype = weight.scalar_type();
+  if (pack_factor == 1 && dtype == c10::kBFloat16) {
+    return routed_moe_weight_kind_t::bf16;
+  }
+  if (pack_factor == 1 && dtype == c10::kChar) {
+    return routed_moe_weight_kind_t::s8;
+  }
+  if ((pack_factor == 2 && dtype == c10::kChar) ||
+      (pack_factor == 8 && dtype == c10::kInt)) {
+    return routed_moe_weight_kind_t::s4;
+  }
+  return routed_moe_weight_kind_t::unsupported;
+}
+
+// Marshal a BF16, DA8W8, or DA8W4 MoE call into ZenDNN's routed superset API.
+// ZenDNN owns fast-vs-generic dispatch: eligible DA8W8 reaches the routed
+// executor, while BF16 and DA8W4 are rejected by that executor's format gate
+// and are prepared by the routed API before calling group_matmul_direct.
 zendnnl::interface::status_t run_zendnn_routed_moe(
     torch::stable::Tensor &output, const torch::stable::Tensor &input,
     const torch::stable::Tensor &w13, const torch::stable::Tensor &w2,
@@ -579,7 +609,7 @@ zendnnl::interface::status_t run_zendnn_routed_moe(
     std::string_view act,
     const std::optional<torch::stable::Tensor> &w13_scales,
     const std::optional<torch::stable::Tensor> &w2_scales,
-    const std::string &zentorch_op_name) {
+    const std::string &zentorch_op_name, routed_moe_weight_kind_t weight_kind) {
   using zendnnl::interface::data_type_t;
   using zendnnl::lowoha::matmul::group_matmul_projection_params;
   using zendnnl::lowoha::matmul::group_matmul_routing_params;
@@ -611,18 +641,58 @@ zendnnl::interface::status_t run_zendnn_routed_moe(
   const int experts = static_cast<int>(w13.size(0));
   const int topk = static_cast<int>(topk_id.size(1));
 
+  if (input.scalar_type() != c10::kBFloat16 ||
+      output.scalar_type() != c10::kBFloat16) {
+    return zendnnl::interface::status_t::memory_bad_quant;
+  }
+
+  grp_matmul_gated_act_params gated_act;
+  if (act == "silu") {
+    gated_act.act = grp_matmul_gated_act_t::silu_and_mul;
+  } else if (act == "gelu" || act == "gelu_tanh") {
+    gated_act.act = grp_matmul_gated_act_t::gelu_and_mul;
+  } else if (act == "swigluoai") {
+    gated_act.act = grp_matmul_gated_act_t::swiglu_oai_mul;
+  } else {
+    gated_act.act = grp_matmul_gated_act_t::none;
+  }
+
+  const bool use_gated_act = gated_act.act != grp_matmul_gated_act_t::none;
+  if (use_gated_act && w13.size(1) % 2 != 0) {
+    return zendnnl::interface::status_t::memory_bad_size;
+  }
+  const int64_t secondary_input = use_gated_act ? w13.size(1) / 2 : w13.size(1);
+  const auto secondary_weight_kind =
+      classify_routed_moe_weight(w2, secondary_input);
+  if (weight_kind == routed_moe_weight_kind_t::unsupported ||
+      secondary_weight_kind != weight_kind ||
+      w2.scalar_type() != w13.scalar_type() || w2.size(0) != w13.size(0) ||
+      w2.size(1) != input.size(1)) {
+    return zendnnl::interface::status_t::memory_bad_quant;
+  }
+  const bool is_quantized = weight_kind != routed_moe_weight_kind_t::bf16;
+  if (!is_quantized && ((w13_scales.has_value() && w13_scales->defined()) ||
+                        (w2_scales.has_value() && w2_scales->defined()))) {
+    return zendnnl::interface::status_t::memory_bad_quant;
+  }
+  const data_type_t weight_dtype =
+      weight_kind == routed_moe_weight_kind_t::bf16
+          ? data_type_t::bf16
+          : (weight_kind == routed_moe_weight_kind_t::s4 ? data_type_t::s4
+                                                         : data_type_t::s8);
+
   const auto make_params =
       [&](const torch::stable::Tensor &src, const torch::stable::Tensor &dst,
-          const torch::stable::Tensor &weight,
           const std::optional<torch::stable::Tensor> &scale) {
         matmul_params params;
         params.dtypes.src = get_zendnnl_dtype(src);
-        params.dtypes.wei = get_zendnnl_dtype(weight);
+        params.dtypes.wei = weight_dtype;
         params.dtypes.dst = get_zendnnl_dtype(dst);
-        params.dtypes.compute = data_type_t::s8;
-        params.dynamic_quant = true;
+        params.dtypes.compute =
+            is_quantized ? data_type_t::s8 : data_type_t::none;
+        params.dynamic_quant = is_quantized;
         params.plugin_op = zentorch_op_name;
-        if (scale.has_value() && scale->defined()) {
+        if (is_quantized && scale.has_value() && scale->defined()) {
           params.quant_params.src_scale.buff = nullptr;
           params.quant_params.src_scale.dt = get_zendnnl_dtype(*scale);
           params.quant_params.src_scale.dims = {tokens, 1};
@@ -639,25 +709,25 @@ zendnnl::interface::status_t run_zendnn_routed_moe(
   primary.input_size = hidden;
   primary.trans_weight = true;
   primary.weight = w13.const_data_ptr();
-  primary.ldb = static_cast<int>(w13.stride(1));
+  primary.ldb = hidden;
   primary.bias = w13_bias.has_value() && w13_bias->defined()
                      ? w13_bias->const_data_ptr()
                      : nullptr;
-  primary.params = make_params(input, input, w13, w13_scales);
+  primary.params = make_params(input, input, w13_scales);
   primary.params.dtypes.bias = primary.bias != nullptr
                                    ? get_zendnnl_dtype(*w13_bias)
                                    : data_type_t::none;
 
   group_matmul_projection_params secondary;
   secondary.output_size = static_cast<int>(w2.size(1));
-  secondary.input_size = static_cast<int>(w2.size(2));
+  secondary.input_size = static_cast<int>(secondary_input);
   secondary.trans_weight = true;
   secondary.weight = w2.const_data_ptr();
-  secondary.ldb = static_cast<int>(w2.stride(1));
+  secondary.ldb = static_cast<int>(secondary_input);
   secondary.bias = w2_bias.has_value() && w2_bias->defined()
                        ? w2_bias->const_data_ptr()
                        : nullptr;
-  secondary.params = make_params(input, output, w2, w2_scales);
+  secondary.params = make_params(input, output, w2_scales);
   secondary.params.dtypes.bias = secondary.bias != nullptr
                                      ? get_zendnnl_dtype(*w2_bias)
                                      : data_type_t::none;
@@ -669,17 +739,6 @@ zendnnl::interface::status_t run_zendnn_routed_moe(
   routing.topk_weights_stride = static_cast<int>(topk_weights.stride(0));
   routing.skip_weighted = skip_weighted;
   routing.reduce_output = true;
-
-  grp_matmul_gated_act_params gated_act;
-  if (act == "silu") {
-    gated_act.act = grp_matmul_gated_act_t::silu_and_mul;
-  } else if (act == "gelu" || act == "gelu_tanh") {
-    gated_act.act = grp_matmul_gated_act_t::gelu_and_mul;
-  } else if (act == "swigluoai") {
-    gated_act.act = grp_matmul_gated_act_t::swiglu_oai_mul;
-  } else {
-    gated_act.act = grp_matmul_gated_act_t::none;
-  }
 
   return routed_fused_moe_direct('r', false, input.const_data_ptr(),
                                  static_cast<int>(input.stride(0)), tokens,
@@ -754,13 +813,15 @@ void zentorch_fused_moe(torch::stable::Tensor &output,
 
   const bool routed_enabled =
       static_cast<bool>(EnvReader::getEnvVariableAsInt("ZENTORCH_MOE_ROUTED"));
-  const bool is_da8w8 = input.dim() == 2 && w13.dim() == 3 &&
-                        w13.scalar_type() == c10::kChar &&
-                        w13.size(2) == input.size(1);
-  if (routed_enabled && is_da8w8) {
+  const auto routed_weight_kind =
+      input.dim() == 2 ? classify_routed_moe_weight(w13, input.size(1))
+                       : routed_moe_weight_kind_t::unsupported;
+  if (routed_enabled &&
+      routed_weight_kind != routed_moe_weight_kind_t::unsupported) {
     const auto status = run_zendnn_routed_moe(
         output, input, w13, w2, w13_bias, w2_bias, topk_weights, topk_id,
-        skip_weighted, act, w13_scales, w2_scales, zentorch_op_name);
+        skip_weighted, act, w13_scales, w2_scales, zentorch_op_name,
+        routed_weight_kind);
     ZENTORCH_CHECK(
         status == zendnnl::interface::status_t::success,
         "zentorch_fused_moe: routed_fused_moe_direct failed with status ",
