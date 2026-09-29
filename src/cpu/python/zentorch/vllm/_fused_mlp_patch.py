@@ -458,7 +458,7 @@ def _apply_fused_mlp_patch_impl() -> bool:
     ``base_loader.process_weights_after_loading`` (deferred until that module
     imports) via the shared post-import hook.
     """
-    if os.environ.get("ZENTORCH_FUSED_FFN", "0") != "1":
+    if os.environ.get("ZENTORCH_FUSED_FFN", "1") != "1":
         logger.debug(
             "[zentorch] Fused MLP replacement disabled; using native MLP "
             "(set ZENTORCH_FUSED_FFN=1 to enable the zentorch fused FFN)"

@@ -313,15 +313,6 @@ class TestFusedMLPPatch(unittest.TestCase):
         self.assertIn("FusedMLP", names)
         self.assertEqual(names[names.index("FusedMoE") + 1], "FusedMLP")
 
-    def test_disabled_by_default(self):
-        import os
-
-        from zentorch.vllm import _fused_mlp_patch as fmp
-
-        with unittest.mock.patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("ZENTORCH_FUSED_FFN", None)
-            self.assertFalse(fmp._apply_fused_mlp_patch_impl())
-
     def test_enabled_via_env_arms_hook(self):
         import os
 

@@ -122,6 +122,10 @@ class Test_FusedFFNConcat(GroupMatmulTestCase):
         w13, w2, w13_bias, w2_bias = self._single_expert_weights(with_bias)
 
         for activation in FFN_ACTIVATIONS:
+            # ZenDNN bug: a clear before config load builds the AOCL weight cache
+            # with capacity 0; swigluoai's concurrent N-tile inserts then free live buffers.
+            # if activation == "swigluoai":
+            #     continue
             _clear_weight_cache()
             ref = self._reference_ffn(
                 x, w13, w2, w13_bias, w2_bias, activation,
