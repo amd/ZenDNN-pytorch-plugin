@@ -12,10 +12,9 @@ This is the plugin-side detects any dense MLP by structure and swaps its
   * Pattern: merged ``gate_up_proj`` + ``down_proj`` (Llama, Mistral, Gemma,
     Qwen2, ...).
 
-fp32/bf16, int8 DA8W8 (dynamic per-token activations, per-channel int8
-weights), and DA8W4 (dynamic bf16->s8 activations x packed s4 weights with
-per-group scales) single-expert (non-MoE) layers on Zen CPU are fused;
-everything else falls back to the original ``forward`` unchanged.
+fp32/bf16 and int8 DA8W8 (dynamic per-token activations, per-channel int8
+weights) single-expert (non-MoE) layers on Zen CPU are fused; everything else
+falls back to the original ``forward`` unchanged.
 """
 
 from __future__ import annotations
@@ -48,12 +47,6 @@ _TARGET_MODULE = "vllm.model_executor.model_loader.base_loader"
 _FP_WEIGHT_DTYPES = (torch.float32, torch.bfloat16)
 _QUANT_SCALE_DTYPES = (torch.float32, torch.bfloat16)
 _DA8W8_SCALE_DTYPES = _QUANT_SCALE_DTYPES
-_WOQ_ATTRS = ("_zentorch_woq_packed", "_zentorch_woq_zero_point")
-_DA8W4_FREE_ATTRS = (
-    "_zentorch_da8w4_packed",
-    "_zentorch_da8w4_scale",
-    "weight_packed",
-)
 
 
 # ---------------------------------------------------------------------------
@@ -69,23 +62,28 @@ def _get_activation_string(act_fn) -> Optional[str]:
 
 
 def _should_use_fused_ffn(activation: str, dtype: torch.dtype) -> bool:
-    """Fuse fp32/bf16, int8 DA8W8, and packed-s4 DA8W4 with a gated activation."""
-    if dtype not in (*_FP_WEIGHT_DTYPES, torch.int8, torch.int32):
+    """Fuse fp32/bf16 and int8 DA8W8 with a gated activation."""
+    if dtype not in (*_FP_WEIGHT_DTYPES, torch.int8):
         return False
     if activation not in _SUPPORTED_MOE_ACTIVATIONS:
         return False
     return True
 
 
-def _is_w4a16_woq_layer(linear: nn.Module) -> bool:
-    """W4A16 WOQ packed weights are a different layout than DA8W4."""
-    if getattr(linear, "_zentorch_da8w4", False):
-        return False
-    for attr in _WOQ_ATTRS:
-        tensor = getattr(linear, attr, None)
-        if isinstance(tensor, torch.Tensor) and tensor.numel() > 0:
-            return True
-    return False
+def _scheme_weight_bits(linear: nn.Module) -> Optional[int]:
+    """Weight bit width from the layer's quant scheme, or None if unknown.
+
+    Schemes disagree on where they keep it. Most set ``num_bits``, but the
+    W4A8 ones only keep a ``quant_type`` scalar type, so checking ``num_bits``
+    alone reads 4-bit layers as 8-bit.
+    """
+    scheme = getattr(linear, "scheme", None)
+    if scheme is None:
+        return None
+    bits = getattr(scheme, "num_bits", None)
+    if bits is None:
+        bits = getattr(getattr(scheme, "quant_type", None), "size_bits", None)
+    return bits
 
 
 def _as_tensor(value) -> Optional[torch.Tensor]:
@@ -112,66 +110,26 @@ def _normalize_da8w8_scale(scale: torch.Tensor) -> Optional[torch.Tensor]:
     return scale.contiguous()
 
 
-def _normalize_da8w4_scale(
-    scale: Optional[torch.Tensor], n_out: int, unpacked_k: int
-) -> Optional[torch.Tensor]:
-    """Return a DA8W4 per-group scale as ``[G, N]`` bf16.
-
-    Compressed-tensors stores ``[N, G]``; the DA8W4 kernel / group-matmul
-    want ``[G, N]`` with G > 1 (G == 1 is per-channel, not DA8W4). Group size
-    must be a multiple of 4 (AOCL constraint).
-    """
-    if scale is None or unpacked_k <= 0 or n_out <= 0:
-        return None
-    if scale.dtype not in _QUANT_SCALE_DTYPES:
-        return None
-    if scale.dim() != 2:
-        return None
-    already_group_major = scale.size(1) == n_out and scale.size(0) > 1
-    if not already_group_major:
-        if scale.size(0) == n_out and scale.size(1) > 1:
-            scale = scale.t()
-        else:
-            return None
-    if scale.dtype != torch.bfloat16:
-        scale = scale.to(torch.bfloat16)
-    return scale.contiguous()
-
-
-def _da8w4_processed_parts(
-    linear: nn.Module,
-) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor]]:
-    """Return ``(_zentorch_da8w4_packed, _zentorch_da8w4_scale)`` if set."""
-    packed = _as_tensor(getattr(linear, "_zentorch_da8w4_packed", None))
-    scale = _as_tensor(getattr(linear, "_zentorch_da8w4_scale", None))
-    if packed is None or scale is None:
-        return None, None
-    return packed, scale
-
-
 def _unwrap_proj_weight(
     linear: nn.Module,
 ) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor]]:
     """Return ``(weight_2d, scale_or_None)`` for fused FFN.
 
-    Prefers already-repacked DA8W4 ``_zentorch_da8w4_packed`` (int8 ``[N, K/2]``)
-    plus ``_zentorch_da8w4_scale`` (``[G, N]``). Compressed-tensors W8A8 ->
-    int8 ``weight`` plus ``weight_scale``. W4A16 WOQ packed layers are skipped.
+    Compressed-tensors W8A8 -> int8 ``weight`` plus ``weight_scale``.
     Floating-point weights return ``(weight, None)``. Scales are not squeezed
-    here; the caller classifies DA8W8 vs DA8W4 and normalizes.
+    here; the caller normalizes.
     """
-    packed, scale = _da8w4_processed_parts(linear)
-    if packed is not None:
-        return packed, scale
-
-    if _is_w4a16_woq_layer(linear):
+    # Sub-8-bit schemes (W4A16, W4A8) only pack their weights during vLLM's
+    # own sweep, which runs after this. Fuse only what is already final.
+    bits = _scheme_weight_bits(linear)
+    if bits is not None and bits < 8:
         return None, None
 
     weight = getattr(linear, "weight", None)
     if weight is None:
         return None, None
 
-    if weight.dtype not in (torch.int8, torch.int32):
+    if weight.dtype != torch.int8:
         return weight, None
 
     scale = getattr(linear, "weight_scale", None)
@@ -213,6 +171,9 @@ def _install_fused_forward(
     mlp_module._fused_activation = activation
     mlp_module._fused_w13_scale = w13_scale
     mlp_module._fused_w2_scale = w2_scale
+    # Shared experts (e.g. Qwen2-MoE / Qwen3-Next / Qwen3.5-MoE) scale their
+    # output by sigmoid(expert_gate(x)) inside the replaced ``forward``.
+    expert_gate = getattr(mlp_module, "expert_gate", None)
 
     def fused_forward_fn(x):
         # Allocate a fresh output (MLP output shares the input's [*, hidden]
@@ -230,6 +191,11 @@ def _install_fused_forward(
             w13_scale=mlp_module._fused_w13_scale,
             w2_scale=mlp_module._fused_w2_scale,
         )
+        if expert_gate is not None:
+            gate_logits = expert_gate(x)
+            if isinstance(gate_logits, tuple):
+                gate_logits = gate_logits[0]
+            output.mul_(torch.sigmoid(gate_logits))
         return output
 
     mlp_module.cpu_mlp_forward = fused_forward_fn
@@ -244,7 +210,12 @@ def _free_weight(linear: nn.Module, attr: str) -> None:
 
 
 def _free_pattern_weights(mlp_module: nn.Module) -> None:
-    """Drop projection weights, biases, and scales."""
+    """Drop projection weights, biases, and scales, and retire the layers.
+
+    Retiring matters: vLLM's own post-load sweep would otherwise process a
+    projection whose weight we just emptied. ``quant_method`` is the gate it
+    checks on 0.27-0.29; ``_cpu_skip_gemm_dispatch`` is 0.29's name for it.
+    """
     for proj in (mlp_module.gate_up_proj, mlp_module.down_proj):
         _free_weight(proj, "weight")
         if getattr(proj, "bias", None) is not None:
@@ -252,10 +223,8 @@ def _free_pattern_weights(mlp_module: nn.Module) -> None:
         for scale_attr in ("weight_scale", "weight_scales"):
             if getattr(proj, scale_attr, None) is not None:
                 _free_weight(proj, scale_attr)
-        for attr in _DA8W4_FREE_ATTRS:
-            if getattr(proj, attr, None) is not None:
-                _free_weight(proj, attr)
-        proj._zentorch_da8w4 = False
+        proj._cpu_skip_gemm_dispatch = True
+        proj.quant_method = None
 
 
 def dispatch_cpu_fused_mlp(
@@ -267,7 +236,7 @@ def dispatch_cpu_fused_mlp(
 
     Leaves ``cpu_mlp_forward = None`` (native path) when any eligibility check
     fails, so this is always safe to call on every module. Idempotent: an
-    already-fused module is left unchanged (used by the post-quant second pass).
+    already-fused module is left unchanged.
     """
     if getattr(mlp_module, "cpu_mlp_forward", None) is not None:
         return
@@ -307,31 +276,10 @@ def dispatch_cpu_fused_mlp(
 
         hidden = w2_data.size(0)
         intermediate = w13_data.size(0) // 2
-        w13_is_da8w4 = getattr(mlp_module.gate_up_proj, "_zentorch_da8w", False)
-        w2_is_da8w4 = getattr(mlp_module.down_proj, "_zentorch_da8w", False)
-        if w13_is_da8w4 != w2_is_da8w4:
-            logger.debug(
-                "[zentorch] CPU MLP fusion: mixed DA8W4/DA8W8 weights"
-            )
-            return
 
         force_bf16 = False
         weight_dtype = w13_data.dtype
-        if w13_is_da8w4:
-            w13_scale = _normalize_da8w4_scale(
-                w13_scale, w13_data.size(0), hidden
-            )
-            w2_scale = _normalize_da8w4_scale(
-                w2_scale, w2_data.size(0), intermediate
-            )
-            if w13_scale is None or w2_scale is None:
-                logger.debug(
-                    "[zentorch] CPU MLP fusion: DA8W4 weights missing "
-                    "per-group scales"
-                )
-                return
-            force_bf16 = True
-        elif weight_dtype == torch.int8:
+        if weight_dtype == torch.int8:
             w13_scale = _normalize_da8w8_scale(w13_scale)
             w2_scale = _normalize_da8w8_scale(w2_scale)
             if w13_scale is None or w2_scale is None:
@@ -356,8 +304,7 @@ def dispatch_cpu_fused_mlp(
                 return
         else:
             logger.debug(
-                "[zentorch] CPU MLP fusion: weight dtype/pack factor is not "
-                "fp, DA8W8, or DA8W4 int8[N,K/2]"
+                "[zentorch] CPU MLP fusion: weight dtype is not fp or DA8W8"
             )
             return
 
@@ -464,10 +411,7 @@ def _wrap_process_weights_after_loading(base_loader_mod) -> bool:
     but calls it by bare name inside ``load_model``, so rebinding the module
     attribute is picked up on the next call. Running fusion here (before the
     original, which contains the quant-processing loop) preserves the required
-    "fuse before weights are freed" ordering for fp32/bf16 and already-quantized
-    DA8W8/DA8W4. A second pass after the original catches weights that only
-    become quantized during quant processing (e.g. the DA8W4 kernel's
-    ``_zentorch_da8w4_packed``).
+    "fuse before weights are freed" ordering for fp32/bf16 and DA8W8.
     """
     if getattr(base_loader_mod, "_zentorch_fused_mlp_patched", False):
         return True
@@ -485,16 +429,7 @@ def _wrap_process_weights_after_loading(base_loader_mod) -> bool:
                 "[zentorch] fused MLP setup failed; falling back to native MLP",
                 exc_info=True,
             )
-        result = orig_pwal(model, *args, **kwargs)
-        try:
-            process_mlp_weights_after_loading(model)
-        except Exception:
-            logger.warning(
-                "[zentorch] fused MLP DA8W8/DA8W4 setup after quant processing "
-                "failed; falling back to native MLP",
-                exc_info=True,
-            )
-        return result
+        return orig_pwal(model, *args, **kwargs)
 
     base_loader_mod.process_weights_after_loading = (
         _zen_process_weights_after_loading

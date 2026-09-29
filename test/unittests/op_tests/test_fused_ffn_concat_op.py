@@ -131,13 +131,17 @@ class Test_FusedFFNConcat(GroupMatmulTestCase):
                 x, w13, w2, w13_bias, w2_bias, activation
             )
 
-            self.assertEqual(output.shape, ref.shape)
+            # A str msg replaces torch's mismatch report; a callable prepends.
+            def with_activation(generated_msg, activation=activation):
+                return f"activation={activation}\n{generated_msg}"
+
+            self.assertEqual(output.shape, ref.shape, msg=with_activation)
             self.assertFalse(
                 torch.isnan(output).any(),
                 f"output left uninitialized (activation={activation})",
             )
             actual = output.float() if is_reduced_precision else output
-            self.assertEqual(actual, ref, **tol)
+            self.assertEqual(actual, ref, **tol, msg=with_activation)
 
     # ------------------------------------------------------------------
     # Accuracy: 3D input [B, S, H] -- the op flattens to 2D internally.

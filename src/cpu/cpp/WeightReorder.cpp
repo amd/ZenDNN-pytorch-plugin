@@ -38,11 +38,12 @@ stable_as_strided(const torch::stable::Tensor &self,
 
 } // namespace
 
-// Clears all ZenDNN matmul weight-reorder caches.
+// Clears all ZenDNN matmul and group-matmul weight-reorder caches.
 void clear_zendnn_weight_caches() {
   zendnnl::lowoha::matmul::native::clear_all_weight_caches();
   zendnnl::lowoha::matmul::clear_aocl_matmul_weight_caches();
   zendnnl::lowoha::matmul::clear_onednn_matmul_weight_cache();
+  zendnnl::lowoha::matmul::clear_grp_matmul_weight_caches();
 }
 
 // AOCL picks its reorder routine per (wei_dtype, src_dtype) pair.

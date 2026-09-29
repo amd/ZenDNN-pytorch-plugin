@@ -337,6 +337,48 @@ class TestFusedMLPPatch(unittest.TestCase):
                 fmp._TARGET_MODULE, fmp._do_patch_fused_mlp
             )
 
+    def _make_mlp(self, hidden, intermediate, with_expert_gate):
+        class SiluAndMul(torch.nn.Module):
+            def forward(self, x):
+                d = x.shape[-1] // 2
+                return torch.nn.functional.silu(x[..., :d]) * x[..., d:]
+
+        class ReplicatedGate(torch.nn.Linear):
+            def forward(self, x):
+                return super().forward(x), None
+
+        mlp = torch.nn.Module()
+        mlp.gate_up_proj = torch.nn.Linear(hidden, 2 * intermediate, bias=False)
+        mlp.down_proj = torch.nn.Linear(intermediate, hidden, bias=False)
+        mlp.act_fn = SiluAndMul()
+        mlp.expert_gate = (
+            ReplicatedGate(hidden, 1, bias=False) if with_expert_gate else None
+        )
+        return mlp
+
+    def _check_fused_matches_reference(self, with_expert_gate):
+        from zentorch.vllm import _fused_mlp_patch as fmp
+
+        torch.manual_seed(0)
+        hidden, intermediate, tokens = 64, 32, 8
+        mlp = self._make_mlp(hidden, intermediate, with_expert_gate)
+        x = torch.randn(tokens, hidden)
+        with torch.no_grad():
+            ref = mlp.down_proj(mlp.act_fn(mlp.gate_up_proj(x)))
+            if with_expert_gate:
+                ref = torch.sigmoid(mlp.expert_gate(x)[0]) * ref
+
+            fmp.dispatch_cpu_fused_mlp(mlp, mlp.act_fn, remove_weights=True)
+            self.assertIsNotNone(mlp.cpu_mlp_forward)
+            out = mlp.cpu_mlp_forward(x)
+        torch.testing.assert_close(out, ref, atol=1e-3, rtol=1e-3)
+
+    def test_fused_forward_applies_shared_expert_gate(self):
+        self._check_fused_matches_reference(with_expert_gate=True)
+
+    def test_fused_forward_without_expert_gate(self):
+        self._check_fused_matches_reference(with_expert_gate=False)
+
 
 @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
 class TestPlatformConfiguration(unittest.TestCase):
