@@ -33,6 +33,7 @@ EXPECTED_PATCHES = [
     "Wna16CanImplement",
     "SWBlockSize",
     "WhisperW4A16",
+    "WhisperTruncation",
     "GptOssStreamedExpert",
     "GatedDeltaNet",
 ]

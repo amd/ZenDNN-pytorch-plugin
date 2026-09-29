@@ -61,6 +61,9 @@ from zentorch.vllm._wna16_can_implement_patch import (  # noqa: E402, F401
 from zentorch.vllm._whisper_w4a16_patch import (  # noqa: E402, F401
     _apply_whisper_w4a16_patch,
 )
+from zentorch.vllm._whisper_truncation_patch import (  # noqa: E402, F401
+    _apply_whisper_truncation_patch,
+)
 from zentorch.vllm._sw_blocksize_patch import (  # noqa: E402, F401
     _apply_sw_blocksize_patch,
 )
@@ -534,6 +537,7 @@ _PATCHES = (
     ("Wna16CanImplement", _apply_wna16_can_implement_patch),
     ("SWBlockSize", _apply_sw_blocksize_patch),
     ("WhisperW4A16", _apply_whisper_w4a16_patch),
+    ("WhisperTruncation", _apply_whisper_truncation_patch),
     ("GptOssStreamedExpert", _apply_gptoss_streamed_expert_patch_impl),
     ("GatedDeltaNet", _apply_gdn_patch),
 )

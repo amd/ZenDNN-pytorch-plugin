@@ -58,6 +58,9 @@ _PATCH_TARGETS = [
     ("WhisperW4A16", "vllm.model_executor.models.whisper",
      "WhisperForConditionalGeneration", "_zentorch_whisper_w4a16_patched",
      "load_weights"),
+    ("WhisperTruncation", "vllm.model_executor.models.whisper",
+     "WhisperMultiModalProcessor", "_zentorch_whisper_truncation_patched",
+     ("_preprocess_hf_mm_data", "_get_hf_mm_inputs")),
     ("GptOssStreamedExpert", "vllm.model_executor.models.gpt_oss", "GptOssModel",
      "_zentorch_gptoss_streamed_patched", "_load_weights_other"),
     ("GatedDeltaNet",
@@ -114,13 +117,21 @@ class TestPatchApplication(unittest.TestCase):
         except Exception as exc:  # feature absent on this build -> not applicable
             self.skipTest(f"{name}: {modname} not importable ({exc})")
         target = getattr(mod, attr) if attr else mod
-        # If the method the patch wraps is absent, the patch is inapplicable on
-        # this vLLM build (it no-ops); document via skip rather than fail.
-        if required_attr is not None and not hasattr(target, required_attr):
-            self.skipTest(
-                f"{name}: {modname}.{attr or ''} lacks {required_attr} on this "
-                f"vLLM -- patch inapplicable"
+        # Skip instead of fail when this vLLM build has none of the methods
+        # the patch wraps (the patch no-ops). required_attr may be one name or
+        # a tuple of alternatives, e.g. Whisper 0.29 `_preprocess_hf_mm_data`
+        # vs later `_get_hf_mm_inputs`; any one of them is enough to apply.
+        if required_attr is not None:
+            needed = (
+                required_attr
+                if isinstance(required_attr, tuple)
+                else (required_attr,)
             )
+            if not any(hasattr(target, hook) for hook in needed):
+                self.skipTest(
+                    f"{name}: {modname}.{attr or ''} lacks {needed} on this "
+                    f"vLLM -- patch inapplicable"
+                )
         self.assertTrue(
             getattr(target, marker, False),
             f"{name}: patch did NOT apply -- {modname}.{attr or ''} lacks {marker}",
