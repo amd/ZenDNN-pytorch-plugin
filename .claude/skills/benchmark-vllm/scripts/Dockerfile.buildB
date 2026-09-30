@@ -12,7 +12,7 @@ FROM ${BASE_IMAGE}
 # Build toolchain for the plugin (image is runtime-only; needs compilers + cmake).
 USER root
 RUN apt-get update -y && DEBIAN_FRONTEND=noninteractive apt-get install -y \
-        gcc-13 g++-13 make cmake git libnuma-dev && \
+        gcc-14 g++-14 make cmake git libnuma-dev && \
     rm -rf /var/lib/apt/lists/* || true
 
 # Plugin build copies ZenDNN from its sibling parent dir when

@@ -47,7 +47,7 @@ RUN test -n "${VLLM_VERSION}" || { \
     }
 
 # ---------------------------------------------------
-# Step 1: System dependencies + Python 3.12 + gcc-13
+# Step 1: System dependencies + Python 3.12 + gcc-14
 # ---------------------------------------------------
 RUN apt-get update -y && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y software-properties-common && \
@@ -56,13 +56,13 @@ RUN apt-get update -y && \
     apt-get update -y && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y \
         python3.12 python3.12-dev python3.12-venv \
-        gcc-13 g++-13 gfortran-13 make libatomic1 libnuma-dev numactl wget git curl \
+        gcc-14 g++-14 gfortran-14 make libatomic1 libnuma-dev numactl wget git curl \
         libtcmalloc-minimal4 unzip zstd && \
-    update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-13 10 \
-                        --slave /usr/bin/g++ g++ /usr/bin/g++-13 \
-                        --slave /usr/bin/c++ c++ /usr/bin/g++-13 && \
-    ln -sf /usr/bin/gcc-13 /usr/bin/x86_64-linux-gnu-gcc && \
-    ln -sf /usr/bin/g++-13 /usr/bin/x86_64-linux-gnu-g++
+    update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 10 \
+                        --slave /usr/bin/g++ g++ /usr/bin/g++-14 \
+                        --slave /usr/bin/c++ c++ /usr/bin/g++-14 && \
+    ln -sf /usr/bin/gcc-14 /usr/bin/x86_64-linux-gnu-gcc && \
+    ln -sf /usr/bin/g++-14 /usr/bin/x86_64-linux-gnu-g++
 
 # ---------------------------------------------------
 # Step 2: Python 3.12 virtual environment

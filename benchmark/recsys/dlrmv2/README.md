@@ -7,8 +7,8 @@
 ### 1.1. Create a New Conda Environment
 
 ```bash
-conda create -n zentorch-env-py3.10 python=3.10 -y
-conda activate zentorch-env-py3.10
+conda create -n zentorch-env-py3.12 python=3.12 -y
+conda activate zentorch-env-py3.12
 ```
 
 ### 1.2. Install Zentorch
@@ -70,9 +70,9 @@ source ../../../scripts/dlrm_optimal_env_setup.sh
 And modify the configuration to match your machine's specifications.
 
 ```shell
-## This configuration is for a 128 Core, 2 socket, turin machine.
+## This configuration is for a 2-socket machine with 256 cores per socket. Adjust it for your machine.
 export NUM_SOCKETS=2         # e.g., 2
-export CPUS_PER_SOCKET=128   # e.g., 128
+export CPUS_PER_SOCKET=256   # e.g., 256
 export CPUS_PER_INSTANCE=2   # instance-per-process number=CPUS_PER_PROCESS/CPUS_PER_INSTANCE
                                 # total-instance = instance-per-process * process-per-socket
 export CPUS_FOR_LOADGEN=1    # number of CPUs for loadgen
@@ -87,7 +87,6 @@ To generate the performance numbers please execute the following command.
 python main.py --dataset_path=<DATA_DIR> --model_path=<MODEL_DIR>
 ```
 where DATA_DIR is the path of the data directory and MODEL_DIR is the path of model directory
-The expected performace during optimal configurationon 128 Core 2 Socket turin machine is around 2Mil Samples per second
 
 To generate the accuracy numbers add the optional argument `--accuracy_mode`
 

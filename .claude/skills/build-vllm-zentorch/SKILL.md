@@ -112,16 +112,16 @@ Create the environment at the Python version from the README requirements table
 ```bash
 conda create -n <env-name> python=<grepped-python-version> -y && conda activate <env-name>
 sudo apt-get update -y
-sudo apt-get install -y gcc-12 g++-12 libnuma-dev python3-dev
-sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-12 10 \
-     --slave /usr/bin/g++ g++ /usr/bin/g++-12
+sudo apt-get install -y gcc-14 g++-14 libnuma-dev python3-dev
+sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 10 \
+     --slave /usr/bin/g++ g++ /usr/bin/g++-14
 ```
 
-**No sudo / no gcc-12 (e.g. Ubuntu 24.04 ships gcc-13, LSF batch hosts have no
+**No sudo / no gcc-14 (e.g. Ubuntu 24.04 ships gcc-13 by default, LSF batch hosts have no
 root):** skip apt entirely.
-- **Compiler:** any modern gcc works — do NOT hardcode gcc-12. Export the
+- **Compiler:** any modern gcc works — do NOT hardcode gcc-14. Export the
   available one explicitly so CMake picks it (and so a stale cache can't force a
-  missing gcc-12): `export CC=$(which gcc) CXX=$(which g++)`.
+  missing gcc-14): `export CC=$(which gcc) CXX=$(which g++)`.
 - **libnuma headers** (`numa.h`) without apt: install via conda-forge and expose
   the headers/libs to the build:
   ```bash
@@ -333,7 +333,7 @@ Expected installed state after all steps:
 ## Runtime environment (document for the user)
 ```bash
 export VLLM_CPU_KVCACHE_SPACE=90        # tune to KV-cache utilization
-export VLLM_CPU_OMP_THREADS_BIND=0-95   # 0-95 Genoa, 0-127 Turin
+export VLLM_CPU_OMP_THREADS_BIND=0-255   # set the core range for your workload or machine configuration
 export TORCHINDUCTOR_FREEZING=1
 export VLLM_USE_AOT_COMPILE=0           # required when FREEZING=1 — see note below
 export HF_TOKEN=<token>
@@ -373,7 +373,7 @@ note `VLLM_USE_AOT_COMPILE=0` is required — then run a tiny public model
 (Qwen3-0.6B needs no HF token):
 ```bash
 export VLLM_CPU_KVCACHE_SPACE=40
-export VLLM_CPU_OMP_THREADS_BIND=0-127     # 0-95 Genoa, 0-127 Turin
+export VLLM_CPU_OMP_THREADS_BIND=0-255     # set the core range for your workload or machine configuration
 export TORCHINDUCTOR_FREEZING=1
 export VLLM_USE_AOT_COMPILE=0              # avoids the AOTAutograd OutputCode crash
 export HF_HOME=<writable-cache-dir>        # model download cache
@@ -490,6 +490,6 @@ Run with the HF token at runtime, never baked in: `docker run -e HF_TOKEN=... ..
   `--enforce-eager`, which disables compilation entirely.
 - **Stale `build/` cache pins the old compiler.** Clear generated outputs with
   `.claude/skills/build-zentorch-from-source/scripts/clean.sh` before a rebuild,
-  and export `CC/CXX` — do not rely on gcc-12 existing.
+  and export `CC/CXX` — do not rely on gcc-14 existing.
 - **No sudo?** Get `numa.h` from conda-forge (`libnuma numactl`) and export
   `CPATH`/`LIBRARY_PATH`/`LD_LIBRARY_PATH` instead of apt.

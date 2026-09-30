@@ -56,9 +56,9 @@ RUN dnf update -y && \
     dnf config-manager --add-repo https://mirror.stream.centos.org/9-stream/BaseOS/x86_64/os/ && \
     dnf clean all
 
-# GCC 13 toolset
-RUN dnf install -y gcc-toolset-13 gcc-toolset-13-gcc gcc-toolset-13-gcc-c++ gcc-toolset-13-libatomic-devel && \
-    echo 'source /opt/rh/gcc-toolset-13/enable' >> /etc/profile.d/gcc-toolset.sh
+# GCC 14 toolset
+RUN dnf install -y gcc-toolset-14 gcc-toolset-14-gcc gcc-toolset-14-gcc-c++ gcc-toolset-14-libatomic-devel && \
+    echo 'source /opt/rh/gcc-toolset-14/enable' >> /etc/profile.d/gcc-toolset.sh
 
 # tcmalloc
 RUN dnf install -y gperftools-libs
@@ -93,7 +93,7 @@ RUN wget https://rpmfind.net/linux/centos-stream/9-stream/AppStream/x86_64/os/Pa
 RUN git clone https://github.com/vllm-project/vllm.git && \
     cd vllm && git checkout v${VLLM_VERSION}
 
-RUN source /opt/rh/gcc-toolset-13/enable && \
+RUN source /opt/rh/gcc-toolset-14/enable && \
     cd vllm && \
     pip install --upgrade pip setuptools && \
     pip install -v -r requirements/build/cpu.txt --extra-index-url https://download.pytorch.org/whl/cpu && \
@@ -116,7 +116,7 @@ RUN AUTH="" && [ -n "${GIT_TOKEN}" ] && AUTH="${GIT_TOKEN}@" || true; \
 
 RUN cd /ZenDNN && git checkout ${ZENDNN_REF}
 
-RUN source /opt/rh/gcc-toolset-13/enable && \
+RUN source /opt/rh/gcc-toolset-14/enable && \
     cd /ZenDNN_PyTorch_Plugin && \
     git checkout ${ZENTORCH_REF} && \
     pip install -r requirements.txt && \

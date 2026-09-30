@@ -247,7 +247,7 @@ docker exec -it vllm_zentorch bash
 cd workspace
 ```
 
-Mount volumes (`-v`) for model files and any datasets you need inside the container. Environment variables are pre-configured; adjust `VLLM_CPU_OMP_THREADS_BIND` for your machine (e.g., `0-127` for Turin, `0-95` for Genoa).
+Mount volumes (`-v`) for model files and any datasets you need inside the container. Environment variables are pre-configured; set `VLLM_CPU_OMP_THREADS_BIND` for your workload or machine configuration.
 
 ---
 

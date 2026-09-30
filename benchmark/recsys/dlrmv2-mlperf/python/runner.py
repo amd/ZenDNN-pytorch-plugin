@@ -1,5 +1,5 @@
 #  *****************************************************************************
-#  * Modifications Copyright (c) 2025 Advanced Micro Devices, Inc.
+#  * Modifications Copyright (c) 2025-2026 Advanced Micro Devices, Inc.
 #  * All rights reserved.
 #  *
 #  * Was sourced from
@@ -40,8 +40,8 @@ logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("main")
 
 num_sockets = int(os.getenv("NUM_SOCKETS", 2))
-cpus_per_socket = int(os.getenv("CPUS_PER_SOCKET", 128))
-cpus_per_consumer = int(os.getenv("CPUS_PER_CONSUMER", 128))
+cpus_per_socket = int(os.getenv("CPUS_PER_SOCKET", 256))
+cpus_per_consumer = int(os.getenv("CPUS_PER_CONSUMER", 256))
 cpus_for_loadgen = int(os.getenv("CPUS_FOR_LOADGEN", 1))
 cpus_per_instance = int(os.getenv("CPUS_PER_INSTANCE", 2))
 

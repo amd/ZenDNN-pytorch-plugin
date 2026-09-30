@@ -7,8 +7,8 @@
 ### 1.1. Create a New Conda Environment
 
 ```bash
-conda create -n zentorch-env-py3.10 python=3.10 -y
-conda activate zentorch-env-py3.10
+conda create -n zentorch-env-py3.12 python=3.12 -y
+conda activate zentorch-env-py3.12
 ```
 
 ### 1.2. Install Zentorch
@@ -70,8 +70,8 @@ And modify the configuration files, `setup_env_offline.sh`, to match your machin
 
 ```shell
 export NUM_SOCKETS=2         # e.g., 2
-export CPUS_PER_SOCKET=128   # e.g., 128
-export CPUS_PER_PROCESS=128  # determines the number of processes used
+export CPUS_PER_SOCKET=256   # e.g., 256
+export CPUS_PER_PROCESS=256  # determines the number of processes used
                                 # process-per-socket = CPUS_PER_SOCKET/CPUS_PER_PROCESS
 export CPUS_PER_INSTANCE=2   # instance-per-process number=CPUS_PER_PROCESS/CPUS_PER_INSTANCE
                                 # total-instance = instance-per-process * process-per-socket

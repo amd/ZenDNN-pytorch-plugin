@@ -15,10 +15,10 @@ from torch.profiler import profile, record_function, ProfilerActivity
 import sklearn
 import zentorch
 
-# The default values for the environment variables are set of a 128 core 2P turin machine.
+# The default values for the environment variables are set for a 2-socket machine with 256 cores per socket.
 num_sockets = int(os.getenv("NUM_SOCKETS", 2))  # number of CPU sockets
 cpus_per_socket = int(
-    os.getenv("CPUS_PER_SOCKET", 128)
+    os.getenv("CPUS_PER_SOCKET", 256)
 )  # number of CPU cores per socket
 cpus_for_loadgen = int(
     os.getenv("CPUS_FOR_LOADGEN", 1)

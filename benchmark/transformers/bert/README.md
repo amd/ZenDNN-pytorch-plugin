@@ -5,8 +5,8 @@
 ### 1.1. Create a New Conda Environment
 
 ```bash
-conda create -n zentorch-env-py3.10 python=3.10 -y
-conda activate zentorch-env-py3.10
+conda create -n zentorch-env-py3.12 python=3.12 -y
+conda activate zentorch-env-py3.12
 ```
 
 ### 1.2. Install Zentorch

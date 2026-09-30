@@ -1,5 +1,5 @@
 #  *****************************************************************************
-#  * Modifications Copyright (c) 2025 Advanced Micro Devices, Inc.
+#  * Modifications Copyright (c) 2025-2026 Advanced Micro Devices, Inc.
 #  * All rights reserved.
 #  *
 #  * Was sourced from
@@ -9,8 +9,8 @@
 
 set -x
 export NUM_SOCKETS=2        # i.e. 2
-export CPUS_PER_SOCKET=128   # i.e. 128
-export CPUS_PER_CONSUMER=128  # which determine how much processes will be used
+export CPUS_PER_SOCKET=256   # i.e. 256
+export CPUS_PER_CONSUMER=256  # which determine how much processes will be used
                             # consumer-per-socket = CPUS_PER_SOCKET/CPUS_PER_CONSUMER
 export CPUS_PER_INSTANCE=2  # instance-per-consumer number=CPUS_PER_CONSUMER/CPUS_PER_INSTANCE
                             # total-instance = instance-per-consumer * consumer-per-socket

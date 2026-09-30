@@ -12,7 +12,7 @@ Usage:
     python3 scripts/detect.py
 
 Output: JSON with cpu_model, is_amd_epyc, epyc_generation
-(Naples/Rome/Milan/Genoa/Bergamo/Siena/Turin), zen_arch, avx512, physical_cores,
+(Naples/Rome/Milan/Genoa/Bergamo/Siena/Turin/Venice), zen_arch, avx512, physical_cores,
 logical_cores, sockets, threads_per_core, numa_nodes, memory_gb. Exits 0 on
 success, 1 if no CPU info could be read.
 
@@ -42,7 +42,7 @@ def _epyc_generation(model):
 
     EPYC numbering encodes the generation: 7xx1=Naples (Zen1), 7xx2=Rome (Zen2),
     7xx3=Milan (Zen3), 8xx4=Siena (Zen4c), 97x4=Bergamo (Zen4c), 9xx4=Genoa (Zen4),
-    9xx5=Turin (Zen5)."""
+    9xx5=Turin (Zen5), 9xx6=Venice (Zen6)."""
     m = re.search(r"EPYC\s+(\d{4})", model.upper())
     if not m:
         return "unknown", "unknown"
@@ -60,6 +60,8 @@ def _epyc_generation(model):
             return "Genoa", "Zen4"
         if last == "5":
             return "Turin", "Zen5"
+        if last == "6":
+            return "Venice", "Zen6"
     return "unknown", "unknown"
 
 
