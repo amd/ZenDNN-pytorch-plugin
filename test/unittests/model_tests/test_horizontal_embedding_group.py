@@ -150,12 +150,16 @@ class Test_Embedding_Group_Model(EmbTestCase):
     @torch.inference_mode()
     def test_embedding_group_compile_model(self, dtype, freeze_opt):
         model = Custom_Model_Embedding_Group(self.data.R)
+        zentorch_model = copy.deepcopy(model)
         x = self.data.emb_input
-        native_output = model(x)
+        # Eager torch.sum uses cascade summation and compiled reductions do
+        # not, so near-zero sums differ from eager by more than fp32 atol.
+        inductor_graph = torch.compile(model, backend="inductor")
+        inductor_output = test_with_freeze_opt(inductor_graph, (x), freeze_opt)
         reset_dynamo()
-        compiled_graph = torch.compile(model, backend="zentorch")
+        compiled_graph = torch.compile(zentorch_model, backend="zentorch")
         compiled_output = test_with_freeze_opt(compiled_graph, (x), freeze_opt)
-        self.assertEqual(native_output, compiled_output)
+        self.assertEqual(inductor_output, compiled_output)
 
     @EmbTestCase.hypothesis_params_emb_itr(
         dtype_list=supported_dtypes, freeze_list=freeze_opt

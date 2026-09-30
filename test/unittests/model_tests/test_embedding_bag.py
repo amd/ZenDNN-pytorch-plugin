@@ -49,7 +49,10 @@ class Custom_Model_Embedding_Bag(nn.Module):
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class Test_Embedding_Bag_Model(EmbTestCase):
     @EmbTestCase.hypothesis_params_emb_itr(
-        dtype_list=supported_dtypes, freeze_list=freeze_opt
+        dtype_list=supported_dtypes,
+        freeze_list=freeze_opt,
+        # the first compile in a process can exceed the default 10s deadline
+        time_out=60000,
     )
     @torch.inference_mode()
     def test_embedding_bag_compile_model(self, dtype, freeze_opt):

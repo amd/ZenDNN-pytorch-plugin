@@ -122,10 +122,6 @@ class Test_FusedFFNConcat(GroupMatmulTestCase):
         w13, w2, w13_bias, w2_bias = self._single_expert_weights(with_bias)
 
         for activation in FFN_ACTIVATIONS:
-            # ZenDNN bug: a clear before config load builds the AOCL weight cache
-            # with capacity 0; swigluoai's concurrent N-tile inserts then free live buffers.
-            if activation == "swigluoai":
-                continue
             _clear_weight_cache()
             ref = self._reference_ffn(
                 x, w13, w2, w13_bias, w2_bias, activation,
@@ -221,7 +217,7 @@ class Test_FusedFFNConcat(GroupMatmulTestCase):
         w2_bias = self.data.w2_bias_gated[0] if with_bias else None
         activation = "silu"
 
-        def dynamic_quant_matmul(src, w_int8, w_scales, bias=None):
+        def dynamic_quant_matmul(src, w_int8, w_scales, bias=None, round_dst=True):
             src_fp = src.float()
             src_scale = src_fp.abs().amax(dim=1).clamp(min=1e-12) / 127.0
             src_q = (src_fp / src_scale.unsqueeze(1)).round().clamp(-128, 127)
@@ -229,9 +225,11 @@ class Test_FusedFFNConcat(GroupMatmulTestCase):
             result = acc * (src_scale.unsqueeze(1) * w_scales.unsqueeze(0))
             if bias is not None:
                 result = result + bias.float()
-            return result.to(torch_dtype).float()
+            return result.to(torch_dtype).float() if round_dst else result
 
-        ref = dynamic_quant_matmul(x, w13, w13_scale, w13_bias)
+        # The kernel requantizes the W13 output without a bf16 round trip; one
+        # rounding flip there moves a small output by ~(row amax / 127) * |w2|.
+        ref = dynamic_quant_matmul(x, w13, w13_scale, w13_bias, round_dst=False)
         ref = self._apply_gated_activation(ref, activation)
         ref = dynamic_quant_matmul(ref, w2, w2_scale, w2_bias)
 
