@@ -120,14 +120,22 @@ _zentorch_ supports PyTorch v2.14.0 (recommended) and v2.13.0. Install the zento
 ```bash
 pip uninstall zentorch
 ```
-* Install PyTorch v2.13.0
+* Install PyTorch v2.14.0 or v2.13.0
+```bash
+pip install torch==2.14.0 --index-url https://download.pytorch.org/whl/cpu
+```
 ```bash
 pip install torch==2.13.0 --index-url https://download.pytorch.org/whl/cpu
 ```
-* Install latest stable zentorch v2.13.0.2
+
+* Install latest stable zentorch v2.14.0.0 or v2.13.0.1
 ```bash
-pip install zentorch==2.13.0.2
+pip install zentorch==2.14.0.0
 ```
+```bash
+pip install zentorch==2.13.0.1
+```
+
 >**Notes:**
 >* Dependent packages 'numpy' and 'torch' will be installed by '_zentorch_' if not already present.
 >* If you get the error: ImportError: /lib64/libstdc++.so.6: version `GLIBCXX_.a.b.cc' not found, export LD_PRELOAD as: export LD_PRELOAD=<path_to_conda>/envs/<env_name>/lib/libstdc++.so.6:$LD_PRELOAD
@@ -164,7 +172,7 @@ pip install torch==2.13.0 --index-url https://download.pytorch.org/whl/cpu
 ```
 >**Notes:**
 >* This README uses Python 3.12.
->* Zentorch follows PyTorch’s Python version compatibility. For PyTorch 2.14.0 and 2.13.0 Zentorch supports Python versions 3.10 through 3.14. For other PyTorch releases, refer to the [PyTorch Release Compatibility Matrix](https://github.com/pytorch/pytorch/blob/main/RELEASE.md#release-compatibility-matrix).
+>* Zentorch follows PyTorch’s Python version compatibility. For PyTorch 2.14.0.0 and 2.13.0.1 Zentorch supports Python versions 3.10 through 3.14. For other PyTorch releases, refer to the [PyTorch Release Compatibility Matrix](https://github.com/pytorch/pytorch/blob/main/RELEASE.md#release-compatibility-matrix).
 >* Zentorch does not support experimental versions of Python (3.13T/3.14T)
 
 #### 2.2.2.3. Install Dependencies
@@ -179,7 +187,12 @@ python setup.py bdist_wheel
 
 #### 2.2.2.5. To install the wheel file of _zentorch_
 ```bash
-pip install dist/zentorch-2.13.0.2-cp310-cp310-linux_x86_64.whl
+pip install dist/zentorch-2.14.0.1-cp312-cp312-linux_x86_64.whl
+```
+or
+
+```bash
+pip install dist/zentorch-2.13.0.2-cp312-cp312-linux_x86_64.whl
 ```
 >**Note:** After installation, run the following script for recommended environment settings:
 >```bash
@@ -361,7 +374,7 @@ TORCH_COMPILE_DEBUG=1 python test.py
 For more information about TORCH_COMPILE_DEBUG refer to the official PyTorch documentation available.
 
 # 6. Performance tuning and Benchmarking
-zentorch v2.13.0.2 plugin is supported with ZenDNN v6.0.1 plugin. Please see the **Tuning Guidelines** section of ZenDNN User Guide for performance tuning. ZenDNN User Guide can be downloaded from [here](https://developer.amd.com/zendnn)
+For zentorch v2.14.0.0 and zentorch 2.13.0.1 plugin. Please see the **Tuning Guidelines** section of ZenDNN User Guide for performance tuning. ZenDNN User Guide can be downloaded from [here](https://developer.amd.com/zendnn)
 
 # 7. Additional Utilities:
 
