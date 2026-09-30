@@ -83,6 +83,8 @@ class TestQwen3VLTextConfigPatch(unittest.TestCase):
         for version, expected in (
             ("0.28.0+cpu", False),
             ("0.29.0+cpu", True),
+            # 0.30 passes the architectures upstream (vllm#43272).
+            ("0.30.0+cpu", False),
         ):
             with self.subTest(version=version):
                 fake_vllm = types.ModuleType("vllm")

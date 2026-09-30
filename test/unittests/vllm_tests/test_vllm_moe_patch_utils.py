@@ -4,6 +4,8 @@
 # ******************************************************************************
 """Shared INT8 / WNA16 MoE patch helpers in ``zentorch.vllm._moe_patch_utils``."""
 
+import importlib.machinery
+import sys
 import types
 import unittest
 from unittest import mock
@@ -20,6 +22,53 @@ class TestMoePatchUtils(unittest.TestCase):
         from zentorch.vllm._moe_patch_utils import import_select_experts
 
         self.assertTrue(callable(import_select_experts()))
+
+    def test_import_select_experts_follows_each_release_layout(self):
+        from zentorch.vllm import _moe_patch_utils as utils
+
+        legacy, experts, router = utils._SELECT_EXPERTS_MODULES
+
+        def fn_027():
+            return None
+
+        def fn_028():
+            return None
+
+        def fn_030():
+            return None
+
+        def fake(name, select_experts=None):
+            module = types.ModuleType(name)
+            module.__spec__ = importlib.machinery.ModuleSpec(name, None)
+            if select_experts is not None:
+                module.select_experts = select_experts
+            return module
+
+        layouts = {
+            "0.27": ({legacy: fn_027, experts: None, router: None}, fn_027),
+            "0.28-0.29": ({legacy: None, experts: fn_028, router: None}, fn_028),
+            # 0.30 keeps experts.cpu_moe but moves select_experts to the router.
+            "0.30": ({legacy: None, experts: None, router: fn_030}, fn_030),
+        }
+        for label, (homes, expected) in layouts.items():
+            modules = {name: fake(name, fn) for name, fn in homes.items()}
+            with self.subTest(layout=label), mock.patch.dict(
+                sys.modules, modules
+            ), mock.patch.object(utils, "_SELECT_EXPERTS", None):
+                self.assertIs(utils.import_select_experts(), expected)
+
+    def test_import_select_experts_raises_when_missing(self):
+        from zentorch.vllm import _moe_patch_utils as utils
+
+        modules = {}
+        for name in utils._SELECT_EXPERTS_MODULES:
+            module = types.ModuleType(name)
+            module.__spec__ = importlib.machinery.ModuleSpec(name, None)
+            modules[name] = module
+        with mock.patch.dict(sys.modules, modules), mock.patch.object(
+            utils, "_SELECT_EXPERTS", None
+        ), self.assertRaises(ImportError):
+            utils.import_select_experts()
 
     def test_allocate_expert_biases_when_needed(self):
         from zentorch.vllm._moe_patch_utils import allocate_expert_biases

@@ -5,7 +5,7 @@
 
 """zentorch CPU Platform for vLLM.
 
-Targets vLLM 0.27.0-0.29.0 / PyTorch 2.13. vLLM's stock CpuPlatform configures
+Targets vLLM 0.27.0-0.30.0 / PyTorch 2.13. vLLM's stock CpuPlatform configures
 the CPU compile defaults and CPU-only profiler handling, so this subclass marks
 the platform as Zen and injects the zentorch inductor optimize pass.
 """

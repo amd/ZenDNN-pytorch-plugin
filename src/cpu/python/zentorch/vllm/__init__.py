@@ -93,7 +93,7 @@ logger = get_logger(__name__)
 # upper bound is explicit, not an open "< next minor" range: bump VLLM_MAX_VERSION
 # after validating each new patch release.
 VLLM_MIN_VERSION = "0.27.0"
-VLLM_MAX_VERSION = "0.29.0"
+VLLM_MAX_VERSION = "0.30.0"
 TORCH_MIN_VERSION = (2, 13)
 
 

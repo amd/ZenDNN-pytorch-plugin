@@ -91,8 +91,10 @@ def _process_da8w4_weights(self, layer: "torch.nn.Module") -> None:
     """
     if (not self.config.zero_points) and (self.w_zp_name is not None):
         setattr(layer, self.w_zp_name, None)
-    if (not self.config.has_g_idx) and (self.w_gidx_name is not None):
-        setattr(layer, self.w_gidx_name, None)
+    # vLLM 0.30 removed w_gidx_name / has_g_idx along with GPTQ act-order.
+    w_gidx_name = getattr(self, "w_gidx_name", None)
+    if w_gidx_name is not None and not self.config.has_g_idx:
+        setattr(layer, w_gidx_name, None)
 
     weight_q = getattr(layer, self.w_q_name)
     weight_s = getattr(layer, self.w_s_name)

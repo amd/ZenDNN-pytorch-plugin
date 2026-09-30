@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import importlib
+import importlib.util
 import sys
 from collections.abc import Callable
 
@@ -17,23 +19,33 @@ logger = get_logger(__name__)
 
 _SELECT_EXPERTS = None
 
+# Home of vLLM's CPU ``select_experts``, oldest release first. 0.30 keeps
+# ``experts.cpu_moe`` but moves the function to the CPU router.
+_SELECT_EXPERTS_MODULES = (
+    "vllm.model_executor.layers.fused_moe.cpu_fused_moe",  # <= 0.27.1
+    "vllm.model_executor.layers.fused_moe.experts.cpu_moe",  # 0.28 - 0.29
+    "vllm.model_executor.layers.fused_moe.router.cpu_router",  # >= 0.30
+)
+
 
 def import_select_experts():
-    """``select_experts`` lives in ``fused_moe.cpu_fused_moe`` through vLLM
-    0.27.1 and moves to ``fused_moe.experts.cpu_moe`` in 0.28.0.
-    """
+    """Return vLLM's CPU ``select_experts`` from the first module that has it."""
     global _SELECT_EXPERTS
     if _SELECT_EXPERTS is None:
-        try:
-            from vllm.model_executor.layers.fused_moe.cpu_fused_moe import (
-                select_experts,
+        for name in _SELECT_EXPERTS_MODULES:
+            if importlib.util.find_spec(name) is None:
+                continue
+            select_experts = getattr(
+                importlib.import_module(name), "select_experts", None
             )
-        except ImportError:
-            # For vLLM v0.28.0 and above:
-            from vllm.model_executor.layers.fused_moe.experts.cpu_moe import (
-                select_experts,
-            )
-        _SELECT_EXPERTS = select_experts
+            if select_experts is not None:
+                _SELECT_EXPERTS = select_experts
+                break
+    if _SELECT_EXPERTS is None:
+        raise ImportError(
+            "vLLM CPU select_experts not found in "
+            + ", ".join(_SELECT_EXPERTS_MODULES)
+        )
     return _SELECT_EXPERTS
 
 
