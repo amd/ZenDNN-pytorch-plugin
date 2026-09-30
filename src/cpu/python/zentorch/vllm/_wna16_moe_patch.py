@@ -22,6 +22,7 @@ from zentorch._utils import _SUPPORTED_MOE_ACTIVATIONS
 from zentorch.vllm._moe_patch_utils import (
     allocate_expert_biases,
     import_select_experts,
+    permute_swigluoai_w13,
     run_moe_patch_apply,
     run_select_experts,
     schedule_module_patches,
@@ -569,6 +570,14 @@ def _register_wna16_method_patch(mod) -> None:
             self.experts_cls = native_cls
             orig_process(self, layer)
             return
+
+        # Must precede the s4 repack, which reads w13 in the kernel's order.
+        permute_swigluoai_w13(
+            layer,
+            weight_attr="w13_weight_packed",
+            weight_dim=2,
+            scale_dim=2,
+        )
 
         (
             w13_qweight,

@@ -3,37 +3,20 @@
 # All rights reserved.
 # ****************************************************************************
 
-"""Out-of-tree GPT-OSS per-expert ("streamed") checkpoint loading.
+"""Load gpt-oss checkpoints that keep one expert per key.
 
-Backport of the loader half of vLLM PR #52209. gpt-oss checkpoints that store
-MoE experts one tensor per expert -- e.g.
-
-    ...mlp.experts.<id>.gate_up_proj[.weight|.bias|.weight_scale]
-    ...mlp.experts.<id>.down_proj[.weight|.bias|.weight_scale]
-
--- get normalized by ``hf_to_vllm_mapper`` to per-expert
-``...mlp.experts.<id>.w13_*/w2_*`` names. Stock ``GptOssModel._load_weights_other``
-then looks those up directly in ``params_dict``, where only the *fused*
-``...mlp.experts.routed_experts.w13_*/w2_*`` params exist, raising e.g.
-``KeyError: '...experts.0.w2_bias'``.
-
-This patch, applied only on a supported vLLM via the plugin's import hook:
-
-  * installs a ``RoutedExperts`` subclass whose ``weight_loader`` fills one
-    expert slice of the fused param at a time, and
-  * replaces ``GptOssModel._load_weights_other`` with a copy that intercepts the
-    per-expert keys and routes them to that fused param's ``weight_loader``.
-
-Scope is deliberately minimal: only the compressed-tensors / BF16 path
-(``_load_weights_other``) is covered -- native mxfp4 and quark keep their stock
-loaders -- and PR #52209's RL weight-sync reload (``reload/meta.py``) is omitted.
-vLLM 0.29 includes the streamed loader natively and is left unchanged.
+vLLM's gpt-oss loader only accepts expert tensors already stacked across
+experts, while compressed-tensors checkpoints store them per expert. Ports the
+streamed-expert path from vllm-project/vllm#52209.
+vLLM 0.29 ships this loader natively, so the patch stands aside there.
 """
 
 from __future__ import annotations
 
 import sys
 import typing
+from collections.abc import Iterable, Iterator
+from functools import wraps
 from typing import Callable
 
 import torch
@@ -58,6 +41,8 @@ _STREAMED_EXPERT_SUFFIX_TO_SHARD = {
     "w2_bias": "gpt_oss_w2",
     "w13_weight_scale": "gpt_oss_w13",
     "w2_weight_scale": "gpt_oss_w2",
+    "w13_weight_packed": "gpt_oss_w13",
+    "w2_weight_packed": "gpt_oss_w2",
 }
 
 # Built lazily (needs vLLM imported) and cached for the process.
@@ -76,14 +61,6 @@ def _get_routed_experts_cls() -> type:
         """Load one GPT-OSS expert at a time without assembling the global stack."""
 
         @staticmethod
-        def _narrow_for_rank(
-            loaded_weight: torch.Tensor, dim: int, rank: int, size: int
-        ) -> torch.Tensor:
-            start = rank * size
-            available = loaded_weight.shape[dim] - start
-            return loaded_weight.narrow(dim, start, min(size, max(available, 0)))
-
-        @staticmethod
         def _copy_to_expert(
             expert_data: torch.Tensor, loaded_weight: torch.Tensor
         ) -> None:
@@ -94,34 +71,6 @@ def _get_routed_experts_cls() -> type:
                 loaded_weight = loaded_weight.squeeze(-1)
             slices = tuple(slice(0, size) for size in loaded_weight.shape)
             expert_data[slices].copy_(loaded_weight)
-
-        def _load_expert_bias(
-            self, expert_data: torch.Tensor, loaded_weight: torch.Tensor, shard_id: str
-        ) -> None:
-            tp_rank = self.moe_config.moe_parallel_config.tp_rank
-            if shard_id == "gpt_oss_w13":
-                loaded_weight = self._narrow_for_rank(
-                    loaded_weight, 0, tp_rank, expert_data.shape[0]
-                )
-            elif tp_rank != 0:
-                # w2 bias is replicated; only rank 0 owns it to avoid double-add.
-                loaded_weight = torch.zeros_like(loaded_weight)
-            self._copy_to_expert(expert_data, loaded_weight)
-
-        def _load_unquantized_expert(
-            self, expert_data: torch.Tensor, loaded_weight: torch.Tensor, shard_id: str
-        ) -> None:
-            tp_rank = self.moe_config.moe_parallel_config.tp_rank
-            if shard_id == "gpt_oss_w13":
-                loaded_weight = self._narrow_for_rank(
-                    loaded_weight, 1, tp_rank, expert_data.shape[0]
-                )
-            else:
-                loaded_weight = self._narrow_for_rank(
-                    loaded_weight, 0, tp_rank, expert_data.shape[1]
-                )
-            loaded_weight = loaded_weight.t().contiguous()
-            self._copy_to_expert(expert_data, loaded_weight)
 
         def weight_loader(
             self,
@@ -146,11 +95,15 @@ def _get_routed_experts_cls() -> type:
             if expert_id == -1:
                 return False if return_success else None
 
-            expert_data = param.data[expert_id]
             if weight_name.endswith("_bias"):
-                self._load_expert_bias(expert_data, loaded_weight, shard_id)
+                pass  # [N] per expert, nothing to reorder
+            elif weight_name.endswith("_weight_scale"):
+                # Stored [N, G]; the fused param is [G, N].
+                loaded_weight = loaded_weight.t().contiguous()
             else:
-                self._load_unquantized_expert(expert_data, loaded_weight, shard_id)
+                # Experts are stored [out, in]; the fused param is [in, out].
+                loaded_weight = loaded_weight.t().contiguous()
+            self._copy_to_expert(param.data[expert_id], loaded_weight)
             return True if return_success else None
 
     _ROUTED_EXPERTS_CLS = GptOssRoutedExperts
@@ -160,11 +113,7 @@ def _get_routed_experts_cls() -> type:
 def _get_streamed_expert_info(
     name: str, params_dict: dict
 ) -> tuple[int, str, str] | None:
-    """Parse ``...mlp.experts.<expert_id>.<fused_param>`` checkpoint keys.
-
-    Returns ``(expert_id, fused_param_name, shard_id)`` when ``name`` is a
-    per-expert key whose fused ``routed_experts`` param exists, else ``None``.
-    """
+    """Resolve ``...experts.<expert_id>.<fused_param>`` to its stacked param."""
     if ".mlp.experts." not in name:
         return None
     suffix = name.rsplit(".", 1)[-1]
@@ -177,13 +126,10 @@ def _get_streamed_expert_info(
     if not separator or not expert_id_str.isdigit():
         return None
     expert_id = int(expert_id_str)
-    for base_layer_prefix in ("", "base_layer."):
-        fused_name = (
-            f"{prefix}.mlp.experts.{base_layer_prefix}routed_experts.{param_suffix}"
-        )
-        if fused_name in params_dict:
-            return expert_id, fused_name, shard_id
-    return None
+    fused_name = f"{prefix}.mlp.experts.routed_experts.{param_suffix}"
+    if fused_name not in params_dict:
+        return None
+    return expert_id, fused_name, shard_id
 
 
 def _try_load_streamed_expert(
@@ -216,131 +162,57 @@ def _try_load_streamed_expert(
     return True
 
 
-def _patched_load_weights_other(
-    self,
-    ep_rank_end: int,
-    ep_rank_start: int,
-    heads_per_rank: int,
-    head_start: int,
-    weights,
-    stacked_params_mapping,
-) -> set:
-    """Copy of stock ``GptOssModel._load_weights_other`` with a single added
-    per-expert interception (marked ``# zentorch``)."""
-    from vllm.distributed import (
-        get_dp_group,
-        get_pcp_group,
-        get_tensor_model_parallel_world_size,
-    )
-    from vllm.model_executor.layers.fused_moe.config import FusedMoEParallelConfig
-    from vllm.model_executor.model_loader.weight_utils import (
-        default_weight_loader,
-        remap_moe_expert_weights,
-    )
-    from vllm.model_executor.models.utils import is_pp_missing_parameter
-    from vllm.utils.math_utils import cdiv
+def _route_streamed_experts(
+    weights: Iterable[tuple[str, torch.Tensor]],
+    params_dict: dict,
+    loaded_params: set,
+) -> Iterator[tuple[str, torch.Tensor]]:
+    """Consume per-expert keys, yielding the rest for vLLM's own loader.
 
-    params_dict = dict(self.named_parameters())
-    loaded_params: set[str] = set()
+    Stays a generator so the checkpoint is not buffered a second time.
+    """
+    for name, weight in weights:
+        if not _try_load_streamed_expert(name, weight, params_dict, loaded_params):
+            yield name, weight
 
-    use_ep = self.parallel_config.enable_expert_parallel
 
-    tp_size, tp_rank = FusedMoEParallelConfig.flatten_tp_across_dp_and_pcp(
-        tp_size=get_tensor_model_parallel_world_size(),
-        dp_size=get_dp_group().world_size,
-        dp_rank=get_dp_group().rank_in_group,
-        pcp_size=get_pcp_group().world_size,
-        pcp_rank=get_pcp_group().rank_in_group,
-    )
+def _make_patched_load_weights_other(orig_load_weights_other):
+    """Wrap ``_load_weights_other``, intercepting only the per-expert keys.
 
-    intermediate_size = self.config.intermediate_size
-    per_rank_intermediate_size = cdiv(intermediate_size, tp_size)
-    tp_rank_start = tp_rank * per_rank_intermediate_size
-    tp_rank_end = min((tp_rank + 1) * per_rank_intermediate_size, intermediate_size)
+    Every other key reaches the stock method, so rank sharding stays vLLM's.
+    """
 
-    for name, weight in remap_moe_expert_weights(weights, params_dict):
-        if is_pp_missing_parameter(name, self):
-            continue
+    @wraps(orig_load_weights_other)
+    def _patched(
+        self,
+        ep_rank_end,
+        ep_rank_start,
+        heads_per_rank,
+        head_start,
+        weights,
+        stacked_params_mapping,
+    ) -> set:
+        params_dict = dict(self.named_parameters())
+        streamed_params: set[str] = set()
+        remaining = _route_streamed_experts(weights, params_dict, streamed_params)
+        loaded_params = orig_load_weights_other(
+            self,
+            ep_rank_end,
+            ep_rank_start,
+            heads_per_rank,
+            head_start,
+            remaining,
+            stacked_params_mapping,
+        )
+        return loaded_params | streamed_params
 
-        # zentorch: route per-expert checkpoint keys into the fused param.
-        if _try_load_streamed_expert(name, weight, params_dict, loaded_params):
-            continue
-
-        if ".w13_weight" in name:
-            if use_ep:
-                narrow_weight = weight[ep_rank_start:ep_rank_end, ...]
-            else:
-                narrow_weight = weight[:, :, 2 * tp_rank_start : 2 * tp_rank_end]
-            narrow_weight = narrow_weight.permute(0, 2, 1).contiguous()
-            param = params_dict[name]
-            param.copy_(narrow_weight)
-            loaded_params.add(name)
-            continue
-        elif ".w2_weight" in name:
-            if use_ep:
-                narrow_weight = weight[ep_rank_start:ep_rank_end, ...]
-            else:
-                narrow_weight = weight[:, tp_rank_start:tp_rank_end, :]
-            narrow_weight = narrow_weight.permute(0, 2, 1).contiguous()
-            param = params_dict[name]
-            param.copy_(narrow_weight)
-            loaded_params.add(name)
-            continue
-        elif ".w13_bias" in name:
-            if use_ep:
-                narrow_weight = weight[ep_rank_start:ep_rank_end, ...]
-            else:
-                narrow_weight = weight[:, 2 * tp_rank_start : 2 * tp_rank_end]
-            param = params_dict[name]
-            param.copy_(narrow_weight)
-            loaded_params.add(name)
-            continue
-        elif ".w2_bias" in name:
-            if use_ep:
-                weight = weight[ep_rank_start:ep_rank_end, ...]
-            else:
-                if tp_rank != 0:
-                    weight.zero_()
-            param = params_dict[name]
-            param.copy_(weight)
-            loaded_params.add(name)
-            continue
-        elif "sinks" in name:
-            param = params_dict[name]
-            narrow_weight = weight.narrow(0, head_start, heads_per_rank)
-            param.data.copy_(narrow_weight)
-            loaded_params.add(name)
-            continue
-        for param_name, weight_name, shard_id in stacked_params_mapping:
-            if weight_name not in name:
-                continue
-            name = name.replace(weight_name, param_name)
-            param = params_dict[name]
-            weight_loader = getattr(param, "weight_loader", default_weight_loader)
-            if weight_loader == default_weight_loader:
-                weight_loader(param, weight)
-            else:
-                weight_loader(param, weight, shard_id)
-            break
-        else:
-            if name not in params_dict:
-                continue
-            param = params_dict[name]
-            weight_loader = getattr(param, "weight_loader", default_weight_loader)
-            weight_loader(param, weight)
-        loaded_params.add(name)
-    return loaded_params
+    return _patched
 
 
 def _make_patched_mlpblock_init(orig_init, routed_cls):
-    """Wrap ``MLPBlock.__init__`` to retype its RoutedExperts to ``routed_cls``.
+    """Retype ``MLPBlock``'s RoutedExperts to ``routed_cls`` after construction.
 
-    The subclass only *adds* methods (no new fields), so swapping ``__class__``
-    on the already-constructed instance injects the per-expert ``weight_loader``
-    without re-implementing ``MLPBlock.__init__`` or threading a
-    ``routed_experts_cls`` kwarg through ``FusedMoEFactory``. Params created
-    before the swap still reference the base ``weight_loader``, so they are
-    rebound to the subclass method below.
+    The subclass only adds methods, so swapping ``__class__`` is enough.
     """
 
     def _patched_init(self, *args, **kwargs):
@@ -349,11 +221,9 @@ def _make_patched_mlpblock_init(orig_init, routed_cls):
         routed = getattr(experts, "routed_experts", None)
         if routed is not None and not isinstance(routed, routed_cls):
             routed.__class__ = routed_cls
-            # create_weights (routed_experts.py) captured the *base* class's
-            # weight_loader as a bound method on every fused param, before this
-            # __class__ swap. Rebind those params to the subclass's bound method
-            # so the gpt_oss_* shard ids route to the per-expert loader instead
-            # of the base loader (which rejects them).
+            # create_weights bound the base weight_loader onto every fused
+            # param before this swap, so the gpt_oss_* shard ids would still
+            # reach the base loader, which rejects them.
             new_loader = routed.weight_loader
             for param in routed.parameters(recurse=True):
                 loader = getattr(param, "weight_loader", None)
@@ -361,6 +231,24 @@ def _make_patched_mlpblock_init(orig_init, routed_cls):
                     param.weight_loader = new_loader
 
     return _patched_init
+
+
+def _extend_native_streamed_loader(mod) -> None:
+    """Teach vLLM's own streamed loader about pack-quantized experts.
+
+    A compressed-tensors int4 checkpoint names its per-expert keys
+    ``w13/w2_weight_packed``, which the native suffix table omits, so they miss
+    the per-expert path and reach a slice that assumes stacked experts.
+    """
+    table = getattr(mod, "_GPT_OSS_STREAMED_EXPERT_SUFFIX_TO_SHARD", None)
+    if table is None:
+        logger.debug("[zentorch] native streamed loader not as expected; left alone")
+        return
+    for suffix, shard in _STREAMED_EXPERT_SUFFIX_TO_SHARD.items():
+        table.setdefault(suffix, shard)
+    logger.info(
+        "[zentorch] Extended native GPT-OSS streamed loader for packed experts"
+    )
 
 
 def _do_patch() -> bool:
@@ -380,13 +268,15 @@ def _do_patch() -> bool:
         getattr(mod, "GptOssRoutedExperts", None) is not None
         and hasattr(gpt_oss_model, "_try_load_streamed_expert")
     ):
+        _extend_native_streamed_loader(mod)
         setattr(gpt_oss_model, _MARKER, True)
-        logger.info("[zentorch] GPT-OSS streamed-expert loading is native")
         return True
 
     routed_cls = _get_routed_experts_cls()
 
-    gpt_oss_model._load_weights_other = _patched_load_weights_other
+    gpt_oss_model._load_weights_other = _make_patched_load_weights_other(
+        gpt_oss_model._load_weights_other
+    )
     mlp_block.__init__ = _make_patched_mlpblock_init(mlp_block.__init__, routed_cls)
 
     setattr(gpt_oss_model, _MARKER, True)

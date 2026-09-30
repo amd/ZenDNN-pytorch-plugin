@@ -57,6 +57,86 @@ class TestMoePatchUtils(unittest.TestCase):
         )
         self.assertFalse(hasattr(layer, "w13_bias"))
 
+    @staticmethod
+    def _swigluoai_layer(weight, scale, *, activation="swigluoai"):
+        layer = torch.nn.Module()
+        layer.activation = activation
+        layer.w13_weight_scale = torch.nn.Parameter(scale, requires_grad=False)
+        layer.w13_bias = torch.nn.Parameter(
+            torch.arange(weight.shape[0] * 4, dtype=torch.bfloat16).reshape(
+                weight.shape[0], 4
+            ),
+            requires_grad=False,
+        )
+        return layer
+
+    def test_permute_swigluoai_w13_interleaves_the_int8_layout(self):
+        from zentorch.vllm._moe_patch_utils import permute_swigluoai_w13
+
+        # [E, 2I, K] weight and [E, 2I] scale, so 2I sits at dim 1 on both.
+        weight = torch.arange(2 * 4 * 3, dtype=torch.bfloat16).reshape(2, 4, 3)
+        scale = torch.arange(2 * 4, dtype=torch.bfloat16).reshape(2, 4)
+        layer = self._swigluoai_layer(weight, scale)
+        layer.w13_weight = torch.nn.Parameter(weight.clone(), requires_grad=False)
+        bias = layer.w13_bias.detach().clone()
+
+        self.assertTrue(permute_swigluoai_w13(layer))
+
+        perm = torch.tensor([0, 2, 1, 3])
+        torch.testing.assert_close(layer.w13_weight.data, weight[:, perm, :])
+        torch.testing.assert_close(layer.w13_weight_scale.data, scale[:, perm])
+        torch.testing.assert_close(layer.w13_bias.data, bias[:, perm])
+
+    def test_permute_swigluoai_w13_interleaves_the_packed_w4_layout(self):
+        from zentorch.vllm._moe_patch_utils import permute_swigluoai_w13
+
+        # Packed W4 keeps 2I last: [E, K/8, 2I] weight and [E, groups, 2I] scale.
+        weight = torch.arange(2 * 3 * 4, dtype=torch.int32).reshape(2, 3, 4)
+        scale = torch.arange(2 * 2 * 4, dtype=torch.bfloat16).reshape(2, 2, 4)
+        layer = self._swigluoai_layer(weight, scale)
+        layer.w13_weight_packed = torch.nn.Parameter(
+            weight.clone(), requires_grad=False
+        )
+        bias = layer.w13_bias.detach().clone()
+
+        self.assertTrue(
+            permute_swigluoai_w13(
+                layer,
+                weight_attr="w13_weight_packed",
+                weight_dim=2,
+                scale_dim=2,
+            )
+        )
+
+        perm = torch.tensor([0, 2, 1, 3])
+        torch.testing.assert_close(layer.w13_weight_packed.data, weight[:, :, perm])
+        torch.testing.assert_close(layer.w13_weight_scale.data, scale[:, :, perm])
+        torch.testing.assert_close(layer.w13_bias.data, bias[:, perm])
+
+    def test_permute_swigluoai_w13_reads_an_enum_activation(self):
+        from zentorch.vllm._moe_patch_utils import permute_swigluoai_w13
+
+        weight = torch.arange(2 * 4 * 3, dtype=torch.bfloat16).reshape(2, 4, 3)
+        scale = torch.arange(2 * 4, dtype=torch.bfloat16).reshape(2, 4)
+        layer = self._swigluoai_layer(
+            weight, scale, activation=types.SimpleNamespace(value="SwigluOAI")
+        )
+        layer.w13_weight = torch.nn.Parameter(weight.clone(), requires_grad=False)
+
+        self.assertTrue(permute_swigluoai_w13(layer))
+
+    def test_permute_swigluoai_w13_leaves_other_activations_alone(self):
+        from zentorch.vllm._moe_patch_utils import permute_swigluoai_w13
+
+        weight = torch.arange(2 * 4 * 3, dtype=torch.bfloat16).reshape(2, 4, 3)
+        scale = torch.arange(2 * 4, dtype=torch.bfloat16).reshape(2, 4)
+        layer = self._swigluoai_layer(weight, scale, activation="silu")
+        layer.w13_weight = torch.nn.Parameter(weight.clone(), requires_grad=False)
+
+        self.assertFalse(permute_swigluoai_w13(layer))
+        torch.testing.assert_close(layer.w13_weight.data, weight)
+        torch.testing.assert_close(layer.w13_weight_scale.data, scale)
+
     def test_schedule_patches_already_imported_module(self):
         from zentorch.vllm._moe_patch_utils import schedule_module_patches
 

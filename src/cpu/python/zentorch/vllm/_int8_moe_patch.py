@@ -19,6 +19,7 @@ from zentorch._utils import _SUPPORTED_MOE_ACTIVATIONS
 from zentorch.vllm._moe_patch_utils import (
     allocate_expert_biases,
     import_select_experts,
+    permute_swigluoai_w13,
     run_moe_patch_apply,
     run_select_experts,
     schedule_module_patches,
@@ -352,42 +353,6 @@ def _register_int8_moe_patches(mod) -> None:
             **quant_config_kwargs,
         )
 
-    def _maybe_permute_swigluoai(layer) -> None:
-        _act = getattr(layer, "activation", None)
-        _act_str = getattr(_act, "value", _act)
-        if not (isinstance(_act_str, str) and _act_str.lower() == "swigluoai"):
-            return
-        two_i = layer.w13_weight.size(1)
-        i = two_i // 2
-        device = layer.w13_weight.device
-        perm = torch.stack(
-            [
-                torch.arange(0, i, device=device),
-                torch.arange(i, two_i, device=device),
-            ],
-            dim=1,
-        ).flatten()
-        has_w13_bias = getattr(layer, "w13_bias", None) is not None
-        logger.info(
-            "[zentorch][swigluoai-permute] Reordering w13 half-split -> "
-            "interleaved for ZenDNN swiglu_oai_mul: E=%d, 2I=%d, I=%d, "
-            "has_w13_bias=%s",
-            layer.w13_weight.size(0),
-            two_i,
-            i,
-            has_w13_bias,
-        )
-        layer.w13_weight = torch.nn.Parameter(
-            layer.w13_weight.data[:, perm, :].contiguous(), requires_grad=False
-        )
-        layer.w13_weight_scale = torch.nn.Parameter(
-            layer.w13_weight_scale.data[:, perm].contiguous(), requires_grad=False
-        )
-        if has_w13_bias:
-            layer.w13_bias = torch.nn.Parameter(
-                layer.w13_bias.data[:, perm].contiguous(), requires_grad=False
-            )
-
     def _keep_weights_unpacked(int8_backend, w13, w2, layer=None, w13_scale=None):
         return w13, w2
 
@@ -398,7 +363,7 @@ def _register_int8_moe_patches(mod) -> None:
 
         # Relayout first: the original then reads w13 scales/biases to build
         # the quant config and the MoE kernel.
-        _maybe_permute_swigluoai(layer)
+        permute_swigluoai_w13(layer)
         # vLLM <= 0.26.0 VNNI-prepacks w13/w2; zentorch needs plain [N, K] int8.
         # TODO: drop once 0.26.0 and earlier are out of the supported set.
         # vllm/model_executor/layers/fused_moe/oracle/int8.py

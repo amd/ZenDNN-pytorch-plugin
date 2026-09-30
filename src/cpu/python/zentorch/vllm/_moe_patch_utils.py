@@ -133,6 +133,57 @@ def allocate_expert_biases(
     set_weight_attrs(w2_bias, bias_attrs)
 
 
+def permute_swigluoai_w13(
+    layer,
+    *,
+    weight_attr: str = "w13_weight",
+    weight_dim: int = 1,
+    scale_dim: int = 1,
+) -> bool:
+    """Reorder w13 half-split -> interleaved for ZenDNN's gated activation.
+
+    Returns False when not SwiGLU-OAI; 2I sits at ``weight_dim`` (last for W4).
+    """
+    act = getattr(layer, "activation", None)
+    act = getattr(act, "value", act)
+    if not (isinstance(act, str) and act.lower() == "swigluoai"):
+        return False
+
+    weight = getattr(layer, weight_attr)
+    two_i = weight.size(weight_dim)
+    i = two_i // 2
+    device = weight.device
+    perm = torch.stack(
+        [
+            torch.arange(0, i, device=device),
+            torch.arange(i, two_i, device=device),
+        ],
+        dim=1,
+    ).flatten()
+
+    has_w13_bias = getattr(layer, "w13_bias", None) is not None
+    logger.info(
+        "[zentorch][swigluoai-permute] Reordering %s half-split -> interleaved: "
+        "E=%d, 2I=%d, I=%d, has_w13_bias=%s",
+        weight_attr,
+        weight.size(0),
+        two_i,
+        i,
+        has_w13_bias,
+    )
+
+    def _reorder(tensor, dim):
+        return torch.nn.Parameter(
+            tensor.data.index_select(dim, perm).contiguous(), requires_grad=False
+        )
+
+    setattr(layer, weight_attr, _reorder(weight, weight_dim))
+    layer.w13_weight_scale = _reorder(layer.w13_weight_scale, scale_dim)
+    if has_w13_bias:
+        layer.w13_bias = _reorder(layer.w13_bias, 1)
+    return True
+
+
 def run_moe_patch_apply(
     mod,
     *,
