@@ -1,0 +1,7 @@
+# git clang-format's default extension list includes json, and the presub
+# "C++" check runs that command with no --extensions filter. JSON in this
+# repo is data, so do not reformat it.
+BasedOnStyle: LLVM
+---
+Language: Json
+DisableFormat: true
