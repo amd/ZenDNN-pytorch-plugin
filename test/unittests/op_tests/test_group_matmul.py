@@ -14,6 +14,7 @@ from unittest_utils import (  # noqa: E402
     GroupMatmulTestCase,
     GROUP_MATMUL_INT8_K_VALUES,
     GROUP_MATMUL_INT8_GATED_K_VALUES,
+    GroupMatmulWeights,
     has_zentorch,
     run_tests,
     supported_dtypes,
@@ -277,6 +278,7 @@ class Test_GroupMatmul(GroupMatmulTestCase):
     @GroupMatmulTestCase.hypothesis_params_group_matmul_itr(
         dtype_list=supported_dtypes_int8,
         k_list=GROUP_MATMUL_INT8_K_VALUES,
+        weight_mode=GroupMatmulWeights.INT8,
     )
     @torch.inference_mode()
     def test_int8_w13(self, dtype):
@@ -286,7 +288,7 @@ class Test_GroupMatmul(GroupMatmulTestCase):
         M = self.data.M
         N = self.data.N
         inputs = self.data.inputs
-        w13_int8 = self.data.w13_weights_int8
+        w13_int8 = self.data.w13_weights
         w13_scales = self.data.w13_scales
         w13_bias = self.data.w13_bias_none
 
@@ -320,6 +322,7 @@ class Test_GroupMatmul(GroupMatmulTestCase):
     @GroupMatmulTestCase.hypothesis_params_group_matmul_itr(
         dtype_list=supported_dtypes_int8,
         k_list=GROUP_MATMUL_INT8_K_VALUES,
+        weight_mode=GroupMatmulWeights.INT8_SQUARE,
     )
     @torch.inference_mode()
     def test_int8_w13_and_w2_single_pass(self, dtype):
@@ -363,11 +366,11 @@ class Test_GroupMatmul(GroupMatmulTestCase):
             return result
 
         # --- Sub-test 1: group_matmul, no activation, no MoE reduce ---
-        w13_int8 = self.data.w13_weights_int8_square
-        w13_scales = self.data.w13_scales_square
+        w13_int8 = self.data.w13_weights
+        w13_scales = self.data.w13_scales
         w13_bias = self.data.w13_bias_none
-        w2_int8 = self.data.w2_weights_int8_square
-        w2_scales = self.data.w2_scales_square
+        w2_int8 = self.data.w2_weights
+        w2_scales = self.data.w2_scales
         w2_bias = self.data.w2_bias_gated
 
         # MoE routing tensors from the strategy.
@@ -409,10 +412,10 @@ class Test_GroupMatmul(GroupMatmulTestCase):
             self.assertEqual(inputs[i].float(), ref[i], atol=5e-1, rtol=5e-1)
 
         # --- Sub-test 2: group_matmul, silu activation + MoE weighted reduce ---
-        w13_act_int8 = self.data.w13_weights_int8_gated
+        w13_act_int8 = self.data.w13_weights_gated
         w13_act_scales = self.data.w13_scales_gated
         w13_act_bias = self.data.w13_bias_gated
-        w2_act_int8 = self.data.w2_weights_int8_gated
+        w2_act_int8 = self.data.w2_weights_gated
         w2_act_scales = self.data.w2_scales_gated
         w2_act_bias = self.data.w2_bias_gated
 
@@ -486,9 +489,9 @@ class Test_GroupMatmul(GroupMatmulTestCase):
         )
 
         # --- Sub-test 3: fused_moe, unique-token s8 + silu + MoE reduce ---
-        w13_fmoe_int8 = self.data.w13_weights_int8_gated
+        w13_fmoe_int8 = self.data.w13_weights_gated
         w13_fmoe_scales = self.data.w13_scales_gated
-        w2_fmoe_int8 = self.data.w2_weights_int8_gated
+        w2_fmoe_int8 = self.data.w2_weights_gated
         w2_fmoe_scales = self.data.w2_scales_gated
         w2_fmoe_bias = self.data.w2_bias_gated
 
@@ -554,6 +557,7 @@ class Test_GroupMatmul(GroupMatmulTestCase):
     @GroupMatmulTestCase.hypothesis_params_group_matmul_itr(
         dtype_list=supported_dtypes_int8,
         k_list=GROUP_MATMUL_INT8_GATED_K_VALUES,
+        weight_mode=GroupMatmulWeights.INT8,
     )
     @torch.inference_mode()
     def test_int8_w13_and_w2_two_pass(self, dtype):
@@ -602,9 +606,9 @@ class Test_GroupMatmul(GroupMatmulTestCase):
                 return torch.nn.functional.gelu(gate) * up
             raise ValueError(f"unsupported activation: {act}")
 
-        w13_int8 = self.data.w13_weights_int8_gated
+        w13_int8 = self.data.w13_weights_gated
         w13_scales = self.data.w13_scales_gated
-        w2_int8 = self.data.w2_weights_int8_gated
+        w2_int8 = self.data.w2_weights_gated
         w2_scales = self.data.w2_scales_gated
         w2_bias = self.data.w2_bias_gated
 
@@ -658,6 +662,7 @@ class Test_GroupMatmul(GroupMatmulTestCase):
     @GroupMatmulTestCase.hypothesis_params_group_matmul_itr(
         dtype_list=supported_dtypes_int8,
         k_list=GROUP_MATMUL_INT8_K_VALUES,
+        weight_mode=GroupMatmulWeights.INT8,
     )
     @torch.inference_mode()
     def test_int8_missing_scales(self, dtype):
@@ -667,7 +672,7 @@ class Test_GroupMatmul(GroupMatmulTestCase):
         M = self.data.M
         N = self.data.N
         inputs = self.data.inputs
-        w13_int8 = self.data.w13_int8_raw
+        w13_int8 = self.data.w13_raw
         w13_bias = self.data.w13_bias_none
         gemm_outputs = [
             torch.empty(M, N, dtype=torch_dtype) for i in range(num_experts)

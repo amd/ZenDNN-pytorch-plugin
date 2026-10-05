@@ -16,6 +16,7 @@ from unittest_utils import (  # noqa: E402
     GROUP_MATMUL_DA8W4_HIDDEN_VALUES,
     GROUP_MATMUL_DA8W4_INTER_VALUES,
     GroupMatmulTestCase,
+    GroupMatmulWeights,
     dynamic_quant_dequant_per_token,
     has_zentorch,
     run_tests,
@@ -204,13 +205,14 @@ class Test_FusedFFNConcat(GroupMatmulTestCase):
     @GroupMatmulTestCase.hypothesis_params_group_matmul_itr(
         dtype_list=supported_dtypes_int8,
         k_list=GROUP_MATMUL_INT8_K_VALUES,
+        weight_mode=GroupMatmulWeights.INT8,
     )
     @torch.inference_mode()
     def test_fused_ffn_int8_da8w8(self, dtype, with_bias):
         torch_dtype = self.data.get_torch_type(dtype)
         x = self.data.inputs[0]
-        w13 = self.data.w13_weights_int8_gated[0]
-        w2 = self.data.w2_weights_int8_gated[0]
+        w13 = self.data.w13_weights_gated[0]
+        w2 = self.data.w2_weights_gated[0]
         w13_scale = self.data.w13_scales_gated[0]
         w2_scale = self.data.w2_scales_gated[0]
         w13_bias = self.data.w13_bias_gated[0] if with_bias else None

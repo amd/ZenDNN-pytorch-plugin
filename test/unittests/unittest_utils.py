@@ -161,6 +161,8 @@ from zentorch_test_utils import (  # noqa: 402 # noqa: F401
     GROUP_MATMUL_DA8W4_HIDDEN_VALUES,
     GROUP_MATMUL_DA8W4_INTER_VALUES,
     GROUP_MATMUL_DA8W4_GROUP_SIZE_VALUES,
+    GroupMatmulWeights,
+    GROUP_MATMUL_WEIGHTS_DEF,
     # add_xD variables
     MM_ADD_1D_M_RANGE,
     MM_ADD_1D_K_RANGE,
@@ -1187,21 +1189,16 @@ class GroupMatmulTestCase(Zentorch_TestCase):
         inputs,
         w13_bias_none,
         w13_weights,
-        w13_weights_int8,
         w13_scales,
-        w13_int8_raw,
+        w13_raw,
         w13_weights_gated,
         w13_bias_gated,
         w2_weights_gated,
         w2_bias_gated,
-        w13_weights_int8_gated,
         w13_scales_gated,
-        w2_weights_int8_gated,
         w2_scales_gated,
-        w13_weights_int8_square,
-        w13_scales_square,
-        w2_weights_int8_square,
-        w2_scales_square,
+        w2_weights,
+        w2_scales,
         hidden_states,
         topk_indices,
         topk_weights_routing,
@@ -1220,21 +1217,16 @@ class GroupMatmulTestCase(Zentorch_TestCase):
             inputs=inputs,
             w13_bias_none=w13_bias_none,
             w13_weights=w13_weights,
-            w13_weights_int8=w13_weights_int8,
             w13_scales=w13_scales,
-            w13_int8_raw=w13_int8_raw,
+            w13_raw=w13_raw,
             w13_weights_gated=w13_weights_gated,
             w13_bias_gated=w13_bias_gated,
             w2_weights_gated=w2_weights_gated,
             w2_bias_gated=w2_bias_gated,
-            w13_weights_int8_gated=w13_weights_int8_gated,
             w13_scales_gated=w13_scales_gated,
-            w2_weights_int8_gated=w2_weights_int8_gated,
             w2_scales_gated=w2_scales_gated,
-            w13_weights_int8_square=w13_weights_int8_square,
-            w13_scales_square=w13_scales_square,
-            w2_weights_int8_square=w2_weights_int8_square,
-            w2_scales_square=w2_scales_square,
+            w2_weights=w2_weights,
+            w2_scales=w2_scales,
             hidden_states=hidden_states,
             topk_indices=topk_indices,
             topk_weights_routing=topk_weights_routing,
@@ -1259,21 +1251,16 @@ class GroupMatmulTestCase(Zentorch_TestCase):
             inputs,
             w13_bias_none,
             w13_weights,
-            w13_weights_int8,
             w13_scales,
-            w13_int8_raw,
+            w13_raw,
             w13_weights_gated,
             w13_bias_gated,
             w2_weights_gated,
             w2_bias_gated,
-            w13_weights_int8_gated,
             w13_scales_gated,
-            w2_weights_int8_gated,
             w2_scales_gated,
-            w13_weights_int8_square,
-            w13_scales_square,
-            w2_weights_int8_square,
-            w2_scales_square,
+            w2_weights,
+            w2_scales,
             hidden_states,
             topk_indices,
             topk_weights_routing,
@@ -1292,21 +1279,16 @@ class GroupMatmulTestCase(Zentorch_TestCase):
             inputs=inputs,
             w13_bias_none=w13_bias_none,
             w13_weights=w13_weights,
-            w13_weights_int8=w13_weights_int8,
             w13_scales=w13_scales,
-            w13_int8_raw=w13_int8_raw,
+            w13_raw=w13_raw,
             w13_weights_gated=w13_weights_gated,
             w13_bias_gated=w13_bias_gated,
             w2_weights_gated=w2_weights_gated,
             w2_bias_gated=w2_bias_gated,
-            w13_weights_int8_gated=w13_weights_int8_gated,
             w13_scales_gated=w13_scales_gated,
-            w2_weights_int8_gated=w2_weights_int8_gated,
             w2_scales_gated=w2_scales_gated,
-            w13_weights_int8_square=w13_weights_int8_square,
-            w13_scales_square=w13_scales_square,
-            w2_weights_int8_square=w2_weights_int8_square,
-            w2_scales_square=w2_scales_square,
+            w2_weights=w2_weights,
+            w2_scales=w2_scales,
             hidden_states=hidden_states,
             topk_indices=topk_indices,
             topk_weights_routing=topk_weights_routing,
@@ -1332,6 +1314,7 @@ class GroupMatmulTestCase(Zentorch_TestCase):
         hidden_list=GROUP_MATMUL_HIDDEN_VALUES_DEF,
         inter_list=GROUP_MATMUL_INTER_VALUES_DEF,
         group_size_list=GROUP_MATMUL_GROUP_SIZE_VALUES_DEF,
+        weight_mode=GROUP_MATMUL_WEIGHTS_DEF,
         tensor_seed=0,
     ):
         hypStr = ""
@@ -1411,40 +1394,74 @@ class GroupMatmulTestCase(Zentorch_TestCase):
         # ---- Per-expert "no bias" list ----
         w13_bias_none = [None] * num_experts
 
-        w13_weights = [
-            torch.randn(N, K, generator=generator).type(torch_type)
-            for _ in range(num_experts)
-        ]
+        # ---- Primary-shape weights: shape/dtype determined by weight_mode ----
+        N_act = 2 * D
+        if weight_mode == GroupMatmulWeights.INT8:
+            _w13_fp32 = [torch.randn(N, K, generator=generator) for _ in range(num_experts)]
+            w13_weights, w13_scales = _quantize_per_channel(_w13_fp32, out_features=N)
 
-        _w13_weights_primary_fp32 = [
-            torch.randn(N, K, generator=generator) for _ in range(num_experts)
-        ]
-        w13_weights_int8, w13_scales = _quantize_per_channel(
-            _w13_weights_primary_fp32, out_features=N
-        )
+            _w13_gated_fp32 = [
+                torch.randn(N_act, K, generator=generator) for _ in range(num_experts)
+            ]
+            w13_weights_gated, w13_scales_gated = _quantize_per_channel(
+                _w13_gated_fp32, out_features=N_act
+            )
+
+            _w2_gated_fp32 = [
+                torch.randn(K, D, generator=generator) for _ in range(num_experts)
+            ]
+            w2_weights_gated, w2_scales_gated = _quantize_per_channel(
+                _w2_gated_fp32, out_features=K
+            )
+        elif weight_mode == GroupMatmulWeights.INT8_SQUARE:
+            # K×K primary weights for in-place W13→W2 cascaded buffer reuse.
+            _w13_fp32 = [torch.randn(K, K, generator=generator) for _ in range(num_experts)]
+            w13_weights, w13_scales = _quantize_per_channel(_w13_fp32, out_features=K)
+
+            _w13_gated_fp32 = [
+                torch.randn(N_act, K, generator=generator) for _ in range(num_experts)
+            ]
+            w13_weights_gated, w13_scales_gated = _quantize_per_channel(
+                _w13_gated_fp32, out_features=N_act
+            )
+
+            _w2_gated_fp32 = [
+                torch.randn(K, D, generator=generator) for _ in range(num_experts)
+            ]
+            w2_weights_gated, w2_scales_gated = _quantize_per_channel(
+                _w2_gated_fp32, out_features=K
+            )
+        else:  # "FP32"
+            w13_weights = [
+                torch.randn(N, K, generator=generator).type(torch_type)
+                for _ in range(num_experts)
+            ]
+            w13_scales = []
+
+            # N_act = 2*D for gate/up split; K_out == K for W2 buffer reuse.
+            w13_weights_gated = [
+                torch.randn(N_act, K, generator=generator).type(torch_type)
+                for _ in range(num_experts)
+            ]
+            w13_scales_gated = []
+
+            w2_weights_gated = [
+                torch.randn(K, D, generator=generator).type(torch_type)
+                for _ in range(num_experts)
+            ]
+            w2_scales_gated = []
 
         # ---- Raw int8 w13 [N, K] for the negative test ----
-        w13_int8_raw = [
+        w13_raw = [
             torch.randint(
                 -128, 128, (N, K), dtype=torch.int8, generator=generator
             )
             for _ in range(num_experts)
         ]
 
-        # ---- Gated-shape weights / biases ----
-        # N_act = 2*D so the kernel halves the gate / up split to D columns;
-        # K_out is forced to K so W2 buffer-reuse stays valid.
-        N_act = 2 * D
-        w13_weights_gated = [
-            torch.randn(N_act, K, generator=generator).type(torch_type)
-            for _ in range(num_experts)
-        ]
+        # ---- Gated biases (always in torch_type; independent of weight dtype) ----
         w13_bias_gated = [
             torch.randn(N_act, generator=generator).type(torch_type)
-            for _ in range(num_experts)
-        ]
-        w2_weights_gated = [
-            torch.randn(K, D, generator=generator).type(torch_type)
             for _ in range(num_experts)
         ]
         w2_bias_gated = [
@@ -1452,41 +1469,17 @@ class GroupMatmulTestCase(Zentorch_TestCase):
             for _ in range(num_experts)
         ]
 
-        # Int8 gated set: per-channel quantised w13 [N_act, K] and
-        # w2 [K, D], plus matching fp32 references and bf16/f32 biases.
-        w13_weights_gated_fp32 = [
-            torch.randn(N_act, K, generator=generator)
-            for _ in range(num_experts)
-        ]
-        w13_weights_int8_gated, w13_scales_gated = _quantize_per_channel(
-            w13_weights_gated_fp32, out_features=N_act
-        )
-
-        w2_weights_gated_fp32 = [
-            torch.randn(K, D, generator=generator)
-            for _ in range(num_experts)
-        ]
-        w2_weights_int8_gated, w2_scales_gated = _quantize_per_channel(
-            w2_weights_gated_fp32, out_features=K
-        )
-
-        # Used by sub-test 1 of test_int8_w13_and_w2_single_pass, which runs
-        # cascaded W13 -> W2 with activation="none" and N=K_out=K so the
-        # kernel can write W2 output back into the input buffers in place.
-        w13_weights_int8_square_fp32 = [
-            torch.randn(K, K, generator=generator)
-            for _ in range(num_experts)
-        ]
-        w13_weights_int8_square, w13_scales_square = _quantize_per_channel(
-            w13_weights_int8_square_fp32, out_features=K
-        )
-        w2_weights_int8_square_fp32 = [
-            torch.randn(K, K, generator=generator)
-            for _ in range(num_experts)
-        ]
-        w2_weights_int8_square, w2_scales_square = _quantize_per_channel(
-            w2_weights_int8_square_fp32, out_features=K
-        )
+        if weight_mode == GroupMatmulWeights.INT8_SQUARE:
+            w2_weights_fp32 = [
+                torch.randn(K, K, generator=generator)
+                for _ in range(num_experts)
+            ]
+            w2_weights, w2_scales = _quantize_per_channel(
+                w2_weights_fp32, out_features=K
+            )
+        else:
+            w2_weights = [None] * num_experts
+            w2_scales = []
 
         # ---- MoE routing tensors keyed on (num_tokens, K, topk) ----
         hidden_states = torch.randn(num_tokens, K, generator=generator).type(
@@ -1531,21 +1524,16 @@ class GroupMatmulTestCase(Zentorch_TestCase):
             inputs,
             w13_bias_none,
             w13_weights,
-            w13_weights_int8,
             w13_scales,
-            w13_int8_raw,
+            w13_raw,
             w13_weights_gated,
             w13_bias_gated,
             w2_weights_gated,
             w2_bias_gated,
-            w13_weights_int8_gated,
             w13_scales_gated,
-            w2_weights_int8_gated,
             w2_scales_gated,
-            w13_weights_int8_square,
-            w13_scales_square,
-            w2_weights_int8_square,
-            w2_scales_square,
+            w2_weights,
+            w2_scales,
             hidden_states,
             topk_indices,
             topk_weights_routing,
@@ -1568,6 +1556,7 @@ class GroupMatmulTestCase(Zentorch_TestCase):
         inter_list=GROUP_MATMUL_INTER_VALUES_DEF,
         group_size_list=GROUP_MATMUL_GROUP_SIZE_VALUES_DEF,
         cpp_wrapper_opt_list=cpp_wrapper_def_opt,
+        weight_mode=GROUP_MATMUL_WEIGHTS_DEF,
         time_out=None,
         tensor_seed=0,
     ):
@@ -1608,6 +1597,7 @@ class GroupMatmulTestCase(Zentorch_TestCase):
                     hidden_list=hidden_list,
                     inter_list=inter_list,
                     group_size_list=group_size_list,
+                    weight_mode=weight_mode,
                     tensor_seed=tensor_seed,
                 ),
             )
