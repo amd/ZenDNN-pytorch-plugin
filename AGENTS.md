@@ -58,7 +58,7 @@ setup.py                  # Wheel packaging + CppExtension build entry point
 CMakeLists.txt            # Top-level cmake; builds libzentorch.so
 cmake/modules/            # ZenDNN fetch/build, stable-ABI lib, dependency wiring
 src/cpu/cpp/              # C++ operator bindings and integration code
-src/cpu/python/zentorch/  # Python package (backend, llm, vllm plugin)
+src/cpu/python/zentorch/  # Python package (backend, vllm plugin)
 test/                     # All tests (unittests, llm_tests, pre_trained_model_tests)
 .claude/skills/           # Agent skills (each: SKILL.md + an entry script under scripts/)
 scripts/                  # Shared skill helper (common.sh) + benchmark env-setup scripts

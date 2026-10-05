@@ -4,6 +4,7 @@
 # ******************************************************************************
 
 import unittest
+import importlib
 from importlib import metadata
 from unittest.mock import patch
 import sys
@@ -32,6 +33,12 @@ class Test_ZenTorch_Version(Zentorch_TestCase):
             dist_version, "No package metadata found for zentorch or zentorch-weekly"
         )
         self.assertEqual(zentorch.__version__, dist_version)
+
+    def test_llm_submodule_removed(self):
+        self.assertFalse(hasattr(zentorch, "llm"))
+        with self.assertRaises(ModuleNotFoundError) as ctx:
+            importlib.import_module("zentorch.llm")
+        self.assertEqual(ctx.exception.name, "zentorch.llm")
 
 
 class Test_ZenTorch_Dual_Install(Zentorch_TestCase):

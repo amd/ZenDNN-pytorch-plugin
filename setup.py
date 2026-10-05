@@ -324,10 +324,7 @@ _build_config += '__tag_commit__ = "{}"\n'.format(tag_commit)
 _build_config += '__build_commit__ = "{}"\n'.format(git_sha)
 _build_config += '__release_type__ = "{}"\n'.format(RELEASE_TYPE)
 
-packages = [
-    PACKAGE_NAME,
-    PACKAGE_NAME + ".llm",
-]
+packages = [PACKAGE_NAME]
 if ZENTORCH_VLLM_PLUGIN_BUILD:
     packages.append(PACKAGE_NAME + ".vllm")
 extras_require = {}

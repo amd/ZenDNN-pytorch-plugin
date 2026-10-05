@@ -18,8 +18,6 @@ from functools import partial
 
 at_ops = torch.ops.aten
 
-# Eliminate the copy overhead with first token
-# for ChatGLM3 with zentorch.llm.optimize.
 # AOT Autograd was doing an expand for the weights to
 # accomodate 3D matmul as inputs are in 3D which is
 # causing a huge copy overhead.

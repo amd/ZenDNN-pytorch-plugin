@@ -112,4 +112,4 @@ if not __stable_abi_only__:
     from ._meta_registrations import *  # noqa: F401,F403,E402
     from ._lowerings import *  # noqa: F401,F403,E402
     from ._freeze_utils import freezing_enabled  # noqa: F401,E402
-    from . import utils, llm  # noqa: F401,E402
+    from . import utils  # noqa: F401,E402

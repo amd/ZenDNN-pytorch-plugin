@@ -275,7 +275,7 @@ with torch.no_grad():
 ```
 ## 4.4 HuggingFace Generative LLM models
 
->**Note:** The `zentorch.llm.optimize` API has been deprecated. You can run generative models using `torch.compile(model, backend="zentorch")`, but for optimal performance we recommend using vLLM. Please refer to [section 4.6 vLLM Zentorch Plugin](#46-vllm-zentorch-plugin) for more details.
+You can run generative models using `torch.compile(model, backend="zentorch")`, but for optimal performance we recommend using vLLM. Please refer to [section 4.6 vLLM Zentorch Plugin](#46-vllm-zentorch-plugin) for more details.
 
 ## 4.5 Quantized Models
 
