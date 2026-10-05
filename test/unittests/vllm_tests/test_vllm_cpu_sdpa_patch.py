@@ -9,6 +9,8 @@ import types
 import unittest
 import unittest.mock
 
+import torch
+
 from ._test_constants import VLLM_AVAILABLE
 from ._test_utils import load_source_vllm_module
 
@@ -74,6 +76,50 @@ class TestCPUSdpaPatch(unittest.TestCase):
             hook.assert_called_once_with(
                 plugin._CPU_ATTN_MODULE, plugin._do_patch_cpu_sdpa
             )
+
+
+@unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
+class TestVllmSlidingWindowMapping(unittest.TestCase):
+    """The encoder path forwards vLLM's int window as the ZenDNN width."""
+
+    @classmethod
+    def setUpClass(cls):
+        spec, plugin = load_source_vllm_module()
+        with unittest.mock.patch.dict(sys.modules, {"zentorch.vllm": plugin}):
+            spec.loader.exec_module(plugin)
+        cls.plugin = plugin
+
+    def _forwarded_window(self, sliding_window):
+        captured = {}
+
+        def _capture(*args, **kwargs):
+            captured["kwargs"] = kwargs
+
+        layer = types.SimpleNamespace(
+            sliding_window=sliding_window, scale=0.125, alibi_slopes=None
+        )
+        tokens, heads, dim = 4, 2, 8
+        metadata = types.SimpleNamespace(
+            causal=False, query_start_loc=torch.tensor([0, tokens])
+        )
+        with unittest.mock.patch(
+            "torch.ops.zentorch.zentorch_sdpa_attn", side_effect=_capture
+        ):
+            self.plugin._run_encoder_sdpa_zentorch(
+                layer,
+                torch.randn(tokens, heads, dim),
+                torch.randn(tokens, 1, dim),
+                torch.randn(tokens, 1, dim),
+                torch.empty(tokens, heads, dim),
+                metadata,
+            )
+        return captured["kwargs"]["sliding_window_size"]
+
+    def test_window_forwarded(self):
+        self.assertEqual(self._forwarded_window(257), 257)
+
+    def test_disabled_window_is_zero(self):
+        self.assertEqual(self._forwarded_window(-1), 0)
 
 
 if __name__ == "__main__":

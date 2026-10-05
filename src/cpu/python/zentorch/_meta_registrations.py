@@ -184,15 +184,14 @@ if hasattr(torch.ops.zentorch, "zentorch_sdpa"):
         scale: float | None = None,
         is_causal: bool = False,
         alibi_slopes: torch.Tensor | None = None,
-        left_window_size: int = -1,
-        right_window_size: int = -1,
+        sliding_window_size: int = 0,
     ) -> None:
-        """zentorch_sdpa that builds its own attn_mask.
+        """zentorch_sdpa for encoder attention.
 
-        Callers pass ALiBi slopes and the window instead of a mask, so no dense
-        S x S tensor is built outside the plugin. Both may be set, in which
-        case the two biases add, and the kernel applies the causal triangle on
-        top of them. Attention is written into `out`.
+        ``sliding_window_size`` is the window width W (band
+        ``|i - j| <= W - 1``, 0 = off); ZenDNN applies it, so no window mask
+        is built. ALiBi slopes are still an additive mask. Attention is
+        written into `out`.
         """
         torch.ops.zentorch.zentorch_sdpa.out(
             query,
@@ -201,13 +200,10 @@ if hasattr(torch.ops.zentorch, "zentorch_sdpa"):
             dropout_p=0.0,
             is_causal=is_causal,
             attn_mask=_zen_encoder_attn_mask(
-                query.size(2),
-                query.dtype,
-                alibi_slopes,
-                left_window_size,
-                right_window_size,
+                query.size(2), query.dtype, alibi_slopes
             ),
             scale=scale,
+            sliding_window_size=sliding_window_size,
             out=out,
         )
 
@@ -220,8 +216,7 @@ if hasattr(torch.ops.zentorch, "zentorch_sdpa"):
         scale=None,
         is_causal=False,
         alibi_slopes=None,
-        left_window_size=-1,
-        right_window_size=-1,
+        sliding_window_size=0,
     ) -> None:
         return None
 
@@ -234,6 +229,8 @@ if hasattr(torch.ops.zentorch, "zentorch_sdpa"):
         is_causal=False,
         attn_mask=None,
         scale=None,
+        sliding_window_size=0,
+        zentorch_op_name="zentorch::zentorch_sdpa",
     ):
         batch_size = query.size(0)
         num_heads = query.size(1)
@@ -262,6 +259,7 @@ if hasattr(torch.ops.zentorch, "zentorch_sdpa"):
         is_causal=False,
         attn_mask=None,
         scale=None,
+        sliding_window_size=0,
         zentorch_op_name="zentorch::zentorch_sdpa.out",
         out=None,
     ):

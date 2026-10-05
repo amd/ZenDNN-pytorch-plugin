@@ -49,7 +49,7 @@ inline void zendnnl_sdpa_direct_kernel(
     const torch::stable::Tensor &value, torch::stable::Tensor &output,
     const double dropout_p, const bool is_causal,
     const std::optional<torch::stable::Tensor> &attn_mask,
-    const std::optional<double> &scale) {
+    const std::optional<double> &scale, int64_t sliding_window_size) {
   zendnnl::lowoha::sdpa::sdpa_params fp{};
   fp.batch = query.size(0);
   fp.num_heads = query.size(1);
@@ -80,6 +80,8 @@ inline void zendnnl_sdpa_direct_kernel(
   fp.out_dt = get_zendnnl_dtype(query);
   fp.scale = scale.value_or(1.0 / std::sqrt(static_cast<double>(fp.head_dim)));
   fp.is_causal = is_causal;
+  fp.sliding_window = sliding_window_size > 0;
+  fp.sliding_window_size = sliding_window_size > 0 ? sliding_window_size : 0;
   fp.dropout_p = dropout_p;
 
   const void *mask_ptr = nullptr;
@@ -110,7 +112,7 @@ zentorch_scaled_dot_product_attention_impl(
     const torch::stable::Tensor &query, const torch::stable::Tensor &key,
     const torch::stable::Tensor &value, double dropout_p, bool is_causal,
     std::optional<torch::stable::Tensor> attn_mask, std::optional<double> scale,
-    torch::stable::Tensor &output) {
+    int64_t sliding_window_size, torch::stable::Tensor &output) {
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__;
   const auto dtype = query.scalar_type();
@@ -189,11 +191,19 @@ zentorch_scaled_dot_product_attention_impl(
       attn_mask = torch::stable::contiguous(*attn_mask);
     }
     const bool use_zendnnl_direct_sdpa = (int_env_value == 1) && !requires_lse;
+    // The in-plugin flash kernel has no window parameter. Rebuilding a dense
+    // mask here would put the S x S band back; reject instead.
+    ZENTORCH_CHECK(sliding_window_size <= 0 || use_zendnnl_direct_sdpa,
+                   "zentorch_sdpa: sliding_window_size > 0 requires the "
+                   "ZenDNN SDPA kernel (ZENTORCH_USE_ZENDNN_SDPA=1, "
+                   "inference only)");
     if (use_zendnnl_direct_sdpa) {
       // ZenDNN flash SDPA is inference-only and does not compute logsumexp.
-      // We bypass this path when autograd is engaged.
+      // We bypass this path when autograd is engaged. A sliding window is a
+      // kernel parameter here, not an additive mask.
       zendnnl_sdpa_direct_kernel(query, key, value, output, dropout_p,
-                                 is_causal, attn_mask, scale);
+                                 is_causal, attn_mask, scale,
+                                 sliding_window_size);
     } else {
       torch::stable::Tensor output_contiguous =
           torch::stable::contiguous(output);
@@ -260,11 +270,12 @@ zentorch_scaled_dot_product_attention_impl(
 
     return std::make_tuple(std::move(caller_out), std::move(logsumexp));
   } else {
-    // at::_scaled_dot_product_flash_attention_for_cpu does an extra .contiguous
-    // on the query tensor while we process the query as is in meta registration
-    // and bf16 impl. Leading to a mismatch in stride between meta output and
-    // runtime output.
-    // Hence using native - same as ipex.
+    // Dtype is not supported by the in-plugin kernels. ATen's CPU flash
+    // kernel has no sliding-window parameter.
+    ZENTORCH_CHECK(sliding_window_size <= 0,
+                   "zentorch_sdpa: sliding_window_size > 0 requires the "
+                   "ZenDNN SDPA kernel (ZENTORCH_USE_ZENDNN_SDPA=1, "
+                   "inference only)");
     auto native_result = at::native::_scaled_dot_product_flash_attention_cpu(
         to_aten(query), to_aten(key), to_aten(value), dropout_p, is_causal,
         to_aten_optional(attn_mask), scale);
@@ -278,43 +289,47 @@ zentorch_scaled_dot_product_attention_impl(
 // attention backend, which is handed a pre-allocated output tensor) skip the
 // full-size copy that the allocating variant forces on them. logsumexp is
 // still computed as kernel scratch but dropped, since the op returns ().
-void zentorch_sdpa_out(
-    const torch::stable::Tensor &query, const torch::stable::Tensor &key,
-    const torch::stable::Tensor &value, double dropout_p, bool is_causal,
-    std::optional<torch::stable::Tensor> attn_mask, std::optional<double> scale,
-    std::string zentorch_op_name, torch::stable::Tensor &out) {
+void zentorch_sdpa_out(const torch::stable::Tensor &query,
+                       const torch::stable::Tensor &key,
+                       const torch::stable::Tensor &value, double dropout_p,
+                       bool is_causal,
+                       std::optional<torch::stable::Tensor> attn_mask,
+                       std::optional<double> scale, int64_t sliding_window_size,
+                       std::string zentorch_op_name,
+                       torch::stable::Tensor &out) {
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__
             << " zentorch_op_name: " << zentorch_op_name;
   zentorch_scaled_dot_product_attention_impl(query, key, value, dropout_p,
                                              is_causal, std::move(attn_mask),
-                                             scale, out);
+                                             scale, sliding_window_size, out);
 }
 
-std::tuple<torch::stable::Tensor, torch::stable::Tensor>
-zentorch_sdpa(const torch::stable::Tensor &query,
-              const torch::stable::Tensor &key,
-              const torch::stable::Tensor &value, double dropout_p,
-              bool is_causal, std::optional<torch::stable::Tensor> attn_mask,
-              std::optional<double> scale, std::string zentorch_op_name) {
+std::tuple<torch::stable::Tensor, torch::stable::Tensor> zentorch_sdpa(
+    const torch::stable::Tensor &query, const torch::stable::Tensor &key,
+    const torch::stable::Tensor &value, double dropout_p, bool is_causal,
+    std::optional<torch::stable::Tensor> attn_mask, std::optional<double> scale,
+    int64_t sliding_window_size, std::string zentorch_op_name) {
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__
             << " zentorch_op_name: " << zentorch_op_name;
   torch::stable::Tensor output = torch::stable::empty_like(query);
   return zentorch_scaled_dot_product_attention_impl(
       query, key, value, dropout_p, is_causal, std::move(attn_mask), scale,
-      output);
+      sliding_window_size, output);
 }
 
 STABLE_TORCH_LIBRARY_FRAGMENT(zentorch, m) {
   m.def("zentorch_sdpa(Tensor query, Tensor key, "
         "Tensor value , float dropout_p=0.0, "
         "bool is_causal=False, *, Tensor? attn_mask=None, float? scale=None, "
+        "int sliding_window_size=0, "
         "str zentorch_op_name = "
         "'zentorch::zentorch_sdpa')-> (Tensor, Tensor)");
   m.def("zentorch_sdpa.out(Tensor query, Tensor key, "
         "Tensor value , float dropout_p=0.0, "
         "bool is_causal=False, *, Tensor? attn_mask=None, float? scale=None, "
+        "int sliding_window_size=0, "
         "str zentorch_op_name = "
         "'zentorch::zentorch_sdpa.out', Tensor(a!) out)-> ()");
 }

@@ -116,7 +116,10 @@ def _zen_make_alibi_bias(alibi_slopes, dtype, seq_len):
 
 
 def _zen_make_sliding_window_bias(seq_len, left_window_size, right_window_size, dtype):
-    """Vendored sliding-window mask builder (no longer shipped by vLLM cpu_attn)."""
+    """Dense log-bias for tests that compare a native width against a mask.
+
+    The SDPA op does not call this. ZenDNN takes the window as a width.
+    """
     mask = torch.full((1, seq_len, seq_len), fill_value=1, dtype=dtype)
     if right_window_size != -1:
         mask = torch.tril(mask, diagonal=right_window_size)
@@ -130,11 +133,11 @@ def _zen_encoder_attn_mask(
 ):
     """One additive attn_mask for a sequence of length seq_len, or None.
 
-    Returns None when there is no ALiBi and no sliding window. Bidirectional
-    encoder attention (is_causal=False) still uses this mask for ALiBi/window;
-    the causal triangle is the kernel's is_causal flag, not this tensor.
-    ALiBi and a sliding window may both be set; the two biases add. Window
-    masks are promoted to rank 4 because zentorch_sdpa rejects rank 3.
+    Returns None when there is no ALiBi and no sliding window. The production
+    SDPA path passes ALiBi only; a window width goes to ZenDNN and is not
+    folded in here. The window branch remains so tests can build a reference
+    mask. The causal triangle is the kernel's is_causal flag, not this tensor.
+    Window masks are promoted to rank 4 because zentorch_sdpa rejects rank 3.
     """
     seq_len = int(seq_len)
     if alibi_slopes is None and left_window_size == -1 and right_window_size == -1:

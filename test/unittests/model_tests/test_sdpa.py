@@ -345,9 +345,9 @@ class Test_Sdpa_Attn(SDPATestCase):
             alibi_slopes = torch.pow(
                 2.0, -torch.arange(1, num_heads + 1, dtype=torch.float32)
             )
-        left = right = -1
+        window = 0
         if "window" in mask_type:
-            left = right = min(8, max(1, seq_len // 4))
+            window = min(8, max(1, seq_len // 4)) + 1
 
         out = torch.empty_like(query)
         torch.ops.zentorch.zentorch_sdpa_attn(
@@ -358,11 +358,11 @@ class Test_Sdpa_Attn(SDPATestCase):
             scale=scale,
             is_causal=is_causal,
             alibi_slopes=alibi_slopes,
-            left_window_size=left,
-            right_window_size=right,
+            sliding_window_size=window,
         )
+        radius = window - 1 if window > 0 else -1
         mask = _zen_encoder_attn_mask(
-            seq_len, torch_dtype, alibi_slopes, left, right
+            seq_len, torch_dtype, alibi_slopes, radius, radius
         )
         # zentorch_sdpa applies the causal triangle on top of attn_mask, but
         # ATen rejects the two together, so fold causality into the mask.
@@ -385,11 +385,14 @@ class Test_Sdpa_Attn(SDPATestCase):
             is_causal=is_causal,
             dropout_p=0.0,
         )
+        # ZenDNN's native window skips and shrinks KV tiles, so bf16
+        # accumulation order differs from the dense-mask reference.
+        atol, rtol = default_tolerance(torch_dtype)
         self.assertEqual(
             out,
             reference,
-            atol=1e-3,
-            rtol=1e-2,
+            atol=max(atol, 1e-3),
+            rtol=max(rtol, 1e-2),
         )
 
     def test_encoder_attn_mask_none_without_bias(self):
@@ -404,6 +407,60 @@ class Test_Sdpa_Attn(SDPATestCase):
             8, torch.float32, left_window_size=2, right_window_size=2
         )
         self.assertEqual(tuple(window.shape), (1, 1, 8, 8))
+
+    def test_native_window_matches_dense_mask(self):
+        """Native W=257 matches a dense band with L = R = 256.
+
+        EmbeddingGemma-300M shape: Q [1, 3, 1024, 256], KV [1, 1, 1024, 256].
+        The dense-mask call runs first.
+        """
+        from zentorch._utils import _zen_encoder_attn_mask
+
+        dtype = (
+            torch.bfloat16
+            if zentorch._C.is_bf16_supported()
+            else torch.float32
+        )
+        batch, num_heads, kv_num_heads, seq_len, head_dim = 1, 3, 1, 1024, 256
+        window = 257
+        query, key, value = _make_gqa_tensors(
+            batch,
+            num_heads,
+            kv_num_heads,
+            seq_len,
+            seq_len,
+            head_dim,
+            dtype=dtype,
+            tensor_seed=5,
+        )
+        scale = 1.0 / math.sqrt(head_dim)
+        mask = _zen_encoder_attn_mask(
+            seq_len,
+            dtype,
+            left_window_size=window - 1,
+            right_window_size=window - 1,
+        )
+        dense_out, _ = torch.ops.zentorch.zentorch_sdpa(
+            query,
+            key,
+            value,
+            dropout_p=0.0,
+            is_causal=False,
+            attn_mask=mask,
+            scale=scale,
+        )
+        native_out = torch.empty_like(query)
+        torch.ops.zentorch.zentorch_sdpa_attn(
+            query,
+            key,
+            value,
+            native_out,
+            scale=scale,
+            is_causal=False,
+            sliding_window_size=window,
+        )
+        atol, rtol = default_tolerance(dtype)
+        self.assertEqual(native_out, dense_out, atol=atol, rtol=rtol)
 
 
 if __name__ == "__main__":
