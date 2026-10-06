@@ -349,12 +349,14 @@ def _run_encoder_sdpa_zentorch(self, query, key, value, output, attn_metadata):
     """Encoder-only / encoder attention via zentorch_sdpa.
 
     Uses attn_metadata.query_start_loc for per-sequence offsets. The sliding
-    window is forwarded as a width; ZenDNN applies the band. ALiBi slopes,
-    when set, are still an additive mask.
+    window is forwarded as flash-attn radii; the op turns those into the
+    ZenDNN width. ALiBi slopes, when set, are still an additive mask.
     """
     start_loc = attn_metadata.query_start_loc
-    # CPUAttentionBackendImpl stores the window as an int, -1 when disabled.
-    sliding_window_size = max(int(self.sliding_window), 0)
+    # CPUAttentionBackendImpl stores the window as a width, -1 when disabled.
+    # The op counts tokens on each side of the diagonal (W - 1).
+    sliding_window = int(self.sliding_window)
+    window = -1 if sliding_window < 0 else sliding_window - 1
 
     is_causal = attn_metadata.causal
 
@@ -390,7 +392,8 @@ def _run_encoder_sdpa_zentorch(self, query, key, value, output, attn_metadata):
             scale=self.scale,
             is_causal=is_causal,
             alibi_slopes=self.alibi_slopes,
-            sliding_window_size=sliding_window_size,
+            left_window_size=window,
+            right_window_size=window,
         )
         return output
 
@@ -405,7 +408,8 @@ def _run_encoder_sdpa_zentorch(self, query, key, value, output, attn_metadata):
             scale=self.scale,
             is_causal=is_causal,
             alibi_slopes=self.alibi_slopes,
-            sliding_window_size=sliding_window_size,
+            left_window_size=window,
+            right_window_size=window,
         )
     return output
 

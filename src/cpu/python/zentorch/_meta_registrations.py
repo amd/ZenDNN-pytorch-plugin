@@ -184,15 +184,24 @@ if hasattr(torch.ops.zentorch, "zentorch_sdpa"):
         scale: float | None = None,
         is_causal: bool = False,
         alibi_slopes: torch.Tensor | None = None,
-        sliding_window_size: int = 0,
+        left_window_size: int = -1,
+        right_window_size: int = -1,
     ) -> None:
         """zentorch_sdpa for encoder attention.
 
-        ``sliding_window_size`` is the window width W (band
-        ``|i - j| <= W - 1``, 0 = off); ZenDNN applies it, so no window mask
-        is built. ALiBi slopes are still an additive mask. Attention is
-        written into `out`.
+        ``left_window_size`` and ``right_window_size`` are flash-attn radii
+        (tokens on each side of the diagonal, ``-1`` = off). Callers pass
+        the same radius ``R`` on both sides; that becomes the ZenDNN width
+        ``W = R + 1``, which the kernel applies, so no window mask is built.
+        ALiBi slopes are still an additive mask. Attention is written into
+        `out`.
         """
+        left = int(left_window_size)
+        right = int(right_window_size)
+        if left < 0 and right < 0:
+            sliding_window_size = 0
+        else:
+            sliding_window_size = left + 1
         torch.ops.zentorch.zentorch_sdpa.out(
             query,
             key,
@@ -216,7 +225,8 @@ if hasattr(torch.ops.zentorch, "zentorch_sdpa"):
         scale=None,
         is_causal=False,
         alibi_slopes=None,
-        sliding_window_size=0,
+        left_window_size=-1,
+        right_window_size=-1,
     ) -> None:
         return None
 

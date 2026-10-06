@@ -80,7 +80,7 @@ class TestCPUSdpaPatch(unittest.TestCase):
 
 @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
 class TestVllmSlidingWindowMapping(unittest.TestCase):
-    """The encoder path forwards vLLM's int window as the ZenDNN width."""
+    """The encoder path forwards vLLM's width as flash-attn radii."""
 
     @classmethod
     def setUpClass(cls):
@@ -113,13 +113,14 @@ class TestVllmSlidingWindowMapping(unittest.TestCase):
                 torch.empty(tokens, heads, dim),
                 metadata,
             )
-        return captured["kwargs"]["sliding_window_size"]
+        kwargs = captured["kwargs"]
+        return kwargs["left_window_size"], kwargs["right_window_size"]
 
     def test_window_forwarded(self):
-        self.assertEqual(self._forwarded_window(257), 257)
+        self.assertEqual(self._forwarded_window(257), (256, 256))
 
     def test_disabled_window_is_zero(self):
-        self.assertEqual(self._forwarded_window(-1), 0)
+        self.assertEqual(self._forwarded_window(-1), (-1, -1))
 
 
 if __name__ == "__main__":

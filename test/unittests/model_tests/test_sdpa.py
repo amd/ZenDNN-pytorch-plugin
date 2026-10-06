@@ -358,7 +358,8 @@ class Test_Sdpa_Attn(SDPATestCase):
             scale=scale,
             is_causal=is_causal,
             alibi_slopes=alibi_slopes,
-            sliding_window_size=window,
+            left_window_size=window - 1 if window > 0 else -1,
+            right_window_size=window - 1 if window > 0 else -1,
         )
         radius = window - 1 if window > 0 else -1
         mask = _zen_encoder_attn_mask(
@@ -457,7 +458,8 @@ class Test_Sdpa_Attn(SDPATestCase):
             native_out,
             scale=scale,
             is_causal=False,
-            sliding_window_size=window,
+            left_window_size=window - 1,
+            right_window_size=window - 1,
         )
         atol, rtol = default_tolerance(dtype)
         self.assertEqual(native_out, dense_out, atol=atol, rtol=rtol)
