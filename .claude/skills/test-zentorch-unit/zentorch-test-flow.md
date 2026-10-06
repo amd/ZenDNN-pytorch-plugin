@@ -23,7 +23,7 @@ python test/install_requirements.py
 ```
 
 The dependency installer covers `transformers`, `expecttest`, `parameterized`,
-`hypothesis`, `deprecated`, and PyTorch-matched `torchvision` and `torchao`.
+`hypothesis`, and PyTorch-matched `torchvision` and `torchao`.
 With no argument, the script runs all unit tests under `./test/unittests`.
 Other supported scopes map to `./test`, a named test category, or one existing
 test file. Export tests may write `model.pt2` and `model_z.pt2` in the checkout;

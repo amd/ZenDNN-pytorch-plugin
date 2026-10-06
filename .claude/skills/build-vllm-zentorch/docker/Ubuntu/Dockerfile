@@ -117,7 +117,7 @@ RUN cd /ZenDNN_PyTorch_Plugin && \
     rm -rf build dist *.egg-info && \
     python setup.py bdist_wheel && \
     pip install dist/*.whl && \
-    pip install deprecated scipy sympy torchao==0.17.0 && \
+    pip install scipy sympy torchao==0.17.0 && \
     pip install lm-eval[vllm]==0.4.12 ray && \
     cd / && rm -rf /ZenDNN_PyTorch_Plugin /ZenDNN
 

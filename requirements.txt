@@ -7,5 +7,4 @@ parameterized
 packaging
 setuptools>=50.0
 setupext_janitor
-deprecated
 torch-abi-audit==0.0.1; python_version >= "3.11"

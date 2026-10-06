@@ -259,7 +259,6 @@ tag_commit = get_tag_commit(project_root_dir, source_tag)
 wheel_file_dependencies = [
     "numpy",
     "torch",
-    "deprecated",
     "safetensors",
 ]
 # -Wno-unknown-pragma is for [unroll pragma], to be removed

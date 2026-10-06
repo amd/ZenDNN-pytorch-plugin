@@ -291,12 +291,6 @@ With it the script instead:
 `ZENTORCH_USE_LOCAL_ZENDNN` is exported by this skill, not by the script — the
 script is deliberately agnostic about where ZenDNN comes from.
 
-Because the script installs `requirements.txt` into the active environment before
-building, zentorch's pure-python runtime dependencies (including `deprecated`,
-without which `import zentorch` raises `ModuleNotFoundError`) are already present
-despite the `--no-deps` wheel install. Only a hand-rolled `pip install --no-deps`
-outside the script needs `pip install deprecated` afterward.
-
 **Build against the exact torch vLLM installed — do not let pip swap it.** The
 vLLM install above (pip `+cpu` wheel or source) already pinned a specific CPU
 torch; zentorch must compile and install against *that* torch, not a fresh one.
@@ -328,7 +322,7 @@ Concrete artifacts produced by the steps above:
 Expected installed state after all steps:
 - `pip show zentorch` reports the version matching `dist/zentorch-*.whl`.
 - `python -c "from vllm import LLM"` imports vLLM (pip or from-source).
-- `python -c "import torch, zentorch"` succeeds (`deprecated` present).
+- `python -c "import torch, zentorch"` succeeds.
 
 ## Runtime environment (document for the user)
 ```bash
@@ -447,7 +441,7 @@ docker build -t zentorch-cpu \
 ```
 Run with the HF token at runtime, never baked in: `docker run -e HF_TOKEN=... ...`.
 **Keep these Dockerfiles in sync** with the native build gotchas (CPU wheel /
-`+cpu`, `rm -rf build`, explicit `CC/CXX`, `deprecated` dep).
+`+cpu`, `rm -rf build`, explicit `CC/CXX`).
 
 ## Gotchas
 - **The default backend path depends on a pinned tag that can go stale:**

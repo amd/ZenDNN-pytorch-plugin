@@ -245,18 +245,11 @@ with torch.no_grad():
 
 ### 4.1.1 Using freeze path with zentorch
 
-Additionally, zentorch supports freezing the model, the example below shows the same:
-```python
-import torch
-import zentorch
---snip--
-compiled_model = torch.compile(model, backend='zentorch')
-with torch.no_grad(), zentorch.freezing_enabled():
-    output = compiled_model(input)
+Additionally, zentorch supports freezing the model. To enable the freeze path, export the following environment variable before running your script:
+```bash
+export TORCHINDUCTOR_FREEZING=1
 ```
->**Notes:**
->* zentorch.freezing_enabled() is deprecated and will be removed in next release. Please use ```export TORCHINDUCTOR_FREEZING=1``` to enable freezing path for zentorch.
->*  _zentorch_ is able to do the zentorch op replacements in both non-inference and inference modes. But some of the _zentorch_ optimizations are only supported for the inference mode, so it is recommended to use `torch.no_grad()` if you are running the model for inference only.
+>**Note:** _zentorch_ is able to do the zentorch op replacements in both non-inference and inference modes. But some of the _zentorch_ optimizations are only supported for the inference mode, so it is recommended to use `torch.no_grad()` if you are running the model for inference only.
 
 ## 4.2 CNN Models
 For CNN models, set `dynamic=False` when calling for `torch.compile` as below:

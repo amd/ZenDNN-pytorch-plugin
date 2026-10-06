@@ -14,7 +14,6 @@ BASE_REQUIREMENTS = [
     "expecttest==0.1.6",
     "parameterized",
     "hypothesis",
-    "deprecated",
 ]
 
 # torch-abi-audit 0.0.1 requires Python >= 3.11; zentorch still supports 3.10.

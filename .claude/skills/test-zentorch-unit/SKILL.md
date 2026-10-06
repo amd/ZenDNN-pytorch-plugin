@@ -83,9 +83,8 @@ export ZENDNNL_ENABLE_POSTOP_CACHE=0
 python test/install_requirements.py
 ```
 
-Installs `transformers`, `expecttest`, `parameterized`, `hypothesis`, and
-`deprecated`, plus the `torchvision` and `torchao` versions matching the
-installed PyTorch.
+Installs `transformers`, `expecttest`, `parameterized`, and `hypothesis`, plus
+the `torchvision` and `torchao` versions matching the installed PyTorch.
 
 ### Test categories
 
