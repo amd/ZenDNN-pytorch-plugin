@@ -45,7 +45,7 @@ Table of Contents
 
 ## 1.1. Overview
 
-__The latest  ZenDNN Plugin for PyTorch* (zentorch) [2.14.0.1] is here__
+__The latest  ZenDNN Plugin for PyTorch* (zentorch) [2.14.1.0] is here__
 
 The ZenDNN plugin for PyTorch is called zentorch.
 
@@ -58,7 +58,7 @@ They also incorporate optimized embedding bag kernels and enhanced zenMatMul mat
 
 Combined with PyTorch's torch.compile, zentorch transforms deep learning pipelines into finely-tuned, AMD-specific engines, delivering unparalleled efficiency and speed for large-scale inference workloads
 
-_zentorch_ supports PyTorch v2.14.0 (recommended) and v2.13.0. Install the zentorch version matching your PyTorch — zentorch 2.14.0.1 for PyTorch v2.14.0 or zentorch 2.13.0.2 for PyTorch v2.13.0, offering a high-performance experience for deep learning on AMD EPYC™ platforms.
+_zentorch_ supports PyTorch v2.14.1 (recommended) and v2.13.0. Install the zentorch version matching your PyTorch — zentorch 2.14.1.0 for PyTorch v2.14.1 or zentorch 2.13.0.3 for PyTorch v2.13.0, offering a high-performance experience for deep learning on AMD EPYC™ platforms.
 
 
 ## Support
@@ -111,7 +111,7 @@ Refer to the [support matrix](https://www.amd.com/en/developer/zendnn.html#getti
 # 2. Installation
 
 _zentorch_ can be installed using binary wheel file or can be built from source itself.
-_zentorch_ supports PyTorch v2.14.0 (recommended) and v2.13.0. Install the zentorch version matching your PyTorch — zentorch v2.14.0.1 for PyTorch v2.14.0 or zentorch v2.13.0.2 for PyTorch v2.13.0.
+_zentorch_ supports PyTorch v2.14.1 (recommended) and v2.13.0. Install the zentorch version matching your PyTorch — zentorch v2.14.1.0 for PyTorch v2.14.1 or zentorch v2.13.0.3 for PyTorch v2.13.0.
 
 ## 2.1. From PyPI
 
@@ -128,12 +128,12 @@ pip install torch==2.14.0 --index-url https://download.pytorch.org/whl/cpu
 pip install torch==2.13.0 --index-url https://download.pytorch.org/whl/cpu
 ```
 
-* Install latest stable zentorch v2.14.0.0 or v2.13.0.1
+* Install latest stable zentorch v2.14.0.1 or v2.13.0.2
 ```bash
-pip install zentorch==2.14.0.0
+pip install zentorch==2.14.0.1
 ```
 ```bash
-pip install zentorch==2.13.0.1
+pip install zentorch==2.13.0.2
 ```
 
 >**Notes:**
@@ -162,9 +162,9 @@ conda create -n pt-zentorch python=3.12 -y
 conda activate pt-zentorch
 ```
 #### 2.2.2.2. Install PyTorch
-Install PyTorch v2.14.0 (recommended):
+Install PyTorch v2.14.1 (recommended):
 ```bash
-pip install torch==2.14.0 --index-url https://download.pytorch.org/whl/cpu
+pip install torch==2.14.1 --index-url https://download.pytorch.org/whl/cpu
 ```
 Alternatively, PyTorch v2.13.0 is also supported:
 ```bash
@@ -172,7 +172,7 @@ pip install torch==2.13.0 --index-url https://download.pytorch.org/whl/cpu
 ```
 >**Notes:**
 >* This README uses Python 3.12.
->* Zentorch follows PyTorch’s Python version compatibility. For PyTorch 2.14.0.0 and 2.13.0.1 Zentorch supports Python versions 3.10 through 3.14. For other PyTorch releases, refer to the [PyTorch Release Compatibility Matrix](https://github.com/pytorch/pytorch/blob/main/RELEASE.md#release-compatibility-matrix).
+>* Zentorch follows PyTorch’s Python version compatibility. For PyTorch 2.14.1 and 2.13.0 Zentorch supports Python versions 3.10 through 3.14. For other PyTorch releases, refer to the [PyTorch Release Compatibility Matrix](https://github.com/pytorch/pytorch/blob/main/RELEASE.md#release-compatibility-matrix).
 >* Zentorch does not support experimental versions of Python (3.13T/3.14T)
 
 #### 2.2.2.3. Install Dependencies
@@ -187,12 +187,12 @@ python setup.py bdist_wheel
 
 #### 2.2.2.5. To install the wheel file of _zentorch_
 ```bash
-pip install dist/zentorch-2.14.0.1-cp312-cp312-linux_x86_64.whl
+pip install dist/zentorch-2.14.1.0-cp312-cp312-linux_x86_64.whl
 ```
 or
 
 ```bash
-pip install dist/zentorch-2.13.0.2-cp312-cp312-linux_x86_64.whl
+pip install dist/zentorch-2.13.0.3-cp312-cp312-linux_x86_64.whl
 ```
 >**Note:** After installation, run the following script for recommended environment settings:
 >```bash
@@ -245,11 +245,20 @@ with torch.no_grad():
 
 ### 4.1.1 Using freeze path with zentorch
 
-Additionally, zentorch supports freezing the model. To enable the freeze path, export the following environment variable before running your script:
+Additionally, zentorch supports freezing the model. Enable it before running:
 ```bash
 export TORCHINDUCTOR_FREEZING=1
 ```
->**Note:** _zentorch_ is able to do the zentorch op replacements in both non-inference and inference modes. But some of the _zentorch_ optimizations are only supported for the inference mode, so it is recommended to use `torch.no_grad()` if you are running the model for inference only.
+```python
+import torch
+import zentorch
+--snip--
+compiled_model = torch.compile(model, backend='zentorch')
+with torch.no_grad():
+    output = compiled_model(input)
+```
+>**Note:**
+>*  _zentorch_ is able to do the zentorch op replacements in both non-inference and inference modes. But some of the _zentorch_ optimizations are only supported for the inference mode, so it is recommended to use `torch.no_grad()` if you are running the model for inference only.
 
 ## 4.2 CNN Models
 For CNN models, set `dynamic=False` when calling for `torch.compile` as below:
@@ -268,7 +277,7 @@ with torch.no_grad():
 ```
 ## 4.4 HuggingFace Generative LLM models
 
-You can run generative models using `torch.compile(model, backend="zentorch")`, but for optimal performance we recommend using vLLM. Please refer to [section 4.6 vLLM Zentorch Plugin](#46-vllm-zentorch-plugin) for more details.
+HuggingFace generative LLM models can be run with `torch.compile(model, backend='zentorch')`. For optimal performance, use the vLLM zentorch plugin. Refer to [vLLM Zentorch Plugin](#46-vllm-zentorch-plugin).
 
 ## 4.5 Quantized Models
 
@@ -280,8 +289,8 @@ Models can be quantized using TorchAO, HuggingFace Transformers and LLM-Compress
 
 ### 4.5.1 Quantizing Models
 
-Models quantized with **TorchAO** or **LLM-Compressor** for this release are published on the [Hugging Face Hub](https://huggingface.co/amd/collections?search=zentorch) under the **amd** collections. 
-Each model ID follows a consistent pattern: base model, quantization scheme, optional symmetric or asymmetric grouping, quantizer, and tool version. For example, `w4a16-asym-torchao-v0.17.0` denotes 4-bit weight-only quantization with asymmetric per-group weights, produced with TorchAO v0.17.0. 
+Models quantized with **LLM-Compressor** or **TorchAO** for this release are published in the [AMD EPYC compatible models](https://huggingface.co/collections/RedHatAI/amd-epyc-compatible-models) collection on the Hugging Face Hub.
+Each model ID follows a consistent pattern: base model, quantization scheme, optional symmetric or asymmetric grouping, quantizer, and tool version. For example, `w4a16-asym-torchao-v0.17.0` denotes 4-bit weight-only quantization with asymmetric per-group weights, produced with TorchAO v0.17.0. `w4a16-llmcompressor-v0.10.0.2` denotes the same 4-bit weight-only scheme produced with LLM-Compressor v0.10.0.2.
 The checkpoints below cover the dynamic and weight-only formats supported in [section 4.5](#45-quantized-models):
 
 - `amd/gpt-oss-20b-BF16-da8w8-torchao-v0.17.0` — **da8w8** dynamic quantization with TorchAO v0.17.0.
@@ -367,7 +376,7 @@ TORCH_COMPILE_DEBUG=1 python test.py
 For more information about TORCH_COMPILE_DEBUG refer to the official PyTorch documentation available.
 
 # 6. Performance tuning and Benchmarking
-For zentorch v2.14.0.0 and zentorch 2.13.0.1 plugin. Please see the **Tuning Guidelines** section of ZenDNN User Guide for performance tuning. ZenDNN User Guide can be downloaded from [here](https://developer.amd.com/zendnn)
+For zentorch v2.14.1.0 and zentorch 2.13.0.3 plugin. Please see the **Tuning Guidelines** section of ZenDNN User Guide for performance tuning. ZenDNN User Guide can be downloaded from [here](https://developer.amd.com/zendnn)
 
 # 7. Additional Utilities:
 

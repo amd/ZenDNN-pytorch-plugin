@@ -45,8 +45,8 @@ python bf16_llm_example.py
 ```
 
 ### Requirements
-- PyTorch 2.14.0 (recommended) or 2.13.0
-- zentorch (recommended version- 2.14.0.1)
+- PyTorch 2.14.1 (recommended) or 2.13.0
+- zentorch (recommended version- 2.14.1.0)
 - vLLM
 - transformers (recommended version > 5.0.0)
 

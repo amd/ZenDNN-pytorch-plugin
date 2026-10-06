@@ -125,8 +125,8 @@ jobs:
       shard_matrix: ${{ steps.unit_test_scope.outputs.shard_matrix }}
     env:
       PYTHON_VERSION: '3.12'
-      ZENTORCH_VERSION: '2.14.0.1'
-      NATIVE_TORCH_VERSION: '2.14.0'
+      ZENTORCH_VERSION: '2.14.1.0'
+      NATIVE_TORCH_VERSION: '2.14.1'
       UNWANTED_KEYWORDS: 'stackoverflow,MSDN,wiki,microsoft'
       # WORKSPACE and PARENT_DIR will be set dynamically in the steps
       ZENTORCH_USE_LOCAL_ZENDNN: ${{ github.event.inputs.zentorch_use_local_zendnn || github.event.client_payload.zentorch_use_local_zendnn || '1' }}
@@ -167,7 +167,7 @@ jobs:
           echo "Workspace cleaned."
           ls -al $GITHUB_WORKSPACE
         shell: bash
-      
+
       - name: Display Triggering PR Information
         if: github.event_name == 'repository_dispatch'
         run: |
@@ -278,11 +278,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          
+
           # Configure git for rebase/merge operations
           git config user.name "CI Bot"
           git config user.email "ci-bot@amd.com"
-          
+
           normalize_list() {
             printf "%s" "${1:-}" | tr ', ' '\n' | sed '/^$/d'
           }
@@ -339,13 +339,13 @@ jobs:
               else
                 git fetch origin "$item"
               fi
-              
+
               if [ $? -eq 0 ]; then
                 fetched_sha="$(git rev-parse FETCH_HEAD)"
                 last_sha="$fetched_sha"
                 original_sha="$fetched_sha"
                 echo "Fetched $item -> $fetched_sha"
-                
+
                 # Show all commits in this ref (for verification)
                 echo "Commits in this ref (last 20):"
                 git log --oneline -20 FETCH_HEAD
@@ -360,29 +360,29 @@ jobs:
             echo "=============================================="
             echo "   REBASING ZENTORCH ONTO LATEST MAIN"
             echo "=============================================="
-            
+
             # Save original SHA for status reporting
             echo "ORIGINAL_ZENTORCH_SHA=$original_sha" >> $GITHUB_ENV
-            
+
             # Checkout the target
             git checkout -q "$last_sha"
-            
+
             # Check if we need to rebase
             MERGE_BASE=$(git merge-base HEAD origin/main 2>/dev/null || echo "")
             MAIN_HEAD=$(git rev-parse origin/main)
-            
+
             echo "Original SHA:  $original_sha"
             echo "Merge base:    $MERGE_BASE"
             echo "Latest main:   $MAIN_HEAD"
-            
+
             if [ -n "$MERGE_BASE" ] && [ "$MERGE_BASE" != "$MAIN_HEAD" ]; then
               echo ""
               echo "Target is not based on latest main. Rebasing..."
-              
+
               # Count commits to rebase
               COMMIT_COUNT=$(git rev-list --count $MERGE_BASE..HEAD 2>/dev/null || echo "unknown")
               echo "Commits to rebase: $COMMIT_COUNT"
-              
+
               if git rebase origin/main; then
                 echo ""
                 echo "✅ Rebase successful!"
@@ -394,7 +394,7 @@ jobs:
                 echo ""
                 echo "⚠️ Rebase failed due to conflicts. Aborting and trying merge..."
                 git rebase --abort
-                
+
                 git checkout -q "$last_sha"
                 if git merge origin/main -m "Merge latest main into PR for CI"; then
                   echo ""
@@ -411,7 +411,7 @@ jobs:
               echo ""
               echo "✅ Already based on latest main. No rebase needed."
             fi
-            
+
             echo ""
             echo "=== Final commit history ==="
             git log --oneline -20
@@ -422,7 +422,7 @@ jobs:
       - name: Set WORKSPACE and PARENT_DIR to parent of repo
         run: |
           echo "proj/zendai:"
-          ls /proj/zendai 
+          ls /proj/zendai
           echo "PARENT_DIR=$(dirname "${GITHUB_WORKSPACE}")" >> $GITHUB_ENV
           echo "WORKSPACE=$(dirname "${GITHUB_WORKSPACE}")" >> $GITHUB_ENV
 
@@ -431,12 +431,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          
+
           # Clone with FULL history (no --depth limit)
           git clone --branch main https://${{ secrets.ZIAIE_PAT }}@github.com/AMD-Zenai/ZenDNN.git "$PARENT_DIR/ZenDNN"
 
           cd "$PARENT_DIR/ZenDNN"
-          
+
           # Configure git for rebase/merge operations
           git config user.name "CI Bot"
           git config user.email "ci-bot@amd.com"
@@ -505,7 +505,7 @@ jobs:
                 fi
               else
                 echo "Fetching ref with full history: $item"
-                
+
                 # For PR refs, ensure we get all commits
                 if echo "$item" | grep -q "refs/pull/"; then
                   PR_NUM=$(echo "$item" | sed -n 's|refs/pull/\([0-9]*\)/head|\1|p')
@@ -515,13 +515,13 @@ jobs:
                     git fetch origin "$item" "+refs/pull/$PR_NUM/merge:refs/remotes/origin/pr-$PR_NUM-merge" 2>/dev/null || true
                   fi
                 fi
-                
+
                 if git fetch origin "$item"; then
                   fetched_sha="$(git rev-parse FETCH_HEAD)"
                   echo "Fetched $item -> $fetched_sha"
                   last_sha="$fetched_sha"
                   original_sha="$fetched_sha"
-                  
+
                   # Display commits for verification
                   echo "Recent commits in fetched ref:"
                   git log --oneline -10 FETCH_HEAD
@@ -536,29 +536,29 @@ jobs:
               echo "=============================================="
               echo "   REBASING ZENDNN ONTO LATEST MAIN"
               echo "=============================================="
-              
+
               # Save original SHA for status reporting
               echo "ORIGINAL_ZENDNN_SHA=$original_sha" >> $GITHUB_ENV
-              
+
               # Checkout the target
               git checkout -q "$last_sha"
-              
+
               # Check if we need to rebase
               MERGE_BASE=$(git merge-base HEAD origin/main 2>/dev/null || echo "")
               MAIN_HEAD=$(git rev-parse origin/main)
-              
+
               echo "Original SHA:  $original_sha"
               echo "Merge base:    $MERGE_BASE"
               echo "Latest main:   $MAIN_HEAD"
-              
+
               if [ -n "$MERGE_BASE" ] && [ "$MERGE_BASE" != "$MAIN_HEAD" ]; then
                 echo ""
                 echo "Target is not based on latest main. Rebasing..."
-                
+
                 # Count commits to rebase
                 COMMIT_COUNT=$(git rev-list --count $MERGE_BASE..HEAD 2>/dev/null || echo "unknown")
                 echo "Commits to rebase: $COMMIT_COUNT"
-                
+
                 if git rebase origin/main; then
                   echo ""
                   echo "✅ Rebase successful!"
@@ -570,7 +570,7 @@ jobs:
                   echo ""
                   echo "⚠️ Rebase failed due to conflicts. Aborting and trying merge..."
                   git rebase --abort
-                  
+
                   git checkout -q "$last_sha"
                   if git merge origin/main -m "Merge latest main into PR for CI"; then
                     echo ""
@@ -587,7 +587,7 @@ jobs:
                 echo ""
                 echo "✅ Already based on latest main. No rebase needed."
               fi
-              
+
               echo ""
               echo "=== Full commit history available ==="
               echo "Last 20 commits:"
@@ -596,7 +596,7 @@ jobs:
               echo "No targets were successfully processed — staying on default branch."
             fi
           fi
-          
+
           cd "$PARENT_DIR"
 
       - name: Copy and extract BLIS tarball if needed
@@ -699,50 +699,50 @@ jobs:
           echo "=============================================="
           echo "   REBASING PR ON LATEST MAIN"
           echo "=============================================="
-          
+
           # Configure git for rebase/merge operations
           git config user.name "CI Bot"
           git config user.email "ci-bot@amd.com"
-          
+
           # Fetch latest main
           echo "Fetching latest main branch..."
           git fetch origin main:refs/remotes/origin/main
-          
+
           # Get PR info
           PR_BASE_SHA="${{ github.event.pull_request.base.sha }}"
           PR_HEAD_SHA="${{ github.event.pull_request.head.sha }}"
           LATEST_MAIN=$(git rev-parse origin/main)
-          
+
           echo "PR Base SHA (when PR was created): $PR_BASE_SHA"
           echo "PR Head SHA (latest PR commit):    $PR_HEAD_SHA"
           echo "Latest main SHA:                   $LATEST_MAIN"
-          
+
           # Save original SHA for status reporting
           echo "ORIGINAL_PR_SHA=$PR_HEAD_SHA" >> $GITHUB_ENV
-          
+
           # Count commits in PR
           PR_COMMIT_COUNT=$(git rev-list --count $PR_BASE_SHA..$PR_HEAD_SHA)
           echo "Number of commits in PR: $PR_COMMIT_COUNT"
-          
+
           # Show all PR commits before rebase
           echo ""
           echo "All commits in this PR:"
           git log --oneline $PR_BASE_SHA..$PR_HEAD_SHA
-          
+
           # Check if main has advanced
           if [ "$PR_BASE_SHA" != "$LATEST_MAIN" ]; then
             echo ""
             echo "⚠️  Main branch has new commits since PR was created."
-            
+
             # Show what's new in main
             NEW_MAIN_COMMITS=$(git rev-list --count $PR_BASE_SHA..$LATEST_MAIN 2>/dev/null || echo "0")
             echo "   New commits in main since PR base: $NEW_MAIN_COMMITS"
             echo ""
             echo "   Rebasing $PR_COMMIT_COUNT PR commits onto latest main..."
-            
+
             # Checkout the PR HEAD
             git checkout $PR_HEAD_SHA
-            
+
             # Attempt rebase
             if git rebase origin/main; then
               echo ""
@@ -755,10 +755,10 @@ jobs:
               echo ""
               echo "⚠️ Rebase failed due to conflicts."
               git rebase --abort
-              
+
               echo "Attempting merge instead..."
               git checkout $PR_HEAD_SHA
-              
+
               if git merge origin/main -m "Merge latest main into PR for CI"; then
                 echo ""
                 echo "✅ Merge successful!"
@@ -776,7 +776,7 @@ jobs:
             echo "✅ PR is already based on latest main. No rebase needed."
             git checkout $PR_HEAD_SHA
           fi
-          
+
           echo ""
           echo "=============================================="
           echo "Final state:"
@@ -806,7 +806,7 @@ jobs:
           echo "=============================================="
           echo "   COMMIT HISTORY VERIFICATION"
           echo "=============================================="
-          
+
           echo ""
           echo "=== ZenDNN_PyTorch_Plugin ==="
           cd "${GITHUB_WORKSPACE}"
@@ -814,7 +814,7 @@ jobs:
           echo "Current HEAD: $(git rev-parse HEAD)"
           echo "Last 10 commits:"
           git log --oneline -10
-          
+
           if [ -d "$PARENT_DIR/ZenDNN" ]; then
             echo ""
             echo "=== ZenDNN ==="
@@ -824,7 +824,7 @@ jobs:
             echo "Last 10 commits:"
             git log --oneline -10
           fi
-          
+
           echo ""
           echo "=============================================="
 
@@ -1026,8 +1026,8 @@ jobs:
         include: ${{ fromJSON(needs.zentorch-build.outputs.shard_matrix) }}
     env:
       PYTHON_VERSION: '3.12'
-      ZENTORCH_VERSION: '2.14.0.1'
-      NATIVE_TORCH_VERSION: '2.14.0'
+      ZENTORCH_VERSION: '2.14.1.0'
+      NATIVE_TORCH_VERSION: '2.14.1'
       # Empty uses ZenDNN_tools main (digest image cache from #434/#449 + op_tests default).
       ZENDNN_TOOLS_REF: ${{ github.event.inputs.zendnn_tools_ref || github.event.client_payload.zendnntools_ref || '' }}
       ZENTORCH_REF: ${{ github.event.inputs.zendnnTorch_ref || github.event.client_payload.zendnnTorch_ref || '' }}
@@ -1135,8 +1135,8 @@ jobs:
     runs-on: amd-zenai-arc-large-dind
     env:
       PYTHON_VERSION: '3.12'
-      ZENTORCH_VERSION: '2.14.0.1'
-      NATIVE_TORCH_VERSION: '2.14.0'
+      ZENTORCH_VERSION: '2.14.1.0'
+      NATIVE_TORCH_VERSION: '2.14.1'
       UNWANTED_KEYWORDS: 'stackoverflow,MSDN,wiki,microsoft'
       ZENTORCH_USE_LOCAL_ZENDNN: ${{ github.event.inputs.zentorch_use_local_zendnn || github.event.client_payload.zentorch_use_local_zendnn || '1' }}
       ZENTORCH_USE_LOCAL_BLIS: ${{ github.event.inputs.zentorch_use_local_blis || github.event.client_payload.zentorch_use_local_blis || '1' }}

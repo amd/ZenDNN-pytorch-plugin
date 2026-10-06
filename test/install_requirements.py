@@ -5,6 +5,7 @@
 
 from importlib.util import find_spec
 from importlib.metadata import version
+import logging
 import torch
 import subprocess
 import sys
@@ -65,12 +66,18 @@ if __name__ == "__main__":
     torchvision_compatibility = {
         "2.13.0": "torchvision==0.28.0",
         "2.14.0": "torchvision==0.29.0",
+        "2.14.1": "torchvision==0.29.1",
     }
 
     torchao_compatibility = {
         "2.13.0": "torchao==0.17.0",
         "2.14.0": "torchao==0.17.0",
+        "2.14.1": "torchao==0.17.0",
     }
+
+    logging.warning(
+        "TorchAO support is deprecated in this release and will be removed in the next release."
+    )
 
     if find_spec("torchao") is not None:
         if torch_version not in torchao_compatibility:
@@ -91,7 +98,7 @@ if __name__ == "__main__":
         else:
             print("Could not find the valid torchao version which is \
                 compatible with installed torch version. Supported Torch versions \
-                are 2.13.0 and 2.14.0")
+                are 2.13.0, 2.14.0 and 2.14.1")
             sys.exit(1)
 
     if find_spec("torchvision") is not None:
@@ -115,5 +122,5 @@ if __name__ == "__main__":
         else:
             print("Could not find the valid torchvision version which is \
                 compatible with installed torch version. Supported Torch versions \
-                are 2.13.0/2.14.0")
+                are 2.13.0/2.14.0/2.14.1")
             sys.exit(1)
