@@ -48,6 +48,22 @@ def moe_output_buffer(num_tokens, hidden_dim, dtype):
     return torch.full((num_tokens, hidden_dim), float("nan"), dtype=dtype)
 
 
+def dynamic_quant_matmul(src, w_int8, w_scales, bias=None, out_dtype=None):
+    src_fp = src.float()
+    src_scale = src_fp.abs().amax(dim=1).clamp(min=1e-12) / 127.0
+    src_q = (src_fp / src_scale.unsqueeze(1)).round().clamp(-128, 127)
+    acc = src_q @ w_int8.float().T
+    result = acc * (src_scale.unsqueeze(1) * w_scales.unsqueeze(0))
+    if bias is not None:
+        result = result + bias.float()
+    # Round to the kernel's intermediate dtype: it writes each GEMM result to a
+    # working-dtype (bf16/f32) buffer before the next op re-reads it. A
+    # full-fp32 reference would differ by ~1 int8 LSB near a quant boundary.
+    if out_dtype is not None:
+        result = result.to(out_dtype).float()
+    return result
+
+
 @unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
 class Test_GroupMatmul(GroupMatmulTestCase):
     """Hypothesis-based tests for zentorch_group_matmul.out."""
@@ -323,6 +339,111 @@ class Test_GroupMatmul(GroupMatmulTestCase):
         dtype_list=supported_dtypes_int8,
         k_list=GROUP_MATMUL_INT8_K_VALUES,
         weight_mode=GroupMatmulWeights.INT8_SQUARE,
+        # Runs the fused w13+w2 path twice, packed and padded, which overruns
+        # the default deadline on a 32-core pod.
+        time_out=60000,
+    )
+    @torch.inference_mode()
+    def test_int8_experts_from_one_parent(self, dtype):
+        """w13 and w2 as views of one [E, N, K] weight, in routing order.
+
+        Added rather than converting the other int8 cases: separately allocated
+        experts are the branch that must decline, so both layouts need cover.
+        """
+        torch_dtype = self.data.get_torch_type(dtype)
+        num_experts = self.data.num_experts
+        K = self.data.K
+        # Square weights, as sub-test 1 above: fused w2 reuses the input buffer
+        # and needs K == K_out == N.
+        w13_int8 = self.data.w13_weights
+        w13_scales = self.data.w13_scales
+        w2_int8 = self.data.w2_weights
+        w2_scales = self.data.w2_scales
+        w2_bias = self.data.w2_bias_gated
+
+        def scatter():
+            # Fused w2 writes its result back over the inputs, so each pass
+            # needs its own copy.
+            tensors, _, _ = self._scatter_and_build_row_ptrs(
+                self.data.hidden_states, self.data.topk_indices,
+                num_experts, K, K,
+            )
+            return tensors
+
+        ref = []
+        for i, src in enumerate(scatter()):
+            r = dynamic_quant_matmul(
+                src, w13_int8[i], w13_scales[i], out_dtype=torch_dtype
+            )
+            ref.append(
+                dynamic_quant_matmul(
+                    r, w2_int8[i], w2_scales[i], bias=w2_bias[i],
+                    out_dtype=torch_dtype,
+                )
+            )
+
+        def as_one_parent(per_expert_weights, slack):
+            """[E, N, K] holding the same weights, one slice per expert."""
+            n, k = per_expert_weights[0].shape
+            span = n * k + slack
+            storage = torch.empty(num_experts * span, dtype=torch.int8)
+            parent = storage.as_strided((num_experts, n, k), (span, k, 1))
+            for e in range(num_experts):
+                parent[e].copy_(per_expert_weights[e])
+            return storage, parent
+
+        # FusedMoE hands the experts over in first-seen routing order, so a
+        # permutation is the realistic case here, not an edge one.
+        order = list(reversed(range(num_experts)))
+
+        # Built up front and held for the whole test: ZenDNN keys its weight
+        # cache on the weight pointer, so a freed parent whose address is
+        # recycled by the next pass would be served a stale reorder.
+        parents = [
+            (slack, *as_one_parent(w13_int8, slack), *as_one_parent(w2_int8, slack))
+            for slack in (0, ((K * 4 + 63) // 64) * 64 + 64)
+        ]
+
+        for slack, w13_storage, w13_parent, w2_storage, w2_parent in parents:
+            before = (w13_storage.clone(), w2_storage.clone())
+            inputs = scatter()
+
+            torch.ops.zentorch.zentorch_group_matmul.out(
+                [],
+                [inputs[e] for e in order],
+                [w13_parent[e] for e in order],
+                [w2_parent[e] for e in order],
+                None,
+                None,
+                None,
+                "none",
+                self.data.w13_bias_none,
+                [w2_bias[e] for e in order],
+                [w13_scales[e] for e in order],
+                [w2_scales[e] for e in order],
+                [],
+            )
+
+            for e in range(num_experts):
+                self.assertEqual(
+                    inputs[e].float(), ref[e], atol=5e-1, rtol=5e-1
+                )
+
+            # Packed experts declare no capacity, so the reorder has to leave
+            # the weights alone; mutating them would be writing over the next
+            # expert. The reverse is not an invariant -- ZenDNN declines the
+            # in-place path for reasons of its own, e.g. the AUTO downgrade.
+            if slack == 0:
+                self.assertTrue(
+                    torch.equal(w13_storage, before[0])
+                    and torch.equal(w2_storage, before[1]),
+                    "packed experts were mutated by the reorder",
+                )
+
+    @GroupMatmulTestCase.hypothesis_params_group_matmul_itr(
+        dtype_list=supported_dtypes_int8,
+        k_list=GROUP_MATMUL_INT8_K_VALUES,
+        weight_mode=GroupMatmulWeights.INT8_SQUARE,
     )
     @torch.inference_mode()
     def test_int8_w13_and_w2_single_pass(self, dtype):
@@ -348,22 +469,6 @@ class Test_GroupMatmul(GroupMatmulTestCase):
         torch_dtype = self.data.get_torch_type(dtype)
         K_out = K
         activation = "none"
-
-        def dynamic_quant_matmul(src, w_int8, w_scales, bias=None, out_dtype=None):
-            src_fp = src.float()
-            src_scale = src_fp.abs().amax(dim=1).clamp(min=1e-12) / 127.0
-            src_q = (src_fp / src_scale.unsqueeze(1)).round().clamp(-128, 127)
-            acc = src_q @ w_int8.float().T
-            result = acc * (src_scale.unsqueeze(1) * w_scales.unsqueeze(0))
-            if bias is not None:
-                result = result + bias.float()
-            # Round to the kernel's intermediate dtype: it writes each GEMM
-            # result to a working-dtype (bf16/f32) buffer before the next op
-            # re-reads it. A full-fp32 reference would differ by ~1 int8 LSB
-            # near a quant boundary.
-            if out_dtype is not None:
-                result = result.to(out_dtype).float()
-            return result
 
         # --- Sub-test 1: group_matmul, no activation, no MoE reduce ---
         w13_int8 = self.data.w13_weights
@@ -579,22 +684,6 @@ class Test_GroupMatmul(GroupMatmulTestCase):
         num_tokens = self.data.num_tokens
         activation = "silu"
         K_out = K
-
-        def dynamic_quant_matmul(src, w_int8, w_scales, bias=None, out_dtype=None):
-            src_fp = src.float()
-            src_scale = src_fp.abs().amax(dim=1).clamp(min=1e-12) / 127.0
-            src_q = (src_fp / src_scale.unsqueeze(1)).round().clamp(-128, 127)
-            acc = src_q @ w_int8.float().T
-            result = acc * (src_scale.unsqueeze(1) * w_scales.unsqueeze(0))
-            if bias is not None:
-                result = result + bias.float()
-            # Round to the kernel's intermediate dtype: it writes each GEMM
-            # result to a working-dtype (bf16/f32) buffer before the next op
-            # re-reads it. A full-fp32 reference would differ by ~1 int8 LSB
-            # near a quant boundary.
-            if out_dtype is not None:
-                result = result.to(out_dtype).float()
-            return result
 
         def apply_gated_activation(x, act):
             if act == "none":

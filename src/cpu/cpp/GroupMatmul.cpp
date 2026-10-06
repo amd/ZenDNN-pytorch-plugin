@@ -10,12 +10,23 @@
 #include "Memory.hpp"
 #include "Utils.hpp"
 
+#include <torch/csrc/inductor/aoti_torch/c/shim.h>
 #include <torch/csrc/stable/library.h>
 #include <torch/csrc/stable/ops.h>
 
 using namespace zendnnl::interface;
 
 namespace zentorch {
+
+int64_t expert_capacity_bytes(const torch::stable::Tensor &expert,
+                              int64_t count) {
+  int64_t bytes = 0;
+  TORCH_ERROR_CODE_CHECK(aoti_torch_get_storage_size(expert.get(), &bytes));
+  const int64_t step = bytes / count;
+  const int64_t logical =
+      expert.numel() * static_cast<int64_t>(expert.element_size());
+  return step > logical ? step : 0;
+}
 
 static bool has_tensor(const std::optional<torch::stable::Tensor> &opt) {
   return opt.has_value() && opt->defined();
@@ -438,6 +449,16 @@ void zentorch_group_matmul_out_impl(
     const std::vector<std::optional<torch::stable::Tensor>> &w2_scales,
     const std::vector<std::optional<torch::stable::Tensor>> &src_scales,
     const std::string &zentorch_op_name) {
+  const int64_t w13_expert_capacity_bytes =
+      w13_weights.empty()
+          ? 0
+          : expert_capacity_bytes(w13_weights[0],
+                                  static_cast<int64_t>(w13_weights.size()));
+  const int64_t w2_expert_capacity_bytes =
+      (w2_weights.empty() || !has_tensor(w2_weights[0]))
+          ? 0
+          : expert_capacity_bytes(*w2_weights[0],
+                                  static_cast<int64_t>(w2_weights.size()));
 
   const auto gated_act_type = map_activation_to_gated_act(activation);
   const bool use_gated_act =
@@ -558,6 +579,8 @@ void zentorch_group_matmul_out_impl(
     } else {
       K_vec[op_idx] = w13_weight.size(1);
       ldb_vec[op_idx] = w13_weight.stride(0);
+      params[op_idx].wei_buffer_capacity_bytes =
+          static_cast<size_t>(w13_expert_capacity_bytes);
       params[op_idx].dtypes.wei = get_zendnnl_dtype(w13_weight);
     }
   }
@@ -692,6 +715,10 @@ void zentorch_group_matmul_out_impl(
     // W13: sized to num_total so the warmer sees every advertised expert.
     // Bias_down stays at num_active since biases aren't part of the
     // prepack contract.
+    // Op2's weights travel in this struct, not params[], so its capacity
+    // comes across separately. Not w13's: different N, different allocation.
+    fused_moe.down_wei_buffer_capacity_bytes =
+        static_cast<size_t>(w2_expert_capacity_bytes);
     fused_moe.down_weight.resize(num_total);
     fused_moe.N_down.resize(num_total);
     fused_moe.ldb_down.resize(num_total);

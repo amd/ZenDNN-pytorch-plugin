@@ -713,6 +713,8 @@ zendnnl::interface::status_t run_zendnn_routed_moe(
   primary.bias = w13_bias.has_value() && w13_bias->defined()
                      ? w13_bias->const_data_ptr()
                      : nullptr;
+  primary.wei_buffer_capacity_bytes = static_cast<size_t>(
+      expert_capacity_bytes(torch::stable::select(w13, 0, 0), w13.size(0)));
   primary.params = make_params(input, input, w13_scales);
   primary.params.dtypes.bias = primary.bias != nullptr
                                    ? get_zendnnl_dtype(*w13_bias)
@@ -727,6 +729,8 @@ zendnnl::interface::status_t run_zendnn_routed_moe(
   secondary.bias = w2_bias.has_value() && w2_bias->defined()
                        ? w2_bias->const_data_ptr()
                        : nullptr;
+  secondary.wei_buffer_capacity_bytes = static_cast<size_t>(
+      expert_capacity_bytes(torch::stable::select(w2, 0, 0), w2.size(0)));
   secondary.params = make_params(input, output, w2_scales);
   secondary.params.dtypes.bias = secondary.bias != nullptr
                                      ? get_zendnnl_dtype(*w2_bias)

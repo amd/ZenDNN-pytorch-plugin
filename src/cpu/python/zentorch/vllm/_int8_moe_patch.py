@@ -35,69 +35,6 @@ _TARGET_CLASS = "CompressedTensorsW8A8Int8MoEMethod"
 
 
 # --------------------------------------------------------------------------- #
-# Opaque, torch.compile-safe dispatch op. Scales/biases are passed as tensors
-# (no Python handles) so the compiled graph carries no process-local state.
-# --------------------------------------------------------------------------- #
-@torch.library.custom_op("zentorch_vllm::cpu_int8_moe", mutates_args={"output"})
-def _cpu_int8_moe(
-    output: torch.Tensor,
-    hidden_states: torch.Tensor,
-    w1: torch.Tensor,
-    w2: torch.Tensor,
-    w13_scale: torch.Tensor,
-    w2_scale: torch.Tensor,
-    w13_bias: torch.Tensor | None,
-    w2_bias: torch.Tensor | None,
-    topk_weights: torch.Tensor,
-    topk_ids: torch.Tensor,
-    activation: str,
-    apply_router_weight_on_input: bool,
-) -> None:
-    x = hidden_states
-    if apply_router_weight_on_input:
-        top_k = topk_ids.shape[1]
-        if top_k != 1:
-            raise NotImplementedError(
-                "zen int8 MoE: apply_router_weight_on_input=True is only "
-                f"supported for top_k=1 (got top_k={top_k})."
-            )
-        x = hidden_states.mul(topk_weights.to(hidden_states.dtype))
-
-    torch.ops.zentorch.zentorch_fused_moe(
-        output,
-        x,
-        w1,
-        w2,
-        w13_bias,
-        w2_bias,
-        topk_weights.to(torch.float32).contiguous(),
-        topk_ids.to(torch.int32).contiguous(),
-        apply_router_weight_on_input,  # skip_weighted
-        activation,
-        w13_scale,
-        w2_scale,
-    )
-
-
-@_cpu_int8_moe.register_fake
-def _cpu_int8_moe_fake(
-    output,
-    hidden_states,
-    w1,
-    w2,
-    w13_scale,
-    w2_scale,
-    w13_bias,
-    w2_bias,
-    topk_weights,
-    topk_ids,
-    activation,
-    apply_router_weight_on_input,
-) -> None:
-    return None
-
-
-# --------------------------------------------------------------------------- #
 # Method patch (nested-handlers style, mirrors _moe_class.py). vLLM imports are
 # local so this module stays importable before vLLM's layers exist.
 # --------------------------------------------------------------------------- #
@@ -243,20 +180,32 @@ def _register_int8_moe_patches(mod) -> None:
                 custom_routing_fn=getattr(self, "_custom_routing_fn", None),
                 renormalize=getattr(self, "_renormalize", None),
             )
+            x = hidden_states
+            if apply_router_weight_on_input:
+                top_k = topk_ids.shape[1]
+                if top_k != 1:
+                    raise NotImplementedError(
+                        "zen int8 MoE: apply_router_weight_on_input=True is only "
+                        f"supported for top_k=1 (got top_k={top_k})."
+                    )
+                x = hidden_states.mul(topk_weights.to(hidden_states.dtype))
+
+            # The schema declares ``Tensor(a!) output`` and zentorch registers a
+            # meta kernel, so this traces without a wrapper op.
             output = torch.empty_like(hidden_states)
-            torch.ops.zentorch_vllm.cpu_int8_moe(
+            torch.ops.zentorch.zentorch_fused_moe(
                 output,
-                hidden_states,
+                x,
                 w1,
                 w2,
-                self._w13_scale,
-                self._w2_scale,
                 self._w13_bias,
                 self._w2_bias,
-                topk_weights,
-                topk_ids,
+                topk_weights.to(torch.float32).contiguous(),
+                topk_ids.to(torch.int32).contiguous(),
+                apply_router_weight_on_input,  # skip_weighted
                 activation.value,
-                apply_router_weight_on_input,
+                self._w13_scale,
+                self._w2_scale,
             )
             return output
 
@@ -359,6 +308,9 @@ def _register_int8_moe_patches(mod) -> None:
     def _zen_process_weights_after_loading(self, layer) -> None:
         if getattr(self, "_zentorch_uses_native_int8", False):
             orig_process_weights(self, layer)
+            # In-tree ZenCPUExpertsInt8 reaches the same ZenDNN reorder, so it
+            # needs the slack too. Skipped when the routed kernel will read it.
+            _pad_moe_weights_for_inplace(layer)
             return
 
         # Relayout first: the original then reads w13 scales/biases to build
@@ -375,6 +327,7 @@ def _register_int8_moe_patches(mod) -> None:
         finally:
             if saved is not None:
                 mod.convert_to_int8_moe_kernel_format = saved
+        _pad_moe_weights_for_inplace(layer)
         kernel = getattr(self, "moe_kernel", None)
         experts = getattr(kernel, "fused_experts", None) if kernel is not None else None
         if experts is not None:
@@ -414,6 +367,51 @@ def _register_int8_moe_patches(mod) -> None:
     # forwarding body. TODO: drop once VLLM_MIN_VERSION moves past 0.24.
     if method_cls.apply_monolithic is FusedMoEMethodBase.apply_monolithic:
         method_cls.apply_monolithic = _zen_apply_monolithic
+
+
+def _pad_experts_for_inplace(w: torch.Tensor) -> torch.Tensor:
+    """Re-allocate an [E, N, K] int8 weight with per-expert trailing slack.
+
+    ZenDNN's blocked layout needs ``N * 4`` bytes beyond the weight for its
+    compensation row, so an exactly-sized tensor never passes the in-place gate
+    and every expert weight is duplicated. The gap has to be per-expert: in a
+    packed tensor the bytes after one expert belong to the next.
+    """
+    if w.dim() != 3 or w.dtype != torch.int8 or not w.is_contiguous():
+        return w
+    E, N, K = w.shape
+    per_expert = N * K  # elements
+    # Bytes, not elements: the row is one int32 per output column whatever the
+    # weight dtype. Rounded to 64 to match the reorder's overscan, plus a spare
+    # line so an exactly-equal fit is not the only passing case.
+    esz = w.element_size()
+    pad_bytes = ((N * 4 + 63) // 64) * 64 + 64
+    pad = (pad_bytes + esz - 1) // esz
+    storage = torch.empty(E * (per_expert + pad), dtype=w.dtype, device=w.device)
+    out = storage.as_strided((E, N, K), (per_expert + pad, K, 1))
+    out.copy_(w)
+    return out
+
+
+def _pad_moe_weights_for_inplace(layer) -> None:
+    """Trade ``E * N * 4`` bytes per projection for the in-place reorder: on a
+    256-expert Qwen3.6 that is 120 MiB against a 30 GiB duplicate."""
+    padded = []
+    for name in ("w13_weight", "w2_weight"):
+        w = getattr(layer, name, None)
+        if w is None:
+            continue
+        new_w = _pad_experts_for_inplace(w.data)
+        if new_w.data_ptr() == w.data.data_ptr():
+            continue  # not eligible (dtype/layout); left untouched
+        setattr(layer, name, torch.nn.Parameter(new_w, requires_grad=False))
+        padded.append(name)
+    if padded:
+        logger.info(
+            "[zentorch] MoE weights re-allocated with per-expert slack for the "
+            "in-place int8 reorder: %s",
+            ", ".join(padded),
+        )
 
 
 def _apply_int8_moe_patch_to_module(mod) -> bool:

@@ -102,5 +102,33 @@ class TestInt8OracleSupportGates(unittest.TestCase):
         self.assertEqual(processed, [layer])
 
 
+class TestPadExpertsForInplace(unittest.TestCase):
+    """Per-expert slack is what lets ZenDNN reorder int8 weights in place."""
+
+    def test_each_expert_gets_its_own_gap(self):
+        import torch
+        from zentorch.vllm._int8_moe_patch import _pad_experts_for_inplace
+
+        E, N, K = 3, 64, 32
+        w = torch.randint(-128, 128, (E, N, K), dtype=torch.int8)
+        out = _pad_experts_for_inplace(w)
+
+        # A single tail pad would let ZenDNN scribble on the next expert.
+        self.assertGreater(out.stride(0), N * K)
+        self.assertEqual(out.shape, (E, N, K))
+        self.assertEqual(out.stride()[1:], (K, 1))
+        self.assertTrue(torch.equal(out, w))
+
+    def test_ineligible_tensors_are_returned_untouched(self):
+        import torch
+        from zentorch.vllm._int8_moe_patch import _pad_experts_for_inplace
+
+        for w in (
+            torch.zeros(4, 8, dtype=torch.int8),  # not 3D
+            torch.zeros(2, 4, 8, dtype=torch.bfloat16),  # not int8
+        ):
+            self.assertIs(_pad_experts_for_inplace(w), w)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -12,6 +13,15 @@
 #include <vector>
 
 namespace zentorch {
+
+// Bytes writable at one expert's weight pointer, or 0 when the experts are
+// packed. Takes any one expert slice and the total expert count: routing
+// permutes the list, so a slice's position says nothing, while every slice
+// reports the same parent allocation. Callers holding the [E, ...] parent pass
+// select(parent, 0, 0) and parent.size(0).
+// Assumption in zentorch - all expert weights share a shape and size.
+int64_t expert_capacity_bytes(const torch::stable::Tensor &expert,
+                              int64_t count);
 
 // Boxed as `zentorch_group_matmul.out`. Gated act, W2, and MoE reduce run
 // only when those args are populated.
