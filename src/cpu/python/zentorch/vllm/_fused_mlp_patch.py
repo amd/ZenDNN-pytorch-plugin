@@ -12,9 +12,9 @@ This is the plugin-side detects any dense MLP by structure and swaps its
   * Pattern: merged ``gate_up_proj`` + ``down_proj`` (Llama, Mistral, Gemma,
     Qwen2, ...).
 
-fp32/bf16 and int8 DA8W8 (dynamic per-token activations, per-channel int8
-weights) single-expert (non-MoE) layers on Zen CPU are fused; everything else
-falls back to the original ``forward`` unchanged.
+fp32/bf16, int8 DA8W8 (dynamic per-token activations, per-channel int8
+weights) and DA8W4 single-expert (non-MoE) layers on Zen CPU are fused;
+everything else falls back to the original ``forward`` unchanged.
 """
 
 from __future__ import annotations
@@ -46,7 +46,6 @@ _TARGET_MODULE = "vllm.model_executor.model_loader.base_loader"
 
 _FP_WEIGHT_DTYPES = (torch.float32, torch.bfloat16)
 _QUANT_SCALE_DTYPES = (torch.float32, torch.bfloat16)
-_DA8W8_SCALE_DTYPES = _QUANT_SCALE_DTYPES
 
 
 # ---------------------------------------------------------------------------
@@ -62,7 +61,7 @@ def _get_activation_string(act_fn) -> Optional[str]:
 
 
 def _should_use_fused_ffn(activation: str, dtype: torch.dtype) -> bool:
-    """Fuse fp32/bf16 and int8 DA8W8 with a gated activation."""
+    """Fuse fp32/bf16, DA8W8 and DA8W4 with a gated activation."""
     if dtype not in (*_FP_WEIGHT_DTYPES, torch.int8):
         return False
     if activation not in _SUPPORTED_MOE_ACTIVATIONS:
@@ -92,38 +91,45 @@ def _as_tensor(value) -> Optional[torch.Tensor]:
     return value
 
 
-def _normalize_da8w8_scale(scale: torch.Tensor) -> Optional[torch.Tensor]:
-    """Return a per-channel DA8W8 scale as 1D ``[N]`` (f32/bf16).
+def _normalize_scale(scale: torch.Tensor) -> torch.Tensor:
+    """Squeeze a compressed-tensors ``[N, 1]`` DA8W8 scale to ``[N]``.
 
-    Compressed-tensors often stores per-channel scales as ``[N, 1]``. The
-    group-matmul kernel treats 1D ``[N]`` as ``{1, N}``; a 2D ``[N, 1]``
-    would be read as ``G=N`` groups, so squeeze the trailing singleton.
+    The fused kernel reads a 2D scale as ``[G, N]``, so ``[N, 1]`` would be
+    taken as ``G=N`` groups.
     """
-    if scale is None:
-        return None
-    if scale.dtype not in _DA8W8_SCALE_DTYPES:
-        return None
-    if scale.dim() == 2 and scale.shape[-1] == 1:
-        scale = scale.squeeze(-1)
-    if scale.dim() not in (1, 2):
-        return None
+    if scale.dim() == 2 and scale.size(1) == 1:
+        scale = scale.squeeze(1)
     return scale.contiguous()
 
 
 def _unwrap_proj_weight(
     linear: nn.Module,
 ) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor]]:
-    """Return ``(weight_2d, scale_or_None)`` for fused FFN.
+    """Return ``(weight_2d, scale_or_None)`` for fused FFN, or ``(None, None)``.
 
-    Compressed-tensors W8A8 -> int8 ``weight`` plus ``weight_scale``.
-    Floating-point weights return ``(weight, None)``. Scales are not squeezed
-    here; the caller normalizes.
+    Compressed-tensors W8A8 -> int8 ``weight`` plus a per-channel scale.
+    DA8W4 -> packed int8 ``[N, K/2]`` plus a ``[G, N]`` scale.
+    Floating-point weights return ``(weight, None)``. Quantized weights with
+    an unusable scale are rejected here, before DA8W4 packs them.
     """
-    # Sub-8-bit schemes (W4A16, W4A8) only pack their weights during vLLM's
-    # own sweep, which runs after this. Fuse only what is already final.
+    # DA8W4 is packed here instead of in vLLM's sweep, which then skips it.
+    # The eligibility and packing hooks come from _da8w4_kernel_patch.
     bits = _scheme_weight_bits(linear)
     if bits is not None and bits < 8:
-        return None, None
+        if not getattr(linear, "_zentorch_da8w4", False):
+            kernel = getattr(linear.scheme, "kernel", None)
+            if not (
+                hasattr(kernel, "_zentorch_da8w4_eligible")
+                and kernel._zentorch_da8w4_eligible(linear)
+            ):
+                return None, None
+            # Eligibility accepts per-channel; the fused kernel needs G > 1.
+            # The checkpoint scale is [N, G].
+            if getattr(linear, kernel.w_s_name).size(1) == 1:
+                logger.debug("[zentorch] CPU MLP fusion: per-channel DA8W4")
+                return None, None
+            kernel._process_da8w4_weights(linear)
+        return linear._zentorch_da8w4_packed, linear._zentorch_da8w4_scale
 
     weight = getattr(linear, "weight", None)
     if weight is None:
@@ -135,7 +141,16 @@ def _unwrap_proj_weight(
     scale = getattr(linear, "weight_scale", None)
     if scale is None:
         scale = getattr(linear, "weight_scales", None)
-    return weight, _as_tensor(scale)
+    scale = _as_tensor(scale)
+    # Per-channel only: [N] or [N, 1].
+    if (
+        scale is None
+        or scale.dtype not in _QUANT_SCALE_DTYPES
+        or scale.numel() != weight.size(0)
+    ):
+        logger.debug("[zentorch] CPU MLP fusion: unsupported DA8W8 scale")
+        return None, None
+    return weight, scale
 
 
 def _take_bias(
@@ -280,21 +295,8 @@ def dispatch_cpu_fused_mlp(
         force_bf16 = False
         weight_dtype = w13_data.dtype
         if weight_dtype == torch.int8:
-            w13_scale = _normalize_da8w8_scale(w13_scale)
-            w2_scale = _normalize_da8w8_scale(w2_scale)
-            if w13_scale is None or w2_scale is None:
-                logger.debug(
-                    "[zentorch] CPU MLP fusion: DA8W8 weights missing scales"
-                )
-                return
-            if (
-                w13_scale.numel() != w13_data.size(0)
-                or w2_scale.numel() != w2_data.size(0)
-            ):
-                logger.debug(
-                    "[zentorch] CPU MLP fusion: DA8W8 scales are not per-channel"
-                )
-                return
+            w13_scale = _normalize_scale(w13_scale)
+            w2_scale = _normalize_scale(w2_scale)
             force_bf16 = True
         elif weight_dtype in _FP_WEIGHT_DTYPES:
             if w13_data.size(1) != hidden or w2_data.size(1) != intermediate:
@@ -452,9 +454,9 @@ def _do_patch_fused_mlp() -> bool:
 
 
 def _apply_fused_mlp_patch_impl() -> bool:
-    """Opt in with ``ZENTORCH_FUSED_FFN=1`` to fuse dense MLPs on Zen CPU.
+    """Fuse dense MLPs on Zen CPU unless ``ZENTORCH_FUSED_FFN=0``.
 
-    Disabled by default. When enabled, arms the fused-MLP wrapper on
+    Arms the fused-MLP wrapper on
     ``base_loader.process_weights_after_loading`` (deferred until that module
     imports) via the shared post-import hook.
     """

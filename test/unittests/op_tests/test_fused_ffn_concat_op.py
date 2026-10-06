@@ -281,22 +281,25 @@ class Test_FusedFFNConcat(GroupMatmulTestCase):
         if w2_bias is not None:
             ref = ref + w2_bias.float()
 
-        output = ffn_output_buffer(x)
-        torch.ops.zentorch.zentorch_fused_ffn_concat.out(
-            output,
-            x.clone(),
-            w13,
-            w2,
-            w13_bias=w13_bias,
-            w2_bias=w2_bias,
-            activation=activation,
-            w13_scale=w13_scale,
-            w2_scale=w2_scale,
-        )
-        self.assertFalse(torch.isnan(output).any())
-        self.assertEqual(
-            output.float(), ref, **TOLERANCES["da8w4_fused"]
-        )
+        # int8 [N, K/2] is the layout the vLLM plugin passes.
+        for container in (torch.int32, torch.int8):
+            _clear_weight_cache()
+            output = ffn_output_buffer(x)
+            torch.ops.zentorch.zentorch_fused_ffn_concat.out(
+                output,
+                x.clone(),
+                w13.view(container),
+                w2.view(container),
+                w13_bias=w13_bias,
+                w2_bias=w2_bias,
+                activation=activation,
+                w13_scale=w13_scale,
+                w2_scale=w2_scale,
+            )
+            self.assertFalse(torch.isnan(output).any())
+            self.assertEqual(
+                output.float(), ref, **TOLERANCES["da8w4_fused"]
+            )
 
 
 if __name__ == "__main__":

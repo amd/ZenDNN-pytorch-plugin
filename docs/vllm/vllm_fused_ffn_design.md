@@ -860,13 +860,15 @@ print(llm.generate('Hello, world!'))
 ### Configuration
 
 **Environment Variables**:
-- `ZENTORCH_FUSED_FFN=1` - Enable the vLLM dense-MLP → fused-FFN replacement
-  (default: disabled)
+- `ZENTORCH_FUSED_FFN` - The vLLM dense-MLP → fused-FFN replacement
+  (default: enabled; set `0` to disable)
 
 **Runtime Control**:
-When `ZENTORCH_FUSED_FFN=1`, an MLP module is fused only when all hold:
+When enabled, an MLP module is fused only when all hold:
 - Model has a compatible MLP structure (Pattern A or Pattern B)
-- Dtype is FP32 or BF16
+- Weights are FP32/BF16, DA8W8 (per-channel scales) or DA8W4 (per-group
+  scales); DA8W4 projections are packed before vLLM's post-load sweep, which
+  then skips them
 - Activation maps to SiLU, GELU, or GELU-tanh
 - Not MoE with multiple experts
 
@@ -885,7 +887,7 @@ Any failing check leaves that module on its native `forward`.
 **Diagnosis**:
 ```bash
 # Is the feature enabled?
-echo "$ZENTORCH_FUSED_FFN"    # must be 1
+echo "$ZENTORCH_FUSED_FFN"    # must be unset or 1
 
 # Operator availability
 python -c "import torch, zentorch; print(hasattr(torch.ops.zentorch, 'zentorch_fused_ffn_concat'))"
@@ -895,10 +897,10 @@ export VLLM_LOGGING_LEVEL=DEBUG
 ```
 
 **Possible Causes**:
-- `ZENTORCH_FUSED_FFN` not set to 1 → fusion disabled by default
+- `ZENTORCH_FUSED_FFN` set to something other than 1 → fusion disabled
 - Not running on a Zen CPU → zentorch Zen plugin inactive
 - zentorch not installed / import failed → install zentorch
-- Model dtype not FP32/BF16 → fusion skipped
+- Weights not FP32/BF16, DA8W8 or DA8W4 → fusion skipped
 - Unsupported activation → check `ACTIVATION_MAPPING`
 
 #### 2. Weights Already Empty Error

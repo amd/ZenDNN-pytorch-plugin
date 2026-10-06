@@ -380,6 +380,99 @@ class TestFusedMLPPatch(unittest.TestCase):
     def test_fused_forward_without_expert_gate(self):
         self._check_fused_matches_reference(with_expert_gate=False)
 
+    def _make_w4_proj(self, in_features, out_features, group_size):
+        """A compressed-tensors W4A16 layer as loaded, before any processing."""
+        from compressed_tensors.compressors import pack_to_int32
+        from vllm.model_executor.kernels.linear.mixed_precision.MPLinearKernel import (
+            MPLinearLayerConfig,
+        )
+        from vllm.model_executor.kernels.linear.mixed_precision.zentorch import (
+            ZentorchWNA16LinearKernel,
+        )
+        from vllm.scalar_type import scalar_types
+
+        w = torch.randn(out_features, in_features // group_size, group_size) * 0.1
+        scale = (w.abs().amax(dim=2, keepdim=True) / 8).clamp(min=1e-8)
+        q = torch.clamp(torch.round(w / scale), -8, 7).to(torch.int8)
+        proj = torch.nn.Module()
+        proj.weight_packed = torch.nn.Parameter(
+            pack_to_int32(q.reshape(out_features, in_features), 4),
+            requires_grad=False,
+        )
+        proj.weight_packed.input_dim = 1
+        proj.weight_packed.packed_dim = 1
+        proj.weight_scale = torch.nn.Parameter(
+            scale.squeeze(2).to(torch.bfloat16), requires_grad=False
+        )
+        config = MPLinearLayerConfig(
+            full_weight_shape=(in_features, out_features),
+            partition_weight_shape=(in_features, out_features),
+            weight_type=scalar_types.uint4b8,
+            act_type=torch.bfloat16,
+            group_size=group_size,
+            zero_points=False,
+        )
+        kernel = ZentorchWNA16LinearKernel(
+            config, "weight_packed", "weight_scale", "weight_zero_point"
+        )
+        proj.scheme = types.SimpleNamespace(num_bits=4, kernel=kernel)
+        return proj
+
+    def test_fused_forward_da8w4(self):
+        import os
+
+        from zentorch._C import clear_weight_cache
+        from zentorch.vllm import _fused_mlp_patch as fmp
+        from zentorch.vllm._da8w4_kernel_patch import _do_patch_da8w4
+
+        if not _do_patch_da8w4():
+            self.skipTest("ZentorchWNA16LinearKernel not importable")
+        hidden, intermediate, tokens = 128, 64, 4
+
+        def make_mlp(group_size):
+            torch.manual_seed(0)
+            mlp = self._make_mlp(hidden, intermediate, with_expert_gate=False)
+            mlp.gate_up_proj = self._make_w4_proj(
+                hidden, 2 * intermediate, group_size or hidden
+            )
+            mlp.down_proj = self._make_w4_proj(
+                intermediate, hidden, group_size or intermediate
+            )
+            return mlp
+
+        def linear_forward(mlp, x):
+            # vLLM's post-load sweep, then the unfused linear path.
+            for proj in (mlp.gate_up_proj, mlp.down_proj):
+                proj.scheme.kernel.process_weights_after_loading(proj)
+            gate_up, down = mlp.gate_up_proj, mlp.down_proj
+            h = gate_up.scheme.kernel.apply_weights(gate_up, x)
+            return down.scheme.kernel.apply_weights(down, mlp.act_fn(h))
+
+        x = torch.randn(tokens, hidden).to(torch.bfloat16)
+        # (group size, VLLM_CPU_INT4_W4A8, fused); None is per-channel.
+        cases = ((32, "1", True), (None, "1", False), (32, "0", False))
+        for group_size, w4a8, fused in cases:
+            with (
+                self.subTest(group_size=group_size, w4a8=w4a8),
+                unittest.mock.patch.dict(os.environ, {"VLLM_CPU_INT4_W4A8": w4a8}),
+                # vLLM reports the zentorch ops only on a detected Zen CPU.
+                unittest.mock.patch(
+                    "vllm.model_executor.kernels.linear.zentorch_utils.has_zentorch_op",
+                    return_value=True,
+                ),
+                torch.no_grad(),
+            ):
+                clear_weight_cache()
+                mlp = make_mlp(group_size)
+                ref = linear_forward(make_mlp(group_size), x)
+                fmp.dispatch_cpu_fused_mlp(mlp, mlp.act_fn, remove_weights=True)
+                if fused:
+                    out = mlp.cpu_mlp_forward(x)
+                else:
+                    self.assertIsNone(mlp.cpu_mlp_forward)
+                    out = linear_forward(mlp, x)
+                torch.testing.assert_close(out, ref, atol=5e-2, rtol=5e-2)
+
 
 @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
 class TestPlatformConfiguration(unittest.TestCase):
