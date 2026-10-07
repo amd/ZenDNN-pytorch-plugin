@@ -1137,9 +1137,10 @@ void zentorch_fused_moe(torch::stable::Tensor &output,
   //     grouped_inputs (matched src/dst precision).
   //   * prequant: W13 src is the int8 view of bf16 grouped_inputs;
   //     gemm_outputs are the same bf16 buffers (W2 dest / row_ptrs).
+  // Both arms are lvalues so the conditional does not copy *w2_row_bufs.
+  const std::vector<torch::stable::Tensor> no_gemm_outputs;
   zentorch_group_matmul_out_impl(
-      /*gemm_outputs=*/use_prequant ? *w2_row_bufs
-                                    : std::vector<torch::stable::Tensor>{},
+      /*gemm_outputs=*/use_prequant ? *w2_row_bufs : no_gemm_outputs,
       /*inputs=*/use_prequant ? grouped_s8_views : mapping.grouped_inputs,
       /*w13_weights=*/w13_slices,
       /*w2_weights=*/w2_weight_slices,

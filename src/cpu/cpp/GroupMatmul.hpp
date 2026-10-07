@@ -35,7 +35,7 @@ int64_t expert_capacity_bytes(const torch::stable::Tensor &expert,
 //   * bf16/fp + DA8W8/DA8W4: pass empty; this op allocates {M, 1} and
 //     sets `dynamic_quant = true` so ZenDNN fills the scales.
 void zentorch_group_matmul_out_impl(
-    std::vector<torch::stable::Tensor> gemm_outputs,
+    const std::vector<torch::stable::Tensor> &gemm_outputs,
     const std::vector<torch::stable::Tensor> &inputs,
     const std::vector<torch::stable::Tensor> &w13_weights,
     const std::vector<std::optional<torch::stable::Tensor>> &w2_weights,

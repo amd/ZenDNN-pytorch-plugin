@@ -32,6 +32,23 @@ static bool has_tensor(const std::optional<torch::stable::Tensor> &opt) {
   return opt.has_value() && opt->defined();
 }
 
+// Contiguous [rows, 1] tensor with `like`'s dtype and device. Calls the C shim
+// directly: torch::stable::new_empty is a boxed dispatcher call, and on CPU
+// aoti_torch_empty_strided goes straight to the CPU allocator.
+static torch::stable::Tensor
+empty_column_like(const torch::stable::Tensor &like, int64_t rows) {
+  const int64_t sizes[2] = {rows, 1};
+  const int64_t strides[2] = {1, 1};
+  int32_t dtype = 0;
+  int32_t device_type = 0;
+  TORCH_ERROR_CODE_CHECK(aoti_torch_get_dtype(like.get(), &dtype));
+  TORCH_ERROR_CODE_CHECK(aoti_torch_get_device_type(like.get(), &device_type));
+  AtenTensorHandle handle = nullptr;
+  TORCH_ERROR_CODE_CHECK(aoti_torch_empty_strided(
+      2, sizes, strides, dtype, device_type, like.get_device_index(), &handle));
+  return torch::stable::Tensor(handle);
+}
+
 // Validates per-expert input/weight/bias dtypes, shapes, and K-compatibility.
 //
 // Sizing contract:
@@ -435,7 +452,7 @@ map_activation_to_gated_act(std::string_view activation) {
 }
 
 void zentorch_group_matmul_out_impl(
-    std::vector<torch::stable::Tensor> gemm_outputs,
+    const std::vector<torch::stable::Tensor> &gemm_outputs,
     const std::vector<torch::stable::Tensor> &inputs,
     const std::vector<torch::stable::Tensor> &w13_weights,
     const std::vector<std::optional<torch::stable::Tensor>> &w2_weights,
@@ -526,9 +543,6 @@ void zentorch_group_matmul_out_impl(
   std::vector<void *> fused_moe_dst_ptrs(num_active, nullptr);
   std::vector<int> fused_moe_ldc_down(num_active, 0);
   std::vector<int> ldc_vec(num_active);
-  // Holds src_scale tensors for dynamic DA8W8 (keeps them alive until kernel
-  // returns)
-  std::vector<torch::stable::Tensor> temp_src_scales(num_active);
   // DA8W4: packed s4 weights (int32 [N,K/8] or int8 [N,K/2]) + dynamic
   // per-token s8 activation quant. Shares the dynamic-quant wiring with the
   // DA8W8 path but forces dtypes.wei = s4 and derives K/ldb from the
@@ -539,6 +553,12 @@ void zentorch_group_matmul_out_impl(
   // Full-width int8 is DA8W8 (s8); an int8 DA8W4 container is excluded here.
   const bool has_s8_weights =
       w13_weights[0].scalar_type() == c10::kChar && !has_s4_weights;
+  // Holds src_scale tensors for dynamic DA8W8 (keeps them alive until kernel
+  // returns)
+  std::vector<torch::stable::Tensor> temp_src_scales;
+  if (has_s8_weights || has_s4_weights) {
+    temp_src_scales.reserve(num_active);
+  }
 
   // Weight-side metadata vectors (sized to the total count). The library's
   // prepack-extras contract requires the six vectors below to be
@@ -647,7 +667,7 @@ void zentorch_group_matmul_out_impl(
           qparams.src_scale.buff = src_scale_as_wei_dtype.data_ptr();
           qparams.src_scale.dt = get_zendnnl_dtype(src_scale_as_wei_dtype);
           qparams.src_scale.dims = {M, 1};
-          temp_src_scales[op_idx] = std::move(src_scale_as_wei_dtype);
+          temp_src_scales.push_back(std::move(src_scale_as_wei_dtype));
         } else {
           qparams.src_scale.buff = src_scale.data_ptr();
           qparams.src_scale.dt = get_zendnnl_dtype(src_scale);
@@ -655,11 +675,11 @@ void zentorch_group_matmul_out_impl(
         }
       } else {
         params[op_idx].dynamic_quant = true;
-        auto src_scale_tensor = torch::stable::new_empty(ws, {M, 1});
+        auto src_scale_tensor = empty_column_like(ws, M);
         qparams.src_scale.buff = src_scale_tensor.data_ptr();
         qparams.src_scale.dt = get_zendnnl_dtype(ws);
         qparams.src_scale.dims = {M, 1};
-        temp_src_scales[op_idx] = std::move(src_scale_tensor);
+        temp_src_scales.push_back(std::move(src_scale_tensor));
       }
 
       params[op_idx].quant_params = qparams;
