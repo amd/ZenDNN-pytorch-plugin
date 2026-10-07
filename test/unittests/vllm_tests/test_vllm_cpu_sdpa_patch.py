@@ -49,6 +49,38 @@ class TestCPUSdpaPatch(unittest.TestCase):
             )
             self.assertTrue(plugin._do_patch_cpu_sdpa())
 
+    def test_native_zentorch_sdpa_impl_keeps_the_original_forward(self):
+        """vLLM 0.31 calls zentorch SDPA for encoder layers itself and upcasts
+        bf16 + ALiBi to fp32 first; the wrapper must hand those layers back."""
+        import torch
+        from vllm.v1.attention.backend import AttentionType
+
+        spec, plugin = load_source_vllm_module()
+        with unittest.mock.patch.dict(
+            sys.modules, {"zentorch.vllm": plugin}
+        ):
+            spec.loader.exec_module(plugin)
+
+        q = torch.zeros(4, 2, 8, dtype=torch.bfloat16)
+        metadata = types.SimpleNamespace(num_actual_tokens=4)
+        for native in (True, False):
+            with self.subTest(use_zentorch_sdpa=native):
+                impl = types.SimpleNamespace(
+                    attn_type=AttentionType.ENCODER_ONLY,
+                    use_zentorch_sdpa=native,
+                    _zentorch_orig_forward=unittest.mock.Mock(),
+                )
+                with unittest.mock.patch.object(
+                    plugin, "_run_encoder_sdpa_zentorch"
+                ) as run_zentorch, unittest.mock.patch.object(
+                    plugin, "zentorch_sdpa_supports_dtype", return_value=True
+                ):
+                    plugin._forward_cpu_attn_zentorch(
+                        impl, None, q, q, q, None, metadata, torch.empty_like(q)
+                    )
+                self.assertEqual(impl._zentorch_orig_forward.called, native)
+                self.assertEqual(run_zentorch.called, not native)
+
     def test_disabled_via_env(self):
         spec, plugin = load_source_vllm_module()
         with unittest.mock.patch.dict(

@@ -37,14 +37,6 @@ _PATCH_TARGETS = [
      "vllm.model_executor.layers.quantization.compressed_tensors."
      "compressed_tensors_moe.compressed_tensors_moe_w8a8_int8",
      "CompressedTensorsW8A8Int8MoEMethod", "_zentorch_int8_moe_patched", None),
-    ("Wna16MoEOracle",
-     "vllm.model_executor.layers.fused_moe.oracle.int_wna16",
-     None, "_zentorch_wna16_oracle_patched", "backend_to_kernel_cls"),
-    ("Wna16MoEMethod",
-     "vllm.model_executor.layers.quantization.compressed_tensors."
-     "compressed_tensors_moe.compressed_tensors_moe_wna16",
-     "CompressedTensorsWNA16MoEMethod", "_zentorch_wna16_moe_patched",
-     "process_weights_after_loading"),
     ("MixtralMoELoader", "vllm.model_executor.models.mixtral", "MixtralModel",
      "_zentorch_mixtral_loader_patched", "load_weights"),
     ("TorchAO", "vllm.model_executor.layers.quantization.torchao",
@@ -197,6 +189,30 @@ class TestPatchApplication(unittest.TestCase):
             self.assertIn("FusedMoE", plugin.APPLIED_PATCHES)
         else:
             self.assertNotIn("FusedMoE", plugin.APPLIED_PATCHES)
+
+    def test_wna16_moe_patch_scope(self):
+        """Applied until vLLM ships its own ZEN_CPU WNA16 MoE backend (0.31)."""
+        oracle_name = "vllm.model_executor.layers.fused_moe.oracle.int_wna16"
+        method_name = (
+            "vllm.model_executor.layers.quantization.compressed_tensors."
+            "compressed_tensors_moe.compressed_tensors_moe_wna16"
+        )
+        oracle = importlib.import_module(oracle_name)
+        method_cls = importlib.import_module(
+            method_name
+        ).CompressedTensorsWNA16MoEMethod
+        if hasattr(oracle.WNA16MoEBackend, "ZEN_CPU"):
+            self.assertFalse(hasattr(oracle, "_zentorch_wna16_oracle_patched"))
+            self.assertFalse(hasattr(method_cls, "_zentorch_wna16_moe_patched"))
+        else:
+            self._assert_applied(
+                "Wna16MoEOracle", oracle_name, None,
+                "_zentorch_wna16_oracle_patched", "backend_to_kernel_cls",
+            )
+            self._assert_applied(
+                "Wna16MoEMethod", method_name, "CompressedTensorsWNA16MoEMethod",
+                "_zentorch_wna16_moe_patched", "process_weights_after_loading",
+            )
 
     def test_sliding_window_alignment_scope(self):
         import zentorch.vllm as plugin

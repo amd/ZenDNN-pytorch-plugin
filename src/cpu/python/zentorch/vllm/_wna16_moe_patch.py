@@ -421,7 +421,18 @@ def _register_oracle_patch(mod) -> None:
     mod.backend_to_kernel_cls = _zen_backend_to_kernel_cls
 
 
+def _native_zen_cpu_backend(oracle) -> bool:
+    """vLLM 0.31+ ships its own ZEN_CPU (zentorch DA8W4) WNA16 MoE backend,
+    ranked ahead of CPU, with N-first compressed-tensors weights that this
+    patch's repack does not handle; both patches then stand down."""
+    return hasattr(getattr(oracle, "WNA16MoEBackend", None), "ZEN_CPU")
+
+
 def _apply_oracle_patch_to_module(mod) -> bool:
+    if _native_zen_cpu_backend(mod):
+        logger.info("[zentorch] vLLM ships the ZEN_CPU WNA16 MoE backend; "
+                    "DA8W4 MoE oracle patch not applied")
+        return False
     has_cls = hasattr(mod, "backend_to_kernel_cls")
     return run_moe_patch_apply(
         mod,
@@ -633,6 +644,10 @@ def _register_wna16_method_patch(mod) -> None:
 
 
 def _apply_wna16_method_patch_to_module(mod) -> bool:
+    if _native_zen_cpu_backend(sys.modules.get(_ORACLE_MODULE)):
+        logger.info("[zentorch] vLLM ships the ZEN_CPU WNA16 MoE backend; "
+                    "WNA16 MoE method patch not applied")
+        return False
     cls = _modular_method_cls(mod)
     return run_moe_patch_apply(
         mod,

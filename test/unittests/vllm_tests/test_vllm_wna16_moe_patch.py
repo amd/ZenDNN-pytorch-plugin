@@ -375,6 +375,58 @@ class TestModularMethodDiscovery(unittest.TestCase):
 
 
 @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
+class TestNativeZenCpuBackend(unittest.TestCase):
+    """vLLM 0.31 ships its own ZEN_CPU WNA16 MoE backend (N-first weights);
+    both patches step aside so the native zentorch DA8W4 experts own the path."""
+
+    class _Backend:
+        CPU = "CPU"
+        ZEN_CPU = "ZEN_CPU"
+
+    def test_oracle_patch_skipped(self):
+        from zentorch.vllm import _wna16_moe_patch as zw
+
+        def backend_to_kernel_cls(backend):
+            return []
+
+        mod = types.SimpleNamespace(
+            WNA16MoEBackend=self._Backend,
+            backend_to_kernel_cls=backend_to_kernel_cls,
+        )
+        with mock.patch.object(zw, "use_zentorch_da8w4_moe", return_value=True):
+            self.assertFalse(zw._apply_oracle_patch_to_module(mod))
+        self.assertIs(mod.backend_to_kernel_cls, backend_to_kernel_cls)
+        self.assertFalse(hasattr(mod, "_zentorch_wna16_oracle_patched"))
+
+    def test_method_patch_skipped(self):
+        import sys
+
+        from zentorch.vllm import _wna16_moe_patch as zw
+
+        def process(self, layer):
+            return None
+
+        mod = types.ModuleType(zw._METHOD_MODULE)
+        mod.make_wna16_moe_kernel = lambda *a, **k: None
+        cls = type(
+            zw._METHOD_CLASS,
+            (),
+            {
+                "create_weights": lambda self, *a, **k: None,
+                "get_fused_moe_quant_config": lambda self, layer: None,
+                "process_weights_after_loading": process,
+            },
+        )
+        setattr(mod, zw._METHOD_CLASS, cls)
+        oracle = types.ModuleType(zw._ORACLE_MODULE)
+        oracle.WNA16MoEBackend = self._Backend
+        with mock.patch.dict(sys.modules, {zw._ORACLE_MODULE: oracle}):
+            self.assertFalse(zw._apply_wna16_method_patch_to_module(mod))
+        self.assertIs(cls.process_weights_after_loading, process)
+        self.assertFalse(hasattr(cls, "_zentorch_wna16_moe_patched"))
+
+
+@unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
 class TestKernelSetup(unittest.TestCase):
     """``process_weights_after_loading`` delegates kernel build to ``_setup_kernel``."""
 

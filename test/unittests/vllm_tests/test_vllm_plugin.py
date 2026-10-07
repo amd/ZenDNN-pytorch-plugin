@@ -82,6 +82,8 @@ class TestVersionContract(unittest.TestCase):
             "0.29.0+cpu",
             "0.30.0",
             "0.30.0+cpu",
+            "0.31.0",
+            "0.31.0+cpu",
         ]:
             self.assertTrue(
                 is_supported_vllm(version),
@@ -102,9 +104,10 @@ class TestVersionContract(unittest.TestCase):
             "0.28.0rc1+cpu",
             "0.29.0rc1+cpu",
             "0.30.0rc1+cpu",
-            "0.30.1",
-            "0.30.1+cpu",
-            "0.31.0",
+            "0.31.0rc1+cpu",
+            "0.31.1",
+            "0.31.1+cpu",
+            "0.32.0",
             "1.0.0",
             "not-a-version",
         ]:
@@ -207,9 +210,15 @@ class TestRegisterContract(unittest.TestCase):
         self.assertEqual(result, "zentorch.vllm._platform.ZenCPUPlatform")
         apply_all.assert_called_once_with()
 
+    def test_accepts_supported_runtime_031(self):
+        plugin = self._fresh_source_module()
+        result, apply_all = self._register_with(plugin, "0.31.0+cpu")
+        self.assertEqual(result, "zentorch.vllm._platform.ZenCPUPlatform")
+        apply_all.assert_called_once_with()
+
     def test_rejects_future_vllm(self):
         plugin = self._fresh_source_module()
-        result, apply_all = self._register_with(plugin, "0.30.1+cpu")
+        result, apply_all = self._register_with(plugin, "0.31.1+cpu")
         self.assertIsNone(result)
         apply_all.assert_not_called()
 

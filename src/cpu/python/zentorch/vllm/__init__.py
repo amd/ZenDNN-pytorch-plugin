@@ -93,7 +93,7 @@ logger = get_logger(__name__)
 # upper bound is explicit, not an open "< next minor" range: bump VLLM_MAX_VERSION
 # after validating each new patch release.
 VLLM_MIN_VERSION = "0.27.0"
-VLLM_MAX_VERSION = "0.30.0"
+VLLM_MAX_VERSION = "0.31.0"
 TORCH_MIN_VERSION = (2, 13)
 
 
@@ -438,9 +438,13 @@ def _forward_cpu_attn_zentorch(
         AttentionType.ENCODER_ONLY,
         AttentionType.ENCODER,
     )
+    # vLLM 0.31+ sets use_zentorch_sdpa and calls zentorch_sdpa_attn itself.
+    # Its caller upcasts bf16 + ALiBi to fp32 because the op builds the ALiBi
+    # mask in query.dtype; this wrapper does not, so defer to vLLM.
     if (
         attn_metadata is None
         or not is_encoder
+        or getattr(self, "use_zentorch_sdpa", False)
         or key is None
         or value is None
         or output_scale is not None
