@@ -820,7 +820,7 @@ void zentorch_group_matmul_out_impl(
   ZENTORCH_CHECK(status == status_t::success,
                  "zentorch_group_matmul: group_matmul_direct execution failed");
 
-  LOG(INFO) << "Finished executing: " << __FUNCTION__ << "!\n";
+  ZENTORCH_LOG(INFO) << "Finished executing: " << __FUNCTION__ << "!\n";
 }
 
 STABLE_TORCH_LIBRARY_FRAGMENT(zentorch, m) {

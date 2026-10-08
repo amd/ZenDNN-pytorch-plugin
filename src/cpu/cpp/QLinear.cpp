@@ -87,19 +87,22 @@ void zendnnl_quantized_matmul_impl(
     const int64_t output_stride, const bool is_weight_prepacked,
     std::string zentorch_op_name) {
 
-  LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
-            << "Executing function: " << __FUNCTION__;
-  LOG(INFO) << "input dimensions: [" << c10::Join(", ", input.sizes()) << "]";
-  LOG(INFO) << "weight dimensions: [" << c10::Join(", ", weight.sizes()) << "]";
-  LOG(INFO) << "input_scales dimensions: ["
-            << c10::Join(", ", input_scales.sizes()) << "]";
-  LOG(INFO) << "input_zero_points dimensions: ["
-            << c10::Join(", ", input_zero_points.sizes()) << "]";
-  LOG(INFO) << "weight_scales dimensions: ["
-            << c10::Join(", ", weight_scales.sizes()) << "]";
-  LOG(INFO) << "weight_zero_points dimensions: ["
-            << c10::Join(", ", weight_zero_points.sizes()) << "]";
-  LOG(INFO) << "result dimensions: [" << c10::Join(", ", result.sizes()) << "]";
+  ZENTORCH_LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
+                     << "Executing function: " << __FUNCTION__;
+  ZENTORCH_LOG(INFO) << "input dimensions: [" << c10::Join(", ", input.sizes())
+                     << "]";
+  ZENTORCH_LOG(INFO) << "weight dimensions: ["
+                     << c10::Join(", ", weight.sizes()) << "]";
+  ZENTORCH_LOG(INFO) << "input_scales dimensions: ["
+                     << c10::Join(", ", input_scales.sizes()) << "]";
+  ZENTORCH_LOG(INFO) << "input_zero_points dimensions: ["
+                     << c10::Join(", ", input_zero_points.sizes()) << "]";
+  ZENTORCH_LOG(INFO) << "weight_scales dimensions: ["
+                     << c10::Join(", ", weight_scales.sizes()) << "]";
+  ZENTORCH_LOG(INFO) << "weight_zero_points dimensions: ["
+                     << c10::Join(", ", weight_zero_points.sizes()) << "]";
+  ZENTORCH_LOG(INFO) << "result dimensions: ["
+                     << c10::Join(", ", result.sizes()) << "]";
 
   static const torch::stable::Tensor kUndefinedTensor;
   const torch::stable::Tensor &bias_t =
@@ -258,7 +261,7 @@ void zendnnl_quantized_matmul_impl(
       false /* is_weight_prepacked */, {} /* tensor_sizes */,
       {} /* tensor_strides */, {} /* tensor_aligned_sizes */, -1 /* nbytes */,
       z_input_scales_opt_ref, z_input_zero_points_opt_ref);
-  LOG(INFO) << "Created input tensor";
+  ZENTORCH_LOG(INFO) << "Created input tensor";
 
   tensor_t z_weight_scales = tensor_t();
   tensor_opt_ref z_weight_scales_opt_ref = std::nullopt;
@@ -294,7 +297,8 @@ void zendnnl_quantized_matmul_impl(
 
   tensor_t z_bias = tensor_t();
   if (bias_defined) {
-    LOG(INFO) << "bias dimensions: [" << c10::Join(", ", bias_t.sizes()) << "]";
+    ZENTORCH_LOG(INFO) << "bias dimensions: ["
+                       << c10::Join(", ", bias_t.sizes()) << "]";
     unsigned long bias_numel = bias_t.numel();
     set_zendnnl_tensor_attributes(bias_t, z_bias, "z_bias",
                                   false /* is_weight_prepacked */,
@@ -367,7 +371,7 @@ void zendnnl_quantized_matmul_impl(
                  matmul_operator.get_name(),
                  " execution failed for zentorch_matmul_impl.");
 
-  LOG(INFO) << "Finished executing: " << __FUNCTION__ << "!\n";
+  ZENTORCH_LOG(INFO) << "Finished executing: " << __FUNCTION__ << "!\n";
 }
 
 template <UNARY_POST_OP fuse>
@@ -383,8 +387,8 @@ void zentorch_qlinear_out_unary(
     const std::optional<torch::stable::Tensor> &output_zero_points,
     const std::optional<c10::ScalarType> &output_dtype,
     bool is_weight_prepacked, std::string zentorch_op_name) {
-  LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
-            << "Executing function: " << __FUNCTION__;
+  ZENTORCH_LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
+                     << "Executing function: " << __FUNCTION__;
 
   ZENTORCH_CHECK(output_dtype.has_value(),
                  "output_dtype must be provided for out variant");
@@ -402,23 +406,20 @@ void zentorch_qlinear_out_unary(
                  "AVX512 instructions.");
 
   // `input` is viewed as 2d for matmul computation.
-  auto input_2d_size = get_2d_size_for_tensor(input);
-  auto input_2d_view =
-      torch::stable::view(get_contiguous_view(input), input_2d_size);
+  auto input_2d_view = get_2d_view(get_contiguous_view(input));
 
   // `weight` is transposed for matmul computation.
   auto weight_transposed = torch::stable::transpose(weight, 0, 1);
 
   // `result` is viewed as 2d for matmul computation.
-  auto result_2d_size = get_2d_size_for_tensor(result);
-  auto result_2d_view = torch::stable::view(result, result_2d_size);
+  auto result_2d_view = get_2d_view(result);
   auto output_stride = result_2d_view.stride(0);
 
   // Set unary post ops.
   std::vector<torch::stable::Tensor> post_op_buffers = {};
   std::vector<int64_t> post_op_ids = {fuse};
-  LOG(INFO) << "Calling zendnnl_quantized_matmul_impl from " << __FUNCTION__
-            << "!\n";
+  ZENTORCH_LOG(INFO) << "Calling zendnnl_quantized_matmul_impl from "
+                     << __FUNCTION__ << "!\n";
   zendnnl_quantized_matmul_impl(
       input_2d_view, weight_transposed, bias, result_2d_view, input_scales,
       input_zero_points, weight_scales, weight_zero_points, post_op_ids,
@@ -439,8 +440,8 @@ torch::stable::Tensor zentorch_qlinear_unary(
     const std::optional<c10::ScalarType> &output_dtype,
     bool is_weight_prepacked, std::string zentorch_op_name) {
 
-  LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
-            << "Executing function: " << __FUNCTION__;
+  ZENTORCH_LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
+                     << "Executing function: " << __FUNCTION__;
 
   c10::ScalarType out_dtype = output_dtype.value_or(c10::kFloat);
   auto weight_transposed = torch::stable::transpose(weight, 0, 1);
@@ -473,8 +474,8 @@ inline torch::stable::Tensor zentorch_qlinear_binary_binary(
     const std::optional<torch::stable::Tensor> &output_zero_points,
     const std::optional<c10::ScalarType> &output_dtype,
     bool is_weight_prepacked, std::string zentorch_op_name) {
-  LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
-            << "Executing function: " << __FUNCTION__;
+  ZENTORCH_LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
+                     << "Executing function: " << __FUNCTION__;
 
   if (output_dtype.has_value()) {
     ZENTORCH_CHECK(
@@ -490,16 +491,10 @@ inline torch::stable::Tensor zentorch_qlinear_binary_binary(
                  "AVX512 instructions.");
 
   // `input` is viewed as 2d for matmul computation.
-  auto input_2d_size = get_2d_size_for_tensor(input);
-  auto input_2d_view =
-      torch::stable::view(get_contiguous_view(input), input_2d_size);
+  auto input_2d_view = get_2d_view(get_contiguous_view(input));
 
-  auto binary1_input_2d_size = get_2d_size_for_tensor(binary1_input);
-  auto binary1_input_2d_view = torch::stable::view(
-      get_contiguous_view(binary1_input), binary1_input_2d_size);
-  auto binary2_input_2d_size = get_2d_size_for_tensor(binary2_input);
-  auto binary2_input_2d_view = torch::stable::view(
-      get_contiguous_view(binary2_input), binary2_input_2d_size);
+  auto binary1_input_2d_view = get_2d_view(get_contiguous_view(binary1_input));
+  auto binary2_input_2d_view = get_2d_view(get_contiguous_view(binary2_input));
 
   // `weight` is transposed for matmul computation.
   auto weight_transposed = torch::stable::transpose(weight, 0, 1);
@@ -510,15 +505,14 @@ inline torch::stable::Tensor zentorch_qlinear_binary_binary(
       torch::stable::new_empty(input, output_sz, out_dtype);
 
   // `result` is viewed as 2d for matmul computation.
-  auto result_2d_size = get_2d_size_for_tensor(result);
-  auto result_2d_view = torch::stable::view(result, result_2d_size);
+  auto result_2d_view = get_2d_view(result);
 
   std::vector<torch::stable::Tensor> post_op_buffers = {binary1_input_2d_view,
                                                         binary2_input_2d_view};
   std::vector<int64_t> post_op_ids = {fuse1, fuse2};
 
-  LOG(INFO) << "Calling zendnnl_quantized_matmul_impl from " << __FUNCTION__
-            << "!\n";
+  ZENTORCH_LOG(INFO) << "Calling zendnnl_quantized_matmul_impl from "
+                     << __FUNCTION__ << "!\n";
   zendnnl_quantized_matmul_impl(
       input_2d_view, weight_transposed, bias, result_2d_view, input_scales,
       input_zero_points, weight_scales, weight_zero_points, post_op_ids,

@@ -87,9 +87,10 @@ get_contiguous_view(const torch::stable::Tensor &tensor) {
       std::any_of(stride.begin(), stride.end(), [](auto s) { return s == 0; });
   if (!tensor.is_contiguous() || is_zero) {
     auto new_tensor = torch::stable::contiguous(tensor);
-    LOG(INFO) << "Tensor is not contiguous. Converting the tensor to a "
-                 "contiguous format in "
-              << __FILE__ << ": " << __LINE__ << " in " << __FUNCTION__;
+    ZENTORCH_LOG(INFO)
+        << "Tensor is not contiguous. Converting the tensor to a "
+           "contiguous format in "
+        << __FILE__ << ": " << __LINE__ << " in " << __FUNCTION__;
     return torch::stable::view(new_tensor, size_vec);
   }
   return torch::stable::view(tensor, size_vec);
@@ -209,7 +210,7 @@ inline void check_valid_sizes_for_matmul(
   }
 
   if (post_op_buffers.empty()) {
-    LOG(INFO) << "Post Op buffers are not present!\n";
+    ZENTORCH_LOG(INFO) << "Post Op buffers are not present!\n";
     return;
   }
   bool are_postops_dim_compatible = true;
@@ -302,7 +303,7 @@ inline void check_valid_dtypes_for_matmul(
   }
 
   if (post_op_buffers.empty()) {
-    LOG(INFO) << "Post Op buffers are not present!\n";
+    ZENTORCH_LOG(INFO) << "Post Op buffers are not present!\n";
     return;
   }
   bool are_postops_fp32 = true;
@@ -445,7 +446,7 @@ inline void check_valid_dtypes_for_quantized_matmul(
                    "unsupported dtype for post_ops, only float32/bfloat16 "
                    "is supported");
   } else {
-    LOG(INFO) << "Post Op buffers are not present!\n";
+    ZENTORCH_LOG(INFO) << "Post Op buffers are not present!\n";
   }
 }
 
@@ -535,7 +536,7 @@ inline void check_valid_sizes_for_quantized_matmul(
         are_postops_shape_compatible,
         "unsupported shapes for post op buffers for input and weight");
   } else {
-    LOG(INFO) << "Post Op buffers are not present!\n";
+    ZENTORCH_LOG(INFO) << "Post Op buffers are not present!\n";
   }
 }
 
@@ -575,6 +576,21 @@ get_2d_size_for_tensor(const torch::stable::Tensor &inp_tensor,
   output_size[0] = inp_tensor.numel() / inp_tensor.size(dim - 1);
   output_size[1] = inp_tensor.size(dim - 1) * unpacking_ratio;
   return output_size;
+}
+
+// Returns tensor as a 2-d row-major view. A tensor that is already 2-d with
+// strides {size(1), 1} is returned as is, skipping torch::stable::view, which
+// is a boxed dispatcher call. The kernels read stride(0) as the leading
+// dimension.
+inline torch::stable::Tensor get_2d_view(const torch::stable::Tensor &tensor) {
+  if (tensor.dim() == 2) {
+    const auto sizes = tensor.sizes();
+    const auto strides = tensor.strides();
+    if (strides[1] == 1 && strides[0] == sizes[1]) {
+      return tensor;
+    }
+  }
+  return torch::stable::view(tensor, get_2d_size_for_tensor(tensor));
 }
 
 // this function returns the output stride for matrix multiplication of two

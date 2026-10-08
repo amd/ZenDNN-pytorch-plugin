@@ -63,16 +63,17 @@ static void zentorch_dynamic_qlinear_impl(
     const torch::stable::Tensor &weight_scales, bool is_da8w4,
     const bool is_weight_prepacked, const std::string &zentorch_op_name) {
 
-  LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
-            << "Executing function: " << __FUNCTION__
-            << " (is_da8w4=" << is_da8w4 << ")";
-  LOG(INFO) << "input dimensions: [" << c10::Join(", ", input_2d.sizes())
-            << "]";
-  LOG(INFO) << "weight dimensions: [" << c10::Join(", ", weight.sizes()) << "]";
-  LOG(INFO) << "weight_scales dimensions: ["
-            << c10::Join(", ", weight_scales.sizes()) << "]";
-  LOG(INFO) << "result dimensions: [" << c10::Join(", ", result_2d.sizes())
-            << "]";
+  ZENTORCH_LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
+                     << "Executing function: " << __FUNCTION__
+                     << " (is_da8w4=" << is_da8w4 << ")";
+  ZENTORCH_LOG(INFO) << "input dimensions: ["
+                     << c10::Join(", ", input_2d.sizes()) << "]";
+  ZENTORCH_LOG(INFO) << "weight dimensions: ["
+                     << c10::Join(", ", weight.sizes()) << "]";
+  ZENTORCH_LOG(INFO) << "weight_scales dimensions: ["
+                     << c10::Join(", ", weight_scales.sizes()) << "]";
+  ZENTORCH_LOG(INFO) << "result dimensions: ["
+                     << c10::Join(", ", result_2d.sizes()) << "]";
 
   ZENTORCH_CHECK(!is_weight_prepacked || !is_da8w4,
                  "zentorch_dynamic_qlinear: prepacked weights are supported "
@@ -136,7 +137,7 @@ static void zentorch_dynamic_qlinear_impl(
   ZENTORCH_CHECK(status == status_t::success,
                  "zentorch_dynamic_qlinear: matmul_direct execution failed");
 
-  LOG(INFO) << "Finished executing: " << __FUNCTION__ << "!\n";
+  ZENTORCH_LOG(INFO) << "Finished executing: " << __FUNCTION__ << "!\n";
 }
 
 static void check_valid_dims_for_qlinear(const torch::stable::Tensor &input,
@@ -160,8 +161,7 @@ static void dispatch_dynamic_qlinear(const torch::stable::Tensor &input,
                                      torch::stable::Tensor &result,
                                      const bool is_weight_prepacked,
                                      const std::string &zentorch_op_name) {
-  auto input_2d = torch::stable::view(get_contiguous_view(input),
-                                      get_2d_size_for_tensor(input));
+  auto input_2d = get_2d_view(get_contiguous_view(input));
 
   // Infers the mode and validates the weight dtype/shape in one step.
   const bool is_da8w4 = check_weight_and_infer_is_da8w4(input, weight);
@@ -209,7 +209,7 @@ static void dispatch_dynamic_qlinear(const torch::stable::Tensor &input,
     }
   }
 
-  auto result_2d = torch::stable::view(result, get_2d_size_for_tensor(result));
+  auto result_2d = get_2d_view(result);
   zentorch_dynamic_qlinear_impl(input_2d, weight, bias_t, result_2d,
                                 weight_scales, is_da8w4, is_weight_prepacked,
                                 zentorch_op_name);
@@ -220,8 +220,8 @@ torch::stable::Tensor zentorch_dynamic_qlinear(
     const torch::stable::Tensor &weight_scales,
     const std::optional<torch::stable::Tensor> &bias, bool is_weight_prepacked,
     std::string zentorch_op_name) {
-  LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
-            << "Executing function: " << __FUNCTION__;
+  ZENTORCH_LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
+                     << "Executing function: " << __FUNCTION__;
 
   static const torch::stable::Tensor kUndefinedTensor;
   const torch::stable::Tensor &bias_t =
@@ -246,8 +246,8 @@ void zentorch_dynamic_qlinear_out(
     const torch::stable::Tensor &weight_scales,
     const std::optional<torch::stable::Tensor> &bias, bool is_weight_prepacked,
     std::string zentorch_op_name, torch::stable::Tensor &out) {
-  LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
-            << "Executing function: " << __FUNCTION__;
+  ZENTORCH_LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
+                     << "Executing function: " << __FUNCTION__;
 
   static const torch::stable::Tensor kUndefinedTensor;
   const torch::stable::Tensor &bias_t =

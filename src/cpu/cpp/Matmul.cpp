@@ -32,12 +32,15 @@ torch::stable::Tensor zendnnl_matmul_impl(
     const float &beta, const float &alpha, std::string zentorch_op_name,
     const bool is_weight_const, const bool is_weight_prepacked) {
 
-  LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
-            << "Executing function: " << __FUNCTION__;
-  LOG(INFO) << "input dimensions: [" << c10::Join(", ", input.sizes()) << "]";
-  LOG(INFO) << "weight dimensions: [" << c10::Join(", ", weight.sizes()) << "]";
-  LOG(INFO) << "result dimensions: [" << c10::Join(", ", result.sizes()) << "]";
-  LOG(INFO) << "beta : " << beta << " and alpha : " << alpha;
+  ZENTORCH_LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
+                     << "Executing function: " << __FUNCTION__;
+  ZENTORCH_LOG(INFO) << "input dimensions: [" << c10::Join(", ", input.sizes())
+                     << "]";
+  ZENTORCH_LOG(INFO) << "weight dimensions: ["
+                     << c10::Join(", ", weight.sizes()) << "]";
+  ZENTORCH_LOG(INFO) << "result dimensions: ["
+                     << c10::Join(", ", result.sizes()) << "]";
+  ZENTORCH_LOG(INFO) << "beta : " << beta << " and alpha : " << alpha;
 
   // ZenDNNL has implementation for matmul and batched matmul which bypasses the
   // tensor creation and other over-heads to directly start the matmul
@@ -64,7 +67,7 @@ torch::stable::Tensor zendnnl_matmul_impl(
       int_env_value && validate_zendnnl_direct_kernel_usage(
                            input, weight, beta_bias, result, post_op_buffers);
   if (use_zendnnl_direct_kernel) {
-    LOG(INFO) << "Using zendnn direct kernel for matmul";
+    ZENTORCH_LOG(INFO) << "Using zendnn direct kernel for matmul";
     zendnnl_direct_kernel(input, weight, beta_bias, result, alpha, post_op_ids,
                           post_op_buffers, is_weight_const, is_weight_prepacked,
                           zentorch_op_name);
@@ -190,7 +193,7 @@ torch::stable::Tensor zendnnl_matmul_impl(
       }
     }
   }
-  LOG(INFO) << "Finished executing: " << __FUNCTION__ << "!\n";
+  ZENTORCH_LOG(INFO) << "Finished executing: " << __FUNCTION__ << "!\n";
   return result;
 }
 
@@ -212,8 +215,8 @@ torch::stable::Tensor zentorch_addmm_1dbias(const torch::stable::Tensor &self,
                                             const torch::stable::Tensor &mat2,
                                             double beta, double alpha,
                                             std::string zentorch_op_name) {
-  LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
-            << "Executing function: " << __FUNCTION__;
+  ZENTORCH_LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
+                     << "Executing function: " << __FUNCTION__;
 
   ZENTORCH_CHECK(
       (self.dim() == 1 && mat1.dim() == 2 && mat2.dim() == 2), // aten::addmm
@@ -222,7 +225,8 @@ torch::stable::Tensor zentorch_addmm_1dbias(const torch::stable::Tensor &self,
   torch::stable::Tensor result =
       create_linear_and_matmul_output_tensor(mat1, mat2);
 
-  LOG(INFO) << "Calling zentorch_matmul_impl from " << __FUNCTION__ << "!\n";
+  ZENTORCH_LOG(INFO) << "Calling zentorch_matmul_impl from " << __FUNCTION__
+                     << "!\n";
 
   return zentorch_matmul_impl(
       mat1, mat2, self, result,
@@ -240,8 +244,8 @@ torch::stable::Tensor zentorch_addmm(const torch::stable::Tensor &self,
   // if alpha is zero, return beta * self directly from here itself.
   // Dont enter the matmul impl.
 
-  LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
-            << "Executing function: " << __FUNCTION__;
+  ZENTORCH_LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
+                     << "Executing function: " << __FUNCTION__;
 
   ZENTORCH_CHECK((mat1.dim() == 2 && mat2.dim() == 2), // aten::addmm
                  "unsupported dims for self, mat1 and mat2");
@@ -324,8 +328,8 @@ torch::stable::Tensor zentorch_baddbmm(const torch::stable::Tensor &self,
                                        const torch::stable::Tensor &batch2,
                                        double beta, double alpha,
                                        std::string zentorch_op_name) {
-  LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
-            << "Executing function: " << __FUNCTION__;
+  ZENTORCH_LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
+                     << "Executing function: " << __FUNCTION__;
 
   ZENTORCH_CHECK(self.numel() != 0, "incorrect self tensor");
   ZENTORCH_CHECK(self.dim() == 3 && batch1.dim() == 3 &&
@@ -377,8 +381,8 @@ torch::stable::Tensor zentorch_baddbmm(const torch::stable::Tensor &self,
 torch::stable::Tensor zentorch_mm(const torch::stable::Tensor &self,
                                   const torch::stable::Tensor &mat2,
                                   std::string zentorch_op_name) {
-  LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
-            << "Executing function: " << __FUNCTION__;
+  ZENTORCH_LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
+                     << "Executing function: " << __FUNCTION__;
   ZENTORCH_CHECK((self.dim() == 2 && mat2.dim() == 2), // aten::mm
                  "unsupported dims for self and mat2");
 
@@ -397,8 +401,8 @@ void zentorch_bmm_out(const torch::stable::Tensor &self,
                       const torch::stable::Tensor &mat2,
                       std::string zentorch_op_name,
                       torch::stable::Tensor &out) {
-  LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
-            << "Executing function: " << __FUNCTION__;
+  ZENTORCH_LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
+                     << "Executing function: " << __FUNCTION__;
   ZENTORCH_CHECK(
       (self.dim() == 3 && mat2.dim() == 3),
       "unsupported dims for self and mat2, expected 3D tensors but got "
@@ -415,8 +419,8 @@ void zentorch_bmm_out(const torch::stable::Tensor &self,
 torch::stable::Tensor zentorch_bmm(const torch::stable::Tensor &self,
                                    const torch::stable::Tensor &mat2,
                                    std::string zentorch_op_name) {
-  LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
-            << "Executing function: " << __FUNCTION__;
+  ZENTORCH_LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
+                     << "Executing function: " << __FUNCTION__;
   torch::stable::Tensor result =
       create_linear_and_matmul_output_tensor(self, mat2);
   zentorch_bmm_out(self, mat2, zentorch_op_name, result);

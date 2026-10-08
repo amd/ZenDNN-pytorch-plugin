@@ -46,16 +46,8 @@ void zentorch_fused_ffn_concat_out_impl(
     const std::optional<torch::stable::Tensor> &w2_scale,
     std::string zentorch_op_name) {
 
-  // torch::stable::view is a boxed dispatcher call even when the shape does
-  // not change, so 2D tensors are passed through as they are.
-  const torch::stable::Tensor input_2d =
-      input.dim() == 2
-          ? input
-          : torch::stable::view(input, get_2d_size_for_tensor(input));
-  torch::stable::Tensor output_2d =
-      output.dim() == 2
-          ? output
-          : torch::stable::view(output, get_2d_size_for_tensor(output));
+  const torch::stable::Tensor input_2d = get_2d_view(input);
+  torch::stable::Tensor output_2d = get_2d_view(output);
 
   std::vector<torch::stable::Tensor> gemm_outputs = {output_2d};
   const std::vector<torch::stable::Tensor> inputs = {input_2d};

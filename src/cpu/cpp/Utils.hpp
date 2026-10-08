@@ -28,6 +28,16 @@
   RECORD_FUNCTION(name, c10::ArrayRef<c10::IValue>({}))
 #endif
 
+// LOG() builds a c10::MessageLogger and formats every operand before c10
+// checks the runtime level, so check that level first. The portable build
+// keeps plain LOG() to avoid importing another libc10 symbol, and glog builds
+// have no c10::GLOG_* constants.
+#if defined(ZENTORCH_STABLE_ABI_LIB) || defined(C10_USE_GLOG)
+#define ZENTORCH_LOG(n) LOG(n)
+#else
+#define ZENTORCH_LOG(n) LOG_IF(n, ::c10::GLOG_##n >= FLAGS_caffe2_log_level)
+#endif
+
 namespace zentorch {
 
 // zentorch:: Check if m/c supports AVX512/AVX256

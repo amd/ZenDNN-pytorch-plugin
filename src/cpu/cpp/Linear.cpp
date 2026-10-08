@@ -21,11 +21,9 @@ inline void zentorch_linear_impl(
     const std::vector<std::string_view> &post_op_ids,
     const std::vector<torch::stable::Tensor> &post_op_buffers,
     const bool is_weight_prepacked, std::string zentorch_op_name) {
-  const auto input_contiguous = get_contiguous_view(input);
-  const auto input_2d_sizes = get_2d_size_for_tensor(input_contiguous);
-  const auto input_2d = torch::stable::view(input_contiguous, input_2d_sizes);
+  const auto input_2d = get_2d_view(get_contiguous_view(input));
 
-  auto result_2d = torch::stable::view(result, get_2d_size_for_tensor(result));
+  auto result_2d = get_2d_view(result);
   const bool bias_defined = bias.has_value() && bias->defined();
   const float beta = bias_defined ? 1.0f : 0.0f;
   std::vector<int64_t> post_op_idx;
@@ -94,7 +92,7 @@ void zentorch_linear_unary_binary_out_impl(
   check_linear_and_matmul_out_tensor(input, weight_transposed, out);
   std::vector<std::string_view> post_op_ids = {post_op_1, post_op_2};
   std::vector<torch::stable::Tensor> post_op_buffers = {
-      torch::stable::view(binary_input, get_2d_size_for_tensor(binary_input))};
+      get_2d_view(binary_input)};
 
   zentorch_linear_impl(input, weight_transposed, bias, out, post_op_ids,
                        post_op_buffers, is_weight_prepacked, zentorch_op_name);
@@ -137,10 +135,7 @@ void zentorch_linear_binary_binary_out_impl(
   check_linear_and_matmul_out_tensor(input, weight_transposed, out);
   std::vector<std::string_view> post_op_ids = {post_op_1, post_op_2};
   std::vector<torch::stable::Tensor> post_op_buffers = {
-      torch::stable::view(binary_input_1,
-                          get_2d_size_for_tensor(binary_input_1)),
-      torch::stable::view(binary_input_2,
-                          get_2d_size_for_tensor(binary_input_2))};
+      get_2d_view(binary_input_1), get_2d_view(binary_input_2)};
 
   zentorch_linear_impl(input, weight_transposed, bias, out, post_op_ids,
                        post_op_buffers, is_weight_prepacked, zentorch_op_name);
