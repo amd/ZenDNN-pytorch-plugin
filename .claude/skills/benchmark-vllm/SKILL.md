@@ -27,6 +27,12 @@ the two together is vendored under `harness/` from
 [amd/skills PR #81](https://github.com/amd/skills/pull/81) and kept close to
 upstream so re-syncs stay cheap.
 
+For a sweep over several models in one run, embedding or Whisper audio models,
+local model directories, llm-compressor/torchao quantized checkpoints or torch
+profiler traces, use the
+[`benchmark-vllm-guidellm`](../benchmark-vllm-guidellm/SKILL.md) skill instead.
+It carries a newer revision of this same multi-instance harness.
+
 ## Sections
 - [Setup (one time)](#setup-one-time)
 - [Golden rule: ask at every stage](#golden-rule-ask-at-every-stage)

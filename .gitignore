@@ -18,3 +18,14 @@ benchmark/recsys/dlrmv2-mlperf/output
 .claude/skills/benchmark-vllm/harness/generated/
 .claude/skills/benchmark-vllm/harness/sweep-logs/
 .claude/skills/benchmark-vllm/harness/tmp/
+
+# benchmark-vllm-guidellm skill: vendored external harness clone + run artifacts
+.claude/skills/benchmark-vllm-guidellm/scripts/vllm-cpu-perf-eval/
+.claude/skills/benchmark-vllm-guidellm/scripts/generated/
+.claude/skills/benchmark-vllm-guidellm/scripts/generated-*/
+.claude/skills/benchmark-vllm-guidellm/scripts/sweep-logs/
+.claude/skills/benchmark-vllm-guidellm/scripts/profiler-traces/
+.claude/skills/benchmark-vllm-guidellm/scripts/chart-bench-*/
+.claude/skills/benchmark-vllm-guidellm/scripts/regen-n1-*/
+.claude/skills/benchmark-vllm-guidellm/scripts/scaled-*/
+.claude/skills/benchmark-vllm-guidellm/scripts/hybrid-checks/

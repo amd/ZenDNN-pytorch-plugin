@@ -1,0 +1,37 @@
+diff --git a/automation/test-execution/ansible/inventory/hosts.yml b/automation/test-execution/ansible/inventory/hosts.yml
+index 9553182..e7cf891 100644
+--- a/automation/test-execution/ansible/inventory/hosts.yml
++++ b/automation/test-execution/ansible/inventory/hosts.yml
+@@ -80,6 +80,10 @@ all:
+           vllm_host: "{{ hostvars['vllm-server']['ansible_host'] }}"
+           vllm_port: "{{ vllm_port | default(8000) }}"
+ 
++          # HF/dataset cache location. Default /tmp lives on the root fs, which
++          # can fill up with the multi-GB audio dataset; point at $HOME instead.
++          cache_dir: "{{ lookup('env', 'GUIDELLM_CACHE_DIR') | default(lookup('env', 'HOME') ~ '/.cache/guidellm', true) }}"
++
+           # Results storage location - store in git workspace results/llm for AWX, otherwise use playbook-relative path
+           # This ensures all files (guidellm.log, benchmarks.json, vllm logs, etc.) are in one location
+           results_dir: "{{ lookup('env', 'HOME') ~ '/benchmark-results' if (lookup('env', 'AWX_JOB_ID') | length > 0) else playbook_dir ~ '/../../../results/llm' }}"
+diff --git a/automation/test-execution/ansible/roles/benchmark_guidellm_audio/tasks/main.yml b/automation/test-execution/ansible/roles/benchmark_guidellm_audio/tasks/main.yml
+index 4eba53c..91edbd5 100644
+--- a/automation/test-execution/ansible/roles/benchmark_guidellm_audio/tasks/main.yml
++++ b/automation/test-execution/ansible/roles/benchmark_guidellm_audio/tasks/main.yml
+@@ -264,6 +264,8 @@
+       - "{{ bench_config.cache_dir | default('/tmp') }}/guidellm-hf-cache:/home/guidellm/.cache/huggingface:z"
+     env:
+       HF_TOKEN: "{{ hf_token | default('') }}"
++      HF_HUB_DISABLE_XET: "1"
++      HF_HUB_DOWNLOAD_TIMEOUT: "{{ hf_hub_download_timeout | default('120') }}"
+     command: "{{ guidellm_cmd_args }}"
+     log_driver: journald
+     log_opt:
+@@ -411,6 +413,8 @@
+   environment:
+     PATH: "{{ ansible_env.PATH }}"
+     HF_TOKEN: "{{ hf_token | default('') }}"
++    HF_HUB_DISABLE_XET: "1"
++    HF_HUB_DOWNLOAD_TIMEOUT: "{{ hf_hub_download_timeout | default('120') }}"
+   register: guidellm_host_result
+   changed_when: false
+   failed_when: false

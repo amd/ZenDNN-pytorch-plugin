@@ -1,0 +1,739 @@
+diff --git a/automation/test-execution/ansible/embedding-benchmark.yml b/automation/test-execution/ansible/embedding-benchmark.yml
+index 24b8529..6e88d60 100644
+--- a/automation/test-execution/ansible/embedding-benchmark.yml
++++ b/automation/test-execution/ansible/embedding-benchmark.yml
+@@ -407,12 +407,22 @@
+         mode: "0755"
+       delegate_to: localhost
+ 
++    # With RESULTS_SUBDIR=embedding the load generator already wrote straight
++    # into the local results tree, so src and dest resolve to the same path and
++    # rsync would either no-op or refuse. Only fetch when they really differ.
++    - name: Determine whether results need fetching
++      ansible.builtin.set_fact:
++        results_need_fetch: >-
++          {{ (bench_config.results_dir ~ '/' ~ (model_name | replace('/', '__')) ~ '/' ~ test_run_id) | realpath
++             != (playbook_dir ~ '/../../../results/embedding/' ~ (model_name | replace('/', '__')) ~ '/' ~ test_run_id) | realpath }}
++
+     - name: Fetch results to local machine
+       ansible.posix.synchronize:
+         src: "{{ bench_config.results_dir }}/{{ model_name | replace('/', '__') }}/{{ test_run_id }}/"
+         dest: "{{ playbook_dir }}/../../../results/embedding/{{ model_name | replace('/', '__') }}/{{ test_run_id }}/"
+         mode: pull
+         recursive: true
++      when: results_need_fetch | bool
+ 
+ - name: "Phase 4c - Display Results Summary"
+   hosts: localhost
+diff --git a/automation/test-execution/ansible/health-check.yml b/automation/test-execution/ansible/health-check.yml
+index ee50361..f702c7a 100644
+--- a/automation/test-execution/ansible/health-check.yml
++++ b/automation/test-execution/ansible/health-check.yml
+@@ -23,7 +23,7 @@
+       register: health_check_result
+       retries: "{{ health_check.timeout // health_check.interval }}"
+       delay: "{{ health_check.interval }}"
+-      until: health_check_result.status == 200
++      until: health_check_result.status | default(0) == 200
+ 
+     - name: Display vLLM server status
+       ansible.builtin.debug:
+diff --git a/automation/test-execution/ansible/inventory/hosts.yml b/automation/test-execution/ansible/inventory/hosts.yml
+index 9553182..2ce732d 100644
+--- a/automation/test-execution/ansible/inventory/hosts.yml
++++ b/automation/test-execution/ansible/inventory/hosts.yml
+@@ -74,15 +74,18 @@ all:
+ 
+       vars:
+         # Benchmark configuration
++        ansible_become: false
+         bench_config:
+           # Automatically uses the DUT's ansible_host
+           # Override here if you need different IPs (e.g., private IP for benchmarking)
+           vllm_host: "{{ hostvars['vllm-server']['ansible_host'] }}"
+           vllm_port: "{{ vllm_port | default(8000) }}"
+ 
+-          # Results storage location - store in git workspace results/llm for AWX, otherwise use playbook-relative path
++          # Results storage location - store in git workspace results/<subdir> for AWX, otherwise use playbook-relative path
+           # This ensures all files (guidellm.log, benchmarks.json, vllm logs, etc.) are in one location
+-          results_dir: "{{ lookup('env', 'HOME') ~ '/benchmark-results' if (lookup('env', 'AWX_JOB_ID') | length > 0) else playbook_dir ~ '/../../../results/llm' }}"
++          # The leaf is RESULTS_SUBDIR (default 'llm') so the embedding playbook,
++          # which fetches into results/embedding, writes and reads one tree.
++          results_dir: "{{ lookup('env', 'HOME') ~ '/benchmark-results' if (lookup('env', 'AWX_JOB_ID') | length > 0) else playbook_dir ~ '/../../../results/' ~ (lookup('env', 'RESULTS_SUBDIR') | default('llm', true)) }}"
+ 
+ # ============================================================================
+ # COMMON DEPLOYMENT SCENARIOS
+diff --git a/automation/test-execution/ansible/roles/benchmark_embedding/tasks/baseline.yml b/automation/test-execution/ansible/roles/benchmark_embedding/tasks/baseline.yml
+index 425322c..f8631cf 100644
+--- a/automation/test-execution/ansible/roles/benchmark_embedding/tasks/baseline.yml
++++ b/automation/test-execution/ansible/roles/benchmark_embedding/tasks/baseline.yml
+@@ -44,12 +44,12 @@
+   ansible.builtin.set_fact:
+     vllm_bench_prefix: >-
+       {% if use_vllm_bench_container %}
+-      podman run --rm --entrypoint="" --network host
++      podman run --rm --entrypoint="" --network host --user 0:0
+       {% if vllm_bench_cpuset_cpus %}--cpuset-cpus {{ vllm_bench_cpuset_cpus }}{% endif %}
+       {% if vllm_bench_cpuset_mems %}--cpuset-mems {{ vllm_bench_cpuset_mems }}{% endif %}
+       -v "{{ expanded_results_dir }}":"{{ expanded_results_dir }}":z
+       {{ vllm_bench_image }}
+-      /opt/venv/bin/vllm bench serve
++      {{ vllm_bench_binary | default('/opt/venv/bin/vllm') }} bench serve
+       {% else %}
+       vllm bench serve
+       {% endif %}
+@@ -73,6 +73,8 @@
+       --num-prompts {{ num_prompts }}
+       --request-rate inf
+       --endpoint /v1/embeddings
++      --percentile-metrics e2el
++      --metric-percentiles 95,99
+       --save-result
+       --result-filename "{{ results_base_dir }}/baseline/sweep-inf.json"
+   register: baseline_inf_result
+@@ -181,6 +183,8 @@
+       --num-prompts {{ num_prompts }}
+       --request-rate {{ ((max_rps | float) * (item | float / 100)) | round(2) }}
+       --endpoint /v1/embeddings
++      --percentile-metrics e2el
++      --metric-percentiles 95,99
+       --save-result
+       --result-filename "{{ results_base_dir }}/baseline/sweep-{{ item }}pct.json"
+   loop: "{{ baseline_load_percentages }}"
+diff --git a/automation/test-execution/ansible/roles/benchmark_embedding/tasks/latency.yml b/automation/test-execution/ansible/roles/benchmark_embedding/tasks/latency.yml
+index 19f2be1..684b0e8 100644
+--- a/automation/test-execution/ansible/roles/benchmark_embedding/tasks/latency.yml
++++ b/automation/test-execution/ansible/roles/benchmark_embedding/tasks/latency.yml
+@@ -44,12 +44,12 @@
+   ansible.builtin.set_fact:
+     vllm_bench_prefix: >-
+       {% if use_vllm_bench_container %}
+-      podman run --rm --entrypoint="" --network host
++      podman run --rm --entrypoint="" --network host --user 0:0
+       {% if vllm_bench_cpuset_cpus %}--cpuset-cpus {{ vllm_bench_cpuset_cpus }}{% endif %}
+       {% if vllm_bench_cpuset_mems %}--cpuset-mems {{ vllm_bench_cpuset_mems }}{% endif %}
+       -v "{{ expanded_results_dir }}":"{{ expanded_results_dir }}":z
+       {{ vllm_bench_image }}
+-      /opt/venv/bin/vllm bench serve
++      {{ vllm_bench_binary | default('/opt/venv/bin/vllm') }} bench serve
+       {% else %}
+       vllm bench serve
+       {% endif %}
+@@ -78,6 +78,8 @@
+       --endpoint /v1/embeddings
+       --request-rate inf
+       --max-concurrency {{ item }}
++      --percentile-metrics e2el
++      --metric-percentiles 95,99
+       --save-result
+       --result-filename "{{ results_base_dir }}/latency/concurrent-{{ item }}.json"
+   loop: "{{ concurrency_levels }}"
+diff --git a/automation/test-execution/ansible/roles/benchmark_guidellm/tasks/benchmark_progress_poll.yml b/automation/test-execution/ansible/roles/benchmark_guidellm/tasks/benchmark_progress_poll.yml
+index 7c25530..aa39ff2 100644
+--- a/automation/test-execution/ansible/roles/benchmark_guidellm/tasks/benchmark_progress_poll.yml
++++ b/automation/test-execution/ansible/roles/benchmark_guidellm/tasks/benchmark_progress_poll.yml
+@@ -31,14 +31,28 @@
+     guidellm_last_progress_message: "{{ guidellm_progress_message | trim }}"
+   when: guidellm_container_running | bool
+ 
+-- name: Fail if safety timeout is exceeded while waiting for benchmark completion (containerized)
+-  ansible.builtin.fail:
+-    msg: >-
+-      GuideLLM benchmark did not complete before safety timeout of {{ guidellm_wait_timeout_seconds }} seconds.
++# Stop the container rather than failing outright. Failing here aborts the play
++# before main.yml can collect guidellm.log and remove the container, which leaves
++# a running load generator pinned to the loadgen cpuset that then breaks every
++# later workload in the same sweep. main.yml raises the timeout error instead.
++- name: Stop GuideLLM container after safety timeout (containerized)
++  ansible.builtin.shell:
++    cmd: "podman stop --time 30 {{ guidellm_container_name | quote }}"
++  args:
++    executable: /bin/bash
++  register: guidellm_timeout_stop
++  changed_when: false
++  failed_when: false
+   when:
+     - guidellm_container_running | bool
+     - (guidellm_elapsed_seconds | int) >= (guidellm_wait_timeout_seconds | int)
+ 
++- name: Record safety timeout and end polling (containerized)
++  ansible.builtin.set_fact:
++    guidellm_safety_timeout_exceeded: true
++    guidellm_container_running: false
++  when: guidellm_timeout_stop is not skipped
++
+ - name: Pause before next benchmark status check (containerized)
+   ansible.builtin.pause:
+     seconds: "{{ guidellm_poll_seconds }}"
+diff --git a/automation/test-execution/ansible/roles/benchmark_guidellm/tasks/main.yml b/automation/test-execution/ansible/roles/benchmark_guidellm/tasks/main.yml
+index 15c63e4..60c7405 100644
+--- a/automation/test-execution/ansible/roles/benchmark_guidellm/tasks/main.yml
++++ b/automation/test-execution/ansible/roles/benchmark_guidellm/tasks/main.yml
+@@ -103,10 +103,42 @@
+   ansible.builtin.set_fact:
+     processor_model: "{{ guidellm_processor | default(resolved_model) }}"
+ 
++# A processor given as a local directory is invisible to the containerized load
++# generator unless it is bind-mounted in. Mounting it at its own host path keeps
++# processor_model valid on both sides, so --tokenizer and GUIDELLM_PROCESSOR can
++# pass it through unchanged.
++- name: Detect whether the processor is a local path
++  ansible.builtin.set_fact:
++    processor_is_local_path: "{{ processor_model is string and processor_model.startswith('/') }}"
++    processor_local_path: "{{ processor_model if (processor_model is string and processor_model.startswith('/')) else '' }}"
++
+ - name: Set results path
+   ansible.builtin.set_fact:
+     results_path: "{{ bench_config.results_dir }}/{{ resolved_model | replace('/', '__') }}/{{ workload_type }}-{{ test_run_id }}/{{ core_cfg.name }}"
+ 
++# A caller that wants a different benchmarking window per rate has to run one
++# GuideLLM invocation per rate, because max_duration is a single run-wide
++# constraint. Those invocations share one results directory, so each needs a
++# suffix (e.g. "-32") or they overwrite each other's benchmarks.json.
++- name: Set GuideLLM output file suffix
++  ansible.builtin.set_fact:
++    guidellm_output_suffix: "{{ guidellm_output_suffix | default('') }}"
++
++# v0.6.x names its output files itself (only the format list and the output
++# directory are configurable), so a per-rate suffix cannot be honoured there.
++# Fail loudly instead of silently letting each rate overwrite the previous one.
++- name: Fail if a per-rate output suffix was requested on GuideLLM < 0.7
++  ansible.builtin.fail:
++    msg: >-
++      guidellm_output_suffix is only supported on GuideLLM v0.7+, which lets the
++      output paths be set per invocation. Image {{ guidellm_cfg.container_image }}
++      resolves to {{ guidellm_semver | default('unknown') }}. Use a v0.7+ image or
++      a single benchmarking window for all rates.
++  when:
++    - use_guidellm_container | bool
++    - guidellm_output_suffix | length > 0
++    - guidellm_semver is version('0.7', '<')
++
+ - name: Create results directory for this test
+   ansible.builtin.file:
+     path: "{{ results_path }}"
+@@ -132,6 +164,7 @@
+       - "Max Requests: {{ guidellm_cfg.max_requests }}"
+       - "Max Concurrency: {{ guidellm_cfg.max_concurrency }}"
+       - "Cooldown: {{ guidellm_cfg.cooldown }}s"
++      - "Output: benchmarks{{ guidellm_output_suffix }}.json / .csv, guidellm{{ guidellm_output_suffix }}.log"
+       - "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+ 
+ # ============================================================================
+@@ -145,9 +178,21 @@
+   when: use_guidellm_container | bool
+ 
+ # Build data string (shared by both container and host modes, v0.6.x and v0.7.x)
++# Shared-prefix workloads set prompt_tokens to the request-specific suffix and
++# reuse prefix_count distinct prefixes of prefix_tokens each across requests.
+ - name: Build GUIDELLM_DATA for fixed workloads
+   ansible.builtin.set_fact:
+-    guidellm_data_string: "prompt_tokens={{ workload_cfg.isl }},output_tokens={{ workload_cfg.osl }}"
++    guidellm_data_string: >-
++      {{
++        'prompt_tokens=' ~ (workload_cfg.prompt_tokens | default(workload_cfg.isl) | string)
++        ~ ',output_tokens=' ~ (workload_cfg.osl | string)
++        ~ (
++            ',prefix_tokens=' ~ (workload_cfg.prefix_tokens | string)
++            ~ ',prefix_count=' ~ (workload_cfg.prefix_count | default(1) | string)
++            if workload_cfg.prefix_tokens is defined
++            else ''
++          )
++      }}
+   when: not (workload_cfg.variability | default(false) | bool)
+ 
+ - name: Build GUIDELLM_DATA for variable workloads
+@@ -155,12 +200,53 @@
+     guidellm_data_string: "prompt_tokens={{ workload_cfg.isl }},prompt_tokens_stdev={{ workload_cfg.isl_stdev }},prompt_tokens_min={{ workload_cfg.isl_min }},prompt_tokens_max={{ workload_cfg.isl_max }},output_tokens={{ workload_cfg.osl }},output_tokens_stdev={{ workload_cfg.osl_stdev }},output_tokens_min={{ workload_cfg.osl_min }},output_tokens_max={{ workload_cfg.osl_max }}"
+   when: workload_cfg.variability | default(false) | bool
+ 
++# The v0.7 CLI rejects the flat prefix_tokens/prefix_count keys that v0.6 takes
++# in GUIDELLM_DATA; a shared prefix has to be given as prefix_buckets, which only
++# the JSON form of --data can carry. A dict here is rendered as compact JSON at
++# each --data use, so it stays a single token.
++- name: Build GuideLLM v0.7 --data value
++  ansible.builtin.set_fact:
++    guidellm_v7_data: >-
++      {{
++        {'kind': 'synthetic_text',
++         'prompt_tokens': workload_cfg.prompt_tokens | int,
++         'output_tokens': workload_cfg.osl | int,
++         'prefix_buckets': [{'prefix_tokens': workload_cfg.prefix_tokens | int,
++                             'prefix_count': workload_cfg.prefix_count | default(1) | int}]}
++        if workload_cfg.prefix_tokens is defined
++        else 'kind=synthetic_text,' ~ guidellm_data_string
++      }}
++
+ # Build container name (shared by both v0.6.x and v0.7.x)
+ - name: Build GuideLLM container name with actual NUMA configuration
+   ansible.builtin.set_fact:
+     guidellm_container_name: "guidellm-{{ workload_type }}-{{ core_cfg.name | default(core_cfg.cpuset_cpus | default('auto')) }}-vllm-numa{{ core_cfg.cpuset_mems | replace('n/a', 'na') | regex_replace('[^a-zA-Z0-9_.-]', '-') }}-loadgen-numa{{ guidellm_cfg.cpuset_mems | replace('n/a', 'na') | regex_replace('[^a-zA-Z0-9_.-]', '-') }}"
+   when: use_guidellm_container | bool
+ 
++# Shared by both v0.6.x and v0.7.x so the two container starts cannot drift.
++- name: Build GuideLLM container volume list
++  ansible.builtin.set_fact:
++    guidellm_volumes: >-
++      {{
++        [results_path ~ ':/results:z']
++        + ([processor_local_path ~ ':' ~ processor_local_path ~ ':ro,z']
++           if processor_is_local_path | bool else [])
++        + ([lookup('env', 'HF_CACHE_DIR') ~ '/huggingface:/home/guidellm/.cache/huggingface:ro,z']
++           if lookup('env', 'HF_CACHE_DIR') | length > 0 else [])
++      }}
++  when: use_guidellm_container | bool
++
++# With the vLLM instances' shared HF cache mounted, load the tokenizer from it
++# offline: gated models then need no token and offline hosts need no network.
++- name: Build GuideLLM container HF cache environment
++  ansible.builtin.set_fact:
++    guidellm_hf_env: >-
++      {{
++        {'HF_HOME': '/home/guidellm/.cache/huggingface', 'HF_HUB_OFFLINE': '1'}
++        if lookup('env', 'HF_CACHE_DIR') | length > 0 else {}
++      }}
++  when: use_guidellm_container | bool
++
+ # ----------------------------------------------------------------------------
+ # v0.6.x CONTAINER PATH (env-var-based configuration)
+ # ----------------------------------------------------------------------------
+@@ -218,18 +304,16 @@
+   containers.podman.podman_container:
+     name: "{{ guidellm_container_name }}"
+     image: "{{ guidellm_cfg.container_image }}"
++    user: "0:0"
+     state: started
+     rm: false
+     detach: true
+     network: host
+-    cpuset_cpus: "{{ omit if ansible_facts['system'] == 'Darwin' else guidellm_cfg.cpuset_cpus }}"
+-    cpuset_mems: "{{ omit if ansible_facts['system'] == 'Darwin' else guidellm_cfg.cpuset_mems }}"
+-    volumes:
+-      - "{{ results_path }}:/results:z"
+-    env: "{{ guidellm_env }}"
+-    log_driver: journald
+-    log_opt:
+-      tag: "{{ guidellm_container_name }}"
++    cpuset_cpus: "{{ omit if (ansible_facts['system'] == 'Darwin' or (guidellm_no_cgroup_limits | default(false) | bool)) else guidellm_cfg.cpuset_cpus }}"
++    cpuset_mems: "{{ omit if (ansible_facts['system'] == 'Darwin' or (guidellm_no_cgroup_limits | default(false) | bool)) else guidellm_cfg.cpuset_mems }}"
++    volumes: "{{ guidellm_volumes }}"
++    env: "{{ guidellm_env | combine(guidellm_hf_env) }}"
++    log_driver: k8s-file
+   register: guidellm_container
+   when:
+     - use_guidellm_container | bool
+@@ -252,13 +336,6 @@
+     - use_guidellm_container | bool
+     - guidellm_semver is version('0.7', '>=')
+ 
+-- name: "v0.7.x: Build --data argument for fixed workloads"
+-  ansible.builtin.set_fact:
+-    guidellm_v7_data: "kind=synthetic_text,{{ guidellm_data_string }}"
+-  when:
+-    - use_guidellm_container | bool
+-    - guidellm_semver is version('0.7', '>=')
+-
+ - name: "v0.7.x: Build --profile argument"
+   ansible.builtin.set_fact:
+     guidellm_v7_profile: >-
+@@ -294,14 +371,14 @@
+     guidellm_v7_args: >-
+       run
+       --backend {{ guidellm_v7_backend }}
+-      --data {{ guidellm_v7_data }}
++      --data {{ guidellm_v7_data if guidellm_v7_data is string else guidellm_v7_data | to_json(separators=(',', ':')) }}
+       --tokenizer kind=huggingface_auto,model={{ processor_model }}
+       --profile {{ guidellm_v7_profile }}
+       {{ guidellm_v7_override | default('') }}
+       --constraint kind=max_duration,seconds={{ guidellm_cfg.max_seconds }}
+       --constraint kind=max_requests,count={{ guidellm_cfg.max_requests }}
+-      --output kind=json,path=/results/benchmarks.json
+-      --output kind=csv,path=/results/benchmarks.csv
++      --output kind=json,path=/results/benchmarks{{ guidellm_output_suffix }}.json
++      --output kind=csv,path=/results/benchmarks{{ guidellm_output_suffix }}.csv
+   no_log: true
+   when:
+     - use_guidellm_container | bool
+@@ -317,28 +394,88 @@
+     - use_guidellm_container | bool
+     - guidellm_semver is version('0.7', '>=')
+ 
+-- name: "v0.7.x: Start GuideLLM benchmark container"
+-  containers.podman.podman_container:
+-    name: "{{ guidellm_container_name }}"
+-    image: "{{ guidellm_cfg.container_image }}"
+-    state: started
+-    rm: false
+-    detach: true
+-    network: host
+-    cpuset_cpus: "{{ omit if ansible_facts['system'] == 'Darwin' else guidellm_cfg.cpuset_cpus }}"
+-    cpuset_mems: "{{ omit if ansible_facts['system'] == 'Darwin' else guidellm_cfg.cpuset_mems }}"
+-    volumes:
+-      - "{{ results_path }}:/results:z"
+-    env: "{{ guidellm_env }}"
+-    command: "{{ guidellm_v7_args }}"
+-    log_driver: journald
+-    log_opt:
+-      tag: "{{ guidellm_container_name }}"
+-  register: guidellm_container
++# A stale container of this name (left by an earlier aborted workload) makes
++# podman reuse or clash with it. The name has no run-id, so it recurs across
++# models and workloads.
++- name: "v0.7.x: Remove any stale GuideLLM container before starting"
++  ansible.builtin.shell:
++    cmd: "podman rm -f {{ guidellm_container_name | quote }} 2>/dev/null || true"
++  args:
++    executable: /bin/bash
++  changed_when: false
++  failed_when: false
+   when:
+     - use_guidellm_container | bool
+     - guidellm_semver is version('0.7', '>=')
+-  no_log: true
++
++- name: "v0.7.x: Start GuideLLM benchmark container (with failure diagnostics)"
++  when:
++    - use_guidellm_container | bool
++    - guidellm_semver is version('0.7', '>=')
++  block:
++    - name: "v0.7.x: Start GuideLLM benchmark container"
++      containers.podman.podman_container:
++        name: "{{ guidellm_container_name }}"
++        image: "{{ guidellm_cfg.container_image }}"
++        user: "0:0"
++        state: started
++        rm: false
++        detach: true
++        network: host
++        cpuset_cpus: "{{ omit if (ansible_facts['system'] == 'Darwin' or (guidellm_no_cgroup_limits | default(false) | bool)) else guidellm_cfg.cpuset_cpus }}"
++        cpuset_mems: "{{ omit if (ansible_facts['system'] == 'Darwin' or (guidellm_no_cgroup_limits | default(false) | bool)) else guidellm_cfg.cpuset_mems }}"
++        volumes: "{{ guidellm_volumes }}"
++        env: "{{ guidellm_env | combine(guidellm_hf_env) }}"
++        command: "{{ guidellm_v7_args }}"
++        log_driver: k8s-file
++      register: guidellm_container
++      # The module returns podman's stderr, which is the only explanation of a
++      # start failure, but env carries HF_TOKEN so the result stays censored by
++      # default. Pass -e guidellm_debug=true to print it verbatim.
++      no_log: "{{ not (guidellm_debug | default(false) | bool) }}"
++  rescue:
++    - name: Inspect failed GuideLLM container state
++      ansible.builtin.shell:
++        cmd: "podman inspect {{ guidellm_container_name | quote }} --format 'exit_code={''{ .State.ExitCode }''} error={''{ .State.Error }''}' 2>&1 || true"
++      args:
++        executable: /bin/bash
++      register: guidellm_start_failure_state
++      changed_when: false
++      failed_when: false
++
++    - name: Capture logs from failed GuideLLM container
++      ansible.builtin.shell:
++        cmd: "podman logs {{ guidellm_container_name | quote }} 2>&1 | tail -50 || true"
++      args:
++        executable: /bin/bash
++      register: guidellm_start_failure_logs
++      changed_when: false
++      failed_when: false
++
++    - name: Show GuideLLM container start failure diagnostics
++      ansible.builtin.debug:
++        msg:
++          - "GuideLLM load generator failed to start."
++          - "Container: {{ guidellm_container_name }}"
++          - "Image: {{ guidellm_cfg.container_image }}"
++          - "State: {{ guidellm_start_failure_state.stdout | default('<unavailable>') | trim }}"
++          - "Container logs (last 50 lines):"
++          - "{{ guidellm_start_failure_logs.stdout | default('<empty>') }}"
++          - "Re-run with -e guidellm_debug=true to also print podman's stderr."
++
++    - name: Remove failed GuideLLM container
++      ansible.builtin.shell:
++        cmd: "podman rm -f {{ guidellm_container_name | quote }} 2>/dev/null || true"
++      args:
++        executable: /bin/bash
++      changed_when: false
++      failed_when: false
++
++    - name: Fail after reporting GuideLLM container start failure
++      ansible.builtin.fail:
++        msg: >-
++          GuideLLM load generator container {{ guidellm_container_name }} failed to start.
++          State: {{ guidellm_start_failure_state.stdout | default('<unavailable>') | trim }}
+ 
+ - name: Set monitoring command based on connection type
+   ansible.builtin.set_fact:
+@@ -504,7 +641,7 @@
+ - name: Fetch GuideLLM logs to controller
+   ansible.builtin.fetch:
+     src: "{{ guidellm_log_file.path }}"
+-    dest: "{{ local_results_path | default(results_path) }}/guidellm.log"
++    dest: "{{ local_results_path | default(results_path) }}/guidellm{{ guidellm_output_suffix }}.log"
+     flat: true
+   when: use_guidellm_container | bool
+ 
+@@ -527,6 +664,16 @@
+     - container_exit_code.stdout is defined
+   no_log: true
+ 
++- name: Fail if benchmark was stopped by the safety timeout (containerized)
++  ansible.builtin.fail:
++    msg: >-
++      GuideLLM benchmark did not complete before safety timeout of
++      {{ guidellm_wait_timeout_seconds }} seconds. The load generator was stopped and
++      its output collected in {{ local_results_path | default(results_path) }}/guidellm.log
++  when:
++    - use_guidellm_container | bool
++    - guidellm_safety_timeout_exceeded | default(false) | bool
++
+ - name: Check benchmark exit code after diagnostics (containerized)
+   ansible.builtin.fail:
+     msg: "GuideLLM benchmark failed with exit code {{ guidellm_exit_code_container.rc }}"
+@@ -624,7 +771,7 @@
+       {%- if vllm_api_key is defined and vllm_api_key | length > 0 -%}
+         ,api_key={{ vllm_api_key }}
+       {%- endif %}
+-      --data kind=synthetic_text,{{ guidellm_data_string }}
++      --data {{ (guidellm_v7_data if guidellm_v7_data is string else guidellm_v7_data | to_json(separators=(',', ':'))) | quote }}
+       --tokenizer kind=huggingface_auto,model={{ processor_model }}
+       --profile
+       {%- set p = guidellm_cfg.profile -%}
+diff --git a/automation/test-execution/ansible/roles/common/tasks/vllm-health-check.yml b/automation/test-execution/ansible/roles/common/tasks/vllm-health-check.yml
+index c464b6e..6048254 100644
+--- a/automation/test-execution/ansible/roles/common/tasks/vllm-health-check.yml
++++ b/automation/test-execution/ansible/roles/common/tasks/vllm-health-check.yml
+@@ -10,7 +10,7 @@
+   register: health_check_result
+   retries: "{{ (health_check.timeout | int) // (health_check.interval | int) }}"
+   delay: "{{ health_check.interval | int }}"
+-  until: health_check_result.status == 200
++  until: health_check_result.status | default(0) == 200
+ 
+ - name: Display vLLM server status
+   ansible.builtin.debug:
+diff --git a/automation/test-execution/ansible/audio-benchmark.yml b/automation/test-execution/ansible/audio-benchmark.yml
+index 797d5e6..9dd7864 100644
+--- a/automation/test-execution/ansible/audio-benchmark.yml
++++ b/automation/test-execution/ansible/audio-benchmark.yml
+@@ -277,7 +277,11 @@
+ 
+     - name: Generate test run ID if not provided
+       ansible.builtin.set_fact:
+-        test_run_id: "{{ now(utc=true, fmt='%Y%m%d-%H%M%S-%f') }}"
++        # When a caller passes test_name (e.g. run_sweep.sh's EPYC<N>-<variant>-<tag>),
++        # prefix it into the run id so it lands in every downstream results path.
++        # A multi-instance sweep needs the instance count and backend variant to
++        # tell runs apart, and this is the single site every path derives from.
++        test_run_id: "{{ ((test_name ~ '-') if (test_name is defined and test_name | length > 0) else '') ~ now(utc=true, fmt='%Y%m%d-%H%M%S-%f') }}"
+         cacheable: true
+       when: test_run_id is not defined
+ 
+@@ -754,6 +758,7 @@
+         content: |
+           {
+             "test_run_id": "{{ hostvars['localhost']['test_run_id'] }}",
++            "test_name": "{{ test_name | default('') }}",
+             "test_type": "audio_benchmark",
+             "scenario_name": "{{ test_scenario }}",
+             "scenario_type": "{{ hostvars['localhost']['scenario_type'] }}",
+diff --git a/automation/test-execution/ansible/roles/benchmark_guidellm_audio/tasks/main.yml b/automation/test-execution/ansible/roles/benchmark_guidellm_audio/tasks/main.yml
+index 4eba53c..74a001e 100644
+--- a/automation/test-execution/ansible/roles/benchmark_guidellm_audio/tasks/main.yml
++++ b/automation/test-execution/ansible/roles/benchmark_guidellm_audio/tasks/main.yml
+@@ -256,6 +256,10 @@
+     state: started
+     rm: false
+     detach: true
++    # Rootless podman maps the container user to an unmapped subuid, so the
++    # guidellm process can't write --output files into the bind-mounted /results
++    # ("cannot setuid to unmapped uid"). Run as 0:0 to match the LLM guidellm role.
++    user: "0:0"
+     network: host
+     cpuset_cpus: "{{ omit if ansible_facts['system'] == 'Darwin' else guidellm_cfg.cpuset_cpus }}"
+     cpuset_mems: "{{ omit if ansible_facts['system'] == 'Darwin' else guidellm_cfg.cpuset_mems }}"
+diff --git a/automation/test-execution/ansible/inventory/group_vars/all/test-workloads.yml b/automation/test-execution/ansible/inventory/group_vars/all/test-workloads.yml
+index 2a54d3b..246e1e0 100644
+--- a/automation/test-execution/ansible/inventory/group_vars/all/test-workloads.yml
++++ b/automation/test-execution/ansible/inventory/group_vars/all/test-workloads.yml
+@@ -67,6 +67,161 @@ test_configs:
+       - "--block-size=128"              # CPU optimal: multiples of 32 for SIMD alignment (AVX2/AVX512/NEON)
+     kv_cache_space: "40GiB"             # Fallback value - should be overridden by model-specific kv_cache_sizes
+ 
++  # Production-style hot-prefix workloads. ISL is total input before chat
++  # template overhead; prompt_tokens is the request-specific suffix. A pool of
++  # 64 prefixes models repeated traffic over hot agents, repositories,
++  # documents, and retrieved contexts. Prefix sizes are 128-token aligned.
++  chat_shared:
++    workload_type: "chat_shared"
++    isl: 2112
++    prompt_tokens: 64
++    prefix_tokens: 2048
++    prefix_count: 64
++    osl: 16
++    variability: false
++    backend: "openai-chat"
++    vllm_args:
++      - "--dtype=auto"
++      - "--no-enable-prefix-caching"
++      - "--max-model-len=4096"
++    kv_cache_space: "40GiB"
++
++  smoke_shared:
++    workload_type: "smoke_shared"
++    isl: 2112
++    prompt_tokens: 64
++    prefix_tokens: 2048
++    prefix_count: 1
++    osl: 16
++    variability: false
++    backend: "openai-chat"
++    vllm_args:
++      - "--dtype=auto"
++      - "--no-enable-prefix-caching"
++      - "--max-model-len=4096"
++    kv_cache_space: "10GiB"
++
++  # Hit-rate sensitivity workloads: fixed total ISL/OSL, varying only the
++  # reusable prefix fraction. Observed retained-key hit rate is measured from
++  # LMCache logs; these names describe configured prefix fractions.
++  hit_000:
++    workload_type: "hit_000"
++    isl: 2112
++    prompt_tokens: 2112
++    osl: 16
++    variability: false
++    backend: "openai-chat"
++    vllm_args:
++      - "--dtype=auto"
++      - "--no-enable-prefix-caching"
++      - "--max-model-len=4096"
++    kv_cache_space: "40GiB"
++
++  hit_025:
++    workload_type: "hit_025"
++    isl: 2112
++    prompt_tokens: 1600
++    prefix_tokens: 512
++    prefix_count: 64
++    osl: 16
++    variability: false
++    backend: "openai-chat"
++    vllm_args:
++      - "--dtype=auto"
++      - "--no-enable-prefix-caching"
++      - "--max-model-len=4096"
++    kv_cache_space: "40GiB"
++
++  hit_050:
++    workload_type: "hit_050"
++    isl: 2112
++    prompt_tokens: 1088
++    prefix_tokens: 1024
++    prefix_count: 64
++    osl: 16
++    variability: false
++    backend: "openai-chat"
++    vllm_args:
++      - "--dtype=auto"
++      - "--no-enable-prefix-caching"
++      - "--max-model-len=4096"
++    kv_cache_space: "40GiB"
++
++  hit_075:
++    workload_type: "hit_075"
++    isl: 2112
++    prompt_tokens: 576
++    prefix_tokens: 1536
++    prefix_count: 64
++    osl: 16
++    variability: false
++    backend: "openai-chat"
++    vllm_args:
++      - "--dtype=auto"
++      - "--no-enable-prefix-caching"
++      - "--max-model-len=4096"
++    kv_cache_space: "40GiB"
++
++  hit_097:
++    workload_type: "hit_097"
++    isl: 2112
++    prompt_tokens: 64
++    prefix_tokens: 2048
++    prefix_count: 64
++    osl: 16
++    variability: false
++    backend: "openai-chat"
++    vllm_args:
++      - "--dtype=auto"
++      - "--no-enable-prefix-caching"
++      - "--max-model-len=4096"
++    kv_cache_space: "40GiB"
++
++  codegen_shared:
++    workload_type: "codegen_shared"
++    isl: 4352
++    prompt_tokens: 256
++    prefix_tokens: 4096
++    prefix_count: 64
++    osl: 512
++    variability: false
++    backend: "openai-chat"
++    vllm_args:
++      - "--dtype=auto"
++      - "--no-enable-prefix-caching"
++      - "--max-model-len=8192"
++    kv_cache_space: "90GiB"
++
++  summarization_shared:
++    workload_type: "summarization_shared"
++    isl: 6272
++    prompt_tokens: 128
++    prefix_tokens: 6144
++    prefix_count: 64
++    osl: 256
++    variability: false
++    backend: "openai-chat"
++    vllm_args:
++      - "--dtype=auto"
++      - "--no-enable-prefix-caching"
++      - "--max-model-len=8192"
++    kv_cache_space: "90GiB"
++
++  rag_shared:
++    workload_type: "rag_shared"
++    isl: 7168
++    prompt_tokens: 1024
++    prefix_tokens: 6144
++    prefix_count: 64
++    osl: 256
++    variability: false
++    backend: "openai-chat"
++    vllm_args:
++      - "--dtype=auto"
++      - "--no-enable-prefix-caching"
++      - "--max-model-len=8192"
++    kv_cache_space: "90GiB"
++
+   # Chat lite workload (lighter version with shorter sequences)
+   chat_lite:
+     workload_type: "chat_lite"
+diff --git a/automation/test-execution/ansible/llm-benchmark-auto.yml b/automation/test-execution/ansible/llm-benchmark-auto.yml
+index 4a97e55..78a44a5 100644
+--- a/automation/test-execution/ansible/llm-benchmark-auto.yml
++++ b/automation/test-execution/ansible/llm-benchmark-auto.yml
+@@ -481,9 +481,14 @@
+         results_path: "{{ bench_config.results_dir }}/{{ actual_model | replace('/', '__') }}/{{ workload_type }}-{{ hostvars['localhost']['test_run_id'] }}/{{ core_configuration.name }}"
+         test_run_id: "{{ hostvars['localhost']['test_run_id'] }}"
+ 
++    # `tasks_from` is ignored under `roles:` (hf_token's main.yml, which
++    # requires a token, would run instead), so include the optional setup here.
++    - name: Setup optional HuggingFace token
++      ansible.builtin.include_role:
++        name: hf_token
++        tasks_from: setup-optional
++
+   roles:
+-    - role: hf_token
+-      tasks_from: setup-optional
+     - role: benchmark_guidellm
+       vars:
+         local_results_path: "{{ playbook_dir }}/../../../results/llm/{{ actual_model | replace('/', '__') }}/{{ workload_type }}-{{ hostvars['localhost']['test_run_id'] }}/{{ core_configuration.name }}"

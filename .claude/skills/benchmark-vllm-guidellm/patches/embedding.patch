@@ -1,0 +1,89 @@
+diff --git a/automation/test-execution/ansible/inventory/hosts.yml b/automation/test-execution/ansible/inventory/hosts.yml
+index 9553182..1e7f881 100644
+--- a/automation/test-execution/ansible/inventory/hosts.yml
++++ b/automation/test-execution/ansible/inventory/hosts.yml
+@@ -82,7 +82,11 @@ all:
+ 
+           # Results storage location - store in git workspace results/llm for AWX, otherwise use playbook-relative path
+           # This ensures all files (guidellm.log, benchmarks.json, vllm logs, etc.) are in one location
+-          results_dir: "{{ lookup('env', 'HOME') ~ '/benchmark-results' if (lookup('env', 'AWX_JOB_ID') | length > 0) else playbook_dir ~ '/../../../results/llm' }}"
++          # realpath collapses the '..' segments: podman normalizes '..' for the host
++          # mount source but keeps the container-side path literal, and the container
++          # can't resolve '.../ansible/../../../' (the intermediate dir doesn't exist
++          # inside it), so a container writing --result-filename there fails.
++          results_dir: "{{ lookup('env', 'HOME') ~ '/benchmark-results' if (lookup('env', 'AWX_JOB_ID') | length > 0) else (playbook_dir ~ '/../../../results/llm') | realpath }}"
+ 
+ # ============================================================================
+ # COMMON DEPLOYMENT SCENARIOS
+diff --git a/automation/test-execution/ansible/roles/benchmark_embedding/defaults/main.yml b/automation/test-execution/ansible/roles/benchmark_embedding/defaults/main.yml
+index 2ad61fe..7d70c5d 100644
+--- a/automation/test-execution/ansible/roles/benchmark_embedding/defaults/main.yml
++++ b/automation/test-execution/ansible/roles/benchmark_embedding/defaults/main.yml
+@@ -67,3 +67,25 @@
+ # Default: 512 tokens
+ 
+ # embedding_random_input_len: 512
++
++# ==============================================================================
++# HuggingFace Cache (bench container)
++# ==============================================================================
++# Host HF cache dir mounted into the vllm-bench container so `vllm bench serve`
++# can load the tokenizer offline (the bench node has no internet). Must match
++# the cache start.sh pre-warms and the server mounts. Defaults to the
++# HF_CACHE_DIR env var, falling back to ~/.cache/hf-shared.
++
++bench_hf_cache_dir: "{{ lookup('env', 'HF_CACHE_DIR') | default(lookup('env', 'HOME') ~ '/.cache/hf-shared', true) }}"
++
++# ==============================================================================
++# Run bench container as root (rootless-no-subuid workaround)
++# ==============================================================================
++# The bench image bakes in a non-root USER (2000). On hosts without a subuid
++# mapping for the invoking user (e.g. the Jenkins node), that user can't write
++# to the bind-mounted results/HF-cache dirs, so `vllm bench serve` fails with
++# PermissionError. Running the container as 0:0 maps it to the host user (which
++# has write access), mirroring the server's `user: "0:0"` workaround. Auto-
++# detects from /etc/subuid; run_sweep.sh overrides this with -e bench_run_as_root.
++
++bench_run_as_root: "{{ lookup('pipe', 'grep -q \"^${USER:-$(id -un)}:\" /etc/subuid && echo false || echo true') }}"
+diff --git a/automation/test-execution/ansible/roles/benchmark_embedding/tasks/baseline.yml b/automation/test-execution/ansible/roles/benchmark_embedding/tasks/baseline.yml
+index 425322c..7b7012c 100644
+--- a/automation/test-execution/ansible/roles/benchmark_embedding/tasks/baseline.yml
++++ b/automation/test-execution/ansible/roles/benchmark_embedding/tasks/baseline.yml
+@@ -45,11 +45,15 @@
+     vllm_bench_prefix: >-
+       {% if use_vllm_bench_container %}
+       podman run --rm --entrypoint="" --network host
++      {% if bench_run_as_root | bool %}--user 0:0{% endif %}
+       {% if vllm_bench_cpuset_cpus %}--cpuset-cpus {{ vllm_bench_cpuset_cpus }}{% endif %}
+       {% if vllm_bench_cpuset_mems %}--cpuset-mems {{ vllm_bench_cpuset_mems }}{% endif %}
+       -v "{{ expanded_results_dir }}":"{{ expanded_results_dir }}":z
++      -v "{{ bench_hf_cache_dir }}/huggingface":/opt/app-root/src/.cache/huggingface:z
++      -e HF_HOME=/opt/app-root/src/.cache/huggingface
++      -e HF_HUB_OFFLINE=1
+       {{ vllm_bench_image }}
+-      /opt/venv/bin/vllm bench serve
++      vllm bench serve
+       {% else %}
+       vllm bench serve
+       {% endif %}
+diff --git a/automation/test-execution/ansible/roles/benchmark_embedding/tasks/latency.yml b/automation/test-execution/ansible/roles/benchmark_embedding/tasks/latency.yml
+index 19f2be1..cc4de46 100644
+--- a/automation/test-execution/ansible/roles/benchmark_embedding/tasks/latency.yml
++++ b/automation/test-execution/ansible/roles/benchmark_embedding/tasks/latency.yml
+@@ -45,11 +45,15 @@
+     vllm_bench_prefix: >-
+       {% if use_vllm_bench_container %}
+       podman run --rm --entrypoint="" --network host
++      {% if bench_run_as_root | bool %}--user 0:0{% endif %}
+       {% if vllm_bench_cpuset_cpus %}--cpuset-cpus {{ vllm_bench_cpuset_cpus }}{% endif %}
+       {% if vllm_bench_cpuset_mems %}--cpuset-mems {{ vllm_bench_cpuset_mems }}{% endif %}
+       -v "{{ expanded_results_dir }}":"{{ expanded_results_dir }}":z
++      -v "{{ bench_hf_cache_dir }}/huggingface":/opt/app-root/src/.cache/huggingface:z
++      -e HF_HOME=/opt/app-root/src/.cache/huggingface
++      -e HF_HUB_OFFLINE=1
+       {{ vllm_bench_image }}
+-      /opt/venv/bin/vllm bench serve
++      vllm bench serve
+       {% else %}
+       vllm bench serve
+       {% endif %}
