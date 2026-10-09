@@ -522,9 +522,12 @@ cd "$SCRIPT_DIR"
 # which lets nginx/vLLM float across every core and pollutes benchmark numbers.
 # Enforce the intended pinning directly on each container's cgroup v2 node. This
 # is a no-op under --no-limits (generate-config emits no cpuset: lines then).
+# x-cpuset-mems (the instance's NUMA node, i.e. podman --cpuset-mems) goes to
+# cpuset.mems. On cgroup v2 this constrains subsequent allocations but does not
+# migrate pages that were allocated before the write.
 _apply_cpuset_pins() {
     local applied=0
-    while IFS='|' read -r cname cpus; do
+    while IFS='|' read -r cname cpus mems; do
         [ -z "$cname" ] && continue
         [ -z "$cpus" ] && continue
         local pid rel cg
@@ -541,12 +544,22 @@ _apply_cpuset_pins() {
             else
                 echo "  WARN: failed writing cpuset $cpus for $cname"
             fi
+            if [ -n "$mems" ]; then
+                if echo "$mems" > "$cg/cpuset.mems" 2>/dev/null; then
+                    echo "  pinned $cname memory -> NUMA node $mems (effective $(cat "$cg/cpuset.mems.effective" 2>/dev/null))"
+                else
+                    echo "  WARN: failed writing cpuset.mems $mems for $cname"
+                fi
+            fi
         else
             echo "  WARN: $cg/cpuset.cpus not writable for $cname"
         fi
     done < <(awk '
-        /container_name:/ { name=$2 }
-        /cpuset:/ { val=$2; gsub(/"/,"",val); if(name!=""){ print name"|"val; name="" } }
+        function emit() { if (name != "" && cpus != "") print name "|" cpus "|" mems; name = cpus = mems = "" }
+        /container_name:/ { emit(); name = $2 }
+        /cpuset:/ && cpus == "" { cpus = $2; gsub(/"/, "", cpus) }
+        /x-cpuset-mems:/ { mems = $2; gsub(/"/, "", mems) }
+        END { emit() }
     ' "$COMPOSE_FILE")
     if (( applied > 0 )); then
         echo "--- cpuset pinning enforced on $applied container(s) ---"

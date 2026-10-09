@@ -33,6 +33,35 @@ EXTRA_VLLM_ARGS="${EXTRA_VLLM_ARGS:-}"
 #   SET_ENV_VAR_BEFORE_VLLM_SERVE="export FOO=1 && export BAR=2 &&"
 # Empty by default (no extra exports). run_sweep.sh forwards this through.
 SET_ENV_VAR_BEFORE_VLLM_SERVE="${SET_ENV_VAR_BEFORE_VLLM_SERVE:-}"
+# vLLM's OpenMP thread binding, the same mode for every instance. Exported
+# after SET_ENV_VAR_BEFORE_VLLM_SERVE, so set it here, not in that prefix.
+#   unset  - each instance binds its OpenMP workers to its own core range
+#            (minus VLLM_RESERVED_CPUS_PER_INSTANCE, see below).
+#   auto   - vLLM picks cores from the instance CPU affinity established with
+#            taskset. vLLM's auto-bind takes the first visible NUMA node for
+#            every instance, so this script also exports
+#            CPU_VISIBLE_MEMORY_NODES=<node of that instance's cores>; without
+#            it, an instance whose cores are not on node 0 gets an empty core
+#            list. As a safety policy, auto is rejected with --no-limits, and
+#            each instance's cores must be on one node.
+#   nobind - vLLM does not set affinity; inherited OpenMP variables decide the
+#            thread count and any binding.
+VLLM_CPU_OMP_THREADS_BIND="${VLLM_CPU_OMP_THREADS_BIND:-}"
+# Cores of each instance kept free of OpenMP workers, for vLLM's API server and
+# engine core (the vLLM CPU docs recommend 1-2 for online serving). The
+# container cpuset is unchanged. Defaults to 1 in auto mode and 0 otherwise, so
+# existing jobs remain unchanged while `VLLM_CPU_OMP_THREADS_BIND=auto` is safe
+# for online serving without a second setting.
+#   per-instance binding: workers bind to <start>-<end - N>
+#   auto:                 passed to vLLM as VLLM_CPU_NUM_OF_RESERVED_CPU=N
+#   nobind:               ignored (the script prints a warning)
+if [[ -z "${VLLM_RESERVED_CPUS_PER_INSTANCE+x}" ]]; then
+    if [[ "$VLLM_CPU_OMP_THREADS_BIND" == auto ]]; then
+        VLLM_RESERVED_CPUS_PER_INSTANCE=1
+    else
+        VLLM_RESERVED_CPUS_PER_INSTANCE=0
+    fi
+fi
 # No default on purpose: pass --image or export VLLM_IMAGE explicitly.
 VLLM_IMAGE="${VLLM_IMAGE:-}"
 # NGINX load-balancer image. Defaults to Google's public Docker Hub mirror
@@ -237,6 +266,11 @@ Environment variables:
   BACKEND (zentorch|native, default zentorch),
   SET_ENV_VAR_BEFORE_VLLM_SERVE (shell prefix spliced before "vllm serve",
     include trailing "&&", e.g. "export FOO=1 && export BAR=2 &&")
+  VLLM_CPU_OMP_THREADS_BIND (unset|auto|nobind; default: each instance's own
+    core range)
+  VLLM_RESERVED_CPUS_PER_INSTANCE (cores per instance left free of OpenMP
+    workers for vLLM's API server and engine core; default 1 with auto,
+    otherwise 0)
 
 Example:
   # 3 instances on a 96-core CPU, starting at core 16
@@ -456,6 +490,88 @@ emit_lmcache_volume() {
     printf '      - %s:%s:ro,z\n' "$LMCACHE_CONFIG_FILE_HOST" "$LMCACHE_CONFIG_FILE_HOST" >> "$COMPOSE"
 }
 
+# --- OpenMP binding and reserved cores -------------------------------------
+if ! [[ "$VLLM_RESERVED_CPUS_PER_INSTANCE" =~ ^[0-9]+$ ]] \
+        || (( VLLM_RESERVED_CPUS_PER_INSTANCE >= CORES_PER_INSTANCE )); then
+    echo "ERROR: VLLM_RESERVED_CPUS_PER_INSTANCE='$VLLM_RESERVED_CPUS_PER_INSTANCE' must be an integer from 0 to $(( CORES_PER_INSTANCE - 1 ))." >&2
+    exit 1
+fi
+case "$VLLM_CPU_OMP_THREADS_BIND" in
+    ""|nobind) ;;
+    auto)
+        if $NO_LIMITS; then
+            echo "ERROR: as a safety policy, VLLM_CPU_OMP_THREADS_BIND=auto cannot be used with --no-limits." >&2
+            exit 1
+        fi ;;
+    *)  echo "ERROR: VLLM_CPU_OMP_THREADS_BIND='$VLLM_CPU_OMP_THREADS_BIND': use auto, nobind, or leave it unset (per-instance core ranges)." >&2
+        exit 1 ;;
+esac
+if [[ "$VLLM_CPU_OMP_THREADS_BIND" == nobind ]] && (( VLLM_RESERVED_CPUS_PER_INSTANCE > 0 )); then
+    echo "WARNING: VLLM_RESERVED_CPUS_PER_INSTANCE is ignored with VLLM_CPU_OMP_THREADS_BIND=nobind." >&2
+fi
+
+# NUMA node(s) of the host cores <first>..<last>, comma-separated.
+numa_nodes_of() {
+    local c d found nodes=()
+    for (( c = $1; c <= $2; c++ )); do
+        found=0
+        for d in /sys/devices/system/cpu/cpu$c/node[0-9]*; do
+            if [[ -e "$d" ]]; then
+                nodes+=("${d##*node}")
+                found=$(( found + 1 ))
+            fi
+        done
+        if (( found != 1 )); then
+            echo "ERROR: expected exactly one NUMA node for CPU $c, found $found under /sys/devices/system/cpu/cpu$c." >&2
+            return 1
+        fi
+    done
+    printf '%s\n' "${nodes[@]}" | sort -un | paste -sd, -
+}
+
+# Sets CPUSET_MEMS to the NUMA node(s) of host cores <start>..<end>, emitted as
+# the instance's x-cpuset-mems (podman --cpuset-mems). podman-compose translates
+# neither cpuset key, so start.sh writes both to the container's cgroup.
+cpuset_mems_for() {
+    if ! CPUSET_MEMS=$(numa_nodes_of "$1" "$2" 2>/dev/null); then
+        echo "WARNING: NUMA node of cores $1-$2 unknown; that instance gets no cpuset mems." >&2
+        CPUSET_MEMS=""
+    fi
+}
+
+# Sets OMP_BIND_DESC (for the summary), OMP_BIND_EXPORTS (the shell prefix
+# spliced into the instance entrypoint) and VLLM_SERVE_WRAPPER for the instance
+# on cores <start>..<end>.
+omp_bind_for() {
+    local start=$1 end=$2 n=$VLLM_RESERVED_CPUS_PER_INSTANCE nodes
+    VLLM_SERVE_WRAPPER=""
+    case "$VLLM_CPU_OMP_THREADS_BIND" in
+        "")
+            OMP_BIND_DESC="$start-$(( end - n ))"
+            (( n > 0 )) && OMP_BIND_DESC+=" ($n reserved)"
+            OMP_BIND_EXPORTS="export VLLM_CPU_OMP_THREADS_BIND=$start-$(( end - n )) &&" ;;
+        nobind)
+            OMP_BIND_DESC="nobind"
+            OMP_BIND_EXPORTS="export VLLM_CPU_OMP_THREADS_BIND=nobind &&" ;;
+        auto)
+            if ! nodes=$(numa_nodes_of "$start" "$end"); then
+                exit 1
+            fi
+            if [[ "$nodes" == *,* ]]; then
+                echo "ERROR: cores $start-$end span NUMA nodes $nodes. vLLM auto-bind uses one node per instance;" >&2
+                echo "  use per-instance binding (unset VLLM_CPU_OMP_THREADS_BIND) or a core range on one node." >&2
+                exit 1
+            fi
+            OMP_BIND_DESC="auto, NUMA node $nodes, $n reserved"
+            OMP_BIND_EXPORTS="export VLLM_CPU_OMP_THREADS_BIND=auto && export VLLM_CPU_NUM_OF_RESERVED_CPU=$n && export CPU_VISIBLE_MEMORY_NODES=$nodes && echo \"=== VLLM_CPU_NUM_OF_RESERVED_CPU=$n CPU_VISIBLE_MEMORY_NODES=$nodes ===\" &&"
+            # podman-compose 3.4 can ignore compose's cpuset until start.sh
+            # applies a cgroup pin after the container has started. taskset
+            # constrains vLLM before it imports the CPU backend and resolves
+            # auto binding; every child process inherits the same affinity.
+            VLLM_SERVE_WRAPPER="taskset -c $start-$end" ;;
+    esac
+}
+
 last_core=$(( VLLM_START_CORE + NUM_INSTANCES * CORES_PER_INSTANCE - 1 ))
 
 echo "=== Multi-Instance vLLM Configuration ==="
@@ -466,6 +582,8 @@ echo "  vLLM cores:      $VLLM_START_CORE-$last_core"
 echo "  Model:           $MODEL_NAME"
 echo "  dtype:           ${DTYPE:-<vllm default>}"
 echo "  Pre-serve env:   ${SET_ENV_VAR_BEFORE_VLLM_SERVE:-<none>}"
+echo "  OMP bind:        ${VLLM_CPU_OMP_THREADS_BIND:-<per-instance core range>}"
+echo "  Reserved/inst:   $VLLM_RESERVED_CPUS_PER_INSTANCE core(s)"
 echo "  Backend:         $BACKEND"
 echo "  Image:           ${VLLM_IMAGE:-<unset>}"
 echo "  NGINX image:     $NGINX_IMAGE"
@@ -503,7 +621,9 @@ if $DRY_RUN; then
     for i in $(seq 1 "$NUM_INSTANCES"); do
         start=$(( VLLM_START_CORE + (i - 1) * CORES_PER_INSTANCE ))
         end=$(( start + CORES_PER_INSTANCE - 1 ))
-        echo "  vllm-$i: cores $start-$end"
+        omp_bind_for "$start" "$end"
+        cpuset_mems_for "$start" "$end"
+        echo "  vllm-$i: cores $start-$end, mems ${CPUSET_MEMS:-<unset>}, OMP bind $OMP_BIND_DESC"
     done
     echo "  nginx:  cores $NGINX_CORES"
     exit 0
@@ -713,6 +833,7 @@ DEPENDS_LIST=""
 for i in $(seq 1 "$NUM_INSTANCES"); do
     start=$(( VLLM_START_CORE + (i - 1) * CORES_PER_INSTANCE ))
     end=$(( start + CORES_PER_INSTANCE - 1 ))
+    omp_bind_for "$start" "$end"
     port=$(vllm_port_for "$i")
     DEPENDS_LIST="${DEPENDS_LIST}      - vllm-$i
 "
@@ -739,9 +860,13 @@ EOF
     fi
 
     if ! $NO_LIMITS; then
+        cpuset_mems_for "$start" "$end"
         cat >> "$COMPOSE" <<EOF
     cpuset: "$start-$end"
 EOF
+        if [[ -n "$CPUSET_MEMS" ]]; then
+            printf '    x-cpuset-mems: "%s"\n' "$CPUSET_MEMS" >> "$COMPOSE"
+        fi
         if ! $NO_MEM_LIMIT; then
             cat >> "$COMPOSE" <<EOF
     mem_limit: \${MEM_LIMIT:-$MEM_LIMIT}
@@ -831,7 +956,7 @@ EOF
     entrypoint:
       - bash
       - -c
-      - '${SET_ENV_VAR_BEFORE_VLLM_SERVE} export VLLM_CPU_OMP_THREADS_BIND=$start-$end && echo "=== VLLM_CPU_OMP_THREADS_BIND=\$\$VLLM_CPU_OMP_THREADS_BIND ===" && { [ -f /profiler-patch.sh ] && bash /profiler-patch.sh || true; } && echo "=== pip list (\$\$HOSTNAME) ===" && { command -v pip >/dev/null 2>&1 && pip list || python -m pip list 2>/dev/null || echo "(pip unavailable)"; } && echo "=== launching: vllm serve \$\$@ ===" && exec vllm serve "\$\$@"'
+      - '${SET_ENV_VAR_BEFORE_VLLM_SERVE} ${OMP_BIND_EXPORTS} echo "=== VLLM_CPU_OMP_THREADS_BIND=\$\$VLLM_CPU_OMP_THREADS_BIND ===" && { [ -f /profiler-patch.sh ] && bash /profiler-patch.sh || true; } && echo "=== pip list (\$\$HOSTNAME) ===" && { command -v pip >/dev/null 2>&1 && pip list || python -m pip list 2>/dev/null || echo "(pip unavailable)"; } && echo "=== launching: vllm serve \$\$@ ===" && exec ${VLLM_SERVE_WRAPPER:+$VLLM_SERVE_WRAPPER }vllm serve "\$\$@"'
       - --
     command:
       - --model
@@ -1124,6 +1249,7 @@ echo "Core allocation:"
 for i in $(seq 1 "$NUM_INSTANCES"); do
     start=$(( VLLM_START_CORE + (i - 1) * CORES_PER_INSTANCE ))
     end=$(( start + CORES_PER_INSTANCE - 1 ))
-    echo "  vllm-$i: cores $start-$end"
+    omp_bind_for "$start" "$end"
+    echo "  vllm-$i: cores $start-$end, OMP bind $OMP_BIND_DESC"
 done
 echo "  nginx:  cores $NGINX_CORES"

@@ -260,6 +260,8 @@ To test in-container env vars without editing scripts, set
 | `-N` / `NUM_INSTANCES` | `1` | vLLM instances; also seeds the `EPYC<N>` prefix |
 | `CORES_PER_INSTANCE` | `32` | cores per instance |
 | `VLLM_START_CORE` | `32` | first core of instance 1 |
+| `VLLM_CPU_OMP_THREADS_BIND` | unset | OpenMP binding mode: unset = per-instance core range, `auto` = vLLM selects from taskset-restricted cores on that instance's NUMA node, `nobind` = vLLM leaves affinity/thread count to inherited OpenMP settings |
+| `VLLM_RESERVED_CPUS_PER_INSTANCE` | `1` with `auto`, else `0` | cores in every instance range not assigned to OpenMP workers; use 1-2 for CPU online serving; ignored with `nobind` |
 | `NGINX_CORES` | `1-15` | NGINX cpuset |
 | `NGINX_PORT` | `8080` | host port of the endpoint |
 | `MEM_LIMIT` | `200g` | per-instance memory cgroup cap |
@@ -273,9 +275,20 @@ Instance `i` gets the contiguous logical CPUs
 `VLLM_START_CORE + (i-1)*CPI` to `VLLM_START_CORE + i*CPI - 1`. podman-compose
 3.4 ignores the compose `cpuset:` key, so `start.sh` writes each container's
 cpuset into its cgroup v2 node after `podman-compose up` and prints
-`pinned <container> -> <cpus>`. A `WARN: ... cpuset.cpus not writable` line
-means the pinning was not enforced. Neither script checks that the layout
-fits, so do it before confirming:
+`pinned <container> -> <cpus>`.
+
+For each vLLM instance, `generate-config.sh` also derives the NUMA node(s) of
+that CPU range from `/sys/devices/system/cpu/cpu*/node*` and emits
+`x-cpuset-mems`. `start.sh` writes it to the container's `cpuset.mems` cgroup
+file and prints `pinned <container> memory -> NUMA node <nodes>`. On cgroup v2,
+this constrains allocations made after the write but does not migrate pages
+allocated earlier. The pinning is automatic; there is no separate setting.
+`--no-limits` disables both CPU and memory pinning. An unknown NUMA node leaves
+memory unpinned for that instance, while a
+`WARN: ... cpuset.cpus not writable` or `failed writing cpuset.mems` line means
+the corresponding cgroup pin was not enforced.
+
+Neither script checks that the layout fits, so do it before confirming:
 
 - `VLLM_START_CORE + N*CPI - 1` must be below `nproc`.
 - Check the blocks against `lscpu -e=CPU,NODE,SOCKET,CORE`; a block that
@@ -283,6 +296,44 @@ fits, so do it before confirming:
 - Keep `16-31` free for the load generator (`EMBEDDING_BENCH_CPUS`
   default) and out of `NGINX_CORES`.
 - `N * VLLM_KV_CACHE_SPACE` plus the weights must fit in `free -g`.
+
+**Reserve cores for online serving.** vLLM's CPU documentation recommends
+leaving 1-2 cores for the API server, engine core, tokenization and networking.
+Keep the container cpuset unchanged and remove the cores only from the OpenMP
+worker binding:
+
+```bash
+VLLM_RESERVED_CPUS_PER_INSTANCE=2 ./run_sweep.sh -N 4 ...
+```
+
+For a 32-core instance on `128-159`, this produces
+`VLLM_CPU_OMP_THREADS_BIND=128-157`; cores `158-159` remain available to the
+other vLLM processes. The setting is model-independent. Enable it first on CPU
+online / GuideLLM jobs; validate embedding and audio separately.
+
+**Auto-bind by NUMA node.** To let vLLM choose the workers and reserve one core:
+
+```bash
+VLLM_CPU_OMP_THREADS_BIND=auto \
+./run_sweep.sh -N 4 ...
+```
+
+Auto mode reserves one core per instance by default. Set
+`VLLM_RESERVED_CPUS_PER_INSTANCE` explicitly to override it.
+
+`generate-config.sh` reads every instance's NUMA node from
+`/sys/devices/system/cpu/cpu*/node*` and exports both
+`VLLM_CPU_NUM_OF_RESERVED_CPU=N` and
+`CPU_VISIBLE_MEMORY_NODES=<that instance's node>`. The latter is required for
+several single-rank vLLM instances on different NUMA nodes: without it, each
+rank-0 worker selects the first visible node and an instance on another node can
+receive an empty core list. The generated entrypoint also starts `vllm serve`
+through `taskset -c <instance range>`. This makes the affinity effective before
+vLLM resolves `auto`, even on podman-compose 3.4 where `start.sh` must apply the
+container cgroup cpuset after startup. As a safety policy, auto-bind is disabled
+with `--no-limits`, and it fails early if an instance spans NUMA nodes. This
+also makes the setting safe for NPS=4 when each instance range fits in one
+NUMA node.
 
 Announce the resolved blocks (`generate-config.sh -n N -c CPI --dry-run` prints
 them) and get a yes.
@@ -595,7 +646,8 @@ several sweeps can be concatenated and plotted against instance count.
 - `scripts/run_sweep.sh --dry-run ...` passes pre-flight (`[OK]` everywhere, no
   `[MISS]`/`[BAD]`) and prints the expected `start.sh` and `ansible-playbook`
   commands.
-- `scripts/generate-config.sh -n N -c CPI --dry-run` prints the core blocks.
+- `scripts/generate-config.sh -n N -c CPI --dry-run` prints the core blocks and
+  their detected NUMA memory nodes.
 - With a stack up, `scripts/test-setup.sh` (see the test 2 and 6 gotcha).
 - After a run: no `Traceback` or `No space left` under the run's
   `guidellm.log`, and every rate has results.

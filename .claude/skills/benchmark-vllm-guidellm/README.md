@@ -399,6 +399,8 @@ Creates `docker-compose.yml`, `nginx.conf`, and `.env` inside the `generated/` d
 | `-c, --cores-per-instance` | `CORES_PER_INSTANCE` | 32 | CPU cores per instance |
 | `--nginx-cores` | `NGINX_CORES` | 1-15 | CPU range for NGINX |
 | `--start-core` | `VLLM_START_CORE` | 32 | First core for vLLM instances |
+| — | `VLLM_CPU_OMP_THREADS_BIND` | unset | OpenMP binding mode: per-instance range when unset; `auto` selects from taskset-restricted cores; `nobind` leaves affinity/thread count to inherited OpenMP settings |
+| — | `VLLM_RESERVED_CPUS_PER_INSTANCE` | 1 with `auto`, else 0 | Cores per instance left out of the OpenMP worker bind for vLLM's serving processes; ignored with `nobind` |
 | `-m, --model` | `MODEL_NAME` | meta-llama/Llama-3.1-8B-Instruct | HF repo id, or absolute path to a local model dir |
 | `--models-dir` | `MODELS_DIR` | — | Host dir bind-mounted into each container at the same absolute path (for local models) |
 | `--image` | `VLLM_IMAGE` | — (required) | Container image |
@@ -413,6 +415,90 @@ Creates `docker-compose.yml`, `nginx.conf`, and `.env` inside the `generated/` d
 | `--dry-run` | — | — | Print layout without writing |
 
 All flags can also be set as environment variables.
+
+### NUMA memory pinning
+
+Memory pinning is derived automatically from each vLLM instance's CPU range;
+there is no additional flag. `generate-config.sh` reads
+`/sys/devices/system/cpu/cpu*/node*`, writes the detected node(s) to the
+generated service's `x-cpuset-mems`, and shows `mems <nodes>` in `--dry-run`
+output. After the containers start, `start.sh` enforces both `cpuset.cpus` and
+`cpuset.mems` directly on each cgroup because older podman-compose versions
+ignore the Compose CPU setting and do not understand the memory-node extension.
+On cgroup v2, `cpuset.mems` constrains allocations made after the write; it does
+not migrate pages that the process allocated earlier.
+
+This applies to vLLM instances when limits are enabled. `--no-limits` disables
+both CPU and memory pinning. If the NUMA node for an instance's CPU range cannot
+be detected, configuration continues without memory pinning for that instance
+and prints a warning. At startup, verify lines such as:
+
+```text
+pinned vllm-instance-1 -> 32-63 (effective 32-63)
+pinned vllm-instance-1 memory -> NUMA node 1 (effective 1)
+```
+
+### Reserve cores for online serving
+
+The container cpuset and the OpenMP worker binding are separate. For CPU online
+serving, vLLM recommends leaving 1-2 cores available to the API server, engine
+core, tokenization and networking:
+
+```bash
+# Four 32-core instances on cores 128-255. Each container keeps all 32 cores,
+# but its OpenMP worker gets 30 (128-157, 160-189, 192-221, 224-253).
+NUM_INSTANCES=4 \
+VLLM_START_CORE=128 \
+VLLM_RESERVED_CPUS_PER_INSTANCE=2 \
+./run_sweep.sh -w chat -m "RedHatAI/gemma-4-E4B-it | gemma-e4b"
+```
+
+When `VLLM_CPU_OMP_THREADS_BIND` is unset, the generated bind for an instance
+on `<start>-<end>` is `<start>-<end-N>`, where `N` is
+`VLLM_RESERVED_CPUS_PER_INSTANCE`. The container cpuset remains
+`<start>-<end>`. With the default `N=0`, generated configs are unchanged.
+
+### vLLM auto-bind on multi-NUMA hosts
+
+Auto-bind needs restricted process affinity and the correct memory node. This
+harness additionally requires container limits as a safety policy:
+
+```bash
+NUM_INSTANCES=4 \
+VLLM_START_CORE=128 \
+VLLM_CPU_OMP_THREADS_BIND=auto \
+./run_sweep.sh -w chat -m "RedHatAI/gemma-4-E4B-it | gemma-e4b"
+```
+
+Auto mode reserves one core per instance by default. Set
+`VLLM_RESERVED_CPUS_PER_INSTANCE` explicitly to override it.
+
+For each instance, `generate-config.sh`:
+
+1. Reads the NUMA node of its host core range from
+   `/sys/devices/system/cpu/cpu*/node*`.
+2. Exports `VLLM_CPU_OMP_THREADS_BIND=auto`.
+3. Exports `VLLM_CPU_NUM_OF_RESERVED_CPU=N`.
+4. Exports `CPU_VISIBLE_MEMORY_NODES=<detected node>`.
+5. Starts `vllm serve` through `taskset -c <instance range>`, so process affinity is
+   already active when vLLM resolves auto binding. This is required on older
+   podman-compose versions that ignore the Compose `cpuset:` key until
+   `start.sh` applies a cgroup pin after container startup.
+
+`CPU_VISIBLE_MEMORY_NODES` is required when several independent rank-0 vLLM
+instances run on different NUMA nodes. Without it, auto-bind selects the first
+visible node for every instance; an instance whose allowed cores are on another
+node can receive an empty OpenMP core list.
+
+As a safety policy, auto-bind is rejected when:
+
+- `--no-limits` disables the per-container resource limits;
+- an instance's core range spans multiple NUMA nodes;
+- the host NUMA node cannot be read.
+
+This topology check is independent of model type and NPS mode. On NPS=4, each
+instance must still fit within one NUMA node. Use the explicit reserved-core
+mode instead when a block spans nodes.
 
 ### `start.sh` — Start the Stack
 
@@ -564,6 +650,10 @@ sudo systemctl daemon-reload
 sudo systemctl restart user@$(id -u).service
 ```
 Then re-run `./start.sh --regenerate`.
+
+The same controller is required for NUMA memory pinning. A
+`failed writing cpuset.mems` warning means CPU pinning may still be active, but
+memory allocation is not restricted to the instance's detected NUMA node.
 
 **`rootless needs no limits + no cgrouppath when no permission is granted for cgroups` (LSF environments):**
 On LSF-managed machines, the cgroup hierarchy is owned by LSF and users cannot create sub-cgroups. Use the `--no-limits` flag to skip all cgroup-dependent resource constraints (cpuset, mem_limit, shm_size):
