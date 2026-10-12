@@ -5,8 +5,8 @@
 # All rights reserved.
 # ******************************************************************************
 
-# Small single-instance CPU benchmark for the LMCache CPU connector
-# (lmcache.v1.gpu_connector.cpu_connector.VLLMCPUConnector).
+# Small single-instance CPU benchmark for LMCache's MP connector
+# (LMCacheMPConnector) against a standalone lmcache server.
 #
 # Runs the same `lmcache bench engine` long-doc-qa workload against two setups
 # and prints both summaries so the LMCache offload win is directly comparable:

@@ -12,7 +12,7 @@ description: >-
   Loads models from Hugging Face or a local directory, handles llm-compressor
   and torchao quantized checkpoints, can capture vLLM torch-profiler traces,
   and compares cross-instance KV-cache sharing (vLLM prefix caching vs a
-  shared LMCache server, optionally backed by a Mooncake L2 pool) on
+  shared LMCache server over zero-copy SHM) on
   shared-prefix workloads. Validates a running stack with an 11-test self-check
   and flattens results into CSV. Use when asked to run the multi-instance /
   GuideLLM sweep, to benchmark several models, quantized models, embedding
@@ -452,7 +452,6 @@ nohup scripts/run_sweep.sh -N 4 -w chat -m "meta-llama/Llama-3.1-8B-Instruct | l
 | no cgroup cpuset delegation (rootless, LSF) | `--no-limits` (+ `GUIDELLM_CPUS` to pin GuideLLM) |
 | vLLM per-instance prefix caching (APC) | `ENABLE_PREFIX_CACHING=true` |
 | shared LMCache server | `--lmcache` (`LMCACHE_PICKLE=1` for the ZMQ/pickle transport) |
-| LMCache + Mooncake L2 pool | `--lmcache-mooncake` |
 | torch profiler | `--profile` |
 | validate only | `--dry-run` |
 
@@ -542,24 +541,27 @@ how to read the results. Read it before proposing an LMCache run.
 | APC | `ENABLE_PREFIX_CACHING=true` | each instance caches its own prefixes |
 | LMCache SHM | `--lmcache` | + one shared `lmcache server`, zero-copy KV through a shared `/dev/shm` |
 | LMCache pickle | `LMCACHE_PICKLE=1 --lmcache` | same server, KV over ZMQ |
-| Mooncake L2 | `--lmcache-mooncake` | + the SHM server backed by a Mooncake Store pool over TCP |
 
 Ask before running:
 
 - **LMCache checkout** at `LMCACHE_SRC` (default `$HOME/LMCache`): branch
-  `feat/cpu-connector` of the private `AMD-Zenai/LMCache` repo at `d9aa0fdc`
-  (earlier commits crash EngineCore when GuideLLM cancels requests between
-  rates). `--lmcache` builds `<VLLM_IMAGE>_lmcache` from it once and reuses
-  it, so `podman rmi` that image after changing the checkout.
-- **Mooncake build** at `MOONCAKE_SRC` (default `$HOME/Mooncake`), only for
-  `--lmcache-mooncake`, built inside the same `VLLM_IMAGE` (LMCACHE.md has the
-  build).
+  `zen-lmcache/cpu-shm` of `amd/LMCache_zen`, tested at `0bfa083c` (older
+  builds crash EngineCore when GuideLLM cancels requests between rates).
+  `--lmcache` builds `<VLLM_IMAGE>_lmcache` from it once and reuses it, so
+  `podman rmi` that image after changing the checkout.
 - **Memory**: the server's L1 pool (`LMCACHE_L1_SIZE_GB`, default 100 GiB) comes
-  on top of every instance's `VLLM_KV_CACHE_SPACE`, and SHM/L2 modes hold it in
+  on top of every instance's `VLLM_KV_CACHE_SPACE`, and SHM mode holds it in
   the host's `/dev/shm`.
 - **`LMCACHE_CHUNK_SIZE`** must be a multiple of every KV-cache group's block
-  size (gemma-4 on CPU needs 256; hybrid Qwen3.5/3.6 models need vLLM's unified
-  block size, see `test-vllm-lmcache-hybrid`).
+  size (gemma-4 on CPU needs 256).
+- **Hybrid models** (Qwen3.5 / Qwen3.6): `--lmcache` asks vLLM in the image for
+  the unified block size N (`scripts/hybrid_block_size.py`), then turns on vLLM
+  prefix caching, sets `LMCACHE_CHUNK_SIZE=N` and adds
+  `--max-num-batched-tokens N`. Without prefix caching vLLM keeps no reusable
+  Mamba state and LMCache refuses the model at startup ("MambaSpec with
+  mamba_cache_mode='none'"). Values you set are kept; an explicit
+  `ENABLE_PREFIX_CACHING=false`, or a chunk size that is not a multiple of N,
+  is an error. See `test-vllm-lmcache-hybrid`.
 
 Give each mode its own `TEST_NAME_PREFIX` (not a substring of another) so the
 result directories tell them apart, use the same `VLLM_IMAGE` for every mode,
@@ -570,13 +572,12 @@ cd .claude/skills/benchmark-vllm-guidellm
 M="meta-llama/Llama-3.1-8B-Instruct | llama31"
 ENABLE_PREFIX_CACHING=true TEST_NAME_PREFIX=APC scripts/run_sweep.sh -N 5 -w chat_shared -m "$M"
 TEST_NAME_PREFIX=SHM scripts/run_sweep.sh --lmcache -N 5 -w chat_shared -m "$M"
-STAGGER_STARTUP=1 TEST_NAME_PREFIX=L2 scripts/run_sweep.sh --lmcache-mooncake -N 5 -w chat_shared -m "$M"
 ```
 
 LMCache modes need bridge networking (`VLLM_NETWORK_MODE=host` is rejected).
-The server and Mooncake services take static addresses just below NGINX
-(`10.201.0.9`, `.8`, `.7`). `stop.sh` deletes the shared SHM directory
-(`/dev/shm/lmc-shared[-<STACK_TAG>]`), which frees the RAM it holds.
+The server takes the static address just below NGINX (`10.201.0.9`).
+`stop.sh` deletes the shared SHM directory (`/dev/shm/lmc-shared[-<STACK_TAG>]`),
+which frees the RAM it holds.
 
 ## Manual stack control
 
@@ -690,9 +691,10 @@ several sweeps can be concatenated and plotted against instance count.
   start-up handshake; `STAGGER_STARTUP=1` spreads them out.
 - **Do not compare across stack shapes.** `N`, CPI, the core bands, the image
   and `--max-model-len` all move the numbers; change one thing at a time.
-- **The `_native`, `_torchao-*`, `_lmcache` and `_lmcache_mooncake` images are
+- **The `_native`, `_torchao-*` and `_lmcache` images are
   cached** by tag. If the base image or the LMCache checkout changes, delete the
-  derived image or the run uses the stale one.
+  derived image or the run uses the stale one. For `_lmcache`, `start.sh` prints
+  the image's `lmcache.commit` label and warns when the checkout differs.
 
 ## Files
 
@@ -700,12 +702,13 @@ several sweeps can be concatenated and plotted against instance count.
 .claude/skills/benchmark-vllm-guidellm/
   SKILL.md                         # this file (agent workflow)
   README.md                        # user reference: flags, CPU layouts, troubleshooting
-  LMCACHE.md                       # KV-cache sharing guide (APC / LMCache SHM / Mooncake L2)
+  LMCACHE.md                       # KV-cache sharing guide (APC / LMCache SHM)
   scripts/
     run_sweep.sh                   # entry point: pre-flight, models x variants x workloads
     start.sh                       # derived-image builds, HF pre-warm, compose up, cpuset pinning, health wait
     stop.sh                        # log dump, compose down, network + IPAM lease + LMCache SHM cleanup
-    generate-config.sh             # docker-compose.yml + nginx.conf + .env (+ LMCache/Mooncake services)
+    generate-config.sh             # docker-compose.yml + nginx.conf + .env (+ LMCache server)
+    hybrid_block_size.py           # run in the image by start.sh --lmcache: hybrid model? vLLM block size N
     test-setup.sh                  # 11-test validation of a running stack
     extract_guidellm_metrics.py    # guidellm.log -> CSV
     extract_benchmark_csv.py       # benchmarks.json -> CSV
@@ -715,7 +718,6 @@ several sweeps can be concatenated and plotted against instance count.
     lmcache_cpu_bench.sh           # single-instance LMCache connector smoke test (host venv)
     lmcache_cluster_bench.sh       # N instances: no cache / APC / LMCache via `lmcache bench engine`
     lmcache_chart_bench.sh         # native / zentorch / zentorch+LMCache via run_sweep.sh
-    build_mooncake_ext.py          # in-container build of the lmcache_mooncake L2 extension
     vllm-cpu-perf-eval/            # the clone (gitignored, pinned to 2bacf71)
     generated*/ sweep-logs/ profiler-traces/ chart-bench-*/   # run artifacts (gitignored)
   patches/

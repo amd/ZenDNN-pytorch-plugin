@@ -31,7 +31,8 @@ vLLM 0.29 and 0.30 for:
 | q36w4 | amd/Qwen3.6-35B-A3B-w4a16-llmcompressor | 1152 |
 
 N is vLLM's unified block size on CPU (logged as "Setting attention block size
-to N tokens"). For another hybrid model, start it once and read that line.
+to N tokens"). `start.sh --lmcache` gets it from vLLM in the image
+(`scripts/hybrid_block_size.py`) and applies the recipe below on its own.
 
 The checks drive the stack through the
 [`benchmark-vllm-guidellm`](../benchmark-vllm-guidellm/SKILL.md) harness
@@ -42,7 +43,8 @@ skill up first: its clone pinned to `2bacf71` with the patches applied. Its
 ## Prerequisites
 
 - **LMCache** with hybrid engine-driven transfer: branch
-  `feat/cpu-hybrid-engine-driven` of the private `AMD-Zenai/LMCache` repo.
+  `zen-lmcache/cpu-shm` of `amd/LMCache_zen` (the same checkout
+  benchmark-vllm-guidellm uses).
   Upstream `dev` without it fails the first store with "engine-driven transfer
   does not support hybrid KV cache groups".
 - **Image**: either load a prebuilt `_lmcache` image
@@ -56,8 +58,13 @@ skill up first: its clone pinned to `2bacf71` with the patches applied. Its
   or let `start.sh` build `${VLLM_IMAGE}_lmcache` from
   `LMCACHE_SRC=<checkout of the branch>` (it skips the build when that image
   exists, so `podman rmi` it after changing the source).
-- **zentorch**: the 0.30 ww40 image (zentorch-weekly 2.13.0.2.dev20260930) is
-  correct with `VLLM_ZENTORCH_WEIGHT_PREPACK=0`. The 0.29 ww39 image
+- **zentorch**: use vLLM 0.31.0 with zentorch main (`26f305ed` or later). It
+  gives correct text with default weight prepack for Qwen3.5-9B bf16 and w8a8
+  (also with an fp8 KV cache) and for Qwen3-0.6B, so drop the
+  `VLLM_ZENTORCH_WEIGHT_PREPACK=0` line from the recipe on it. The 0.30 ww40 image
+  (zentorch-weekly 2.13.0.2.dev20260930) is correct for Qwen3.5-9B only with
+  `VLLM_ZENTORCH_WEIGHT_PREPACK=0`, and Qwen3-0.6B is wrong on it even then,
+  with or without LMCache. The 0.29 ww39 image
   (dev20260923) produces wrong text for every model (its
   `zentorch_linear_unary` is wrong at M=1; no env fixes it). Both images ship
   torch 2.13.0+cpu at the same commit, so for 0.29 copy
@@ -72,11 +79,15 @@ skill up first: its clone pinned to `2bacf71` with the patches applied. Its
 
 ## Recipe
 
+`start.sh --lmcache` sets the first three for a hybrid model unless they are
+already set (an explicit `ENABLE_PREFIX_CACHING=false`, or a chunk size that is
+not a multiple of N, stops it with an error):
+
 ```bash
 ENABLE_PREFIX_CACHING=true          # vLLM picks Mamba cache mode 'align'
 LMCACHE_CHUNK_SIZE=N
 EXTRA_VLLM_ARGS="--max-num-batched-tokens N"
-SET_ENV_VAR_BEFORE_VLLM_SERVE="export VLLM_ZENTORCH_WEIGHT_PREPACK=0 &&"
+SET_ENV_VAR_BEFORE_VLLM_SERVE="export VLLM_ZENTORCH_WEIGHT_PREPACK=0 &&"   # 0.30 ww40 only
 # w4a16 checkpoints: prepend "export VLLM_CPU_INT4_W4A8=1 && "
 ```
 
@@ -122,9 +133,10 @@ tmux new-session -d -s hybrid bash -c "$S/validate_hybrid.sh load 2>&1 | tee hyb
 
 ## Pitfalls
 
-- **"Mamba ... not supported" at startup**: prefix caching is off. The
-  workloads pass `--no-enable-prefix-caching`; `ENABLE_PREFIX_CACHING=true`
-  overrides it.
+- **"MambaSpec with mamba_cache_mode='none'" at startup**: prefix caching is
+  off, so vLLM forces Mamba cache mode 'none' (even with `--mamba-cache-mode
+  align`). `start.sh --lmcache` turns it on for hybrid models; if you still see
+  this, check the "Checking whether ... is a hybrid model" lines in its output.
 - **Chunk size rejected**: `LMCACHE_CHUNK_SIZE` must be a multiple of N.
 - **LMCache-driven mode** (`LMCACHE_MP_TRANSFER_MODE=lmcache_driven`) fails at
   registration ("requires a contiguous tensor"); do not relax that check, it

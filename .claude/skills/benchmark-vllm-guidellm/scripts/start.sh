@@ -34,15 +34,10 @@ Options:
   --torchao       Build a derived image with torchao>=0.10.0 pre-installed
                   (required for models with quant_method=torchao)
   --lmcache       Build a derived image with the local LMCache checkout
-                  installed (NO_GPU_EXT, CPU connector) and bring up a shared
+                  installed (NO_GPU_EXT) and bring up a shared
                   lmcache server wired to every instance via the MP connector.
                   Zero-copy SHM transport; LMCACHE_PICKLE=1 selects ZMQ/pickle.
                   Source dir: \$LMCACHE_SRC (default: \$HOME/LMCache)
-  --lmcache-mooncake
-                  --lmcache plus a Mooncake Store L2 pool (master + metadata
-                  services) behind the shared server. Builds the native
-                  lmcache_mooncake extension against a local Mooncake build.
-                  Source dir: \$MOONCAKE_SRC (default: \$HOME/Mooncake)
   --no-limits     Skip cpuset/mem_limit/shm_size (for rootless/LSF environments)
   --no-mem-limit  Drop mem_limit only; keep cpuset/shm_size/cap_add/security_opt
   --profile       Enable torch profiler (forwarded to generate-config.sh):
@@ -75,8 +70,12 @@ NO_WAIT=false
 BACKEND="${BACKEND:-zentorch}"
 USE_TORCHAO=false
 USE_LMCACHE=false
-USE_MOONCAKE=false
+# The caller's values, before .env is sourced; the hybrid-model step below
+# fills in only what the caller left unset.
+USER_ENABLE_PREFIX_CACHING="${ENABLE_PREFIX_CACHING:-}"
+USER_LMCACHE_CHUNK_SIZE="${LMCACHE_CHUNK_SIZE:-}"
 GENERATE_ARGS=()
+PASSTHRU_ARGS=()
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -85,7 +84,6 @@ while [[ $# -gt 0 ]]; do
         --zentorch) BACKEND=zentorch; shift ;;
         --torchao|--with-torchao) USE_TORCHAO=true; shift ;;
         --lmcache) USE_LMCACHE=true; shift ;;
-        --lmcache-mooncake) USE_LMCACHE=true; USE_MOONCAKE=true; shift ;;
         --no-limits) GENERATE_ARGS+=("--no-limits"); shift ;;
         --no-mem-limit) GENERATE_ARGS+=("--no-mem-limit"); shift ;;
         --profile) GENERATE_ARGS+=("--profile"); REGENERATE=true; shift ;;
@@ -93,7 +91,7 @@ while [[ $# -gt 0 ]]; do
         --no-wait) NO_WAIT=true; shift ;;
         --timeout) HEALTH_TIMEOUT="$2"; shift 2 ;;
         -h|--help) usage ;;
-        *) GENERATE_ARGS+=("$1"); shift ;;
+        *) GENERATE_ARGS+=("$1"); PASSTHRU_ARGS+=("$1"); shift ;;
     esac
 done
 
@@ -101,6 +99,17 @@ case "$BACKEND" in
     zentorch|native) ;;
     *) echo "ERROR: invalid BACKEND='$BACKEND' (expected 'zentorch' or 'native')." >&2; exit 1 ;;
 esac
+
+# The derived-image builds below run in a named container and commit it. If a
+# build step fails, set -e exits before `podman rm`; remove the container here
+# so failed builds don't pile up.
+BUILD_CONTAINER=""
+remove_build_container() {
+    if [[ -n "$BUILD_CONTAINER" ]]; then
+        podman rm -f "$BUILD_CONTAINER" >/dev/null 2>&1 || true
+    fi
+}
+trap remove_build_container EXIT
 
 if [[ "$BACKEND" == "native" ]]; then
     if [[ -z "${VLLM_IMAGE:-}" ]]; then
@@ -118,11 +127,13 @@ if [[ "$BACKEND" == "native" ]]; then
         echo "  Base:   $BASE_IMAGE"
         echo "  Target: $NATIVE_IMAGE"
 
+        BUILD_CONTAINER="$TEMP_CONTAINER"
         podman run --entrypoint bash --name "$TEMP_CONTAINER" "$BASE_IMAGE" \
             -c "pip uninstall -y zentorch zentorch-weekly 2>/dev/null; echo 'zentorch packages removed'"
 
         podman commit --change 'ENTRYPOINT ["vllm", "serve"]' "$TEMP_CONTAINER" "$NATIVE_IMAGE"
         podman rm "$TEMP_CONTAINER"
+        BUILD_CONTAINER=""
 
         echo "  Native image built successfully."
     fi
@@ -152,11 +163,13 @@ if $USE_TORCHAO; then
         echo "  Base:   $BASE_IMAGE"
         echo "  Target: $TORCHAO_IMAGE"
 
+        BUILD_CONTAINER="$TEMP_CONTAINER"
         podman run --entrypoint bash --name "$TEMP_CONTAINER" "$BASE_IMAGE" \
             -c "pip install --no-cache-dir '${TORCHAO_SPEC}' && python -c 'import torchao; print(\"torchao\", torchao.__version__)'"
 
         podman commit --change 'ENTRYPOINT ["vllm", "serve"]' "$TEMP_CONTAINER" "$TORCHAO_IMAGE"
         podman rm "$TEMP_CONTAINER"
+        BUILD_CONTAINER=""
 
         echo "  torchao image built successfully."
     fi
@@ -176,10 +189,25 @@ if $USE_LMCACHE; then
     LMCACHE_SRC="${LMCACHE_SRC:-$HOME/LMCache}"
     LMCACHE_IMAGE="${BASE_IMAGE}_lmcache"
     TEMP_CONTAINER="vllm-lmcache-build-$$"
+    # The image is labelled with the LMCache commit it was built from (the
+    # build copies the checkout without .git, so it is read here on the host).
+    # "unknown" when LMCACHE_SRC is not a git checkout; "-dirty" when it has
+    # uncommitted changes to tracked files.
+    LMCACHE_REV=$(git -C "$LMCACHE_SRC" rev-parse HEAD 2>/dev/null || echo unknown)
+    if [[ "$LMCACHE_REV" != unknown ]] \
+        && [[ -n "$(git -C "$LMCACHE_SRC" status --porcelain --untracked-files=no 2>/dev/null)" ]]; then
+        LMCACHE_REV+="-dirty"
+    fi
 
     if podman image exists "$LMCACHE_IMAGE" 2>/dev/null; then
+        BUILT_REV=$(podman image inspect -f '{{index .Labels "lmcache.commit"}}' "$LMCACHE_IMAGE" 2>/dev/null || true)
         echo "--- LMCache image already exists: $LMCACHE_IMAGE ---"
+        echo "    Built from LMCache commit: ${BUILT_REV:-unknown (no lmcache.commit label)}"
         echo "    (delete it to rebuild: podman rmi $LMCACHE_IMAGE)"
+        if [[ -n "$BUILT_REV" && "$LMCACHE_REV" != unknown && "$BUILT_REV" != "$LMCACHE_REV" ]]; then
+            echo "WARNING: LMCACHE_SRC is now at $LMCACHE_REV, but the existing image is" >&2
+            echo "         used as is. podman rmi it to rebuild from the current checkout." >&2
+        fi
     else
         if [[ ! -d "$LMCACHE_SRC" ]]; then
             echo "ERROR: LMCACHE_SRC '$LMCACHE_SRC' is not a directory." >&2
@@ -188,6 +216,7 @@ if $USE_LMCACHE; then
         echo "--- Building LMCache image (installing $LMCACHE_SRC, NO_GPU_EXT) ---"
         echo "  Base:   $BASE_IMAGE"
         echo "  Source: $LMCACHE_SRC"
+        echo "  Commit: $LMCACHE_REV"
         echo "  Target: $LMCACHE_IMAGE"
 
         # Mount the checkout read-only, then copy it (minus .git/build) into a
@@ -197,6 +226,7 @@ if $USE_LMCACHE; then
         # torch so they're safe to resolve normally. --no-same-owner: a single-
         # UID rootless userns cannot chown to a checkout's unmapped group (e.g.
         # an NFS project group), and tar running as root would fail on it.
+        BUILD_CONTAINER="$TEMP_CONTAINER"
         podman run --entrypoint bash --name "$TEMP_CONTAINER" \
             -v "$LMCACHE_SRC":/lmcache-src:ro,Z "$BASE_IMAGE" -c '
                 set -e
@@ -226,88 +256,31 @@ if $USE_LMCACHE; then
                 python -c "import lmcache, vllm; print(\"lmcache\", lmcache.__version__, \"vllm\", vllm.__version__)"
             '
 
-        podman commit --change 'ENTRYPOINT ["vllm", "serve"]' "$TEMP_CONTAINER" "$LMCACHE_IMAGE"
+        podman commit --change 'ENTRYPOINT ["vllm", "serve"]' \
+            --change "LABEL lmcache.commit=$LMCACHE_REV" "$TEMP_CONTAINER" "$LMCACHE_IMAGE"
         podman rm "$TEMP_CONTAINER"
+        BUILD_CONTAINER=""
 
         echo "  LMCache image built successfully."
     fi
 
     export VLLM_IMAGE="$LMCACHE_IMAGE"
 
-    if $USE_MOONCAKE; then
-        # Derive a Mooncake-enabled image using the PURE-CPU wheel
-        # (mooncake-transfer-engine-non-cuda): no libcuda/libcudart linkage, so
-        # the transfer engine never runs GPU code paths and cannot misclassify a
-        # CPU KV buffer as GPU memory (which segfaulted the CUDA-built wheel).
-        # Needs only host runtime libs. Ships mooncake_master + metadata server.
-        MOONCAKE_IMAGE="${LMCACHE_IMAGE}_mooncake"
-        TEMP_CONTAINER="vllm-mooncake-build-$$"
-        if podman image exists "$MOONCAKE_IMAGE" 2>/dev/null; then
-            echo "--- Mooncake image already exists: $MOONCAKE_IMAGE ---"
-        else
-            if [[ ! -d "$LMCACHE_SRC" ]]; then
-                echo "ERROR: LMCACHE_SRC '$LMCACHE_SRC' is not a directory." >&2
-                exit 1
-            fi
-            echo "--- Building Mooncake image (mooncake-transfer-engine-non-cuda, TCP/CPU) ---"
-            echo "  Base:   $LMCACHE_IMAGE"
-            echo "  Target: $MOONCAKE_IMAGE"
-            MOONCAKE_SRC="${MOONCAKE_SRC:-$HOME/Mooncake}"
-            podman run --entrypoint bash --user 0:0 --name "$TEMP_CONTAINER" \
-                -v "$LMCACHE_SRC":/lmcache-src:ro,Z \
-                -v "$MOONCAKE_SRC":/mooncake:ro,Z \
-                -v "$SCRIPT_DIR/build_mooncake_ext.py":/tmp/build_ext.py:ro,Z \
-                "$LMCACHE_IMAGE" -c '
-                set -e
-                # A single-UID rootless userns cannot switch to the _apt sandbox user.
-                printf "APT::Sandbox::User \"root\";\n" > /etc/apt/apt.conf.d/99-rootless
-                apt-get update -qq
-                # runtime + C++ build deps for the native lmcache_mooncake L2 ext
-                # NOTE: no build-essential -- the base image already ships a C++
-                # toolchain, and the build-essential g++ postinst breaks its
-                # update-alternatives (c++ is already a gcc slave). Dev headers only.
-                # --no-install-recommends: rdma-core Recommends iproute2, whose pinned
-                # .deb has been purged from the jammy-updates mirror (404). Only the
-                # libraries listed here are needed.
-                apt-get install -y -qq --no-install-recommends libcurl4 libibverbs1 rdma-core librdmacm1 libnuma1 liburing2 \
-                    libgoogle-glog-dev libgflags-dev libyaml-cpp-dev libjsoncpp-dev \
-                    libibverbs-dev librdmacm-dev libnuma-dev libboost-dev libmsgpack-dev \
-                    libcurl4-openssl-dev libunwind-dev libxxhash-dev liburing-dev libzstd-dev
-                # Install the LOCAL Mooncake build (same source tree the native
-                # lmcache_mooncake ext links against) so the SDK, master and
-                # metadata server are version-matched with the L2 client -- a pip
-                # wheel of a different Mooncake build fails segment mount with
-                # RPC_FAIL. This build is non-CUDA (no libcuda linkage).
-                cp -r /mooncake/mooncake-wheel /tmp/mc-wheel && pip install /tmp/mc-wheel
-                python -c "import mooncake,os; so=os.path.dirname(mooncake.__file__)+\"/store.so\"; import subprocess; out=subprocess.check_output([\"objdump\",\"-p\",so]).decode(); assert \"libcuda\" not in out, \"mooncake build links libcuda\"; from mooncake.store import MooncakeDistributedStore; print(\"mooncake (local build) import OK, no libcuda\")"
-                # Build + install the native lmcache_mooncake L2 extension against
-                # the Mooncake C++ SDK (mounted headers + prebuilt static libs).
-                # Static libs are baked in; libasio is the only extra runtime .so.
-                cp /mooncake/build/mooncake-common/libasio.so /usr/local/lib/ && ldconfig
-                rm -rf /tmp/lmm_out && python /tmp/build_ext.py
-                LMDIR=$(python -c "import importlib.util;print(importlib.util.find_spec(\"lmcache\").submodule_search_locations[0])")
-                cp /tmp/lmm_out/lmcache/lmcache_mooncake*.so "$LMDIR/"
-                python -c "import lmcache.lmcache_mooncake as m; assert \"LMCacheMooncakeClient\" in dir(m); print(\"lmcache_mooncake ext OK\")"
-            '
-            podman commit --change 'ENTRYPOINT ["vllm", "serve"]' "$TEMP_CONTAINER" "$MOONCAKE_IMAGE"
-            podman rm "$TEMP_CONTAINER"
-            echo "  Mooncake image built successfully."
-        fi
-        export VLLM_IMAGE="$MOONCAKE_IMAGE"
-        GENERATE_ARGS+=("--image" "$MOONCAKE_IMAGE" "--lmcache-mooncake")
+    # Default to the shared-server SHM topology: one lmcache server + shared
+    # /dev/shm across all instances (cross-instance reuse, zero-copy), made
+    # collision-safe by the VLLM_DIST_IDENT patch above + per-instance idents.
+    # Set LMCACHE_PICKLE=1 to force the shared-server pickle transport instead.
+    if [[ "${LMCACHE_PICKLE:-0}" == "1" ]]; then
+        GENERATE_ARGS+=("--image" "$LMCACHE_IMAGE" "--lmcache-server")
     else
-        # Default to the shared-server SHM topology: one lmcache server + shared
-        # /dev/shm across all instances (cross-instance reuse, zero-copy), made
-        # collision-safe by the VLLM_DIST_IDENT patch above + per-instance idents.
-        # Set LMCACHE_PICKLE=1 to force the shared-server pickle transport instead.
-        if [[ "${LMCACHE_PICKLE:-0}" == "1" ]]; then
-            GENERATE_ARGS+=("--image" "$LMCACHE_IMAGE" "--lmcache-server")
-        else
-            GENERATE_ARGS+=("--image" "$LMCACHE_IMAGE" "--lmcache-shm")
-        fi
+        GENERATE_ARGS+=("--image" "$LMCACHE_IMAGE" "--lmcache-shm")
     fi
     REGENERATE=true
     echo ""
+fi
+
+if (( ${#PASSTHRU_ARGS[@]} )) && ! $REGENERATE && [[ -f "$COMPOSE_FILE" ]]; then
+    echo "WARNING: ${PASSTHRU_ARGS[*]} only take effect with --regenerate; reusing $COMPOSE_FILE." >&2
 fi
 
 if $REGENERATE || [[ ! -f "$COMPOSE_FILE" ]]; then
@@ -405,6 +378,89 @@ if [[ "${MODEL_NAME,,}" == *gpt-oss* ]]; then
 fi
 # ---------------------------------------------------------------------------
 
+# --- Hybrid models under LMCache ---------------------------------------------
+# Hybrid models (Mamba / linear-attention layers plus attention, e.g. Qwen3.5,
+# Qwen3.6) keep reusable Mamba state only with vLLM prefix caching on; with it
+# off vLLM sets mamba_cache_mode='none' and LMCache refuses the KV cache groups
+# at startup. They also need an LMCache chunk size that is a multiple of vLLM's
+# unified block size N and a prefill budget of N (see test-vllm-lmcache-hybrid).
+# Ask vLLM in the image for N, then regenerate with that recipe.
+if $USE_LMCACHE; then
+    # Value of "- --<flag>=<value>" or, failing that, the line after
+    # "- --<flag>" in the compose, quotes stripped; empty when the flag is
+    # absent (e.g. no --dtype for quantized models).
+    compose_arg() {
+        local v
+        v=$({ grep -m1 -oE -- "^[[:space:]]*- --$1=.*" "$COMPOSE_FILE" || true; } \
+            | sed -E 's/^[^=]*=//; s/^"(.*)"$/\1/')
+        if [[ -z "$v" ]]; then
+            v=$({ grep -A1 -m1 -E "^[[:space:]]*- --$1\$" "$COMPOSE_FILE" || true; } \
+                | tail -n +2 | sed -E 's/^[[:space:]]*- *//; s/^"(.*)"$/\1/')
+        fi
+        printf '%s\n' "$v"
+    }
+    PROBE_ARGS=("$MODEL_NAME")
+    probe_max_len=$(compose_arg max-model-len)
+    probe_dtype=$(compose_arg dtype)
+    # An fp8 KV cache changes N (Qwen3.5-9B: 640 -> 1152).
+    probe_kv_dtype=$(compose_arg kv-cache-dtype)
+    [[ -n "$probe_max_len" ]] && PROBE_ARGS+=(--max-model-len "$probe_max_len")
+    [[ -n "$probe_dtype" ]] && PROBE_ARGS+=(--dtype "$probe_dtype")
+    [[ -n "$probe_kv_dtype" ]] && PROBE_ARGS+=(--kv-cache-dtype "$probe_kv_dtype")
+    grep -qE '^[[:space:]]*- --trust-remote-code$' "$COMPOSE_FILE" && PROBE_ARGS+=(--trust-remote-code)
+    # Run the probe the way the compose runs the instances: the same user and
+    # HOME (container-root on hosts without subuid ranges), the same read-only
+    # path mounts (MODELS_DIR, so a model symlinked into a parent dir such as an
+    # HF-cache snapshot resolves) and the same SET_ENV_VAR_BEFORE_VLLM_SERVE.
+    PROBE_OPTS=(-v "$SCRIPT_DIR/hybrid_block_size.py:/hybrid_block_size.py:ro,z"
+                -v "$HF_CACHE_DIR:/opt/app-root/src/.cache:z")
+    [[ "$MODEL_NAME" == /* ]] && PROBE_OPTS+=(-v "$MODEL_NAME:$MODEL_NAME:ro,z")
+    while IFS= read -r probe_dir; do
+        [[ -n "$probe_dir" && "$probe_dir" != "$MODEL_NAME" ]] \
+            && PROBE_OPTS+=(-v "$probe_dir:$probe_dir:ro,z")
+    done < <(sed -nE 's#^[[:space:]]*- (/[^:]+):\1:ro,z$#\1#p' "$COMPOSE_FILE" | sort -u)
+    if grep -qE '^[[:space:]]*user: "0:0"$' "$COMPOSE_FILE"; then
+        PROBE_OPTS+=(--user 0:0 -e HOME=/opt/app-root/src)
+    fi
+    echo "--- Checking whether $MODEL_NAME is a hybrid model ---"
+    probe_out=$(podman run --rm --network none "${PROBE_OPTS[@]}" \
+        -e HF_HUB_OFFLINE=1 -e HF_HOME=/opt/app-root/src/.cache/huggingface \
+        --entrypoint bash "$VLLM_IMAGE" \
+        -c "${SET_ENV_VAR_BEFORE_VLLM_SERVE:-} exec python3 /hybrid_block_size.py \"\$@\"" \
+        -- "${PROBE_ARGS[@]}" 2>&1) || true
+    # vLLM logs to stdout too; the answer is the last line of the form below.
+    probe_result=$({ grep -E '^(hybrid [0-9]+|dense)$' <<<"$probe_out" || true; } | tail -1)
+    if [[ -z "$probe_result" ]]; then
+        echo "WARNING: could not get vLLM's block size; keeping the configuration as is." >&2
+        echo "  Hybrid models need the test-vllm-lmcache-hybrid recipe. Probe output:" >&2
+        tail -5 <<<"$probe_out" | sed 's/^/    /' >&2
+    elif [[ "$probe_result" == dense ]]; then
+        echo "  Not a hybrid model."
+    else
+        HYBRID_N=${probe_result#hybrid }
+        echo "  Hybrid model, vLLM block size N=$HYBRID_N."
+        if [[ "$USER_ENABLE_PREFIX_CACHING" == false ]]; then
+            echo "ERROR: ENABLE_PREFIX_CACHING=false, but LMCache serves hybrid models only with prefix caching on." >&2
+            exit 1
+        fi
+        if [[ -n "$USER_LMCACHE_CHUNK_SIZE" ]] && (( USER_LMCACHE_CHUNK_SIZE % HYBRID_N )); then
+            echo "ERROR: LMCACHE_CHUNK_SIZE=$USER_LMCACHE_CHUNK_SIZE is not a multiple of $HYBRID_N." >&2
+            exit 1
+        fi
+        export ENABLE_PREFIX_CACHING=true
+        export LMCACHE_CHUNK_SIZE="${USER_LMCACHE_CHUNK_SIZE:-$HYBRID_N}"
+        if [[ " ${EXTRA_VLLM_ARGS:-} " != *" --max-num-batched-tokens "* &&
+              " ${EXTRA_VLLM_ARGS:-} " != *" --max-num-batched-tokens="* ]]; then
+            export EXTRA_VLLM_ARGS="${EXTRA_VLLM_ARGS:+$EXTRA_VLLM_ARGS }--max-num-batched-tokens $HYBRID_N"
+        fi
+        echo "  Applying ENABLE_PREFIX_CACHING=true LMCACHE_CHUNK_SIZE=$LMCACHE_CHUNK_SIZE" \
+             "EXTRA_VLLM_ARGS=\"$EXTRA_VLLM_ARGS\""
+        echo "--- Regenerating configuration ---"
+        bash "$SCRIPT_DIR/generate-config.sh" "${GENERATE_ARGS[@]}"
+    fi
+    echo ""
+fi
+
 num_instances=$(grep -c 'container_name: vllm-instance-' "$COMPOSE_FILE")
 echo "--- Starting $num_instances vLLM instances + NGINX ---"
 
@@ -481,7 +537,7 @@ for img in "${COMPOSE_IMAGES[@]}"; do
 done
 
 cd "$GENERATED_DIR"
-# STAGGER_STARTUP=1: start support services (lmcache server, Mooncake) first,
+# STAGGER_STARTUP=1: start support services (lmcache server) first,
 # then vLLM instances one at a time, then nginx. Spreads each instance's heavy
 # engine-core init (model load, torch.compile) so slow starters do not miss
 # vLLM's startup handshake under I/O contention. Classified by compose service

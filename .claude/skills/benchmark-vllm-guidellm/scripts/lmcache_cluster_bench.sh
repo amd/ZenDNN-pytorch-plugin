@@ -87,8 +87,9 @@ run_setup() {
     bash "$SCRIPT_DIR/stop.sh" --clean --no-logs >/dev/null 2>&1 || true
     podman ps -aq --filter name=vllm- | xargs -r podman rm -f >/dev/null 2>&1 || true
 
-    echo "--- starting cluster ($label, prefix_caching=${PREFIX_CACHE:-false}) ---"
-    if ! ENABLE_PREFIX_CACHING="${PREFIX_CACHE:-false}" VLLM_IMAGE="$VLLM_IMAGE" \
+    # An empty PREFIX_CACHE leaves the choice to start.sh (see below).
+    echo "--- starting cluster ($label, prefix_caching=${PREFIX_CACHE-false}) ---"
+    if ! ENABLE_PREFIX_CACHING="${PREFIX_CACHE-false}" VLLM_IMAGE="$VLLM_IMAGE" \
             bash "$SCRIPT_DIR/start.sh" \
             --regenerate --no-wait --no-limits -n "$N" -m "$MODEL" "$@" \
             > "$OUT/start_${label}.log" 2>&1; then
@@ -132,9 +133,11 @@ run_setup() {
 #   nocache     - no reuse at all (prefix caching off, no LMCache)
 #   prefixcache - vLLM native prefix caching ON (per-instance reuse only)
 #   lmcache     - LMCache shared server (cross-instance reuse), prefix off
+#                 (start.sh turns it on for hybrid models, which LMCache serves
+#                 only with prefix caching on)
 export PREFIX_CACHE=false; run_setup nocache
 export PREFIX_CACHE=true;  run_setup prefixcache
-export PREFIX_CACHE=false; run_setup lmcache --lmcache
+export PREFIX_CACHE=;      run_setup lmcache --lmcache
 
 echo ""
 echo "############################################################"

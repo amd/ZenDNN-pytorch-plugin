@@ -14,9 +14,6 @@ NGINX_CORES="${NGINX_CORES:-1-15}"
 # Dedicated cores for the shared lmcache server (default: share nginx's cores for
 # backward-compat). Set separately to isolate the KV cache server from nginx.
 LMCACHE_SERVER_CORES="${LMCACHE_SERVER_CORES:-$NGINX_CORES}"
-# Dedicated cores for the Mooncake control plane (master + metadata). Light
-# coordination services; default to the lmcache-server band.
-MOONCAKE_CORES="${MOONCAKE_CORES:-$LMCACHE_SERVER_CORES}"
 VLLM_START_CORE="${VLLM_START_CORE:-32}"
 MODEL_NAME="${MODEL_NAME:-meta-llama/Llama-3.1-8B-Instruct}"
 HF_TOKEN="${HF_TOKEN:-}"
@@ -157,23 +154,6 @@ LMCACHE_MP_TRANSFER_MODE="${LMCACHE_MP_TRANSFER_MODE:-engine_driven}"
 # slower pickle transport (no shared memory needed; saturates at high conc).
 LMCACHE_SHM="${LMCACHE_SHM:-false}"
 
-# LMCACHE_MOONCAKE=true: the shared lmcache server gets a Mooncake Store L2
-# adapter, so KV lands in a distributed pool (mooncake master + HTTP metadata
-# server) over TCP. Instances still talk only to the server via the MP
-# connector. Set MOONCAKE_PROTOCOL=rdma on an RDMA-capable host.
-LMCACHE_MOONCAKE="${LMCACHE_MOONCAKE:-false}"
-MOONCAKE_MASTER_NAME="${MOONCAKE_MASTER_NAME:-mooncake-master}"
-MOONCAKE_META_NAME="${MOONCAKE_META_NAME:-mooncake-metadata}"
-MOONCAKE_RPC_PORT="${MOONCAKE_RPC_PORT:-50051}"
-MOONCAKE_META_PORT="${MOONCAKE_META_PORT:-8080}"
-MOONCAKE_PROTOCOL="${MOONCAKE_PROTOCOL:-tcp}"
-MOONCAKE_L1_GB="${MOONCAKE_L1_GB:-4}"
-# The connector registers the whole L1 pool with mooncake, so local_buffer_size
-# MUST be >= the L1 pool or register_buffer fails (-600) and the store's
-# subsequent transfer segfaults. Default both to L1 + 1 GiB headroom.
-_mc_bytes=$(( (MOONCAKE_L1_GB + 1) * 1073741824 ))
-MOONCAKE_GLOBAL_SEGMENT_SIZE="${MOONCAKE_GLOBAL_SEGMENT_SIZE:-$_mc_bytes}"
-MOONCAKE_LOCAL_BUFFER_SIZE="${MOONCAKE_LOCAL_BUFFER_SIZE:-$_mc_bytes}"
 # vLLM native prefix caching. Default OFF (historical harness behaviour, and
 # what LMCache wants since it manages KV reuse itself). Set true to benchmark
 # vLLM's own (per-instance) prefix caching as a fair baseline against LMCache.
@@ -239,6 +219,9 @@ Options:
   --lmcache-server            Add a shared 'lmcache server' service on
                               vllm-network and auto-wire every instance to it
                               via the MP connector (shared CPU KV pool)
+                              over the ZMQ/pickle transport
+  --lmcache-shm               --lmcache-server over the zero-copy SHM transport
+                              (shared /dev/shm, engine_driven; start.sh default)
   --lmcache-l1-size-gb N      lmcache server L1 CPU pool size (default: $LMCACHE_L1_SIZE_GB)
   --hf-cache-dir DIR          Host dir bind-mounted as the shared HuggingFace
                               cache in every instance (default: $HF_CACHE_DIR).
@@ -314,7 +297,6 @@ while [[ $# -gt 0 ]]; do
         --lmcache-config-file) LMCACHE_CONFIG_FILE_HOST="$2"; shift 2 ;;
         --lmcache-server) LMCACHE_SERVER=true; shift ;;
         --lmcache-shm) LMCACHE_SERVER=true; LMCACHE_SHM=true; shift ;;
-        --lmcache-mooncake) LMCACHE_SERVER=true; LMCACHE_SHM=true; LMCACHE_MOONCAKE=true; shift ;;
         --lmcache-l1-size-gb) LMCACHE_L1_SIZE_GB="$2"; shift 2 ;;
         --hf-cache-dir) HF_CACHE_DIR="$2"; shift 2 ;;
         -o|--output-dir) OUTPUT_DIR="$2"; shift 2 ;;
@@ -326,7 +308,7 @@ while [[ $# -gt 0 ]]; do
         --profiler-dir) PROFILER_DIR="$2"; shift 2 ;;
         --dry-run) DRY_RUN=true; shift ;;
         -h|--help) usage ;;
-        *) echo "Unknown option: $1"; usage ;;
+        *) echo "Unknown option: $1 (try --help)" >&2; exit 1 ;;
     esac
 done
 
@@ -426,34 +408,26 @@ emit_extra_vllm_args() {
 #     instances ONLY because we give each a unique VLLM_DIST_IDENT (below) so
 #     vLLM's own CPU-SHM segments don't collide on the shared /dev/shm.
 # The env-var forms imply the same topology as their flags.
-$LMCACHE_MOONCAKE && LMCACHE_SHM=true
 $LMCACHE_SHM && LMCACHE_SERVER=true
 LMCACHE_SHM_DIR="/dev/shm/lmc-shared${STACK_TAG:+-$STACK_TAG}"
 if $LMCACHE_SERVER; then
     if [[ "$VLLM_NETWORK_MODE" == "host" ]]; then
-        echo "ERROR: --lmcache-server/--lmcache-shm/--lmcache-mooncake require VLLM_NETWORK_MODE=bridge." >&2
+        echo "ERROR: --lmcache-server/--lmcache-shm require VLLM_NETWORK_MODE=bridge." >&2
         exit 1
     fi
-    if (( IP_BASE < 5 )); then
-        echo "ERROR: LMCache services take addresses IP_BASE-1..IP_BASE-3; need IP_BASE >= 5 (got $IP_BASE)." >&2
+    if (( IP_BASE < 3 )); then
+        echo "ERROR: the LMCache server takes address IP_BASE-1; need IP_BASE >= 3 (got $IP_BASE)." >&2
         exit 1
     fi
-    # Static addresses just below nginx (IP_BASE): instances reach the shared
-    # services without container DNS, which is unreliable on rootless bridges.
+    # Static address just below nginx (IP_BASE): instances reach the shared
+    # server without container DNS, which is unreliable on rootless bridges.
     LMCACHE_SERVER_IP="${IP_PREFIX}.$(( IP_BASE - 1 ))"
-    MOONCAKE_MASTER_IP="${IP_PREFIX}.$(( IP_BASE - 2 ))"
-    MOONCAKE_META_IP="${IP_PREFIX}.$(( IP_BASE - 3 ))"
     _mode_extra=""
     $LMCACHE_SHM && _mode_extra=',"lmcache.mp.mp_transfer_mode":"'"$LMCACHE_MP_TRANSFER_MODE"'"'
     KV_TRANSFER_CONFIG='{"kv_connector":"LMCacheMPConnector","kv_role":"kv_both","kv_connector_module_path":"lmcache.integration.vllm.lmcache_mp_connector","kv_connector_extra_config":{"lmcache.mp.host":"tcp://'"$LMCACHE_SERVER_IP"'","lmcache.mp.port":'"$LMCACHE_ZMQ_PORT""$_mode_extra"'}}'
-    # L2 adapter for the shared server (--l2-adapter). The server holds the only
-    # Mooncake client, so vLLM never forks one. Both master-address spellings are
-    # given because the SDK reads master_server_addr.
-    _mc_master="$MOONCAKE_MASTER_IP:$MOONCAKE_RPC_PORT"
-    MOONCAKE_L2_ADAPTER_JSON="{\"type\":\"mooncake_store\",\"master_server_address\":\"$_mc_master\",\"master_server_addr\":\"$_mc_master\",\"metadata_server\":\"http://$MOONCAKE_META_IP:$MOONCAKE_META_PORT/metadata\",\"protocol\":\"$MOONCAKE_PROTOCOL\",\"device_name\":\"\",\"global_segment_size\":$MOONCAKE_GLOBAL_SEGMENT_SIZE,\"local_buffer_size\":$MOONCAKE_LOCAL_BUFFER_SIZE,\"local_hostname\":\"$LMCACHE_SERVER_IP\"}"
 fi
 LMCACHE_ENABLED=false
-if $LMCACHE_SERVER || $LMCACHE_MOONCAKE || [[ -n "$KV_TRANSFER_CONFIG" || -n "$LMCACHE_CONFIG_FILE_HOST" ]]; then
+if $LMCACHE_SERVER || [[ -n "$KV_TRANSFER_CONFIG" || -n "$LMCACHE_CONFIG_FILE_HOST" ]]; then
     LMCACHE_ENABLED=true
 fi
 
@@ -1010,7 +984,7 @@ EOF
       start_period: 600s
 EOF
 
-    # Instances talk only to the shared server, which itself waits for Mooncake.
+    # Instances talk only to the shared server.
     if $LMCACHE_SERVER; then
         cat >> "$COMPOSE" <<EOF
     depends_on:
@@ -1078,29 +1052,12 @@ EOF
     if [[ "$LMCACHE_SHM" == "true" ]]; then
         printf '      - --supported-transfer-mode\n      - engine_driven\n' >> "$COMPOSE"
     fi
-    # Mooncake as the server's L2 (single client in this standalone process).
-    # skip_l1 routes KV straight through Mooncake so cross-instance reuse is
-    # served from the shared distributed pool.
-    if $LMCACHE_MOONCAKE; then
-        {
-            printf '      - --l2-store-policy\n      - skip_l1\n'
-            printf '      - --l2-adapter\n'
-            printf "      - '%s'\n" "$MOONCAKE_L2_ADAPTER_JSON"
-        } >> "$COMPOSE"
-    fi
     cat >> "$COMPOSE" <<EOF
     networks:
       vllm-network:
         ipv4_address: $LMCACHE_SERVER_IP
     restart: unless-stopped
 EOF
-    if $LMCACHE_MOONCAKE; then
-        cat >> "$COMPOSE" <<EOF
-    depends_on:
-      - $MOONCAKE_MASTER_NAME
-      - $MOONCAKE_META_NAME
-EOF
-    fi
     cat >> "$COMPOSE" <<EOF
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:$LMCACHE_HTTP_PORT/healthcheck"]
@@ -1108,58 +1065,6 @@ EOF
       timeout: 5s
       retries: 5
       start_period: 60s
-
-EOF
-fi
-
-# --- Mooncake Store control plane (L2 distributed KV pool over TCP) ---
-if $LMCACHE_MOONCAKE; then
-    cat >> "$COMPOSE" <<EOF
-  $MOONCAKE_META_NAME:
-    image: $VLLM_IMAGE
-    container_name: $MOONCAKE_META_NAME${STACK_TAG:+-$STACK_TAG}
-EOF
-    if $RUN_AS_ROOT; then printf '    user: "0:0"\n' >> "$COMPOSE"; fi
-    if ! $NO_LIMITS; then printf '    cpuset: "%s"\n' "$MOONCAKE_CORES" >> "$COMPOSE"; fi
-    cat >> "$COMPOSE" <<EOF
-    entrypoint:
-      - bash
-      - -lc
-      - 'exec python -m mooncake.http_metadata_server --host 0.0.0.0 --port $MOONCAKE_META_PORT'
-    networks:
-      vllm-network:
-        ipv4_address: $MOONCAKE_META_IP
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "curl -s -o /dev/null -w '%{http_code}' http://localhost:$MOONCAKE_META_PORT/metadata | grep -qE '[0-9]{3}'"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-
-  $MOONCAKE_MASTER_NAME:
-    image: $VLLM_IMAGE
-    container_name: $MOONCAKE_MASTER_NAME${STACK_TAG:+-$STACK_TAG}
-EOF
-    if $RUN_AS_ROOT; then printf '    user: "0:0"\n' >> "$COMPOSE"; fi
-    if ! $NO_LIMITS; then printf '    cpuset: "%s"\n' "$MOONCAKE_CORES" >> "$COMPOSE"; fi
-    cat >> "$COMPOSE" <<EOF
-    entrypoint:
-      - bash
-      - -lc
-      - 'MC=\$\$(python -c "import mooncake,os;print(os.path.dirname(mooncake.__file__))") && exec "\$\$MC/mooncake_master" -rpc_port $MOONCAKE_RPC_PORT'
-    depends_on:
-      - $MOONCAKE_META_NAME
-    networks:
-      vllm-network:
-        ipv4_address: $MOONCAKE_MASTER_IP
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/$MOONCAKE_RPC_PORT"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
 
 EOF
 fi

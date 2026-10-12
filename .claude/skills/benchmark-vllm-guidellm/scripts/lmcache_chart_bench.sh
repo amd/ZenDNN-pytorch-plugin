@@ -47,11 +47,12 @@ mkdir -p "$OUT"
 RESULTS_ROOT="$SCRIPT_DIR/vllm-cpu-perf-eval/results/llm/${MODEL//\//__}"
 
 run_variant() {
-    # $1 = label, $2 = test_name_prefix, $3 = prefix_caching(true|false), $4.. flags
+    # $1 = label, $2 = test_name_prefix, $3 = prefix_caching(true|false|""), $4.. flags
+    # "" leaves the choice to start.sh: off, or on for a hybrid model under --lmcache.
     local label="$1" prefix="$2" pc="$3"; shift 3
     echo ""
     echo "############################################################"
-    echo "#  VARIANT: $label   (model=$MODEL, N=$N, workload=$BASE_WORKLOAD, prefix_caching=$pc)"
+    echo "#  VARIANT: $label   (model=$MODEL, N=$N, workload=$BASE_WORKLOAD, prefix_caching=${pc:-default})"
     echo "############################################################"
     ENABLE_PREFIX_CACHING="$pc" TEST_NAME_PREFIX="$prefix" bash "$SCRIPT_DIR/run_sweep.sh" \
         -N "$N" --no-limits "$@" -m "$MODEL | $TAG" \
@@ -61,10 +62,12 @@ run_variant() {
 
 # Fair caching baseline: native & zentorch use vLLM's own (per-instance) prefix
 # caching ON; LMCache uses its shared cross-instance pool (vLLM prefix caching
-# OFF). Prefixes must not be substrings of one another (result-dir glob).
+# OFF, except for hybrid models, which LMCache serves only with it on; start.sh
+# turns it on for them). Prefixes must not be substrings of one another
+# (result-dir glob).
 run_variant native   NAT true  --native
 run_variant zentorch ZEN true  --zentorch
-run_variant lmcache  LMC false --zentorch --lmcache
+run_variant lmcache  LMC ""    --zentorch --lmcache
 
 echo ""
 echo "############################################################"

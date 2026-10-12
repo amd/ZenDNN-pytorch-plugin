@@ -12,7 +12,7 @@ cd .claude/skills/benchmark-vllm-guidellm/scripts
 
 The agent workflow (stages, the one-time patch setup and its expected conflicts) is in [SKILL.md](SKILL.md).
 
-For cross-instance KV-cache sharing (a shared LMCache server, optionally backed by a Mooncake L2 pool, vs vLLM's per-instance prefix caching), see [LMCACHE.md](LMCACHE.md).
+For cross-instance KV-cache sharing (a shared LMCache server over zero-copy SHM vs vLLM's per-instance prefix caching), see [LMCACHE.md](LMCACHE.md). It covers enabling it (`--lmcache`), the recommended settings, and NUMA sizing.
 
 ## Architecture
 
@@ -720,7 +720,7 @@ The next run pulls the images again and rebuilds the LMCache images.
 benchmark-vllm-guidellm/
 ├── SKILL.md                            # agent workflow
 ├── README.md                           # this file
-├── LMCACHE.md                          # KV-cache sharing guide (APC / LMCache SHM / Mooncake L2)
+├── LMCACHE.md                          # KV-cache sharing guide (APC / LMCache SHM)
 ├── patches/
 │   ├── vllm-cpu-perf-eval.patch        # core fixes for the external-endpoint flow
 │   ├── embedding.patch                 # -w embedding fixes (stack on top, --3way)
@@ -739,7 +739,6 @@ benchmark-vllm-guidellm/
     ├── lmcache_cpu_bench.sh            # single-instance LMCache connector smoke benchmark
     ├── lmcache_cluster_bench.sh        # N-instance no-cache / APC / LMCache A/B via lmcache bench
     ├── lmcache_chart_bench.sh          # native / zentorch / zentorch+LMCache via run_sweep.sh
-    ├── build_mooncake_ext.py           # builds the native lmcache_mooncake L2 extension
     ├── vllm-cpu-perf-eval/             # cloned automation (gitignored)
     └── generated/                      # auto-generated (gitignored)
         ├── docker-compose.yml

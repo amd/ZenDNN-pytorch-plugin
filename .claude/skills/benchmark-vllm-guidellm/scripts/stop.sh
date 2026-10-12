@@ -61,7 +61,7 @@ done
 
 # ----------------------------------------------------------------------------
 # Dump podman logs for every stack container BEFORE we stop/remove them.
-# Matches vllm-*, nginx* and mooncake-* containers (the names used by
+# Matches vllm-* and nginx* containers (the names used by
 # generate-config.sh). Includes stopped containers so we still capture exit logs.
 # ----------------------------------------------------------------------------
 dump_container_logs() {
@@ -73,11 +73,10 @@ dump_container_logs() {
     containers=$(podman ps -a \
         --filter "name=vllm-" \
         --filter "name=nginx" \
-        --filter "name=mooncake-" \
         --format "{{.Names}}" | sort -u)
 
     if [[ -z "$containers" ]]; then
-        echo "  No vllm-*, nginx* or mooncake-* containers found -- skipping log dump."
+        echo "  No vllm-* or nginx* containers found -- skipping log dump."
         return 0
     fi
 
@@ -106,7 +105,7 @@ dump_container_logs() {
 }
 
 # ----------------------------------------------------------------------------
-# Force-remove every stack container by name (vllm-* / nginx* / mooncake-*),
+# Force-remove every stack container by name (vllm-* / nginx*),
 # including ones that podman-compose down might miss (e.g. containers left
 # behind when a prior run was SIGKILLed mid-startup). Runs synchronously so the
 # subsequent network removal isn't blocked by still-attached endpoints.
@@ -116,7 +115,6 @@ force_remove_stack_containers() {
     ids=$(podman ps -a \
         --filter "name=vllm-" \
         --filter "name=nginx" \
-        --filter "name=mooncake-" \
         --format "{{.ID}}" | sort -u)
     [[ -z "$ids" ]] && return 0
     echo "  Force-removing leftover stack containers..."

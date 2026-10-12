@@ -31,7 +31,6 @@ CLI_TORCHAO=false
 CLI_NO_MEM_LIMIT=false
 CLI_NO_LIMITS=false
 CLI_LMCACHE=false
-CLI_MOONCAKE=false
 CLI_VARIANT=""
 CLI_PROFILE=false
 CLI_WORKLOADS=()
@@ -42,8 +41,6 @@ while [[ $# -gt 0 ]]; do
             DRY_RUN=true; shift ;;
         --lmcache)
             CLI_LMCACHE=true; shift ;;
-        --lmcache-mooncake)
-            CLI_MOONCAKE=true; shift ;;
         --no-limits)
             CLI_NO_LIMITS=true; shift ;;
         --native)
@@ -129,10 +126,6 @@ Options:
                          Zero-copy SHM transport; LMCACHE_PICKLE=1 selects the
                          ZMQ/pickle transport. LMCACHE_SRC overrides the
                          checkout path.
-  --lmcache-mooncake     --lmcache plus a Mooncake Store L2 pool (master +
-                         metadata services) behind the shared server
-                         (forwarded to start.sh). MOONCAKE_SRC overrides the
-                         Mooncake checkout path.
   --dry-run, -n          Validate paths/config and print every command that
                          would run, without starting containers, calling
                          ansible, or touching sudo. Safe with HF_TOKEN unset.
@@ -1020,9 +1013,7 @@ run_one() {
         run_profiler_dir="$PROFILER_DIR/$test_name"
         start_args+=(--profile --profiler-dir "$run_profiler_dir")
     fi
-    if [[ "$CLI_MOONCAKE" == "true" ]]; then
-        start_args+=(--lmcache-mooncake)
-    elif [[ "$CLI_LMCACHE" == "true" ]]; then
+    if [[ "$CLI_LMCACHE" == "true" ]]; then
         start_args+=(--lmcache)
     fi
     if [[ "$CLI_NO_LIMITS" == "true" ]]; then
