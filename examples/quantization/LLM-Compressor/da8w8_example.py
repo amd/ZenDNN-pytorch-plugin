@@ -19,7 +19,7 @@ sampling_params = SamplingParams(temperature=0.8, top_p=0.95)
 def main():
     print("\n" + "=" * 10 + " LLM-Compressor da8w8 Example Execution Started " + "=" * 10 + "\n")
     # Create an LLM.
-    model_id = "RedHatAI/Meta-Llama-3.1-8B-Instruct-quantized.w8a8"
+    model_id = "amd/gpt-oss-20b-BF16-w8a8-llmcompressor"
     print(f"Loading W8A8 quantized model: {model_id}")
     llm = LLM(model=model_id)
     # Generate texts from the prompts.

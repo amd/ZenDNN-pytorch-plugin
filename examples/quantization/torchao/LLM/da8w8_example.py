@@ -3,7 +3,12 @@
 # * All rights reserved.
 # ******************************************************************************
 
-from vllm import LLM, SamplingParams
+import os
+
+# Disable the zentorch fused FFN.
+os.environ["ZENTORCH_FUSED_FFN"] = "0"
+
+from vllm import LLM, SamplingParams  # noqa: E402
 
 # Sample prompts.
 prompts = [

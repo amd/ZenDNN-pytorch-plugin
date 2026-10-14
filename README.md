@@ -212,7 +212,6 @@ python test/install_requirements.py
 ```
 >**Note:** Before running any unit tests, export the following environment variables to disable ZenDNN caching:
 ```bash
-export ZENDNNL_MATMUL_WEIGHT_CACHE=0
 export ZENDNNL_ZP_COMP_CACHE=0
 export ZENDNNL_ENABLE_POSTOP_CACHE=0
 ```
@@ -285,21 +284,19 @@ zentorch supports quantized inference for large language models on AMD EPYC™ C
 - **Weight Only Quantization (WOQ):** INT4 quantized weights with both symmetric and asymmetric configurations, providing significant memory savings while maintaining model accuracy.
 - **Dynamic Quantization:** INT8 weights with INT8 dynamic activations, quantizing activations dynamically at runtime for minimal accuracy loss.
 
-Models can be quantized using TorchAO, HuggingFace Transformers and LLM-Compressor.
+Models can be quantized with [LLM Compressor](https://github.com/vllm-project/llm-compressor). TorchAO quantization support is deprecated and will be removed in the next release.
 
 ### 4.5.1 Quantizing Models
 
-Models quantized with **LLM-Compressor** or **TorchAO** for this release are published in the [AMD EPYC compatible models](https://huggingface.co/collections/RedHatAI/amd-epyc-compatible-models) collection on the Hugging Face Hub.
-Each model ID follows a consistent pattern: base model, quantization scheme, optional symmetric or asymmetric grouping, quantizer, and tool version. For example, `w4a16-asym-torchao-v0.17.0` denotes 4-bit weight-only quantization with asymmetric per-group weights, produced with TorchAO v0.17.0. `w4a16-llmcompressor-v0.10.0.2` denotes the same 4-bit weight-only scheme produced with LLM-Compressor v0.10.0.2.
+Models quantized with **LLM-Compressor** for this release are published in the [AMD EPYC compatible models](https://huggingface.co/collections/RedHatAI/amd-epyc-compatible-models) collection from Red Hat AI on the Hugging Face Hub. See the [ZenDNN v6.1 Consolidated Model Support Matrix](examples/quantization/README.md#zendnn-v61-consolidated-model-support-matrix) for the supported models and their quantized checkpoints.
+Each AMD model ID follows a consistent pattern: base model, quantization scheme, optional symmetric or asymmetric grouping, quantizer, and optional tool version. For example, `w4a16-llmcompressor` denotes 4-bit weight-only quantization produced with LLM-Compressor, and `w4a16-asym-torchao-v0.17.0` denotes 4-bit weight-only quantization with asymmetric per-group weights, produced with TorchAO v0.17.0. Red Hat AI checkpoints end in `quantized.w8a8` or `quantized.w4a16`.
 The checkpoints below cover the dynamic and weight-only formats supported in [section 4.5](#45-quantized-models):
 
-- `amd/gpt-oss-20b-BF16-da8w8-torchao-v0.17.0` — **da8w8** dynamic quantization with TorchAO v0.17.0.
-- `amd/gpt-oss-20b-BF16-w8a8-llmcompressor-v0.10.0.2` — **w8a8** dynamic quantization with LLM-Compressor v0.10.0.2.
-- `amd/Llama-3.1-8B-Instruct-w4a16-asym-torchao-v0.17.0` — asymmetric per-group **w4a16** weight configuration with TorchAO v0.17.0.
-- `amd/Qwen2.5-VL-7B-Instruct-w4a16-tao-symgroup-torchao-v0.17.0` — symmetric per-group **w4a16** configuration with TorchAO v0.17.0.
-- `amd/Llama-3.1-8B-Instruct-w4a16-llmcompressor-v0.10.0.2` — asymmetric per-group **w4a16** configuration with LLM-Compressor v0.10.0.2.
+- `amd/gpt-oss-20b-BF16-w8a8-llmcompressor` — **DA8W8** (w8a8) dynamic quantization with LLM-Compressor: INT8 per-channel weights and dynamic INT8 per-token activations.
+- `amd/Llama-3.1-8B-Instruct-w4a16-llmcompressor` — symmetric per-group **w4a16** (group size 128) weight-only configuration with LLM-Compressor. The matrix lists it under **DA8W4** and **W4A16 (WOQ-Sym-PG)**.
+- `amd/Llama-3.1-8B-Instruct-w4a16-asym-torchao-v0.17.0` — asymmetric per-group **w4a16** (**W4A16 (WOQ-Asym)**) with TorchAO v0.17.0. TorchAO support is deprecated.
 
->**Note:** The quantization recipe and evaluation details for each published checkpoint are documented on its Hugging Face model card.
+>**Note:** The quantization recipe and evaluation details for each checkpoint are documented on its Hugging Face model card. TorchAO checkpoints remain in the [zentorch TorchAO collection for PyTorch 2.11](https://huggingface.co/collections/amd/zentorch-torchao-quantized-models-pytorch-211-6a182a946c38707c8461e675) until that support is removed in the next release.
 
 ### 4.5.2 Running Quantized Models
 

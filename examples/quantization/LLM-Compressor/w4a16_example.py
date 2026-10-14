@@ -3,7 +3,13 @@
 # * All rights reserved.
 # ******************************************************************************
 
-from vllm import LLM, SamplingParams
+import os
+
+# Force the W4A16 path. Zentorch reads this while importing vllm and skips
+# the DA8W4 patch when it is 0, so it must be set before that import.
+os.environ["VLLM_CPU_INT4_W4A8"] = "0"
+
+from vllm import LLM, SamplingParams  # noqa: E402
 
 # Sample prompts.
 prompts = [
@@ -19,7 +25,7 @@ sampling_params = SamplingParams(temperature=0.8, top_p=0.95)
 def main():
     # Create an LLM.
     print("\n" + "=" * 10 + " LLM-Compressor w4a16 Example Execution Started " + "=" * 10 + "\n")
-    model_id = "RedHatAI/Meta-Llama-3.1-8B-Instruct-quantized.w4a16"
+    model_id = "amd/Llama-3.1-8B-Instruct-w4a16-llmcompressor"
     print(f"Loading W4A16 quantized model: {model_id}")
     llm = LLM(model=model_id)
     # Generate texts from the prompts.
