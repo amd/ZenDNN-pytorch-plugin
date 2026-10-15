@@ -390,13 +390,18 @@ if [[ -n "$LMCACHE_CONFIG_FILE_HOST" ]]; then
 fi
 
 # Append each token in EXTRA_VLLM_ARGS as a YAML list item to the compose
-# command block (word-split on whitespace; no quoting/escaping needed for
-# typical flags like --trust-remote-code or --max-model-len 8192).
+# command block, word-split on whitespace. Each item is emitted double-quoted
+# because a bare one would be retyped by the YAML loader: a value like 2
+# (--max-num-seqs 256, --limit-mm-per-prompt.image 2) becomes an int and a
+# value like {"image":2} becomes a mapping, neither of which belongs in an
+# argv list. Only " and \ need escaping inside a YAML double-quoted scalar.
 emit_extra_vllm_args() {
     [[ -z "$EXTRA_VLLM_ARGS" ]] && return 0
-    local arg
+    local arg escaped
     for arg in $EXTRA_VLLM_ARGS; do
-        printf '      - %s\n' "$arg" >> "$COMPOSE"
+        escaped=${arg//\\/\\\\}
+        escaped=${escaped//\"/\\\"}
+        printf '      - "%s"\n' "$escaped" >> "$COMPOSE"
     done
 }
 

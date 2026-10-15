@@ -113,6 +113,15 @@ Options:
                          audio-benchmark.yml against /v1/audio/transcriptions.
                          Not combinable with other workloads. Default model
                          openai/whisper-small; scenario via AUDIO_SCENARIO.
+                         Special: "-w vision" benchmarks a vision-language
+                         model, sending an image with each chat request.
+                         Written once like "-w audio", with VISION_WORKLOADS
+                         choosing which image workloads to run (see Vision
+                         below). Default model Qwen/Qwen3-VL-8B-Instruct.
+                         Unlike audio and embedding it IS combinable with text
+                         workloads -- "-w vision -w chat" measures images and
+                         text against the same stack -- because underneath it
+                         is still the generative path.
   -d, --dtype TYPE       dtype forwarded to "vllm serve --dtype". Defaults to
                          bfloat16; use "half" for fp16 (or float32/auto). Also
                          settable via the DTYPE env var; set DTYPE="" to omit.
@@ -168,6 +177,52 @@ Context window:
                            window must fit in it or vLLM aborts at startup
     MAX_MODEL_LEN_HEADROOM tokens added to isl+osl (default 128)
     KV_FIT_CHECK           set false to skip the pre-flight fit check
+
+  For a vision workload the isl in test-workloads.yml counts only the text
+  tokens; the image adds its own on top. Qwen3-VL emits one token per 32x32
+  pixels, so 448x448 is ~196 tokens and 1344x1344 is ~1764. The vision
+  workloads therefore declare their own --max-model-len with that included.
+
+Vision:
+  "-w vision" expands into VISION_WORKLOADS, so the sub-workloads are picked
+  with an env var rather than six repeats of -w:
+
+    -w vision                                    the default set below
+    VISION_WORKLOADS="vqa hires" -w vision       just those two
+    -w vision -w chat                            images and text, one stack
+
+  The test-workloads.yml keys carry a vision_ prefix (vision_vqa, ...) so they
+  read as vision workloads wherever they appear; -w takes either form.
+
+    vqa      448x448, 1 image, 128/128   baseline short-answer VQA; THE DEFAULT
+    caption  896x896, 1 image, 32/512    decode-heavy: small prompt, long answer
+    multi    448x448, 2 images, 128/256  cost of a second image in one request
+    hires    1344x1344, 1 image, 128/256 ViT cost scaling with resolution
+    cached   448x448 solid, 128/128      repeated image: mm preprocessor cache
+    mmbench  lmms-lab/MMBench_EN         real VQA traffic; downloads a dataset,
+                                         needs network and ~230M of HF cache
+
+  VISION_WORKLOADS           which of the above to run (default: vqa, the
+                             realistic image+question shape). The others are
+                             diagnostics; name them explicitly.
+  VISION_DATA_SPECS          JSON list replacing the workload's data_specs,
+                             e.g. '["kind=synthetic_image,width=448,height=448"]'
+                             or a huggingface dataset object. Applies to every
+                             selected workload, so run one at a time with it.
+  VISION_COLUMN_MAPPER       JSON object for --data-column-mapper, needed when
+                             a real dataset's image/text columns are not named
+                             what GuideLLM expects.
+  VISION_LIMIT_MM_PER_PROMPT Images allowed per request. Defaults to the
+                             largest images_per_request across the selected
+                             workloads (1 unless multi is in the set).
+  VISION_ISL                 text prompt tokens, overriding the workload's
+  VISION_OSL                 generated tokens, overriding the workload's
+  VISION_IMAGE_SIZE          image size as NxM, or N for square
+                             These three edit the matching field of the selected
+                             workloads' own data_specs instead of replacing the
+                             list, and they feed the --max-model-len derivation
+                             so the context window tracks the request, e.g.
+                             VISION_OSL=512 VISION_IMAGE_SIZE=896
 EOF
             exit 0 ;;
         *)
@@ -504,6 +559,154 @@ if $IS_EMBEDDING; then
     export RESULTS_SUBDIR="${RESULTS_SUBDIR:-embedding}"
 fi
 
+# ----------------------------------------------------------------------------
+# 3d. VISION MODE
+# ----------------------------------------------------------------------------
+# Vision-language models go through exactly the SAME path as the text
+# generative workloads: GuideLLM, llm-benchmark-concurrent-load.yml, and
+# /v1/chat/completions. A VLM request is just a chat request that also carries
+# an image, so neither the load generator nor the playbook changes. What
+# changes is the --data GuideLLM is given, and that comes from the workload's
+# own data_specs in test-workloads.yml (added by vision.patch).
+#
+# So unlike audio and embedding this mode does NOT swap the playbook, and
+# vision workloads CAN share one invocation with each other and with text
+# workloads -- one stack, one runner, several load runs. The only thing it
+# changes on the stack side is the per-request image limit.
+#
+# Results therefore land in results/llm/ in the usual guidellm.log shape, and
+# extract_guidellm_metrics.py / merge_guidellm_rates.py read them unchanged.
+#
+# At the CLI it still reads like the other two: "-w vision" once, the way you
+# write "-w audio" or "-w embedding", with the sub-workloads chosen by
+# VISION_WORKLOADS the way AUDIO_SCENARIO chooses an audio scenario. Because
+# there is no mode switch underneath, "-w vision" is pure shorthand -- it
+# expands into its workloads and composes with text ones, so "-w vision -w
+# chat" measures images and text against the same stack.
+
+# Short names for VISION_WORKLOADS; the test-workloads.yml keys carry a
+# vision_ prefix so they can never be mistaken for a text workload.
+VISION_WORKLOADS_ALL="vqa caption multi hires cached mmbench"
+# vqa alone is the default: it is the realistic shape (one image plus a
+# question, with a full-length answer). caption and hires are unsuitable as a
+# default for a different reason: they take 112-331s per request, so a bounded
+# window leaves 31-57% of requests unfinished. The rest are diagnostics for a specific
+# question (multi: second image, cached: preprocessor cache, hires: ViT
+# scaling), so ask for them by name. mmbench additionally downloads a real
+# dataset, needing network and HF cache.
+VISION_WORKLOADS="${VISION_WORKLOADS:-vqa}"
+
+# Expand "-w vision" in place, and accept a bare short name ("-w hires") or the
+# full key ("-w vision_hires") just as readily.
+_vision_expanded=()
+IS_VISION=false
+for _wl in "${BASE_WORKLOADS[@]}"; do
+    case " $VISION_WORKLOADS_ALL " in
+        *" $_wl "*) _wl="vision_$_wl" ;;
+    esac
+    if [[ "$_wl" == "vision" ]]; then
+        IS_VISION=true
+        for _vw in $VISION_WORKLOADS; do
+            _vision_expanded+=("vision_$_vw")
+        done
+    else
+        [[ "$_wl" == vision_* ]] && IS_VISION=true
+        _vision_expanded+=("$_wl")
+    fi
+done
+BASE_WORKLOADS=("${_vision_expanded[@]}")
+unset _wl _vw _vision_expanded
+
+# A typo in VISION_WORKLOADS would otherwise surface as an ansible failure
+# minutes into the run, so reject it here.
+if $IS_VISION; then
+    for _wl in "${BASE_WORKLOADS[@]}"; do
+        [[ "$_wl" == vision_* ]] || continue
+        case " $VISION_WORKLOADS_ALL " in
+            *" ${_wl#vision_} "*) ;;
+            *) echo "ERROR: unknown vision workload '${_wl#vision_}'." >&2
+               echo "       Known: $VISION_WORKLOADS_ALL" >&2
+               exit 1 ;;
+        esac
+    done
+    unset _wl
+fi
+
+# Vision models to sweep when no -m/--model was given. Same "path | tag" format
+# as MODELS above.
+VISION_MODELS=(
+    "Qwen/Qwen3-VL-8B-Instruct | qwen3vl-8b"
+)
+
+# Full override of the GuideLLM data sources / column mapper, forwarded verbatim
+# as extra-vars (JSON). These replace the workload's own data_specs for EVERY
+# selected vision workload, so set them only when running a single one. Leave
+# unset to let each workload bring its own.
+VISION_DATA_SPECS="${VISION_DATA_SPECS:-}"
+VISION_COLUMN_MAPPER="${VISION_COLUMN_MAPPER:-}"
+
+# Field-level edits to each selected workload's own data_specs, as opposed to
+# VISION_DATA_SPECS above which replaces them wholesale. These also feed the
+# --max-model-len derivation, which VISION_DATA_SPECS does not, so the context
+# window tracks the request instead of going stale.
+VISION_ISL="${VISION_ISL:-}"
+VISION_OSL="${VISION_OSL:-}"
+VISION_IMAGE_SIZE="${VISION_IMAGE_SIZE:-}"
+
+VISION_IMAGE_W=""
+VISION_IMAGE_H=""
+# Vision-only, as the names say. Without this a stray VISION_OSL left in the
+# environment would resize a text workload's context window too, silently
+# changing a run the variable has no business touching.
+if [[ -n "$VISION_ISL$VISION_OSL$VISION_IMAGE_SIZE" ]] && ! $IS_VISION; then
+    echo "WARNING: VISION_ISL/VISION_OSL/VISION_IMAGE_SIZE are set but this is not" >&2
+    echo "         a vision run (-w vision); ignoring them." >&2
+    VISION_ISL=""; VISION_OSL=""; VISION_IMAGE_SIZE=""
+fi
+if [[ -n "$VISION_ISL$VISION_OSL$VISION_IMAGE_SIZE" ]]; then
+    for _v in ISL OSL; do
+        _name="VISION_$_v"; _val="${!_name}"
+        if [[ -n "$_val" && ! "$_val" =~ ^[1-9][0-9]*$ ]]; then
+            echo "ERROR: $_name must be a positive integer, got '$_val'." >&2
+            exit 1
+        fi
+    done
+    unset _v _name _val
+    if [[ -n "$VISION_IMAGE_SIZE" ]]; then
+        if [[ "$VISION_IMAGE_SIZE" =~ ^([1-9][0-9]*)[xX]([1-9][0-9]*)$ ]]; then
+            VISION_IMAGE_W="${BASH_REMATCH[1]}"; VISION_IMAGE_H="${BASH_REMATCH[2]}"
+        elif [[ "$VISION_IMAGE_SIZE" =~ ^[1-9][0-9]*$ ]]; then
+            VISION_IMAGE_W="$VISION_IMAGE_SIZE"; VISION_IMAGE_H="$VISION_IMAGE_SIZE"
+        else
+            echo "ERROR: VISION_IMAGE_SIZE must be NxM or N (square), got" \
+                 "'$VISION_IMAGE_SIZE'." >&2
+            exit 1
+        fi
+        # Qwen3-VL merges a 2x2 block of 16px patches, so one token per 32x32px.
+        # Off-multiple sizes get rounded by the preprocessor and the token count
+        # stops matching what we derive below.
+        if (( VISION_IMAGE_W % 32 != 0 || VISION_IMAGE_H % 32 != 0 )); then
+            echo "WARNING: VISION_IMAGE_SIZE ${VISION_IMAGE_W}x${VISION_IMAGE_H} is not a" >&2
+            echo "         multiple of 32; the preprocessor will round it and the derived" >&2
+            echo "         visual-token count will be approximate." >&2
+        fi
+    fi
+    if [[ -n "$VISION_DATA_SPECS" ]]; then
+        echo "WARNING: VISION_DATA_SPECS replaces the data specs wholesale, so the" >&2
+        echo "         field edits in VISION_ISL/VISION_OSL/VISION_IMAGE_SIZE apply to" >&2
+        echo "         your override, not to the workload's own specs." >&2
+    fi
+fi
+
+# Images allowed per request on the serve side. vLLM defaults to 1 and rejects
+# anything above it, which would fail vision_multi. Derived below from the
+# selected workloads once WORKLOADS_FILE is known; set to override.
+VISION_LIMIT_MM_PER_PROMPT="${VISION_LIMIT_MM_PER_PROMPT:-}"
+
+if $IS_VISION && (( ${#CLI_MODELS[@]} == 0 )); then
+    MODELS=("${VISION_MODELS[@]}")
+fi
+
 # --no-mem-limit: CLI flag wins over the NO_MEM_LIMIT env var. Forwarded to
 # start.sh.
 if [[ "$CLI_NO_MEM_LIMIT" == "true" ]]; then
@@ -681,7 +884,9 @@ MAX_MODEL_LEN_FALLBACK="${MAX_MODEL_LEN_FALLBACK:-4096}"
 workload_max_model_len() {
     local wl="$1"
     [[ -f "$WORKLOADS_FILE" ]] || return 1
-    awk -v want="$wl" -v headroom="$MAX_MODEL_LEN_HEADROOM" '
+    awk -v want="$wl" -v headroom="$MAX_MODEL_LEN_HEADROOM" \
+        -v ovr_isl="${VISION_ISL:-0}" -v ovr_osl="${VISION_OSL:-0}" \
+        -v ovr_w="${VISION_IMAGE_W:-0}" -v ovr_h="${VISION_IMAGE_H:-0}" '
         function val(s) { gsub(/[",]/, "", s); return s }
         /^[^[:space:]#]/ { in_cfg = ($0 ~ /^test_configs:/); cur = ""; next }
         /^  [A-Za-z0-9_]+:[[:space:]]*$/ {
@@ -698,14 +903,52 @@ workload_max_model_len() {
             match($0, /--max-model-len=[0-9]+/)
             declared = substr($0, RSTART + 16, RLENGTH - 16) + 0
         }
+        # An image costs context too, and isl counts text tokens only. Qwen3-VL
+        # merges a 2x2 block of 16px patches, so one token per 32x32px.
+        /width=[0-9]+/ && /height=[0-9]+/ {
+            w = 0; h = 0; n = 1
+            if (match($0, /width=[0-9]+/))              { w = substr($0, RSTART + 6,  RLENGTH - 6)  + 0 }
+            if (match($0, /height=[0-9]+/))             { h = substr($0, RSTART + 7,  RLENGTH - 7)  + 0 }
+            if (match($0, /images_per_request=[0-9]+/)) { n = substr($0, RSTART + 19, RLENGTH - 19) + 0 }
+            if (ovr_w > 0) w = ovr_w
+            if (ovr_h > 0) h = ovr_h
+            if (w > 0 && h > 0) visual += int(w / 32) * int(h / 32) * n
+        }
         END {
             if (isl == "" || osl == "") exit 1
             i = (variable == "true" && isl_max != "") ? isl_max : isl
             o = (variable == "true" && osl_max != "") ? osl_max : osl
-            need = i + o + headroom
+            if (ovr_isl > 0) i = ovr_isl
+            if (ovr_osl > 0) o = ovr_osl
+            need = visual + i + o + headroom
             if (declared > need) need = declared
             print need
         }
+    ' "$WORKLOADS_FILE"
+}
+
+# Largest images_per_request a workload's data_specs declare, or nothing when it
+# declares none. Parsed with awk for the same reason as workload_max_model_len.
+workload_images_per_request() {
+    local wl="$1"
+    [[ -f "$WORKLOADS_FILE" ]] || return 1
+    awk -v want="$wl" '
+        /^[^[:space:]#]/ { in_cfg = ($0 ~ /^test_configs:/); cur = ""; next }
+        /^  [A-Za-z0-9_]+:[[:space:]]*$/ {
+            if (in_cfg) { cur = $1; sub(/:$/, "", cur) }
+            next
+        }
+        cur != want { next }
+        {
+            s = $0
+            while (match(s, /images_per_request=[0-9]+/)) {
+                tok = substr(s, RSTART, RLENGTH)
+                sub(/^images_per_request=/, "", tok)
+                if (tok + 0 > m) m = tok + 0
+                s = substr(s, RSTART + RLENGTH)
+            }
+        }
+        END { if (m > 0) print m }
     ' "$WORKLOADS_FILE"
 }
 
@@ -733,6 +976,27 @@ if [[ -z "${VLLM_MAX_MODEL_LEN:-}" ]]; then
     fi
 fi
 export VLLM_MAX_MODEL_LEN
+
+# Vision: raise the per-request image cap to the largest the selected workloads
+# ask for. The dotted CLI form keeps this two plain whitespace-separated tokens,
+# so it survives EXTRA_VLLM_ARGS word-splitting and lands in the compose file
+# unquoted; the JSON form ({"image":2}) would be read back as a YAML mapping.
+if $IS_VISION; then
+    if [[ -z "$VISION_LIMIT_MM_PER_PROMPT" ]]; then
+        _vis_images=1
+        for _wl in "${BASE_WORKLOADS[@]}"; do
+            if _n=$(workload_images_per_request "$_wl") && [[ -n "$_n" ]]; then
+                (( _n > _vis_images )) && _vis_images=$_n
+            fi
+        done
+        VISION_LIMIT_MM_PER_PROMPT=$_vis_images
+        unset _wl _n _vis_images
+    fi
+    if [[ "${EXTRA_VLLM_ARGS:-}" != *"limit-mm-per-prompt"* ]]; then
+        EXTRA_VLLM_ARGS="--limit-mm-per-prompt.image $VISION_LIMIT_MM_PER_PROMPT${EXTRA_VLLM_ARGS:+ $EXTRA_VLLM_ARGS}"
+    fi
+    export EXTRA_VLLM_ARGS
+fi
 
 # Resolve a model entry to the actual path/repo passed to vLLM.
 # - With MODELS_DIR set: returns "$MODELS_DIR/$model" (absolute local path)
@@ -827,9 +1091,27 @@ model_config_json() {
     echo "$cfg"
 }
 
-# First integer value of a top-level-or-nested JSON key.
+# First integer value of a top-level-or-nested key in a blob of JSON text.
 json_int() {
-    grep -oE "\"$2\"[[:space:]]*:[[:space:]]*[0-9]+" "$1" | head -1 | grep -oE '[0-9]+$'
+    grep -oE "\"$2\"[[:space:]]*:[[:space:]]*[0-9]+" <<< "$1" | head -1 | grep -oE '[0-9]+$'
+}
+
+# A multimodal config.json describes two models in one file: the vision tower at
+# the top level and the language model under "text_config". Only the latter has
+# a KV cache, and its keys collide with the tower's (num_hidden_layers,
+# num_attention_heads, ...), so print just that subtree when it exists. HF
+# writes these pretty-printed, which makes the block the lines between the
+# "text_config" key and the next key at the same indent.
+json_text_config() {
+    if grep -qE '^  "(text_config|llm_config)"' "$1"; then
+        awk '
+            /^  "(text_config|llm_config)"[[:space:]]*:/ { inblock = 1; next }
+            inblock && /^  "[A-Za-z_]+"[[:space:]]*:/    { inblock = 0 }
+            inblock
+        ' "$1"
+    else
+        cat "$1"
+    fi
 }
 
 # Tokens that fit in VLLM_KV_CACHE_SPACE GiB for the model described by
@@ -839,7 +1121,8 @@ json_int() {
 # Hybrid models (Qwen3.5 makes only every 4th layer full-attention) fit more
 # than this, so the estimate is deliberately on the pessimistic side.
 kv_cache_token_capacity() {
-    local cfg="$1" layers kvh hd hs ah
+    local cfg layers kvh hd hs ah
+    cfg=$(json_text_config "$1")
     layers=$(json_int "$cfg" num_hidden_layers)
     kvh=$(json_int "$cfg" num_key_value_heads)
     hd=$(json_int "$cfg" head_dim)
@@ -984,6 +1267,12 @@ run_one() {
     fi
     echo "  workloads  = ${BASE_WORKLOADS[*]}"
     echo "  max_ctx    = $VLLM_MAX_MODEL_LEN ($MAX_MODEL_LEN_SOURCE)"
+    if $IS_VISION; then
+        echo "  max_images = $VISION_LIMIT_MM_PER_PROMPT per request"
+        echo "  vis_data   = ${VISION_DATA_SPECS:-<per-workload data_specs>}"
+        echo "  vis_mapper = ${VISION_COLUMN_MAPPER:-<per-workload default>}"
+        echo "  vis_edits  = isl=${VISION_ISL:-<workload>} osl=${VISION_OSL:-<workload>} image=${VISION_IMAGE_SIZE:-<workload>}"
+    fi
     echo "  dtype      = ${DTYPE:-<vllm default>}"
     echo "  log        = $run_log"
 
@@ -1107,6 +1396,8 @@ EOF
         -e "guidellm_no_cgroup_limits=$CLI_NO_LIMITS" \\
         -e "test_name=$test_name" \\
         ${dry_extra}${GUIDELLM_CPUS:+-e \"guidellm_cpus=$GUIDELLM_CPUS\" }${GUIDELLM_NUMA_NODE:+-e \"guidellm_numa_node=$GUIDELLM_NUMA_NODE\" }\\
+        ${VISION_DATA_SPECS:+-e '{\"guidellm_data_specs\":$VISION_DATA_SPECS}' }${VISION_COLUMN_MAPPER:+-e '{\"guidellm_data_column_mapper\":$VISION_COLUMN_MAPPER}' }\\
+        ${VISION_ISL:+-e \"guidellm_spec_prompt_tokens=$VISION_ISL\" }${VISION_OSL:+-e \"guidellm_spec_output_tokens=$VISION_OSL\" }${VISION_IMAGE_W:+-e \"guidellm_spec_image_width=$VISION_IMAGE_W\" -e \"guidellm_spec_image_height=$VISION_IMAGE_H\" }\\
         -e '{"health_check":{"timeout":600,"interval":5}}'
 EOF
         done
@@ -1155,6 +1446,23 @@ EOF
     if [[ -n "$GUIDELLM_NUMA_NODE" ]]; then
         guidellm_extra_args+=(-e "guidellm_numa_node=$GUIDELLM_NUMA_NODE")
     fi
+
+    # Vision data-source overrides. Only passed when set, so an unset value
+    # leaves each workload's own data_specs in test-workloads.yml in charge.
+    # Both are JSON lists/objects, so they go through -e as JSON extra-vars
+    # rather than key=value.
+    if [[ -n "$VISION_DATA_SPECS" ]]; then
+        guidellm_extra_args+=(-e "{\"guidellm_data_specs\":$VISION_DATA_SPECS}")
+    fi
+    if [[ -n "$VISION_COLUMN_MAPPER" ]]; then
+        guidellm_extra_args+=(-e "{\"guidellm_data_column_mapper\":$VISION_COLUMN_MAPPER}")
+    fi
+    # Plain scalars, so key=value is enough. The role rewrites the matching
+    # field of each data spec it was given.
+    [[ -n "$VISION_ISL" ]]     && guidellm_extra_args+=(-e "guidellm_spec_prompt_tokens=$VISION_ISL")
+    [[ -n "$VISION_OSL" ]]     && guidellm_extra_args+=(-e "guidellm_spec_output_tokens=$VISION_OSL")
+    [[ -n "$VISION_IMAGE_W" ]] && guidellm_extra_args+=(-e "guidellm_spec_image_width=$VISION_IMAGE_W")
+    [[ -n "$VISION_IMAGE_H" ]] && guidellm_extra_args+=(-e "guidellm_spec_image_height=$VISION_IMAGE_H")
 
     # Optional audio-benchmark override: only pass audio_num_files when set so an
     # unset value inherits the scenario YAML's own num_samples.
@@ -1559,6 +1867,41 @@ if $IS_AUDIO; then
     fi
 fi
 
+if $IS_VISION; then
+    echo ""
+    echo "  --- vision benchmark ---"
+    echo "  [OK]   workloads     : ${BASE_WORKLOADS[*]}"
+    echo "  [OK]   max images    : $VISION_LIMIT_MM_PER_PROMPT per request (--limit-mm-per-prompt.image)"
+    echo "  [OK]   data sources  : ${VISION_DATA_SPECS:-<per-workload data_specs>}"
+    if [[ -n "$VISION_ISL$VISION_OSL$VISION_IMAGE_SIZE" ]]; then
+        echo "  [OK]   spec edits    : isl=${VISION_ISL:-<workload>} osl=${VISION_OSL:-<workload>} image=${VISION_IMAGE_SIZE:-<workload>}"
+        if [[ -n "$VISION_IMAGE_W" ]]; then
+            echo "  [INFO] ${VISION_IMAGE_W}x${VISION_IMAGE_H} image = $(( VISION_IMAGE_W / 32 * (VISION_IMAGE_H / 32) )) visual tokens per image"
+        fi
+    fi
+    echo "  [OK]   column mapper : ${VISION_COLUMN_MAPPER:-<per-workload default>}"
+    echo "  [OK]   extra args    : ${EXTRA_VLLM_ARGS:-<none>}"
+    echo "  [OK]   results subdir: results/llm (same as text generative)"
+    # An override replaces the data for every selected workload, which silently
+    # turns a mixed sweep into N runs of the same thing.
+    if [[ -n "$VISION_DATA_SPECS" ]] && (( ${#BASE_WORKLOADS[@]} > 1 )); then
+        echo "  [WARN] VISION_DATA_SPECS applies to all ${#BASE_WORKLOADS[@]} selected workloads,"
+        echo "         so they would differ only by isl/osl, not by image. Run one workload"
+        echo "         at a time when overriding the data."
+    fi
+    if [[ -n "$VISION_ISL$VISION_OSL$VISION_IMAGE_SIZE" ]] && (( ${#BASE_WORKLOADS[@]} > 1 )); then
+        echo "  [WARN] the spec edits above apply to all ${#BASE_WORKLOADS[@]} selected workloads,"
+        echo "         flattening the differences they exist to measure. Run one workload"
+        echo "         at a time when editing isl/osl/image size."
+    fi
+    # The images are decoded by the load generator, so a cpuset too small for
+    # that starves the server rather than the other way round.
+    if [[ -n "$GUIDELLM_CPUS" ]]; then
+        echo "  [INFO] guidellm cpus : $GUIDELLM_CPUS -- image encoding is client-side, so"
+        echo "         check the load generator is not itself the bottleneck."
+    fi
+fi
+
 if $IS_EMBEDDING; then
     echo ""
     echo "  --- embedding benchmark ---"
@@ -1611,6 +1954,8 @@ if $IS_AUDIO; then
     mode_label="audio (guidellm)"
 elif $IS_EMBEDDING; then
     mode_label="embedding (vllm bench serve)"
+elif $IS_VISION; then
+    mode_label="vision (guidellm)"
 fi
 if $DRY_RUN; then
     banner "DRY RUN -- ${#MODELS[@]} models x ${#VARIANTS[@]} variants -- $mode_label (no commands will execute)"
@@ -1640,6 +1985,9 @@ else
 fi
 echo "  Workloads: ${BASE_WORKLOADS[*]}"
 echo "  MaxCtxLen: $VLLM_MAX_MODEL_LEN ($MAX_MODEL_LEN_SOURCE)"
+if $IS_VISION; then
+    echo "  MaxImages: $VISION_LIMIT_MM_PER_PROMPT per request"
+fi
 echo "  Log dir  : $LOG_DIR"
 if [[ "$PROFILE" == "true" ]]; then
     echo "  Profiler : ON -> $PROFILER_DIR/<test_name> (per-instance subdirs)"

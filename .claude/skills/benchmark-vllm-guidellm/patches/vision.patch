@@ -1,0 +1,290 @@
+diff --git a/automation/test-execution/ansible/inventory/group_vars/all/test-workloads.yml b/automation/test-execution/ansible/inventory/group_vars/all/test-workloads.yml
+index 246e1e0..fd76a0d 100644
+--- a/automation/test-execution/ansible/inventory/group_vars/all/test-workloads.yml
++++ b/automation/test-execution/ansible/inventory/group_vars/all/test-workloads.yml
+@@ -222,6 +222,138 @@ test_configs:
+       - "--max-model-len=8192"
+     kv_cache_space: "90GiB"
+ 
++  # ==========================================================================
++  # Vision (VLM) workloads
++  # ==========================================================================
++  # Image + text in one /v1/chat/completions request. data_specs is a list of
++  # GuideLLM --data sources that it composes into a single multimodal request;
++  # without it a workload is plain synthetic text, exactly as before.
++  #
++  # isl/osl here count TEXT tokens only, because that is all GuideLLM's
++  # tokenizer sees -- the image never reaches it. Qwen3-VL emits one token per
++  # 32x32 px (patch_size 16, spatial_merge_size 2), so 448x448 is ~196 tokens,
++  # 896x896 ~784 and 1344x1344 ~1764. Those land on top of isl at serve time,
++  # which is why every workload below declares its own --max-model-len rather
++  # than leaving run_sweep.sh to derive isl+osl+128 and come up short.
++  #
++  # synthetic_image defaults to per-row seeded gradients, so every payload is
++  # byte-different and vLLM's multimodal preprocessor cache never hits. That is
++  # the honest steady-state number; vision_cached below is the opposite bound.
++  vision_vqa:
++    workload_type: "vision_vqa"
++    isl: 1024                           # text tokens; + ~196 image tokens
++    osl: 1024
++    variability: false
++    backend: "openai-chat"
++    data_specs:
++      - "kind=synthetic_image,width=448,height=448,images_per_request=1,content=gradient,format=jpeg"
++      - "kind=synthetic_text,prompt_tokens=1024,output_tokens=1024"
++    vllm_args:
++      - "--dtype=auto"
++      - "--no-enable-prefix-caching"
++      - "--max-model-len=2432"          # 196 image + 1024 isl + 1024 osl + headroom,
++                                        # rounded up to a --block-size=128 multiple
++      - "--block-size=128"
++    kv_cache_space: "40GiB"
++
++  # Image captioning: one larger image, little prompt text, long answer.
++  vision_caption:
++    workload_type: "vision_caption"
++    isl: 32                             # text tokens; + ~784 image tokens
++    osl: 512
++    variability: false
++    backend: "openai-chat"
++    data_specs:
++      - "kind=synthetic_image,width=896,height=896,images_per_request=1,content=gradient,format=jpeg"
++      - "kind=synthetic_text,prompt_tokens=32,output_tokens=512"
++    vllm_args:
++      - "--dtype=auto"
++      - "--no-enable-prefix-caching"
++      - "--max-model-len=4096"          # 784 image + 32 isl + 512 osl + headroom
++      - "--block-size=128"
++    kv_cache_space: "40GiB"
++
++  # Several images in one prompt: stresses the ViT tower and the encoder cache
++  # rather than the decoder. Needs --limit-mm-per-prompt on the serve side.
++  vision_multi:
++    workload_type: "vision_multi"
++    isl: 128                            # text tokens; + ~392 image tokens (2x)
++    osl: 256
++    variability: false
++    backend: "openai-chat"
++    data_specs:
++      - "kind=synthetic_image,width=448,height=448,images_per_request=2,content=gradient,format=jpeg"
++      - "kind=synthetic_text,prompt_tokens=128,output_tokens=256"
++    vllm_args:
++      - "--dtype=auto"
++      - "--no-enable-prefix-caching"
++      - "--max-model-len=4096"
++      - "--block-size=128"
++    kv_cache_space: "40GiB"
++
++  # High resolution: the prefill is dominated by image tokens.
++  vision_hires:
++    workload_type: "vision_hires"
++    isl: 128                            # text tokens; + ~1764 image tokens
++    osl: 256
++    variability: false
++    backend: "openai-chat"
++    data_specs:
++      - "kind=synthetic_image,width=1344,height=1344,images_per_request=1,content=gradient,format=jpeg"
++      - "kind=synthetic_text,prompt_tokens=128,output_tokens=256"
++    vllm_args:
++      - "--dtype=auto"
++      - "--no-enable-prefix-caching"
++      - "--max-model-len=8192"          # 1764 image + 128 isl + 256 osl + headroom
++      - "--block-size=128"
++    kv_cache_space: "90GiB"
++
++  # Same shape as vqa but with a fixed solid payload, so every request hashes to
++  # the same multimodal preprocessor cache entry. Pair with vision_vqa to bound how
++  # much of the measured cost is image preprocessing rather than inference.
++  vision_cached:
++    workload_type: "vision_cached"
++    isl: 128
++    osl: 128
++    variability: false
++    backend: "openai-chat"
++    data_specs:
++      - "kind=synthetic_image,width=448,height=448,images_per_request=1,content=solid,format=jpeg,seed=42"
++      - "kind=synthetic_text,prompt_tokens=128,output_tokens=128"
++    vllm_args:
++      - "--dtype=auto"
++      - "--no-enable-prefix-caching"
++      - "--max-model-len=2048"
++      - "--block-size=128"
++    kv_cache_space: "40GiB"
++
++  # Real VQA traffic from lmms-lab/MMBench_EN. The mapping tells GuideLLM which
++  # dataset columns carry the image and the question. Image sizes vary, so the
++  # context window is set for the largest rather than an average.
++  # Needs network (or a pre-populated datasets cache) on first use.
++  vision_mmbench:
++    workload_type: "vision_mmbench"
++    isl: 64                             # dataset text; image tokens vary
++    osl: 128
++    variability: false
++    backend: "openai-chat"
++    data_specs:
++      - kind: "huggingface"
++        source: "lmms-lab/MMBench_EN"
++        load_kwargs:
++          split: "test"
++    data_column_mapper:
++      kind: "generative_column_mapper"
++      column_mappings:
++        image_column: "image"
++        text_column: "question"
++    vllm_args:
++      - "--dtype=auto"
++      - "--no-enable-prefix-caching"
++      - "--max-model-len=8192"
++      - "--block-size=128"
++    kv_cache_space: "90GiB"
++
+   # Chat lite workload (lighter version with shorter sequences)
+   chat_lite:
+     workload_type: "chat_lite"
+diff --git a/automation/test-execution/ansible/roles/benchmark_guidellm/tasks/main.yml b/automation/test-execution/ansible/roles/benchmark_guidellm/tasks/main.yml
+index 60c7405..1a7d52f 100644
+--- a/automation/test-execution/ansible/roles/benchmark_guidellm/tasks/main.yml
++++ b/automation/test-execution/ansible/roles/benchmark_guidellm/tasks/main.yml
+@@ -217,6 +217,122 @@
+         else 'kind=synthetic_text,' ~ guidellm_data_string
+       }}
+ 
++# GuideLLM takes --data more than once and composes the sources into a single
++# request, which is how a multimodal prompt is built: one synthetic_image (or a
++# huggingface dataset) alongside the synthetic_text above. Anything that is not
++# plain synthetic text therefore needs a list, not the single value built above.
++#
++# Precedence: the guidellm_data_specs extra-var, else the workload's own
++# data_specs, else the single text source. The fallback keeps every text-only
++# workload rendering the exact same --data it did before this existed.
++- name: Resolve the list of GuideLLM --data sources
++  ansible.builtin.set_fact:
++    guidellm_data_specs_resolved: >-
++      {{
++        guidellm_data_specs
++        if guidellm_data_specs is defined
++        else workload_cfg.data_specs
++        if workload_cfg.data_specs is defined
++        else [guidellm_v7_data]
++      }}
++
++# Field-level edits, so a caller can resize isl/osl/image without restating the
++# whole spec list and losing the workload's own image settings. Only string
++# specs are touched; mapping specs (a HF dataset) carry no synthetic fields.
++# The result goes through to_json because a {% set %} loop emits text, which
++# would stringify the list on assignment.
++- name: Apply field-level edits to the GuideLLM --data sources
++  ansible.builtin.set_fact:
++    guidellm_data_specs_edited: >-
++      {%- set out = [] -%}
++      {%- for spec in guidellm_data_specs_resolved -%}
++        {%- if spec is string -%}
++          {%- set s = spec -%}
++          {%- if guidellm_spec_prompt_tokens is defined -%}
++            {%- set s = s | regex_replace('prompt_tokens=[0-9]+',
++                                          'prompt_tokens=' ~ guidellm_spec_prompt_tokens) -%}
++          {%- endif -%}
++          {%- if guidellm_spec_output_tokens is defined -%}
++            {%- set s = s | regex_replace('output_tokens=[0-9]+',
++                                          'output_tokens=' ~ guidellm_spec_output_tokens) -%}
++          {%- endif -%}
++          {%- if guidellm_spec_image_width is defined -%}
++            {%- set s = s | regex_replace('width=[0-9]+',
++                                          'width=' ~ guidellm_spec_image_width) -%}
++          {%- endif -%}
++          {%- if guidellm_spec_image_height is defined -%}
++            {%- set s = s | regex_replace('height=[0-9]+',
++                                          'height=' ~ guidellm_spec_image_height) -%}
++          {%- endif -%}
++          {%- set _ = out.append(s) -%}
++        {%- else -%}
++          {%- set _ = out.append(spec) -%}
++        {%- endif -%}
++      {%- endfor -%}
++      {{ out | to_json }}
++  when: guidellm_spec_prompt_tokens is defined
++        or guidellm_spec_output_tokens is defined
++        or guidellm_spec_image_width is defined
++        or guidellm_spec_image_height is defined
++
++- name: Adopt the edited GuideLLM --data sources
++  ansible.builtin.set_fact:
++    guidellm_data_specs_resolved: "{{ guidellm_data_specs_edited | from_json }}"
++  when: guidellm_data_specs_edited is defined
++
++# Each entry is either a key=value string or a mapping. Mappings are rendered as
++# compact JSON so they survive as one argv token: containers.podman splits the
++# command on plain whitespace (podman_container_lib.py: command.split()), so a
++# JSON blob keeps its quotes as long as it contains no spaces.
++- name: Render the GuideLLM --data flags
++  ansible.builtin.set_fact:
++    guidellm_data_flags: >-
++      {%- set flags = [] -%}
++      {%- for spec in guidellm_data_specs_resolved -%}
++        {%- set rendered = spec if spec is string
++                           else spec | to_json(separators=(',', ':')) -%}
++        {%- set _ = flags.append('--data ' ~ rendered) -%}
++      {%- endfor -%}
++      {{ flags | join(' ') }}
++
++# Host mode runs through ansible.builtin.command, which shlex-splits instead of
++# splitting on whitespace, so there the JSON has to be shell-quoted or it loses
++# its double quotes.
++- name: Render the GuideLLM --data flags (host mode, shell-quoted)
++  ansible.builtin.set_fact:
++    guidellm_data_flags_quoted: >-
++      {%- set flags = [] -%}
++      {%- for spec in guidellm_data_specs_resolved -%}
++        {%- set rendered = spec if spec is string
++                           else spec | to_json(separators=(',', ':')) -%}
++        {%- set _ = flags.append('--data ' ~ (rendered | quote)) -%}
++      {%- endfor -%}
++      {{ flags | join(' ') }}
++
++# Maps dataset columns onto prompt fields (image_column/text_column/...). Only
++# needed for a real dataset; synthetic sources are already in GuideLLM's shape.
++- name: Resolve the GuideLLM --data-column-mapper flag
++  ansible.builtin.set_fact:
++    guidellm_data_mapper_flag: >-
++      {%- set mapper = guidellm_data_column_mapper
++                       if guidellm_data_column_mapper is defined
++                       else workload_cfg.data_column_mapper | default(none) -%}
++      {%- if mapper -%}
++        --data-column-mapper {{ mapper if mapper is string
++                                else mapper | to_json(separators=(',', ':')) }}
++      {%- endif -%}
++
++- name: Resolve the GuideLLM --data-column-mapper flag (host mode, shell-quoted)
++  ansible.builtin.set_fact:
++    guidellm_data_mapper_flag_quoted: >-
++      {%- set mapper = guidellm_data_column_mapper
++                       if guidellm_data_column_mapper is defined
++                       else workload_cfg.data_column_mapper | default(none) -%}
++      {%- if mapper -%}
++        --data-column-mapper {{ (mapper if mapper is string
++                                 else mapper | to_json(separators=(',', ':'))) | quote }}
++      {%- endif -%}
++
+ # Build container name (shared by both v0.6.x and v0.7.x)
+ - name: Build GuideLLM container name with actual NUMA configuration
+   ansible.builtin.set_fact:
+@@ -371,7 +487,8 @@
+     guidellm_v7_args: >-
+       run
+       --backend {{ guidellm_v7_backend }}
+-      --data {{ guidellm_v7_data if guidellm_v7_data is string else guidellm_v7_data | to_json(separators=(',', ':')) }}
++      {{ guidellm_data_flags }}
++      {{ guidellm_data_mapper_flag }}
+       --tokenizer kind=huggingface_auto,model={{ processor_model }}
+       --profile {{ guidellm_v7_profile }}
+       {{ guidellm_v7_override | default('') }}
+@@ -771,7 +888,8 @@
+       {%- if vllm_api_key is defined and vllm_api_key | length > 0 -%}
+         ,api_key={{ vllm_api_key }}
+       {%- endif %}
+-      --data {{ (guidellm_v7_data if guidellm_v7_data is string else guidellm_v7_data | to_json(separators=(',', ':'))) | quote }}
++      {{ guidellm_data_flags_quoted }}
++      {{ guidellm_data_mapper_flag_quoted }}
+       --tokenizer kind=huggingface_auto,model={{ processor_model }}
+       --profile
+       {%- set p = guidellm_cfg.profile -%}

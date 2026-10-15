@@ -88,7 +88,7 @@ inside the container image.
 
 Clone the perf-eval automation where `run_sweep.sh` expects it, **pin it to
 `2bacf71`** (the main patch is generated against that commit; later upstream
-revisions do not apply), and apply the three patches in order. Stage after each
+revisions do not apply), and apply the four patches in order. Stage after each
 one, because `git apply --3way` refuses to run against an index that differs
 from the working tree:
 
@@ -104,6 +104,8 @@ git -C "$PE" apply --3way "$PWD/patches/embedding.patch"            # resolve, t
 git -C "$PE" add -A
 git -C "$PE" apply --3way "$PWD/patches/audio-model.patch"          # resolve, then:
 git -C "$PE" add -A
+git -C "$PE" apply "$PWD/patches/vision.patch"                      # applies cleanly
+git -C "$PE" add -A
 ```
 
 | Patch | Needed for | What it changes |
@@ -111,6 +113,7 @@ git -C "$PE" add -A
 | `vllm-cpu-perf-eval.patch` | every run | GuideLLM container as `user: "0:0"` (rootless), `ansible_become: false`, `results_dir` leaf from `RESULTS_SUBDIR`, tolerant health-check `until`, local-model bind mount for GuideLLM, a safety-timeout stop instead of a hard fail, embedding `vllm_bench_binary` + measured P95, `test_name` in audio run dirs, the shared-prefix workloads (passed to GuideLLM 0.7 as `prefix_buckets`), the shared HF cache mounted read-only into GuideLLM (offline tokenizer), no GuideLLM cpuset under `--no-limits`, and `guidellm_output_suffix` for per-rate output files |
 | `embedding.patch` | `-w embedding` | `realpath` on `results_dir`; mounts the shared HF cache into the `vllm bench serve` container (offline tokenizer); `bench_run_as_root` instead of a hard-coded root user |
 | `audio-model.patch` | `-w audio` | GuideLLM dataset cache under `$HOME` instead of `/tmp`; `HF_HUB_DISABLE_XET=1` and a download timeout |
+| `vision.patch` | `-w vision` | lets a workload declare its own `data_specs` (a list, so one request can carry both an image and text) and `data_column_mapper` instead of the hard-coded single synthetic-text `--data`, overridable per run via the `guidellm_data_specs` / `guidellm_data_column_mapper` extra-vars; adds the six vision workloads |
 
 `embedding.patch` and `audio-model.patch` overlap the main patch, so `--3way`
 stops on conflicts. On `2bacf71` they are exactly these:
@@ -178,11 +181,21 @@ Each invocation runs in exactly one mode. A stack serves one model with one
 runner, so mixing modes (`-w embedding -w chat`, `-w audio -w chat`) is a hard
 error.
 
-| Mode | `-w` | Load generator | Endpoint | Default models |
-|------|------|----------------|----------|----------------|
-| generative | `chat` (default) or any `test_configs` key; repeatable | GuideLLM via `llm-benchmark-concurrent-load.yml` | `/v1/chat/completions` | `MODELS` array in `run_sweep.sh` (two local-dir entries; pass `-m`) |
-| embedding | `embedding` | `vllm bench serve` via `embedding-benchmark.yml` | `/v1/embeddings` | `granite-en-r2`, `nomic-v15` |
-| audio | `audio` | GuideLLM audio backend via `audio-benchmark.yml` | `/v1/audio/transcriptions` | `openai/whisper-small` |
+| Mode | `-w` | Patch needed | Load generator | Endpoint | Default models |
+|------|------|--------------|----------------|----------|----------------|
+| generative | `chat` (default) or any `test_configs` key; repeatable | main only | GuideLLM via `llm-benchmark-concurrent-load.yml` | `/v1/chat/completions` | `MODELS` array in `run_sweep.sh` (two local-dir entries; pass `-m`) |
+| vision | `vision`, once; `VISION_WORKLOADS` picks the image workloads | + `vision.patch` | GuideLLM via `llm-benchmark-concurrent-load.yml` | `/v1/chat/completions` | `Qwen/Qwen3-VL-8B-Instruct` |
+| embedding | `embedding` | + `embedding.patch` | `vllm bench serve` via `embedding-benchmark.yml` | `/v1/embeddings` | `granite-en-r2`, `nomic-v15` |
+| audio | `audio` | + `audio-model.patch` | GuideLLM audio backend via `audio-benchmark.yml` | `/v1/audio/transcriptions` | `openai/whisper-small` |
+
+Each mode is written the same way, `-w <mode>` once, with an env var choosing
+the variant: `VISION_WORKLOADS`, `EMBEDDING_SCENARIO`, `AUDIO_SCENARIO`.
+
+Vision is the one exception to "one mode per invocation". A VLM request is just
+a chat request that also carries an image, so it uses the same playbook,
+endpoint and results layout as the generative mode, which means `-w vision` is
+only shorthand for a set of generative workloads and composes with text ones:
+`-w vision -w chat` is a valid run, `-w audio -w chat` is not.
 
 Generative workloads come from the clone's
 `automation/test-execution/ansible/inventory/group_vars/all/test-workloads.yml`:
@@ -459,6 +472,13 @@ nohup scripts/run_sweep.sh -N 4 -w chat -m "meta-llama/Llama-3.1-8B-Instruct | l
 
 ## Embedding models (`-w embedding`)
 
+Needs `embedding.patch` on the clone (`--3way`, three conflicts — see
+[Setup](#setup-one-time) for the resolutions):
+
+```bash
+git -C "$PE" apply --3way "$PWD/patches/embedding.patch" && git -C "$PE" add -A
+```
+
 The stack is unchanged: vLLM picks the pooling runner from the model config, and
 NGINX's catch-all `location /` proxies `/v1/embeddings`. The load generator is
 `vllm bench serve` in a container, by default the same image as the server.
@@ -495,6 +515,13 @@ curl -s localhost:8080/v1/embeddings -H 'Content-Type: application/json' \
 
 ## Audio models (`-w audio`)
 
+Needs `audio-model.patch` on the clone (`--3way`, one conflict — see
+[Setup](#setup-one-time) for the resolution):
+
+```bash
+git -C "$PE" apply --3way "$PWD/patches/audio-model.patch" && git -C "$PE" add -A
+```
+
 Whisper ASR through `audio-benchmark.yml` in external mode against the NGINX
 endpoint. Whisper is encoder-decoder, so `-w audio` also sets stack defaults
 (all env-overridable): `--max-model-len 448`, `--trust-remote-code`,
@@ -517,6 +544,105 @@ for n in 1 2 4 8; do scripts/run_sweep.sh -w audio -N "$n" -m "openai/whisper-sm
 on the host. To check the endpoint is live, run
 `curl -s -o /dev/null -w '%{http_code}\n' -X OPTIONS localhost:8080/v1/audio/transcriptions`;
 `200` or `405` means it is.
+
+## Vision models (`-w vision`)
+
+Needs `vision.patch` on the clone (applies cleanly, no `--3way`):
+
+```bash
+git -C "$PE" apply "$PWD/patches/vision.patch" && git -C "$PE" add -A
+```
+
+Vision-language models reuse the generative path end to end: GuideLLM,
+`llm-benchmark-concurrent-load.yml`, `/v1/chat/completions`, and
+`results/llm/...`. Nothing about the load generator changes, so
+`extract_guidellm_metrics.py` and the per-rate merge work unchanged. What the
+mode adds is the `--data` GuideLLM is handed and a serve-side image limit.
+
+`-w vision` is written once and expands into `VISION_WORKLOADS`, so the CLI
+matches `-w audio` / `-w embedding` instead of repeating `-w` six times. Since
+there is no mode switch underneath, it still composes with text workloads.
+
+```bash
+# default model, default workload (vision_vqa)
+scripts/run_sweep.sh -w vision -N 4
+
+# add a diagnostic or two
+VISION_WORKLOADS="vqa hires" scripts/run_sweep.sh -w vision -N 4
+
+# a real VQA dataset instead of synthetic images
+VISION_WORKLOADS=mmbench scripts/run_sweep.sh -w vision -N 4
+
+# images and text on one stack, to see what the images cost
+scripts/run_sweep.sh -w vision -w chat -N 4
+```
+
+The patch adds six workloads to `test-workloads.yml`, each carrying its own
+`data_specs` and `--max-model-len`. The keys are `vision_`-prefixed so they
+never read as text workloads; `VISION_WORKLOADS` uses the short name and `-w`
+takes either (`-w hires` == `-w vision_hires`). **The default is `vqa` alone**
+-- the realistic shape of one image, a question and a full-length answer.
+`caption` and `hires` are unsuitable as a default for a different reason: they
+run 112-331s per request, leaving 31-57% of requests unfinished in a bounded
+window. The rest are diagnostics; name them explicitly. `mmbench` also
+downloads a dataset.
+
+Because `vqa` generates 1024 tokens, decode dominates its runtime. Size
+`GUIDELLM_MAX_SECONDS` so each concurrency point completes several request
+lifecycles and check the unfinished count before quoting throughput;
+`VISION_OSL` shortens the answer without touching the rest of the spec.
+
+| `VISION_WORKLOADS` | Key | Image | isl/osl (text) | What it isolates |
+|----------|-----|-------|----------------|------------------|
+| `vqa` | `vision_vqa` | 448x448, 1 | 1024/1024 | baseline VQA; one image plus a full page of question and answer |
+| `caption` | `vision_caption` | 896x896, 1 | 32/512 | decode-heavy: tiny prompt, long answer |
+| `multi` | `vision_multi` | 448x448, 2 | 128/256 | cost of a second image in one request |
+| `hires` | `vision_hires` | 1344x1344, 1 | 128/256 | ViT cost scaling with resolution |
+| `cached` | `vision_cached` | 448x448 solid, fixed seed | 128/128 | repeated identical image: multimodal preprocessor cache |
+| `mmbench` | `vision_mmbench` | `lmms-lab/MMBench_EN` | 128/256 | real JPEG decode and odd aspect ratios; a robustness check, not a throughput number (images cap at 512x512, median 144 visual tokens, so it is *lighter* than `vqa`) |
+
+`isl` counts **text tokens only**; the image adds its own on top. Qwen3-VL
+emits one token per 32x32 pixels (patch_size 16 x spatial_merge_size 2), so
+448x448 is ~196 tokens and 1344x1344 is ~1764. That is why these workloads
+declare `--max-model-len` explicitly instead of letting `isl+osl+128` derive
+it. The measured prompt-token counts in the results do include the visual
+tokens, because GuideLLM sends `stream_options.include_usage` and reads
+vLLM's `usage.prompt_tokens`.
+
+`--limit-mm-per-prompt.image` is set from the largest `images_per_request`
+across the selected workloads (vLLM defaults to 1 and rejects more, which
+would fail `multi`).
+
+For the common "same workload, different size" case prefer `VISION_ISL`,
+`VISION_OSL` and `VISION_IMAGE_SIZE` over restating the whole list: they edit
+only the field they name and feed the `--max-model-len` derivation, so the
+context window tracks the request. `VISION_DATA_SPECS` does not, which is why
+raising `output_tokens` through it can leave the stack short of context while
+the pre-flight still prints `[OK]`.
+
+```bash
+VISION_OSL=512 scripts/run_sweep.sh -w vision -N 3
+VISION_IMAGE_SIZE=896 scripts/run_sweep.sh -w vision -N 3
+VISION_ISL=64 VISION_OSL=256 VISION_IMAGE_SIZE=448x896 scripts/run_sweep.sh -w vision -N 3
+```
+
+They apply to every selected workload (the pre-flight warns above one), are
+ignored with a warning on a non-vision run, and do nothing to `vision_mmbench`,
+whose text comes from the dataset. To point a workload at different data:
+
+| Variable | Meaning |
+|----------|---------|
+| `VISION_WORKLOADS` | Which image workloads `-w vision` expands into. An unknown name fails pre-flight, not mid-sweep. |
+| `VISION_DATA_SPECS` | JSON list replacing the workload's `data_specs`. Applies to **every** selected workload, so run one at a time with it; `run_sweep.sh` warns otherwise. |
+| `VISION_COLUMN_MAPPER` | JSON object for `--data-column-mapper`, for datasets whose image/text columns are not named what GuideLLM expects. |
+| `VISION_LIMIT_MM_PER_PROMPT` | Override the derived image cap. |
+| `VISION_ISL` / `VISION_OSL` | Text prompt / generated tokens, rewriting `prompt_tokens=` / `output_tokens=` in the selected workloads' own `data_specs`. |
+| `VISION_IMAGE_SIZE` | `NxM`, or `N` for square, rewriting `width=`/`height=`. Warns when not a multiple of 32. |
+
+```bash
+VISION_DATA_SPECS='["kind=synthetic_image,width=224,height=224","kind=synthetic_text,prompt_tokens=64,output_tokens=64"]' \
+  scripts/run_sweep.sh -w vision -N 1
+```
 
 ## Profiling (`--profile`)
 
@@ -691,6 +817,38 @@ several sweeps can be concatenated and plotted against instance count.
   start-up handshake; `STAGGER_STARTUP=1` spreads them out.
 - **Do not compare across stack shapes.** `N`, CPI, the core bands, the image
   and `--max-model-len` all move the numbers; change one thing at a time.
+- **Always check a container is the one you think it is.** If `start.sh` exits
+  non-zero the *previous* stack may still be serving, and a benchmark will
+  happily measure it. Confirm `start.sh` exited 0 and the container id changed
+  before trusting a result. `podman logs` also concatenates across incarnations
+  of a reused container name, so old tracebacks resurface as if they were new.
+- **Isolate a stack when sharing the host.** `STACK_TAG=foo` suffixes the
+  container names and the `generated-foo/` dir, but it does not move the port
+  or the subnet: pair it with `NGINX_PORT` and `VLLM_SUBNET` (and a
+  `VLLM_START_CORE` outside the other run's bands), or the two stacks collide
+  on names, `:8080` and `10.201.0.0/24`. Never clean up with a blanket
+  `podman rm -f $(podman ps -aq)`; it takes the other session's containers too.
+- **zentorch's `MMEncoderSdpa` patch is a silent no-op on vLLM 0.29 and 0.31.**
+  It targets `vit_attn_wrappers.apply_sdpa`, which 0.29 replaced with the
+  `MMEncoderAttention` layer that all 85 multimodal models (every Qwen VL, and
+  Whisper) now use. The patch's marker still reports success, so no fallback
+  warning fires and the ViT tower quietly runs unoptimized. Confirmed at
+  runtime on 0.31, which logs `Using AttentionBackendEnum.TORCH_SDPA for
+  MMEncoderAttention`. Affects `-w audio` as well as the vision workloads.
+- **Native vLLM 0.29 CPU cannot start Qwen3-VL** (`IndexError: list index out
+  of range` from `self.architectures[0]` in `model.py`), which is the bug
+  zentorch's `_qwen3_vl_text_config_patch.py` shim exists to fix. Fixed by
+  0.31, where the model starts on both variants, so an A/B is possible there;
+  on 0.29 compare zentorch builds to each other instead.
+- **Verify output quality before trusting any zentorch number.** On
+  `vllm_v0.29.0_zentorch_v2.13.0.2:ubuntu26.04_20260929` the zentorch variant
+  returns token salad where native on the same image and model (Qwen3-0.6B,
+  text-only) is perfect, and `ZENTORCH_SDPA=0 ZENTORCH_FUSED_FFN=0
+  ZENTORCH_FUSED_MOE=0` does not fix it. Throughput numbers from a model that
+  is generating garbage are meaningless. Not reproducible on
+  `vllm_v0.31.0_zentorch_v2.13.0.3:ubuntu26.04_20261007`, which answers both a
+  text and an image question correctly. Treat it as per-build rather than
+  fixed: send one `curl` chat request and read the answer before each sweep.
 - **The `_native`, `_torchao-*` and `_lmcache` images are
   cached** by tag. If the base image or the LMCache checkout changes, delete the
   derived image or the run uses the stale one. For `_lmcache`, `start.sh` prints
@@ -724,4 +882,5 @@ several sweeps can be concatenated and plotted against instance count.
     vllm-cpu-perf-eval.patch       # core fixes for the external-endpoint flow + shared-prefix workloads
     embedding.patch                # -w embedding: offline tokenizer, root gating, realpath
     audio-model.patch              # -w audio: dataset cache dir, HF download settings
+    vision.patch                   # -w vision: per-workload --data specs + column mapper, vision workloads
 ```

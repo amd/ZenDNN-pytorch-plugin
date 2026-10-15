@@ -72,7 +72,7 @@ git -C vllm-cpu-perf-eval checkout 2bacf71ce6329eecc58e2a5ec2d7b8c98ea67174
 
 # Apply local fixes (rootless GuideLLM user, local model bind-mount,
 # shared-prefix workloads, offline tokenizer cache, etc.). SKILL.md covers the
-# embedding/audio patches that stack on top with --3way.
+# embedding/audio/vision patches that stack on top.
 git -C vllm-cpu-perf-eval apply ../../patches/vllm-cpu-perf-eval.patch
 
 cd vllm-cpu-perf-eval/automation/test-execution/ansible
@@ -231,6 +231,14 @@ Notes:
 
 ### Audio models (`-w audio`)
 
+Requires `audio-model.patch` on the clone, on top of the main patch. It
+overlaps the main patch, so it needs `--3way` and one conflict resolved — see
+`SKILL.md` for the exact resolution and the full four-patch sequence:
+
+```bash
+git -C vllm-cpu-perf-eval apply --3way ../../patches/audio-model.patch
+```
+
 `run_sweep.sh -w audio` sweeps **ASR** (Whisper transcription) models instead of
 generative ones. As with `-w embedding`, the stack half of the run is reused — N
 vLLM instances behind nginx, same `start.sh`/`generate-config.sh` — because
@@ -298,6 +306,14 @@ plotted against instance count:
 ```bash
 python3 extract_audio_metrics.py results/audio-models -o audio-sweep.csv
 ### Embedding models (`-w embedding`)
+
+Requires `embedding.patch` on the clone, on top of the main patch. It overlaps
+the main patch, so it needs `--3way` and three conflicts resolved — see
+`SKILL.md` for the exact resolutions and the full four-patch sequence:
+
+```bash
+git -C vllm-cpu-perf-eval apply --3way ../../patches/embedding.patch
+```
 
 `run_sweep.sh -w embedding` sweeps **pooling** (embedding) models instead of
 generative ones. The stack half of the run is unchanged — N vLLM instances behind
@@ -368,6 +384,144 @@ sweeps can be concatenated and plotted against instance count:
 ```bash
 python3 extract_embedding_metrics.py results/embedding -o embedding-sweep.csv
 ```
+
+### Vision models (`-w vision`)
+
+Requires `vision.patch` on the clone, on top of the main patch (see
+[Quick Start](#quick-start) and `SKILL.md` for the full four-patch sequence):
+
+```bash
+git -C vllm-cpu-perf-eval apply ../../patches/vision.patch   # applies cleanly
+```
+
+`run_sweep.sh -w vision` sweeps **vision-language** models. You write `-w
+vision` once, the way you write `-w audio` or `-w embedding`, and
+`VISION_WORKLOADS` picks which image workloads run — the same shape as
+`AUDIO_SCENARIO` and `EMBEDDING_SCENARIO`.
+
+Underneath, though, *nothing* swaps out. A VLM request is just a chat request
+that also carries an image, so the same `llm-benchmark-concurrent-load.yml`
+drives the same GuideLLM against the same `/v1/chat/completions`, and the
+results land in the same `results/llm/` tree. `extract_guidellm_metrics.py` and
+the per-rate merge therefore work on vision runs with no changes. Because there
+is no mode switch, `-w vision` is pure shorthand: it expands into its workloads
+and still composes with text ones, which `-w audio` and `-w embedding` cannot.
+
+```bash
+# Default model (Qwen/Qwen3-VL-8B-Instruct), default workload (vision_vqa)
+./run_sweep.sh -w vision -N 4
+
+# Add a diagnostic or two
+VISION_WORKLOADS="vqa hires" ./run_sweep.sh -w vision -N 4
+
+# A real VQA dataset instead of synthetic images
+VISION_WORKLOADS=mmbench ./run_sweep.sh -w vision -N 4
+
+# Images and text against the same stack, to see what the images cost
+./run_sweep.sh -w vision -w chat -N 4
+
+# Validate without launching anything
+./run_sweep.sh --dry-run -w vision -N 1
+```
+
+`vision.patch` adds six workloads to `test-workloads.yml`, each with its own
+GuideLLM `data_specs` and its own `--max-model-len`. The keys carry a `vision_`
+prefix so they never read as text workloads; `VISION_WORKLOADS` uses the short
+name, and `-w` accepts either (`-w hires` and `-w vision_hires` are the same
+run).
+
+| `VISION_WORKLOADS` | Workload key | Image | isl/osl (text) | `--max-model-len` | What it isolates |
+|---|---|---|---|---|---|
+| `vqa` | `vision_vqa` | 448x448, 1 | 1024/1024 | 2432 | baseline VQA; one image plus a full page of question and answer |
+| `caption` | `vision_caption` | 896x896, 1 | 32/512 | 4096 | decode-heavy: tiny prompt, long answer |
+| `multi` | `vision_multi` | 448x448, 2 | 128/256 | 4096 | cost of a second image in one request |
+| `hires` | `vision_hires` | 1344x1344, 1 | 128/256 | 8192 | ViT cost scaling with resolution |
+| `cached` | `vision_cached` | 448x448 solid, fixed seed | 128/128 | 2048 | repeated identical image: multimodal preprocessor cache |
+| `mmbench` | `vision_mmbench` | `lmms-lab/MMBench_EN` | 128/256 | 8192 | realistic mixed-resolution workload |
+
+**The default is `vqa` alone.** It is the realistic shape — one image, a
+question, and a full-length answer. `caption` and `hires` are unsuitable as a
+default for a different reason: they take 112-331s per request, so a bounded
+GuideLLM window leaves 31-57% of their requests unfinished. The other
+four answer a specific diagnostic question (`multi`: the cost of a second
+image, `cached`: the multimodal preprocessor cache, `hires`: ViT cost versus
+resolution, `caption`: decode-heavy behaviour), so name them when you want
+them. `mmbench` additionally downloads a real dataset, needing network and
+~230M of HF cache.
+
+`vqa` generates 1024 tokens, so decode dominates its runtime and per-request
+latency is much higher than the 128/128 shape this harness shipped with
+originally. Size `GUIDELLM_MAX_SECONDS` so each concurrency point still
+completes several request lifecycles, and check the unfinished-request count in
+the summary before trusting a throughput number. Use `VISION_OSL` to shorten
+the answer without touching anything else.
+
+Note that `mmbench` is a *robustness* check rather than a throughput number:
+its images cap at 512x512 with a median of 144 visual tokens, which is a
+lighter load than `vqa`, and their 38% size spread makes the mean depend on the
+dataset's resolution mix. What it does cover that synthetic gradients cannot is
+real JPEG decoding and odd aspect ratios -- one image is 55x256, which exercises
+the `smart_resize` upscale path to the model's 65,536-pixel floor.
+
+Unlike `VISION_DATA_SPECS`, which replaces the whole `--data` list, these three
+edit only the field they name and **feed the `--max-model-len` derivation**, so
+the context window tracks what you asked for:
+
+```bash
+# Same VQA shape, longer answers
+VISION_OSL=512 ./scripts/run_sweep.sh -w vision -N 3
+
+# Same VQA shape, a bigger image (the 896^2 variant, no JSON needed)
+VISION_IMAGE_SIZE=896 ./scripts/run_sweep.sh -w vision -N 3
+
+# Both, and a rectangular image
+VISION_ISL=64 VISION_OSL=256 VISION_IMAGE_SIZE=448x896 ./scripts/run_sweep.sh -w vision -N 3
+```
+
+They apply to every selected workload, so run one at a time — the pre-flight
+warns otherwise. They are ignored (with a warning) on a non-vision run, and
+they do nothing to `vision_mmbench`, whose text comes from the dataset rather
+than a `synthetic_text` spec.
+
+The `isl` column counts **text tokens only** — the image adds its own on top.
+Qwen3-VL emits one token per 32x32 pixels (patch_size 16 x spatial_merge_size
+2), so a 448x448 image is about 196 tokens and a 1344x1344 one about 1764.
+That is why these workloads declare `--max-model-len` explicitly rather than
+letting the usual `isl + osl + 128` derivation size the context window. The
+prompt-token counts *reported in the results* do include the visual tokens,
+because GuideLLM sends `stream_options.include_usage` and reads back vLLM's
+`usage.prompt_tokens`.
+
+| Env var | Default | Meaning |
+|---|---|---|
+| `VISION_WORKLOADS` | `vqa` | Which image workloads `-w vision` expands into. An unknown name fails pre-flight rather than halfway through the sweep |
+| `VISION_DATA_SPECS` | *(each workload's own `data_specs`)* | JSON list of GuideLLM `--data` sources, e.g. `'["kind=synthetic_image,width=224,height=224"]'`. Applies to **every** selected workload, so run one at a time with it; the pre-flight warns otherwise |
+| `VISION_COLUMN_MAPPER` | *(each workload's own)* | JSON object for `--data-column-mapper`, for datasets whose image/text columns are not named what GuideLLM expects |
+| `VISION_ISL` | *(the workload's `isl`)* | Text prompt tokens. Rewrites `prompt_tokens=` in the selected workloads' own `data_specs` |
+| `VISION_OSL` | *(the workload's `osl`)* | Generated tokens. Rewrites `output_tokens=` |
+| `VISION_IMAGE_SIZE` | *(the workload's image)* | `NxM`, or `N` for square. Rewrites `width=`/`height=`. Warns when not a multiple of 32, since the preprocessor rounds to that |
+| `VISION_LIMIT_MM_PER_PROMPT` | *(largest `images_per_request` in the selected workloads)* | Images allowed per request. vLLM defaults to 1 and rejects more, which would fail `multi` |
+
+When no `-m` is given, the default model is `Qwen/Qwen3-VL-8B-Instruct`.
+
+Two things to know before reading any vision numbers on the zentorch image:
+
+- zentorch's ViT-attention patch (`MMEncoderSdpa`) is a **silent no-op on vLLM
+  0.29 and 0.31** — it targets `vit_attn_wrappers.apply_sdpa`, which 0.29
+  replaced with the `MMEncoderAttention` layer, and it still reports success.
+  The vision tower runs unoptimized without any warning. On 0.31 the server
+  log says so directly: `Using AttentionBackendEnum.TORCH_SDPA for
+  MMEncoderAttention`.
+- **Native vLLM 0.29 CPU cannot start Qwen3-VL at all** (`IndexError: list
+  index out of range`), which is precisely the bug zentorch's
+  `_qwen3_vl_text_config_patch.py` shim fixes. There is no native baseline for
+  this model on 0.29; compare zentorch builds against each other. On 0.31 the
+  model starts on both variants, so a zentorch-vs-native A/B works there.
+
+Check output quality before each sweep — `vision-run.sh probe` does this in one
+command. The zentorch garbage-output bug seen on the 0.29 image does not
+reproduce on `vllm_v0.31.0_zentorch_v2.13.0.3:ubuntu26.04_20261007`, but it is
+a per-build fault, not a fixed one.
 
 ## Scripts
 
@@ -635,6 +789,22 @@ curl http://localhost:8080/health   # returns 200 when at least one instance is 
 **Round-robin test shows uneven distribution:**
 This is normal for a small number of requests. NGINX round-robin is per-connection, and retries on failure can skew counts. Send more requests for a clearer distribution.
 
+**Another user's stack is already on the host (`subnet 10.201.0.0/24 is already used`, container name conflicts, results that look like someone else's model):**
+Run yours in its own namespace. `STACK_TAG` suffixes the container names and the generated config dir, but it does **not** move the port or the subnet, so set all three (plus a core band outside the other run's):
+
+```bash
+export STACK_TAG=vis NGINX_PORT=8099 VLLM_SUBNET=10.202.0.0/24
+export VLLM_START_CORE=160 NGINX_CORES=150-155
+```
+
+Never clean up with `podman rm -f $(podman ps -aq)` on a shared host — it removes the other session's containers too. Filter on your tag instead:
+
+```bash
+podman rm -f $(podman ps -aq --filter "name=-$STACK_TAG$")
+```
+
+Also note that `podman logs` concatenates output across every incarnation of a reused container name, so a traceback from a run that finished hours ago can resurface as if it were current. Check the container id and timestamps before believing it.
+
 **GuideLLM container exits with code 126 — `cannot setuid to unmapped uid 1001 in user namespace`:**
 The GuideLLM container image (`ghcr.io/vllm-project/guidellm:v0.6.0`) has `USER 1001:0` baked in. In rootless podman, UID 1001 is not mapped in the user namespace, causing the container to crash immediately. The fix is to add `user: "0:0"` to the `podman_container` task in `vllm-cpu-perf-eval/automation/test-execution/ansible/roles/benchmark_guidellm/tasks/main.yml` (the "Start GuideLLM benchmark container" task), which runs the container as root and bypasses the UID mapping issue.
 
@@ -724,7 +894,8 @@ benchmark-vllm-guidellm/
 ├── patches/
 │   ├── vllm-cpu-perf-eval.patch        # core fixes for the external-endpoint flow
 │   ├── embedding.patch                 # -w embedding fixes (stack on top, --3way)
-│   └── audio-model.patch               # -w audio fixes (stack on top, --3way)
+│   ├── audio-model.patch               # -w audio fixes (stack on top, --3way)
+│   └── vision.patch                    # -w vision workloads + per-workload --data specs
 └── scripts/
     ├── generate-config.sh              # generates compose + nginx config
     ├── start.sh                        # launches the stack (online/serve)
