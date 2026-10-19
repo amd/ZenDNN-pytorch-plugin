@@ -8,7 +8,9 @@ import torch
 from torch.testing import FileCheck
 from torch import nn
 import sys
+import copy
 from pathlib import Path
+from torch._inductor import config as inductor_config
 
 sys.path.append(str(Path(__file__).parent.parent))
 from unittest_utils import (  # noqa: 402
@@ -21,6 +23,8 @@ from unittest_utils import (  # noqa: 402
     zentorch,
     freeze_opt,
     cpp_wrapper_opt,
+    default_tolerance,
+    test_with_freeze_opt,
     test_with_freeze_opt_and_cpp_wrapper,
     counters,
 )
@@ -58,12 +62,25 @@ class Test_Linear_Model(AddmmTestCase):
     def test_linear_model(self, dtype, freeze_opt, cpp_wrapper):
 
         model = Custom_Model_Linear(self.data.k, self.data.get_torch_type(dtype))
+        inductor_model = copy.deepcopy(model)
 
-        native_output = model(self.data.x)
         reset_dynamo()
-        compiled_graph = torch.compile(model, backend="zentorch")
         counters.clear()
         self.assertEqual(counters["zentorch"]["zentorch_linear"], 0)
+
+        # Compiled reference under the same freezing setting, so zentorch's pass
+        # is the only difference between the two graphs. zentorch_compile sets
+        # that pass on the Inductor config and never restores it, so without the
+        # patch this leg replaces the linears too -- and the counter below would
+        # see 6 rather than 3.
+        with inductor_config.patch(joint_custom_post_pass=None):
+            inductor_graph = torch.compile(inductor_model, backend="inductor")
+            inductor_output = test_with_freeze_opt(
+                inductor_graph, (self.data.x), freeze_opt
+            )
+
+        reset_dynamo()
+        compiled_graph = torch.compile(model, backend="zentorch")
         compiled_output, cpp_code = test_with_freeze_opt_and_cpp_wrapper(
             compiled_graph, (self.data.x), freeze_opt, cpp_wrapper
         )
@@ -72,10 +89,12 @@ class Test_Linear_Model(AddmmTestCase):
             self.assertEqual(
                 counters["zentorch"]["zentorch_weight_prepack_for_linear"], 3
             )
-        tol = 1e-2 if dtype == "float16" else 1e-5
-        self.assertTrue(
-            torch.allclose(native_output, compiled_output, atol=tol, rtol=tol)
-        )
+        # bfloat16 keeps 8 significant bits, so the two compiled GEMMs may land
+        # an ULP apart -- measured at 2**-12 on a few elements, while float32's
+        # 1e-5 demands bit-exactness. assertEqual (not allclose) so a failure
+        # reports the magnitude.
+        atol, rtol = default_tolerance(self.data.get_torch_type(dtype))
+        self.assertEqual(inductor_output, compiled_output, atol=atol, rtol=rtol)
         # Pillar 2 (codegen): op lowers to its AOTI C-shim (see helper docstring).
         if cpp_wrapper:
             FileCheck().check("aoti_torch_cpu_zentorch").run(cpp_code)
