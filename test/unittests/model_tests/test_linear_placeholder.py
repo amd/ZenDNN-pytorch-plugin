@@ -11,6 +11,7 @@ import sys
 import os
 import copy
 from pathlib import Path
+from torch._inductor import config as inductor_config
 
 sys.path.append(str(Path(__file__).parent.parent))
 from unittest_utils import (  # noqa: 402
@@ -23,6 +24,7 @@ from unittest_utils import (  # noqa: 402
     zentorch,
     freeze_opt,
     cpp_wrapper_opt,
+    test_with_freeze_opt,
     test_with_freeze_opt_and_cpp_wrapper,
     counters,
 )
@@ -76,18 +78,29 @@ class Test_Linear_Model_AMP(AddmmTestCase):
         reset_dynamo()
         # Create deepcopy for non-zentorch (native) run
         native_model = copy.deepcopy(model)
-        compiled_graph = torch.compile(model, backend="zentorch")
+
         counters.clear()
         self.assertEqual(counters["zentorch"]["zentorch_linear"], 0)
         # Compile inside autocast context so FX graph includes convert_element_type operations
         with torch.autocast(device_type="cpu", dtype=torch.bfloat16):
-            native_output = native_model(input_3d)
+            # zentorch_compile sets its pass on the Inductor config and never
+            # restores it, so without this the reference also replaces the
+            # three linears -- zentorch output as the native baseline.
+            with inductor_config.patch(joint_custom_post_pass=None):
+                native_model_compiled = torch.compile(native_model, backend="inductor")
+                native_output = test_with_freeze_opt(
+                    native_model_compiled, (input_3d,), freeze_opt
+                )
+            compiled_graph = torch.compile(model, backend="zentorch")
             compiled_output, cpp_code = test_with_freeze_opt_and_cpp_wrapper(
                 compiled_graph, (input_3d,), freeze_opt, cpp_wrapper
             )
 
         self.assertEqual(counters["zentorch"]["zentorch_linear"], 3)
-        self.assertTrue(torch.allclose(native_output, compiled_output))
+        # Autocast runs the linears in bfloat16, so compare at bf16 precision.
+        self.assertTrue(
+            torch.allclose(native_output, compiled_output, atol=1e-2, rtol=5e-3)
+        )
         # Pillar 2 (codegen): op lowers to its AOTI C-shim (see helper docstring).
         if cpp_wrapper:
             FileCheck().check("aoti_torch_cpu_zentorch").run(cpp_code)
