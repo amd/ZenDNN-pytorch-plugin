@@ -369,30 +369,6 @@ def _register_int8_moe_patches(mod) -> None:
         method_cls.apply_monolithic = _zen_apply_monolithic
 
 
-def _pad_experts_for_inplace(w: torch.Tensor) -> torch.Tensor:
-    """Re-allocate an [E, N, K] int8 weight with per-expert trailing slack.
-
-    ZenDNN's blocked layout needs ``N * 4`` bytes beyond the weight for its
-    compensation row, so an exactly-sized tensor never passes the in-place gate
-    and every expert weight is duplicated. The gap has to be per-expert: in a
-    packed tensor the bytes after one expert belong to the next.
-    """
-    if w.dim() != 3 or w.dtype != torch.int8 or not w.is_contiguous():
-        return w
-    E, N, K = w.shape
-    per_expert = N * K  # elements
-    # Bytes, not elements: the row is one int32 per output column whatever the
-    # weight dtype. Rounded to 64 to match the reorder's overscan, plus a spare
-    # line so an exactly-equal fit is not the only passing case.
-    esz = w.element_size()
-    pad_bytes = ((N * 4 + 63) // 64) * 64 + 64
-    pad = (pad_bytes + esz - 1) // esz
-    storage = torch.empty(E * (per_expert + pad), dtype=w.dtype, device=w.device)
-    out = storage.as_strided((E, N, K), (per_expert + pad, K, 1))
-    out.copy_(w)
-    return out
-
-
 def _pad_moe_weights_for_inplace(layer) -> None:
     """Trade ``E * N * 4`` bytes per projection for the in-place reorder: on a
     256-expert Qwen3.6 that is 120 MiB against a 30 GiB duplicate."""
@@ -401,7 +377,7 @@ def _pad_moe_weights_for_inplace(layer) -> None:
         w = getattr(layer, name, None)
         if w is None:
             continue
-        new_w = _pad_experts_for_inplace(w.data)
+        new_w = torch.ops.zentorch.zentorch_preprocess_weights(w.data)
         if new_w.data_ptr() == w.data.data_ptr():
             continue  # not eligible (dtype/layout); left untouched
         setattr(layer, name, torch.nn.Parameter(new_w, requires_grad=False))

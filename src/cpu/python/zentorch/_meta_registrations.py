@@ -520,6 +520,11 @@ def meta_zentorch_weight_prepack_for_dynamic_qlinear(
     return weight.new_empty(weight.size())
 
 
+@register_meta("zentorch_preprocess_weights")
+def meta_zentorch_preprocess_weights(weight, zentorch_op_name=None):
+    return weight.new_empty(weight.size())
+
+
 @register_meta("zentorch_qlinear", "out")
 def meta_zentorch_qlinear_out(
     out,

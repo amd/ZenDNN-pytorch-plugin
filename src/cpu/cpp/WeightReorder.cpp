@@ -148,6 +148,37 @@ torch::stable::Tensor zentorch_weight_prepack_for_dynamic_qlinear(
                                                   get_zendnnl_dtype(src_dtype));
 }
 
+// Re-allocates an [E, N, K] int8 expert weight with slack after every expert.
+// Without room for ZenDNN's N * 4 byte compensation row the blocked reorder
+// duplicates them all, and a single tail gap would land on the next expert.
+torch::stable::Tensor
+zentorch_preprocess_weights(const torch::stable::Tensor &weight_in,
+                            const std::string & /*zentorch_op_name*/) {
+  if (weight_in.dim() != 3 ||
+      weight_in.scalar_type() != c10::ScalarType::Char) {
+    return weight_in;
+  }
+
+  const torch::stable::Tensor weight = torch::stable::contiguous(weight_in);
+
+  const int64_t E = weight.size(0);
+  const int64_t N = weight.size(1);
+  const int64_t K = weight.size(2);
+  const int64_t per_expert = N * K;
+  const int64_t elt_size = static_cast<int64_t>(weight.element_size());
+
+  const int64_t pad_bytes = ((N * 4 + 63) / 64) * 64 + 64;
+  const int64_t pad = (pad_bytes + elt_size - 1) / elt_size;
+
+  // 3D because aoti_torch_as_strided takes its rank from the tensor, not sizes.
+  torch::stable::Tensor storage =
+      torch::stable::new_empty(weight, {E, 1, per_expert + pad});
+  torch::stable::Tensor out =
+      stable_as_strided(storage, {E, N, K}, {per_expert + pad, K, 1});
+  torch::stable::copy_(out, weight);
+  return out;
+}
+
 // The cache flush is also exposed as an op, not only through the _C pybind
 // module, because _C links libtorch_python.so and cannot be imported when the
 // portable library is the one that loaded. Callers must be able to flush in
@@ -163,6 +194,8 @@ STABLE_TORCH_LIBRARY_FRAGMENT(zentorch, m) {
         "zentorch_op_name='zentorch::zentorch_weight_prepack_for_dynamic_"
         "qlinear') "
         "-> Tensor");
+  m.def("zentorch_preprocess_weights(Tensor weight, str "
+        "zentorch_op_name='zentorch::zentorch_preprocess_weights') -> Tensor");
   m.def("zentorch_clear_weight_cache() -> ()");
 }
 
@@ -171,6 +204,8 @@ STABLE_TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
          TORCH_BOX(&zentorch::zentorch_weight_prepack_for_linear));
   m.impl("zentorch_weight_prepack_for_dynamic_qlinear",
          TORCH_BOX(&zentorch::zentorch_weight_prepack_for_dynamic_qlinear));
+  m.impl("zentorch_preprocess_weights",
+         TORCH_BOX(&zentorch::zentorch_preprocess_weights));
 }
 
 // Keyed on CompositeExplicitAutograd rather than CPU because the schema takes

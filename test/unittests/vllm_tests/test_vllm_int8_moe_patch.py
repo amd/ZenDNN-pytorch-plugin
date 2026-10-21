@@ -102,32 +102,41 @@ class TestInt8OracleSupportGates(unittest.TestCase):
         self.assertEqual(processed, [layer])
 
 
-class TestPadExpertsForInplace(unittest.TestCase):
-    """Per-expert slack is what lets ZenDNN reorder int8 weights in place."""
+@unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
+class TestPadMoEWeightsForInplace(unittest.TestCase):
+    """The op does the padding; this is the walk over a layer's projections."""
 
-    def test_each_expert_gets_its_own_gap(self):
+    NAMES = ("w13_weight", "w2_weight")
+
+    def test_both_projections_are_replaced(self):
         import torch
-        from zentorch.vllm._int8_moe_patch import _pad_experts_for_inplace
+        from zentorch.vllm._int8_moe_patch import _pad_moe_weights_for_inplace
 
         E, N, K = 3, 64, 32
-        w = torch.randint(-128, 128, (E, N, K), dtype=torch.int8)
-        out = _pad_experts_for_inplace(w)
+        layer = torch.nn.Module()
+        for name in self.NAMES:
+            w = torch.randint(-128, 128, (E, N, K), dtype=torch.int8)
+            setattr(layer, name, torch.nn.Parameter(w, requires_grad=False))
+        before = {n: getattr(layer, n).data.clone() for n in self.NAMES}
 
-        # A single tail pad would let ZenDNN scribble on the next expert.
-        self.assertGreater(out.stride(0), N * K)
-        self.assertEqual(out.shape, (E, N, K))
-        self.assertEqual(out.stride()[1:], (K, 1))
-        self.assertTrue(torch.equal(out, w))
+        _pad_moe_weights_for_inplace(layer)
 
-    def test_ineligible_tensors_are_returned_untouched(self):
+        for name, original in before.items():
+            padded = getattr(layer, name).data
+            self.assertGreater(padded.stride(0), N * K)
+            self.assertTrue(torch.equal(padded, original))
+
+    def test_ineligible_projections_are_left_alone(self):
         import torch
-        from zentorch.vllm._int8_moe_patch import _pad_experts_for_inplace
+        from zentorch.vllm._int8_moe_patch import _pad_moe_weights_for_inplace
 
-        for w in (
-            torch.zeros(4, 8, dtype=torch.int8),  # not 3D
-            torch.zeros(2, 4, 8, dtype=torch.bfloat16),  # not int8
-        ):
-            self.assertIs(_pad_experts_for_inplace(w), w)
+        layer = torch.nn.Module()
+        layer.w13_weight = torch.nn.Parameter(
+            torch.zeros(2, 4, 8, dtype=torch.bfloat16), requires_grad=False
+        )
+        kept = layer.w13_weight
+        _pad_moe_weights_for_inplace(layer)
+        self.assertIs(layer.w13_weight, kept)
 
 
 if __name__ == "__main__":

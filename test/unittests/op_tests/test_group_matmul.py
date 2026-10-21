@@ -382,15 +382,13 @@ class Test_GroupMatmul(GroupMatmulTestCase):
                 )
             )
 
-        def as_one_parent(per_expert_weights, slack):
+        def as_one_parent(per_expert_weights):
             """[E, N, K] holding the same weights, one slice per expert."""
             n, k = per_expert_weights[0].shape
-            span = n * k + slack
-            storage = torch.empty(num_experts * span, dtype=torch.int8)
-            parent = storage.as_strided((num_experts, n, k), (span, k, 1))
+            parent = torch.empty((num_experts, n, k), dtype=torch.int8)
             for e in range(num_experts):
                 parent[e].copy_(per_expert_weights[e])
-            return storage, parent
+            return parent
 
         # FusedMoE hands the experts over in first-seen routing order, so a
         # permutation is the realistic case here, not an edge one.
@@ -399,13 +397,17 @@ class Test_GroupMatmul(GroupMatmulTestCase):
         # Built up front and held for the whole test: ZenDNN keys its weight
         # cache on the weight pointer, so a freed parent whose address is
         # recycled by the next pass would be served a stale reorder.
-        parents = [
-            (slack, *as_one_parent(w13_int8, slack), *as_one_parent(w2_int8, slack))
-            for slack in (0, ((K * 4 + 63) // 64) * 64 + 64)
-        ]
+        packed = (as_one_parent(w13_int8), as_one_parent(w2_int8))
+        # The padded arm comes from the op the vLLM loader calls, so this
+        # covers it on the path it has to work on.
+        padded = tuple(
+            torch.ops.zentorch.zentorch_preprocess_weights(p) for p in packed
+        )
+        # Were the op a no-op the padded arm would just repeat the packed one.
+        self.assertGreater(padded[0].stride(0), K * K)
 
-        for slack, w13_storage, w13_parent, w2_storage, w2_parent in parents:
-            before = (w13_storage.clone(), w2_storage.clone())
+        for is_packed, (w13_parent, w2_parent) in ((True, packed), (False, padded)):
+            before = (w13_parent.clone(), w2_parent.clone())
             inputs = scatter()
 
             torch.ops.zentorch.zentorch_group_matmul.out(
@@ -433,10 +435,10 @@ class Test_GroupMatmul(GroupMatmulTestCase):
             # the weights alone; mutating them would be writing over the next
             # expert. The reverse is not an invariant -- ZenDNN declines the
             # in-place path for reasons of its own, e.g. the AUTO downgrade.
-            if slack == 0:
+            if is_packed:
                 self.assertTrue(
-                    torch.equal(w13_storage, before[0])
-                    and torch.equal(w2_storage, before[1]),
+                    torch.equal(w13_parent, before[0])
+                    and torch.equal(w2_parent, before[1]),
                     "packed experts were mutated by the reorder",
                 )
 
