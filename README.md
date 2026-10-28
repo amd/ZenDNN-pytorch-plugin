@@ -45,7 +45,7 @@ Table of Contents
 
 ## 1.1. Overview
 
-__The latest  ZenDNN Plugin for PyTorch* (zentorch) [2.14.1.0] is here__
+__The latest  ZenDNN Plugin for PyTorch* (zentorch) [2.14.1.1] is here__
 
 The ZenDNN plugin for PyTorch is called zentorch.
 
@@ -58,7 +58,7 @@ They also incorporate optimized embedding bag kernels and enhanced zenMatMul mat
 
 Combined with PyTorch's torch.compile, zentorch transforms deep learning pipelines into finely-tuned, AMD-specific engines, delivering unparalleled efficiency and speed for large-scale inference workloads
 
-_zentorch_ supports PyTorch v2.14.1 (recommended) and v2.13.0. Install the zentorch version matching your PyTorch — zentorch 2.14.1.0 for PyTorch v2.14.1 or zentorch 2.13.0.3 for PyTorch v2.13.0, offering a high-performance experience for deep learning on AMD EPYC™ platforms.
+_zentorch_ supports PyTorch v2.14.1 (recommended) and v2.13.0. Install the zentorch version matching your PyTorch — zentorch 2.14.1.1 for PyTorch v2.14.1 or zentorch 2.13.0.4 for PyTorch v2.13.0, offering a high-performance experience for deep learning on AMD EPYC™ platforms.
 
 
 ## Support
@@ -111,7 +111,7 @@ Refer to the [support matrix](https://www.amd.com/en/developer/zendnn.html#getti
 # 2. Installation
 
 _zentorch_ can be installed using binary wheel file or can be built from source itself.
-_zentorch_ supports PyTorch v2.14.1 (recommended) and v2.13.0. Install the zentorch version matching your PyTorch — zentorch v2.14.1.0 for PyTorch v2.14.1 or zentorch v2.13.0.3 for PyTorch v2.13.0.
+_zentorch_ supports PyTorch v2.14.1 (recommended) and v2.13.0. Install the zentorch version matching your PyTorch — zentorch v2.14.1.1 for PyTorch v2.14.1 or zentorch v2.13.0.4 for PyTorch v2.13.0.
 
 ## 2.1. From PyPI
 
@@ -128,12 +128,12 @@ pip install torch==2.14.0 --index-url https://download.pytorch.org/whl/cpu
 pip install torch==2.13.0 --index-url https://download.pytorch.org/whl/cpu
 ```
 
-* Install latest stable zentorch v2.14.0.1 or v2.13.0.2
+* Install latest stable zentorch v2.14.1.0 and v2.13.0.3
 ```bash
-pip install zentorch==2.14.0.1
+pip install zentorch==2.14.1.0
 ```
 ```bash
-pip install zentorch==2.13.0.2
+pip install zentorch==2.13.0.3
 ```
 
 >**Notes:**
@@ -187,12 +187,12 @@ python setup.py bdist_wheel
 
 #### 2.2.2.5. To install the wheel file of _zentorch_
 ```bash
-pip install dist/zentorch-2.14.1.0-cp312-cp312-linux_x86_64.whl
+pip install dist/zentorch-2.14.1.1-cp312-cp312-linux_x86_64.whl
 ```
 or
 
 ```bash
-pip install dist/zentorch-2.13.0.3-cp312-cp312-linux_x86_64.whl
+pip install dist/zentorch-2.13.0.4-cp312-cp312-linux_x86_64.whl
 ```
 >**Note:** After installation, run the following script for recommended environment settings:
 >```bash
@@ -373,7 +373,7 @@ TORCH_COMPILE_DEBUG=1 python test.py
 For more information about TORCH_COMPILE_DEBUG refer to the official PyTorch documentation available.
 
 # 6. Performance tuning and Benchmarking
-For zentorch v2.14.1.0 and zentorch 2.13.0.3 plugin. Please see the **Tuning Guidelines** section of ZenDNN User Guide for performance tuning. ZenDNN User Guide can be downloaded from [here](https://developer.amd.com/zendnn)
+For zentorch v2.14.1.1 and zentorch 2.13.0.4 plugin. Please see the **Tuning Guidelines** section of ZenDNN User Guide for performance tuning. ZenDNN User Guide can be downloaded from [here](https://developer.amd.com/zendnn)
 
 # 7. Additional Utilities:
 
