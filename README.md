@@ -147,8 +147,7 @@ git clone https://github.com/amd/ZenDNN-pytorch-plugin.git
 cd ZenDNN-pytorch-plugin
 ```
 
-The repository defaults to main branch, to build the version 2.14.1.0 checkout the v2.14.1.0 branch;
-to build the version 2.13.0.3 checkout the v2.13.0.3 branch
+The repository defaults to main branch, checkout the v2.14.1.0 branch or checkout the v2.13.0.3 branch
 ```
 git checkout v2.14.1.0
 or
