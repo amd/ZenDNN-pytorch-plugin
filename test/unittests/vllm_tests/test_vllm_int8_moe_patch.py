@@ -46,6 +46,16 @@ class TestInt8OracleSupportGates(unittest.TestCase):
             cls._supports_routing_method(RoutingMethodType.Custom, None, None)
         )
 
+    def test_apply_accepts_every_base_apply_parameter(self):
+        """The monolithic kernel calls ``apply`` with the base's keywords."""
+        import inspect
+
+        import vllm.model_executor.layers.fused_moe.modular_kernel as mk
+
+        base = inspect.signature(mk.FusedMoEExpertsMonolithic.apply).parameters
+        ours = inspect.signature(self._experts_cls().apply).parameters
+        self.assertEqual([p for p in base if p not in ours], [])
+
     def test_plugin_experts_reject_expert_parallelism(self):
         from vllm.model_executor.layers.fused_moe.experts import cpu_moe
 
