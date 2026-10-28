@@ -49,8 +49,7 @@ __The latest  ZenDNN Plugin for PyTorch* (zentorch) [2.14.1.0] is here__
 
 The ZenDNN plugin for PyTorch is called zentorch.
 
-This upgrade continues the focus on optimizing inference with Recommender Systems and Large Language Models on AMD EPYC™ CPUs. It includes AMD EPYC™ enhancements for bfloat16 performance, expanded support for cutting-edge models like Llama 3.2 and 3.3, Microsoft Phi, and more as well as support for a wide-variety of quantization configurations.
-The quantization support included 4-bit weight-only quantization, along with support for INT8 dynamic activation and INT8 weight quantization, and quantized support for the DLRM-v2 model with a mix of 8-bit and 4-bit quantization.
+This upgrade continues the focus on optimizing inference with Recommender Systems and Large Language Models on AMD EPYC™ CPUs. It includes AMD EPYC™ enhancements for bfloat16 performance, expanded support for cutting-edge LLMs models like Qwen and Gemma dense and MoE (Mixture of Experts) models, such as Qwen3.5-9B, Qwen3.6-35B-A3B and RedHatAI/gemma-4-26B-A4B-it. We continue to provide quantization capability support such as Weight-only and dynamic quantization with 4-bit and 8-bit support.
 This also includes support for running generative models with vLLM. This release introduces functional support for running LLMs using float16 precision with vLLM on 6th Gen AMD EPYC™ processors.
 
 Under the hood, ZenDNN’s enhanced AMD-specific optimizations operate at every level. In addition to highly optimized operator microkernels, these include comprehensive graph optimizations including pattern identification, graph reordering, and fusions.
@@ -120,20 +119,20 @@ _zentorch_ supports PyTorch v2.14.1 (recommended) and v2.13.0. Install the zento
 ```bash
 pip uninstall zentorch
 ```
-* Install PyTorch v2.14.0 or v2.13.0
+* Install PyTorch v2.14.1 or v2.13.0
 ```bash
-pip install torch==2.14.0 --index-url https://download.pytorch.org/whl/cpu
+pip install torch==2.14.1 --index-url https://download.pytorch.org/whl/cpu
 ```
 ```bash
 pip install torch==2.13.0 --index-url https://download.pytorch.org/whl/cpu
 ```
 
-* Install latest stable zentorch v2.14.0.1 or v2.13.0.2
+* Install latest stable zentorch v2.14.1.0 or v2.13.0.3
 ```bash
-pip install zentorch==2.14.0.1
+pip install zentorch==2.14.1.0
 ```
 ```bash
-pip install zentorch==2.13.0.2
+pip install zentorch==2.13.0.3
 ```
 
 >**Notes:**
@@ -146,6 +145,14 @@ Run the following commands:
 ```bash
 git clone https://github.com/amd/ZenDNN-pytorch-plugin.git
 cd ZenDNN-pytorch-plugin
+```
+```
+The repository defaults to main branch, to build the version 2.14.1.0 checkout the v2.14.1.0 branch;
+to build the version 2.13.0.3 checkout the v2.13.0.3 branch
+```
+git checkout v2.14.1.0
+or
+git checkout v2.13.0.3
 ```
 >**Notes:**
 >* ```export ZENDNNL_MANYLINUX_BUILD=1``` is needed for build from source for RHEL/FEDORA/Almalinux/CentOS OS families
