@@ -13,15 +13,26 @@
 #include "RMS_norm.hpp"
 #include "Utils.hpp"
 #include "WOQ_Linear.hpp"
-#include <ATen/ops/native_layer_norm.h>
 
-#include <c10/util/Optional.h>
+#include <cstdio>
+#include <exception>
 #include <optional>
 #include <torch/csrc/inductor/aoti_torch/c/shim.h>
 #include <torch/csrc/stable/tensor.h>
 #include <vector>
 
-using namespace torch::aot_inductor;
+#define ZENTORCH_AOTI_SHIM(...)                                                \
+  try {                                                                        \
+    __VA_ARGS__                                                                \
+  } catch (const std::exception &e) {                                          \
+    std::fprintf(stderr, "zentorch shim: %s\n",                                \
+                 e.what() != nullptr ? e.what() : "std::exception");           \
+    return AOTI_TORCH_FAILURE;                                                 \
+  } catch (...) {                                                              \
+    std::fprintf(stderr, "zentorch shim: unknown exception\n");                \
+    return AOTI_TORCH_FAILURE;                                                 \
+  }                                                                            \
+  return AOTI_TORCH_SUCCESS
 
 namespace {
 
@@ -63,6 +74,15 @@ build_stable_optional_tensor_vector(const AtenTensorHandle **handles,
     }
   }
   return out;
+}
+
+// int32_t* -> c10::ScalarType, matching the C ABI for a ScalarType? arg.
+// Every call site passes an explicit result type that differs from the
+// pointer type, so one converting template covers them. Local so this file
+// does not include the ATen AOTI utils header.
+template <class T, class U>
+inline std::optional<T> pointer_to_optional(const U *ptr) {
+  return ptr ? std::make_optional<T>(static_cast<T>(*ptr)) : std::nullopt;
 }
 
 // The C ABI representation of a schema `int[]` arg. An empty list may arrive
@@ -118,7 +138,7 @@ AOTITorchError aoti_torch_cpu_zentorch_linear_unary(
     AtenTensorHandle X, AtenTensorHandle W, AtenTensorHandle *B,
     bool is_weight_prepacked, const char *post_op, const char *zentorch_op_name,
     AtenTensorHandle *ret0) {
-  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+  ZENTORCH_AOTI_SHIM({
     const torch::stable::Tensor input = stable_from_handle(X);
     const torch::stable::Tensor weight = stable_from_handle(W);
     const std::optional<torch::stable::Tensor> bias =
@@ -133,7 +153,7 @@ AOTITorchError aoti_torch_cpu_zentorch_linear_unary_out(
     AtenTensorHandle out, AtenTensorHandle X, AtenTensorHandle W,
     AtenTensorHandle *B, bool is_weight_prepacked, const char *post_op,
     const char *zentorch_op_name) {
-  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+  ZENTORCH_AOTI_SHIM({
     torch::stable::Tensor out_stable = stable_from_handle(out);
     const torch::stable::Tensor input = stable_from_handle(X);
     const torch::stable::Tensor weight = stable_from_handle(W);
@@ -152,7 +172,7 @@ AOTITorchError aoti_torch_cpu_zentorch_qlinear(
     AtenTensorHandle *output_scales, AtenTensorHandle *output_zero_points,
     const int32_t *output_dtype, bool is_weight_prepacked,
     const char *zentorch_op_name, AtenTensorHandle *ret0) {
-  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+  ZENTORCH_AOTI_SHIM({
     auto tmp_result =
         zentorch::zentorch_qlinear_unary<zentorch::UNARY_POST_OP::POST_OP_NONE>(
             stable_from_handle(X), stable_from_handle(W),
@@ -174,7 +194,7 @@ AOTITorchError aoti_torch_cpu_zentorch_qlinear_relu(
     AtenTensorHandle *output_scales, AtenTensorHandle *output_zero_points,
     const int32_t *output_dtype, bool is_weight_prepacked,
     const char *zentorch_op_name, AtenTensorHandle *ret0) {
-  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+  ZENTORCH_AOTI_SHIM({
     auto tmp_result =
         zentorch::zentorch_qlinear_unary<zentorch::UNARY_POST_OP::RELU>(
             stable_from_handle(X), stable_from_handle(W),
@@ -196,7 +216,7 @@ AOTITorchError aoti_torch_cpu_zentorch_qlinear_sigmoid(
     AtenTensorHandle *output_scales, AtenTensorHandle *output_zero_points,
     const int32_t *output_dtype, bool is_weight_prepacked,
     const char *zentorch_op_name, AtenTensorHandle *ret0) {
-  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+  ZENTORCH_AOTI_SHIM({
     auto tmp_result =
         zentorch::zentorch_qlinear_unary<zentorch::UNARY_POST_OP::SIGMOID>(
             stable_from_handle(X), stable_from_handle(W),
@@ -219,7 +239,7 @@ AOTITorchError aoti_torch_cpu_zentorch_qlinear_mul_add(
     AtenTensorHandle *output_scales, AtenTensorHandle *output_zero_points,
     const int32_t *output_dtype, bool is_weight_prepacked,
     const char *zentorch_op_name, AtenTensorHandle *ret0) {
-  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+  ZENTORCH_AOTI_SHIM({
     auto tmp_result =
         zentorch::zentorch_qlinear_binary_binary<zentorch::BINARY_POST_OP::MUL,
                                                  zentorch::BINARY_POST_OP::ADD>(
@@ -243,7 +263,7 @@ AOTITorchError aoti_torch_cpu_zentorch_qlinear_out(
     AtenTensorHandle *B, AtenTensorHandle *output_scales,
     AtenTensorHandle *output_zero_points, const int32_t *output_dtype,
     bool is_weight_prepacked, const char *zentorch_op_name) {
-  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+  ZENTORCH_AOTI_SHIM({
     torch::stable::Tensor result = stable_from_handle(out);
     zentorch::zentorch_qlinear_out_unary<zentorch::UNARY_POST_OP::POST_OP_NONE>(
         result, stable_from_handle(X), stable_from_handle(W),
@@ -264,7 +284,7 @@ AOTITorchError aoti_torch_cpu_zentorch_qlinear_relu_out(
     AtenTensorHandle *B, AtenTensorHandle *output_scales,
     AtenTensorHandle *output_zero_points, const int32_t *output_dtype,
     bool is_weight_prepacked, const char *zentorch_op_name) {
-  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+  ZENTORCH_AOTI_SHIM({
     torch::stable::Tensor result = stable_from_handle(out);
     zentorch::zentorch_qlinear_out_unary<zentorch::UNARY_POST_OP::RELU>(
         result, stable_from_handle(X), stable_from_handle(W),
@@ -283,7 +303,7 @@ AOTITorchError aoti_torch_cpu_zentorch_linear_unary_binary(
     AtenTensorHandle *B, bool is_weight_prepacked, const char *post_op_1,
     const char *post_op_2, const char *zentorch_op_name,
     AtenTensorHandle *ret0) {
-  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+  ZENTORCH_AOTI_SHIM({
     const torch::stable::Tensor input = stable_from_handle(X);
     const torch::stable::Tensor weight = stable_from_handle(W);
     const torch::stable::Tensor binary_input_stable =
@@ -302,7 +322,7 @@ AOTITorchError aoti_torch_cpu_zentorch_linear_unary_binary_out(
     AtenTensorHandle binary_input, AtenTensorHandle *B,
     bool is_weight_prepacked, const char *post_op_1, const char *post_op_2,
     const char *zentorch_op_name) {
-  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+  ZENTORCH_AOTI_SHIM({
     torch::stable::Tensor out_stable = stable_from_handle(out);
     const torch::stable::Tensor input = stable_from_handle(X);
     const torch::stable::Tensor weight = stable_from_handle(W);
@@ -321,7 +341,7 @@ AOTITorchError aoti_torch_cpu_zentorch_linear_binary_binary(
     AtenTensorHandle binary_input_2, AtenTensorHandle *B,
     bool is_weight_prepacked, const char *post_op_1, const char *post_op_2,
     const char *zentorch_op_name, AtenTensorHandle *ret0) {
-  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+  ZENTORCH_AOTI_SHIM({
     const torch::stable::Tensor input = stable_from_handle(X);
     const torch::stable::Tensor weight = stable_from_handle(W);
     const torch::stable::Tensor binary_input_1_stable =
@@ -342,7 +362,7 @@ AOTITorchError aoti_torch_cpu_zentorch_linear_binary_binary_out(
     AtenTensorHandle binary_input_1, AtenTensorHandle binary_input_2,
     AtenTensorHandle *B, bool is_weight_prepacked, const char *post_op_1,
     const char *post_op_2, const char *zentorch_op_name) {
-  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+  ZENTORCH_AOTI_SHIM({
     torch::stable::Tensor out_stable = stable_from_handle(out);
     const torch::stable::Tensor input = stable_from_handle(X);
     const torch::stable::Tensor weight = stable_from_handle(W);
@@ -372,7 +392,7 @@ AOTITorchError aoti_torch_cpu_zentorch_quant_embedding_bag(
     int64_t mode, bool sparse, AtenTensorHandle *per_sample_weights,
     bool include_last_offset, int64_t padding_idx, const char *zentorch_op_name,
     AtenTensorHandle *ret0) {
-  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+  ZENTORCH_AOTI_SHIM({
     auto tmp_result = zentorch::zendnnl_quant_embedding_bag(
         stable_from_handle(weight), stable_from_handle(indices),
         stable_from_handle(offsets), num_bits_per_weight,
@@ -389,7 +409,7 @@ AOTITorchError aoti_torch_cpu_zentorch_quant_embedding_bag_out(
     bool scale_grad_by_freq, int64_t mode, bool sparse,
     AtenTensorHandle *per_sample_weights, bool include_last_offset,
     int64_t padding_idx, const char *zentorch_op_name) {
-  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+  ZENTORCH_AOTI_SHIM({
     auto output_stable = stable_from_handle(output);
     zentorch::zendnnl_quant_embedding_bag_out(
         output_stable, stable_from_handle(weight), stable_from_handle(indices),
@@ -417,7 +437,7 @@ AOTITorchError aoti_torch_cpu_zentorch_horizontal_quant_embedding_bag_group(
     int64_t include_last_offset_len_, const int64_t *padding_idx,
     int64_t padding_idx_len_, const char *zentorch_op_name,
     AtenTensorHandle *ret0_handles, int64_t ret0_len_) {
-  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+  ZENTORCH_AOTI_SHIM({
     auto outs = zentorch::zendnnl_horizontal_quant_embedding_bag_group_impl(
         build_stable_tensor_vector(weight, weight_len_),
         build_stable_tensor_vector(indices, indices_len_),
@@ -430,9 +450,9 @@ AOTITorchError aoti_torch_cpu_zentorch_horizontal_quant_embedding_bag_group(
                                             per_sample_weights_len_),
         build_int_vector(include_last_offset, include_last_offset_len_),
         build_int_vector(padding_idx, padding_idx_len_), zentorch_op_name);
-    TORCH_CHECK(static_cast<int64_t>(outs.size()) == ret0_len_,
-                "horizontal_quant_embedding_bag_group: kernel returned ",
-                outs.size(), " tensors but caller asked for ", ret0_len_);
+    ZENTORCH_CHECK(static_cast<int64_t>(outs.size()) == ret0_len_,
+                   "horizontal_quant_embedding_bag_group: kernel returned ",
+                   outs.size(), " tensors but caller asked for ", ret0_len_);
     for (int64_t i = 0; i < ret0_len_; ++i) {
       ret0_handles[i] = handle_from_stable(outs[i]);
     }
@@ -451,7 +471,7 @@ AOTITorchError aoti_torch_cpu_zentorch_horizontal_quant_embedding_bag_group_out(
     int64_t per_sample_weights_len_, const int64_t *include_last_offset,
     int64_t include_last_offset_len_, const int64_t *padding_idx,
     int64_t padding_idx_len_, const char *zentorch_op_name) {
-  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+  ZENTORCH_AOTI_SHIM({
     // The kernel mutates the user-provided `outputs` buffers in place. The
     // stable tensors built here reference the same storage, so the writes
     // land in the caller's buffers.
@@ -475,7 +495,7 @@ AOTITorchError aoti_torch_cpu_zentorch_woq_linear(
     AtenTensorHandle X, AtenTensorHandle W, AtenTensorHandle weight_scales,
     AtenTensorHandle *weight_zero_points, AtenTensorHandle *B,
     const char *zentorch_op_name, AtenTensorHandle *ret0) {
-  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+  ZENTORCH_AOTI_SHIM({
     auto tmp_result = zentorch::zentorch_woq_linear_unary<
         zentorch::UNARY_POST_OP::POST_OP_NONE>(
         stable_from_handle(X), stable_from_handle(W),
@@ -490,7 +510,7 @@ AOTITorchError aoti_torch_cpu_zentorch_woq_linear_relu(
     AtenTensorHandle X, AtenTensorHandle W, AtenTensorHandle weight_scales,
     AtenTensorHandle *weight_zero_points, AtenTensorHandle *B,
     const char *zentorch_op_name, AtenTensorHandle *ret0) {
-  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+  ZENTORCH_AOTI_SHIM({
     auto tmp_result =
         zentorch::zentorch_woq_linear_unary<zentorch::UNARY_POST_OP::RELU>(
             stable_from_handle(X), stable_from_handle(W),
@@ -505,7 +525,7 @@ AOTITorchError aoti_torch_cpu_zentorch_woq_linear_sigmoid(
     AtenTensorHandle X, AtenTensorHandle W, AtenTensorHandle weight_scales,
     AtenTensorHandle *weight_zero_points, AtenTensorHandle *B,
     const char *zentorch_op_name, AtenTensorHandle *ret0) {
-  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+  ZENTORCH_AOTI_SHIM({
     auto tmp_result =
         zentorch::zentorch_woq_linear_unary<zentorch::UNARY_POST_OP::SIGMOID>(
             stable_from_handle(X), stable_from_handle(W),
@@ -520,7 +540,7 @@ AOTITorchError aoti_torch_cpu_zentorch_woq_linear_gelu_tanh(
     AtenTensorHandle X, AtenTensorHandle W, AtenTensorHandle weight_scales,
     AtenTensorHandle *weight_zero_points, AtenTensorHandle *B,
     const char *zentorch_op_name, AtenTensorHandle *ret0) {
-  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+  ZENTORCH_AOTI_SHIM({
     auto tmp_result =
         zentorch::zentorch_woq_linear_unary<zentorch::UNARY_POST_OP::GELU_TANH>(
             stable_from_handle(X), stable_from_handle(W),
@@ -535,7 +555,7 @@ AOTITorchError aoti_torch_cpu_zentorch_woq_linear_gelu_erf(
     AtenTensorHandle X, AtenTensorHandle W, AtenTensorHandle weight_scales,
     AtenTensorHandle *weight_zero_points, AtenTensorHandle *B,
     const char *zentorch_op_name, AtenTensorHandle *ret0) {
-  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+  ZENTORCH_AOTI_SHIM({
     auto tmp_result =
         zentorch::zentorch_woq_linear_unary<zentorch::UNARY_POST_OP::GELU_ERF>(
             stable_from_handle(X), stable_from_handle(W),
@@ -550,7 +570,7 @@ AOTITorchError aoti_torch_cpu_zentorch_woq_linear_add(
     AtenTensorHandle X, AtenTensorHandle W, AtenTensorHandle weight_scales,
     AtenTensorHandle *weight_zero_points, AtenTensorHandle add_input,
     AtenTensorHandle *B, const char *zentorch_op_name, AtenTensorHandle *ret0) {
-  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+  ZENTORCH_AOTI_SHIM({
     auto tmp_result = zentorch::zentorch_woq_linear_unary_binary<
         zentorch::UNARY_POST_OP::POST_OP_NONE, zentorch::BINARY_POST_OP::ADD>(
         stable_from_handle(X), stable_from_handle(W),
@@ -567,7 +587,7 @@ AOTITorchError aoti_torch_cpu_zentorch_woq_linear_mul_add(
     AtenTensorHandle *weight_zero_points, AtenTensorHandle mul_input,
     AtenTensorHandle add_input, AtenTensorHandle *B,
     const char *zentorch_op_name, AtenTensorHandle *ret0) {
-  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+  ZENTORCH_AOTI_SHIM({
     auto tmp_result = zentorch::zentorch_woq_linear_binary_binary<
         zentorch::BINARY_POST_OP::MUL, zentorch::BINARY_POST_OP::ADD>(
         stable_from_handle(X), stable_from_handle(W),
@@ -584,7 +604,7 @@ AOTITorchError aoti_torch_cpu_zentorch_woq_linear_add_add(
     AtenTensorHandle *weight_zero_points, AtenTensorHandle add_input,
     AtenTensorHandle add_input_2, AtenTensorHandle *B,
     const char *zentorch_op_name, AtenTensorHandle *ret0) {
-  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+  ZENTORCH_AOTI_SHIM({
     auto tmp_result = zentorch::zentorch_woq_linear_binary_binary<
         zentorch::BINARY_POST_OP::ADD, zentorch::BINARY_POST_OP::ADD>(
         stable_from_handle(X), stable_from_handle(W),
@@ -601,7 +621,7 @@ AOTITorchError aoti_torch_cpu_zentorch_woq_linear_out(
     AtenTensorHandle out, AtenTensorHandle X, AtenTensorHandle W,
     AtenTensorHandle weight_scales, AtenTensorHandle *weight_zero_points,
     AtenTensorHandle *B, const char *zentorch_op_name) {
-  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+  ZENTORCH_AOTI_SHIM({
     torch::stable::Tensor result = stable_from_handle(out);
     zentorch::zentorch_woq_linear_unary_out<
         zentorch::UNARY_POST_OP::POST_OP_NONE>(
@@ -616,7 +636,7 @@ AOTITorchError aoti_torch_cpu_zentorch_woq_linear_relu_out(
     AtenTensorHandle out, AtenTensorHandle X, AtenTensorHandle W,
     AtenTensorHandle weight_scales, AtenTensorHandle *weight_zero_points,
     AtenTensorHandle *B, const char *zentorch_op_name) {
-  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+  ZENTORCH_AOTI_SHIM({
     torch::stable::Tensor result = stable_from_handle(out);
     zentorch::zentorch_woq_linear_unary_out<zentorch::UNARY_POST_OP::RELU>(
         stable_from_handle(X), stable_from_handle(W),
@@ -630,7 +650,7 @@ AOTITorchError aoti_torch_cpu_zentorch_woq_linear_sigmoid_out(
     AtenTensorHandle out, AtenTensorHandle X, AtenTensorHandle W,
     AtenTensorHandle weight_scales, AtenTensorHandle *weight_zero_points,
     AtenTensorHandle *B, const char *zentorch_op_name) {
-  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+  ZENTORCH_AOTI_SHIM({
     torch::stable::Tensor result = stable_from_handle(out);
     zentorch::zentorch_woq_linear_unary_out<zentorch::UNARY_POST_OP::SIGMOID>(
         stable_from_handle(X), stable_from_handle(W),
@@ -644,7 +664,7 @@ AOTITorchError aoti_torch_cpu_zentorch_woq_linear_gelu_tanh_out(
     AtenTensorHandle out, AtenTensorHandle X, AtenTensorHandle W,
     AtenTensorHandle weight_scales, AtenTensorHandle *weight_zero_points,
     AtenTensorHandle *B, const char *zentorch_op_name) {
-  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+  ZENTORCH_AOTI_SHIM({
     torch::stable::Tensor result = stable_from_handle(out);
     zentorch::zentorch_woq_linear_unary_out<zentorch::UNARY_POST_OP::GELU_TANH>(
         stable_from_handle(X), stable_from_handle(W),
@@ -658,7 +678,7 @@ AOTITorchError aoti_torch_cpu_zentorch_woq_linear_gelu_erf_out(
     AtenTensorHandle out, AtenTensorHandle X, AtenTensorHandle W,
     AtenTensorHandle weight_scales, AtenTensorHandle *weight_zero_points,
     AtenTensorHandle *B, const char *zentorch_op_name) {
-  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+  ZENTORCH_AOTI_SHIM({
     torch::stable::Tensor result = stable_from_handle(out);
     zentorch::zentorch_woq_linear_unary_out<zentorch::UNARY_POST_OP::GELU_ERF>(
         stable_from_handle(X), stable_from_handle(W),
@@ -673,7 +693,7 @@ AOTITorchError aoti_torch_cpu_zentorch_woq_linear_add_out(
     AtenTensorHandle weight_scales, AtenTensorHandle *weight_zero_points,
     AtenTensorHandle add_input, AtenTensorHandle *B,
     const char *zentorch_op_name) {
-  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+  ZENTORCH_AOTI_SHIM({
     torch::stable::Tensor result = stable_from_handle(out);
     zentorch::zentorch_woq_linear_unary_binary_out<
         zentorch::UNARY_POST_OP::POST_OP_NONE, zentorch::BINARY_POST_OP::ADD>(
@@ -690,7 +710,7 @@ AOTITorchError aoti_torch_cpu_zentorch_woq_linear_mul_add_out(
     AtenTensorHandle weight_scales, AtenTensorHandle *weight_zero_points,
     AtenTensorHandle mul_input, AtenTensorHandle add_input, AtenTensorHandle *B,
     const char *zentorch_op_name) {
-  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+  ZENTORCH_AOTI_SHIM({
     torch::stable::Tensor result = stable_from_handle(out);
     zentorch::zentorch_woq_linear_binary_binary_out<
         zentorch::BINARY_POST_OP::MUL, zentorch::BINARY_POST_OP::ADD>(
@@ -707,7 +727,7 @@ AOTITorchError aoti_torch_cpu_zentorch_woq_linear_add_add_out(
     AtenTensorHandle weight_scales, AtenTensorHandle *weight_zero_points,
     AtenTensorHandle add_input, AtenTensorHandle add_input_2,
     AtenTensorHandle *B, const char *zentorch_op_name) {
-  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+  ZENTORCH_AOTI_SHIM({
     torch::stable::Tensor result = stable_from_handle(out);
     zentorch::zentorch_woq_linear_binary_binary_out<
         zentorch::BINARY_POST_OP::ADD, zentorch::BINARY_POST_OP::ADD>(
@@ -723,7 +743,7 @@ AOTITorchError aoti_torch_cpu_zentorch_dynamic_qlinear(
     AtenTensorHandle X, AtenTensorHandle W, AtenTensorHandle weight_scales,
     AtenTensorHandle *B, bool is_weight_prepacked, const char *zentorch_op_name,
     AtenTensorHandle *ret0) {
-  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+  ZENTORCH_AOTI_SHIM({
     auto tmp_result = zentorch::zentorch_dynamic_qlinear(
         stable_from_handle(X), stable_from_handle(W),
         stable_from_handle(weight_scales), stable_optional_from_handle(B),
@@ -738,7 +758,7 @@ AOTITorchError aoti_torch_cpu_zentorch_dynamic_qlinear_out(
     AtenTensorHandle out, AtenTensorHandle X, AtenTensorHandle W,
     AtenTensorHandle weight_scales, AtenTensorHandle *B,
     bool is_weight_prepacked, const char *zentorch_op_name) {
-  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+  ZENTORCH_AOTI_SHIM({
     auto out_stable = stable_from_handle(out);
     zentorch::zentorch_dynamic_qlinear_out(
         stable_from_handle(X), stable_from_handle(W),
@@ -756,7 +776,7 @@ AOTITorchError aoti_torch_cpu_zentorch_fused_moe(
     AtenTensorHandle topk_weights, AtenTensorHandle topk_id, bool skip_weighted,
     const char *act, AtenTensorHandle *w13_scales, AtenTensorHandle *w2_scales,
     const char *zentorch_op_name) {
-  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+  ZENTORCH_AOTI_SHIM({
     auto output_stable = stable_from_handle(output);
     zentorch::zentorch_fused_moe(
         output_stable, stable_from_handle(input), stable_from_handle(w13),
@@ -777,7 +797,7 @@ AOTITorchError aoti_torch_cpu_zentorch_fused_ffn_concat_out(
     AtenTensorHandle *w13_bias, AtenTensorHandle *w2_bias,
     const char *activation, AtenTensorHandle *w13_scale,
     AtenTensorHandle *w2_scale, const char *zentorch_op_name) {
-  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+  ZENTORCH_AOTI_SHIM({
     auto output_stable = stable_from_handle(output);
     zentorch::zentorch_fused_ffn_concat_out_impl(
         output_stable, stable_from_handle(input),
@@ -797,7 +817,7 @@ AOTITorchError aoti_torch_cpu_zentorch_rms_norm(AtenTensorHandle input,
                                                 double epsilon,
                                                 const char *zentorch_op_name,
                                                 AtenTensorHandle *ret0) {
-  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+  ZENTORCH_AOTI_SHIM({
     auto input_stable = stable_from_handle(input);
     auto weight_stable = stable_from_handle(weight);
     auto tmp_result = zentorch::zentorch_rms_norm(input_stable, weight_stable,
@@ -813,7 +833,7 @@ AOTITorchError aoti_torch_cpu_zentorch_embedding(
     AtenTensorHandle weight, AtenTensorHandle indices, int64_t padding_idx,
     bool scale_grad_by_freq, bool sparse, const char *zentorch_op_name,
     AtenTensorHandle *ret0) {
-  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+  ZENTORCH_AOTI_SHIM({
     auto tmp_result = zentorch::zentorch_embedding(
         stable_from_handle(weight), stable_from_handle(indices), padding_idx,
         scale_grad_by_freq, sparse, zentorch_op_name);
@@ -826,7 +846,7 @@ AOTITorchError aoti_torch_cpu_zentorch_embedding_out(
     AtenTensorHandle out, AtenTensorHandle weight, AtenTensorHandle indices,
     int64_t padding_idx, bool scale_grad_by_freq, bool sparse,
     const char *zentorch_op_name) {
-  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+  ZENTORCH_AOTI_SHIM({
     auto out_stable = stable_from_handle(out);
     zentorch::zendnnl_embedding_impl(
         stable_from_handle(weight), stable_from_handle(indices), padding_idx,
@@ -839,7 +859,7 @@ AOTITorchError aoti_torch_cpu_zentorch_embedding_out(
 AOTITorchError aoti_torch_cpu_zentorch_add_rms_norm_(
     AtenTensorHandle input, AtenTensorHandle weight, AtenTensorHandle residual,
     double epsilon, const char *zentorch_op_name) {
-  AOTI_TORCH_CONVERT_EXCEPTION_TO_ERROR_CODE({
+  ZENTORCH_AOTI_SHIM({
     auto input_stable = stable_from_handle(input);
     auto weight_stable = stable_from_handle(weight);
     auto residual_stable = stable_from_handle(residual);

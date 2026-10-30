@@ -54,14 +54,12 @@ list(REMOVE_ITEM _ZENTORCH_STABLE_SOURCES
 #     kernels.
 #   Sdpa_ref - registers through STABLE_TORCH_LIBRARY, but the AVX-512 flash
 #     kernel and the at::native fallback both still take at::Tensor.
-#   shim_cpu_zentorch - the AOTI shim layer, inherently ATen-handle based.
 # Drop a file from this list once its kernel takes torch::stable::Tensor
 # throughout, then re-run the ABI audit (see below).
 list(REMOVE_ITEM _ZENTORCH_STABLE_SOURCES
   "${_ZENTORCH_STABLE_CPP}/CausalAttentionMask.cpp"
   "${_ZENTORCH_STABLE_CPP}/GDN_ops.cpp"
-  "${_ZENTORCH_STABLE_CPP}/Sdpa_ref.cpp"
-  "${_ZENTORCH_STABLE_CPP}/shim_cpu_zentorch.cpp")
+  "${_ZENTORCH_STABLE_CPP}/Sdpa_ref.cpp")
 
 add_library(zentorch_stable SHARED ${_ZENTORCH_STABLE_SOURCES})
 # CPUkernels is not needed here: its only consumers (Sdpa_ref.cpp and

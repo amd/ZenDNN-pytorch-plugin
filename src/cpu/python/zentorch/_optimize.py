@@ -3,7 +3,6 @@
 # All rights reserved.
 # ******************************************************************************
 
-import zentorch._C  # noqa
 import os
 import torch
 from torch._inductor import config
@@ -76,6 +75,15 @@ def constant_fold_full_ops(graph):
     return graph
 
 
+def _avx512_supported() -> bool:
+    import zentorch
+    if zentorch.__stable_abi_only__:
+        return bool(torch.ops.zentorch.zentorch_is_avx512_supported())
+
+    import zentorch._C
+    return bool(zentorch._C.is_avx512_supported())
+
+
 def optimize(fx_graph):
     """
     optimize:
@@ -83,7 +91,7 @@ def optimize(fx_graph):
     with zentorch implementation of respective ops and fusion
     few ops
     """
-    if not zentorch._C.is_avx512_supported():
+    if not _avx512_supported():
         logger.warning(
             "ZenTorch optimization is only available on CPUs with AVX-512 support."
         )

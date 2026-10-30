@@ -6,7 +6,6 @@
 #pragma once
 
 #include <torch/csrc/inductor/aoti_torch/c/shim.h>
-#include <torch/csrc/inductor/aoti_torch/utils.h>
 
 // Workaround for PyTorch C++ wrapper codegen using Python-style booleans
 #ifndef True

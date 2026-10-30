@@ -34,7 +34,7 @@ _check_dual_install()
 import os  # noqa: E402
 import ctypes  # noqa: E402
 import warnings  # noqa: E402
-import torch  # noqa: E402
+import torch  # noqa: F401,E402
 
 from ._build_info import __torchversion__ as buildtime_torchversion  # noqa: E402
 from torch.torch_version import __version__ as runtime_torchversion  # noqa: E402
@@ -83,7 +83,9 @@ elif os.path.exists(_stable_lib_path):
         f"libzentorch_stable.so. Rebuild zentorch to get the full backend.",
         stacklevel=1,
     )
-    torch.ops.load_library(_stable_lib_path)
+    # RTLD_GLOBAL, same as libzentorch.so, so an AOTI model can resolve
+    # aoti_torch_cpu_zentorch_*. Static initializers register the ops.
+    ctypes.CDLL(_stable_lib_path, mode=os.RTLD_GLOBAL | os.RTLD_NOW)
 else:
     raise ImportError(
         f"Incompatible PyTorch version {runtime_torchversion} detected. "
@@ -105,10 +107,18 @@ from ._fp16_capabilities import update_fp16_registry  # noqa: E402
 
 update_fp16_registry()
 
+from ._optimize import optimize  # noqa: F401,E402
+from ._optimize_for_export import export_optimize_pass  # noqa: F401,E402
+# Importing the module runs @register_backend. Re-export the names callers
+# already use as zentorch.<name>. There is no symbol named compile_backend.
+from ._compile_backend import (  # noqa: F401,E402
+    enable_zentorch_conv,
+    optimize_pass,
+    zentorch,
+    zentorch_compile,
+)
+from . import _lowerings  # noqa: F401,E402
+from . import _meta_registrations  # noqa: F401,E402
 if not __stable_abi_only__:
-    from ._optimize import optimize  # noqa: F401,E402
-    from ._optimize_for_export import export_optimize_pass  # noqa: F401,E402
-    from ._compile_backend import *  # noqa: F401,F403,E402
-    from ._meta_registrations import *  # noqa: F401,F403,E402
-    from ._lowerings import *  # noqa: F401,F403,E402
+    # thread_bind lives in the pybind module, which is tied to one torch minor.
     from . import utils  # noqa: F401,E402

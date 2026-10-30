@@ -17,9 +17,10 @@ def get_meta_lib():
 
 def register_meta(op_name, overload_name="default"):
     def wrapper(fn):
-        get_meta_lib().impl(
-            getattr(getattr(torch.ops.zentorch, op_name), overload_name), fn
-        )
+        op = getattr(torch.ops.zentorch, op_name, None)
+        if op is None or not hasattr(op, overload_name):
+            return fn
+        get_meta_lib().impl(getattr(op, overload_name), fn)
         return fn
 
     return wrapper
@@ -1321,17 +1322,29 @@ def meta_gdn_chunk_gated_delta_rule_fwd(
     return o, final_state
 
 
-make_fallback(torch.ops.zentorch.gdn_chunk_local_cumsum)
-make_fallback(torch.ops.zentorch.gdn_l2norm_fwd)
-make_fallback(torch.ops.zentorch.gdn_chunk_scaled_dot_kkt_fwd)
-make_fallback(torch.ops.zentorch.gdn_solve_tril)
-make_fallback(torch.ops.zentorch.gdn_recompute_w_u_fwd)
-make_fallback(torch.ops.zentorch.gdn_chunk_gated_delta_rule_fwd_h)
-make_fallback(torch.ops.zentorch.gdn_chunk_fwd_o)
-make_fallback(torch.ops.zentorch.gdn_chunk_gated_delta_rule_fwd)
-make_fallback(torch.ops.zentorch.gdn_rms_norm_gated)
-make_fallback(torch.ops.zentorch.gdn_causal_conv1d_fn)
-make_fallback(torch.ops.zentorch.gdn_causal_conv1d_update)
-make_fallback(torch.ops.zentorch.gdn_fused_post_conv_prep)
-make_fallback(torch.ops.zentorch.gdn_fused_sigmoid_gating_delta_rule_update)
-make_fallback(torch.ops.zentorch.gdn_fused_recurrent_gated_delta_rule_packed_decode)
+def _make_fallback_if_present(op_name):
+    op = getattr(torch.ops.zentorch, op_name, None)
+    if op is not None:
+        make_fallback(op)
+
+
+# These ops are registered only by libzentorch.so. The stable library omits
+# GDN_ops.cpp, so the lookup has to tolerate a missing op. The make_fallback
+# calls above are ops that both libraries register.
+for _gdn_op in (
+    "gdn_chunk_local_cumsum",
+    "gdn_l2norm_fwd",
+    "gdn_chunk_scaled_dot_kkt_fwd",
+    "gdn_solve_tril",
+    "gdn_recompute_w_u_fwd",
+    "gdn_chunk_gated_delta_rule_fwd_h",
+    "gdn_chunk_fwd_o",
+    "gdn_chunk_gated_delta_rule_fwd",
+    "gdn_rms_norm_gated",
+    "gdn_causal_conv1d_fn",
+    "gdn_causal_conv1d_update",
+    "gdn_fused_post_conv_prep",
+    "gdn_fused_sigmoid_gating_delta_rule_update",
+    "gdn_fused_recurrent_gated_delta_rule_packed_decode",
+):
+    _make_fallback_if_present(_gdn_op)
