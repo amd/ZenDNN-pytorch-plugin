@@ -34,7 +34,7 @@ The plugin uses vLLM's platform and general plugin entry points to:
 |-----------|---------|-------|
 | vLLM | 0.27.0 – 0.32.0 | Inclusive, validated window (`VLLM_MIN_VERSION`–`VLLM_MAX_VERSION`). Pre-releases and newer, unvalidated patches (e.g. 0.32.1) are rejected; the plugin falls back to the stock CPU platform. |
 | Python | 3.12 | |
-| PyTorch | 2.13.0 | Auto-installed by the supported vLLM CPU releases; the plugin requires PyTorch 2.13+. |
+| PyTorch | 2.13.0 | Auto-installed by the supported vLLM CPU releases (`torch==2.13.0+cpu`); the plugin requires PyTorch 2.13+. |
 | TorchAO | 0.17.0 | Required for TorchAO quantized model paths; the plugin skips TorchAO patches when the package is absent. Pin to the version that produced the checkpoint (see note below). |
 
 > **Note:** This plugin supports only the validated, inclusive vLLM window
@@ -119,7 +119,7 @@ The plugin leverages AMD EPYC specific intrinsics and optimizations to accelerat
 
    | vLLM version | PyTorch version (auto-installed by vLLM) | zentorch install method |
    |--------------|-----------------|------------------------|
-   | 0.27.0 – 0.32.0 | 2.13.0 | PyPI or source |
+   | 0.27.0 – 0.32.0 | 2.13.0+cpu | PyPI or source |
 
    > **Note:** The out-of-tree plugin, when present, takes precedence over the in-tree `ZenCpuPlatform` on supported AMD AVX512 systems. To use the in-tree platform instead, build and install zentorch with `ZENTORCH_VLLM_PLUGIN_BUILD=0`, which omits the out-of-tree vLLM plugin from the wheel.
 

@@ -11,6 +11,7 @@ from torch._inductor import config
 from torch._inductor.pattern_matcher import (
     Arg,
     CallFunction,
+    KeywordArg,
     Match,
     PatternMatcherPass,
     register_graph_pattern,
@@ -32,6 +33,7 @@ def create_woq_linear_compute() -> CallFunction:
         Arg(),
         Arg(),
         Arg(),
+        zentorch_op_name=KeywordArg("zentorch_op_name"),
     )
 
 
@@ -168,6 +170,8 @@ def register_woq_linear_binary_binary_patterns() -> None:
                     arg_4: Any,
                     add_1: Any,
                     add_2: Any,
+                    *,
+                    zentorch_op_name: Any = None,
                 ) -> None:
                     def repl(
                         arg_0: Any,

@@ -48,6 +48,7 @@ def create_woq_linear_compute_fn(has_bias: bool, users: int = 1) -> CallFunction
             Arg(),
             Arg(),
             Arg(),
+            zentorch_op_name=KeywordArg("zentorch_op_name"),
             _users=users,
         )
     return CallFunction(
@@ -56,6 +57,7 @@ def create_woq_linear_compute_fn(has_bias: bool, users: int = 1) -> CallFunction
         Arg(),
         Arg(),
         Arg(),
+        zentorch_op_name=KeywordArg("zentorch_op_name"),
         _users=users,
     )
 
@@ -163,6 +165,7 @@ def register_woq_patterns(
             bias: Any,
             *,
             approximate: Any = None,
+            zentorch_op_name: Any = None,
         ) -> None:
             def repl(
                 input: Any,
@@ -191,6 +194,7 @@ def register_woq_patterns(
             weight_zero_point: Any,
             *,
             approximate: Any = None,
+            zentorch_op_name: Any = None,
         ) -> None:
             def repl(
                 input: Any,

@@ -70,8 +70,8 @@ third_party/              # Auto-populated at build time (ZenDNN)
 
 ## Branches
 
-- **main**/**master** — latest development (supports PyTorch 2.14.1 (recommended) and 2.13.0)
-- **r6.1** — stable release (supports PyTorch 2.14.1 (recommended) and 2.13.0)
+- **main**/**master** — latest development (supports PyTorch 2.15.0 (recommended), 2.14.1, 2.14.0, and 2.13.0 (minimum))
+- **r6.1** — stable release (supports PyTorch 2.15.0 (recommended), 2.14.1, 2.14.0, and 2.13.0 (minimum))
 
 See [README.md](README.md) for the authoritative PyTorch/Python compatibility matrix.
 
@@ -153,8 +153,7 @@ Direct commands:
 
 ## Coding conventions
 
-- C++20 with PyTorch 2.13; C++17 with supported older PyTorch, compiled with
-  `-Wall -Werror`
+- C++20, compiled with `-Wall -Werror`
 - Python package lives under `src/cpu/python/zentorch/`
 - Ops are registered via `TORCH_LIBRARY` / `TORCH_LIBRARY_IMPL` macros in `Bindings.cpp`
 - Linting: `.flake8` config in repo root; `linter/py_cpp_linter.sh` for CI checks

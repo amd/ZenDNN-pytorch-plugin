@@ -10,6 +10,10 @@ benchmark/recsys/dlrmv2-mlperf/mlperf.conf
 benchmark/recsys/dlrmv2-mlperf/output
 .hypothesis
 
+# Written by test/unittests/export_tests/test_exp.py and reloaded in the same run.
+/model.pt2
+/model_z.pt2
+
 # benchmark-vllm skill: vendored external harness clone + run artifacts
 .claude/skills/benchmark-vllm/harness/vllm-cpu-perf-eval/
 .claude/skills/benchmark-vllm/generated/

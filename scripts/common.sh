@@ -50,12 +50,12 @@ current_branch() {
 # Primary (recommended) PyTorch CPU version pinned for the current branch.
 # See README.md for the authoritative PyTorch/Python compatibility matrix.
 detect_pytorch_version() {
-    echo "2.14.1"
+    echo "2.15.0"
 }
 
 # Additional supported PyTorch versions (space-separated) for the current branch.
 detect_pytorch_alternates() {
-    echo "2.13.0"
+    echo "2.14.1 2.14.0 2.13.0"
 }
 
 # Name of the active Python environment (empty if none).
@@ -111,7 +111,7 @@ install_pytorch_cpu() {
     local version="${1:-$(detect_pytorch_version)}"
     echo "Installing PyTorch CPU ${version}..."
     python -m pip install "torch==${version}" \
-        --index-url https://download.pytorch.org/whl/cpu \
+        --index-url "https://download.pytorch.org/whl/cpu" \
         --force-reinstall
 
     [[ "$(installed_pytorch_version)" == "${version}" ]] \

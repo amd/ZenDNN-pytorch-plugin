@@ -128,6 +128,8 @@ class TestVersionContract(unittest.TestCase):
             ("2.13.0+cpu", True),
             ("2.13.1", True),
             ("2.14.0+cpu", True),
+            ("2.14.1", True),
+            ("2.15.0+cpu", True),
         ]:
             with unittest.mock.patch.object(torch, "__version__", version):
                 self.assertEqual(

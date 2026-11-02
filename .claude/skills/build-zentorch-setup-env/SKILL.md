@@ -101,10 +101,9 @@ version.
 .claude/skills/build-zentorch-setup-env/scripts/install_pytorch.sh --force  # reinstall unconditionally
 ```
 
-| Branch          | Primary PyTorch (recommended) | Alternates             |
-|-----------------|-------------------------------|------------------------|
-| `main`/`master` | 2.14.1                        | 2.13.0                 |
-| `r6.1`          | 2.14.1                        | 2.13.0                 |
+| Branch          | Primary PyTorch (recommended) | Alternates                       |
+|-----------------|-------------------------------|----------------------------------|
+| `main`/`master` | 2.15.0                        | 2.14.1, 2.14.0, 2.13.0 (minimum) |
 
 > See [README.md](../../../README.md) for the authoritative PyTorch/Python
 > compatibility matrix. Use Python 3.12 by default.
@@ -149,6 +148,7 @@ version (same version from Step 1):
 
 ```bash
 python -m pip install torch==<version> --index-url https://download.pytorch.org/whl/cpu --force-reinstall
+.claude/skills/build-zentorch-setup-env/scripts/install_pytorch.sh --force  # reinstall unconditionally
 ```
 
 ### Step 6: Verify

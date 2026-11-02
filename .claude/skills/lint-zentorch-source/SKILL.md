@@ -87,8 +87,7 @@ To apply the suggested formatting:
 git clang-format -f
 ```
 
-- C++20 with PyTorch 2.13; C++17 with supported older PyTorch, compiled with
-  `-Wall -Werror`
+- C++20, compiled with `-Wall -Werror`
 - Operator bindings live in `src/cpu/cpp/` and `Bindings.cpp`
 
 ---

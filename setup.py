@@ -198,6 +198,7 @@ _PLUGIN_PATCH_BY_TORCH = {
     "2.13.0": 4,
     "2.14.0": 3,
     "2.14.1": 1,
+    "2.15.0": 0,
 }
 _DEFAULT_PLUGIN_PATCH = 0
 _pt_ver = parse(torch_version)

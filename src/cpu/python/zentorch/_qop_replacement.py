@@ -11,6 +11,7 @@ from torch._inductor.pattern_matcher import (
     register_graph_pattern,
     CallFunction,
     Arg,
+    KeywordArg,
     Match,
     stable_topological_sort,
 )
@@ -186,6 +187,25 @@ def _get_input_dtype(input_node):
     return None
 
 
+def _signed_int8_activation(match, input_arg):
+    """Return the quantize node for a signed int8 activation.
+
+    zentorch_qlinear re-quantizes a float activation as uint8 whenever a zero
+    point is present. A range that starts below 0 is signed int8, and that
+    quantize node is already the right input.
+    """
+    quantize = torch.ops.quantized_decomposed.quantize_per_tensor.tensor
+    for node in match.nodes:
+        if (
+            node.op == "call_function"
+            and node.target == quantize
+            and node.args
+            and node.args[0] is input_arg
+        ):
+            return node
+    return input_arg
+
+
 def _splice_zentorch_qlinear(
     match,
     *,
@@ -197,6 +217,8 @@ def _splice_zentorch_qlinear(
     weight_scale_arg,
     weight_zp_arg,
     weight_zp_needs_int32_cast=False,
+    out_dtype=None,
+    activation_quant_min=0,
 ):
     """Replace the matched root with a `zentorch_qlinear.default` call, interning
     scalar qparams as get_attr buffers and casting per-channel weight zp to int32
@@ -220,15 +242,25 @@ def _splice_zentorch_qlinear(
     )
     weight_zps = None
 
-    # Fall back to the root's dtype when the input carries no meta, else
-    # output_dtype=None and the kernel silently defaults the output to float32.
-    output_dtype = _get_input_dtype(input_arg) or _get_input_dtype(root)
+    # None when the pattern does not capture out_dtype. Otherwise it is the
+    # dequant dtype; the matched result, then the input, are the fallbacks.
+    # A value that is not a dtype is left for the op to reject.
+    output_dtype = (
+        out_dtype or _get_input_dtype(root) or _get_input_dtype(input_arg)
+    )
+    # uint8 activations (quant min 0) stay on the float input. The kernel
+    # quantizes those as uint8. Signed int8 must pass the quantize node.
+    qlinear_input = (
+        _signed_int8_activation(match, input_arg)
+        if activation_quant_min < 0
+        else input_arg
+    )
 
     with graph.inserting_before(root):
         new_node = graph.call_function(
             torch.ops.zentorch.zentorch_qlinear.default,
             args=(
-                input_arg,
+                qlinear_input,
                 weight_arg,
                 input_scales,
                 input_zps,
@@ -252,6 +284,9 @@ def _splice_zentorch_qlinear(
 
 # XNNPACKQuantizer patterns
 
+# Shared by the input and weight dequants, so they must agree on out_dtype.
+_DQ_OUT_DTYPE = KeywordArg("out_dtype")
+
 
 @register_graph_pattern(
     CallFunction(  # Root: zentorch_addmm
@@ -264,12 +299,14 @@ def _splice_zentorch_qlinear(
                 Arg(), Arg(), Arg(), -128, 127, torch.int8,
             ),
             Arg(), Arg(), -128, 127, torch.int8,
+            out_dtype=_DQ_OUT_DTYPE,
         ),
         CallFunction(  # Weight: permute(dequant_per_tensor(w))
             torch.ops.aten.permute.default,
             CallFunction(
                 torch.ops.quantized_decomposed.dequantize_per_tensor.default,
                 Arg(), Arg(), Arg(), -127, 127, torch.int8,
+                out_dtype=_DQ_OUT_DTYPE,
             ),
             [1, 0],
         ),
@@ -288,6 +325,8 @@ def qint8_dq_addmm_bias_computed_params_replacement_decorated(
     weight_arg,
     weight_scale_arg,
     weight_zp_arg,
+    *,
+    out_dtype=None,
 ):
     _splice_zentorch_qlinear(
         match,
@@ -298,6 +337,8 @@ def qint8_dq_addmm_bias_computed_params_replacement_decorated(
         input_zp_arg=zp_arg,
         weight_scale_arg=weight_scale_arg,
         weight_zp_arg=weight_zp_arg,
+        out_dtype=out_dtype,
+        activation_quant_min=-128,
     )
 
 
@@ -312,12 +353,14 @@ def qint8_dq_addmm_bias_computed_params_replacement_decorated(
                 Arg(), Arg(), Arg(), -128, 127, torch.int8,
             ),
             Arg(), Arg(), -128, 127, torch.int8,
+            out_dtype=_DQ_OUT_DTYPE,
         ),
         CallFunction(  # Weight: permute(dequant_per_channel(w))
             torch.ops.aten.permute.default,
             CallFunction(
                 torch.ops.quantized_decomposed.dequantize_per_channel.default,
                 Arg(), Arg(), Arg(), Arg(), -127, 127, torch.int8,
+                out_dtype=_DQ_OUT_DTYPE,
             ),
             [1, 0],
         ),
@@ -337,6 +380,8 @@ def qint8_dq_addmm_bias_per_channel_replacement_decorated(
     weight_scale_arg,
     weight_zp_arg,
     weight_axis_arg,
+    *,
+    out_dtype=None,
 ):
     _splice_zentorch_qlinear(
         match,
@@ -348,6 +393,8 @@ def qint8_dq_addmm_bias_per_channel_replacement_decorated(
         weight_scale_arg=weight_scale_arg,
         weight_zp_arg=weight_zp_arg,
         weight_zp_needs_int32_cast=True,
+        out_dtype=out_dtype,
+        activation_quant_min=-128,
     )
 
 
@@ -361,9 +408,9 @@ def _convert_float64_replacement_impl(arg1):
         Arg(),
         torch.float64,
     ),
-    extra_check=lambda match: {
+    extra_check=lambda match: (
         match.args[0].meta["tensor_meta"].dtype == torch.float32
-    },
+    ),
     pass_dict=matcher_pass,
 )
 def convert_float64_replacement_decorated(
@@ -419,6 +466,7 @@ def convert_int64_clamp_max_replacement_decorated(
                 Arg(), Arg(), 0, 255, torch.uint8,
             ),
             Arg(), Arg(), 0, 255, torch.uint8,
+            out_dtype=_DQ_OUT_DTYPE,
         ),
         CallFunction(  # Weight to addmm
             torch.ops.aten.permute.default,
@@ -426,6 +474,7 @@ def convert_int64_clamp_max_replacement_decorated(
                 torch.ops.quantized_decomposed.dequantize_per_channel.default,
                 Arg(),  # primals_2
                 Arg(), Arg(), 0, -128, 127, torch.int8,
+                out_dtype=_DQ_OUT_DTYPE,
             ),
             [1, 0],
         ),
@@ -444,6 +493,8 @@ def qint8_dq_addmm_1dbias_per_tensor_channel_replacement_decorated(
     weight_arg,
     weight_scale_arg,
     weight_zp_arg,
+    *,
+    out_dtype=None,
 ):
     _splice_zentorch_qlinear(
         match,
@@ -455,6 +506,7 @@ def qint8_dq_addmm_1dbias_per_tensor_channel_replacement_decorated(
         weight_scale_arg=weight_scale_arg,
         weight_zp_arg=weight_zp_arg,
         weight_zp_needs_int32_cast=True,
+        out_dtype=out_dtype,
     )
 
 
@@ -474,6 +526,7 @@ def qint8_dq_addmm_1dbias_per_tensor_channel_replacement_decorated(
                         Arg(), Arg(), 0, 255, torch.uint8,
                     ),
                     Arg(), Arg(), 0, 255, torch.uint8,
+                    out_dtype=_DQ_OUT_DTYPE,
                 ),
                 Arg(),
             ),
@@ -483,6 +536,7 @@ def qint8_dq_addmm_1dbias_per_tensor_channel_replacement_decorated(
                     torch.ops.quantized_decomposed.dequantize_per_channel.default,
                     Arg(),  # primals_2
                     Arg(), Arg(), 0, -128, 127, torch.int8,
+                    out_dtype=_DQ_OUT_DTYPE,
                 ),
                 [1, 0],
             ),
@@ -505,6 +559,8 @@ def qint8_dq_addmm_1dbias_view_per_tensor_channel_replacement_decorated(
     weight_scale_arg,
     weight_zp_arg,
     output_aten_arg,
+    *,
+    out_dtype=None,
 ):
     _splice_zentorch_qlinear(
         match,
@@ -516,6 +572,7 @@ def qint8_dq_addmm_1dbias_view_per_tensor_channel_replacement_decorated(
         weight_scale_arg=weight_scale_arg,
         weight_zp_arg=weight_zp_arg,
         weight_zp_needs_int32_cast=True,
+        out_dtype=out_dtype,
     )
 
 
@@ -530,6 +587,7 @@ def qint8_dq_addmm_1dbias_view_per_tensor_channel_replacement_decorated(
                 Arg(), Arg(), 0, 255, torch.uint8,
             ),
             Arg(), Arg(), 0, 255, torch.uint8,
+            out_dtype=_DQ_OUT_DTYPE,
         ),
         CallFunction(  # Weight to addmm
             torch.ops.aten.permute.default,
@@ -537,6 +595,7 @@ def qint8_dq_addmm_1dbias_view_per_tensor_channel_replacement_decorated(
                 torch.ops.quantized_decomposed.dequantize_per_channel.default,
                 Arg(),  # primals_2
                 Arg(), Arg(), 0, -128, 127, torch.int8,
+                out_dtype=_DQ_OUT_DTYPE,
             ),
             [1, 0],
         ),
@@ -554,6 +613,8 @@ def qint8_dq_addmm_per_tensor_channel_replacement_decorated(
     weight_arg,
     weight_scale_arg,
     weight_zp_arg,
+    *,
+    out_dtype=None,
 ):
     _splice_zentorch_qlinear(
         match,
@@ -565,6 +626,7 @@ def qint8_dq_addmm_per_tensor_channel_replacement_decorated(
         weight_scale_arg=weight_scale_arg,
         weight_zp_arg=weight_zp_arg,
         weight_zp_needs_int32_cast=True,
+        out_dtype=out_dtype,
     )
 
 
@@ -583,6 +645,7 @@ def qint8_dq_addmm_per_tensor_channel_replacement_decorated(
                         Arg(), Arg(), 0, 255, torch.uint8,
                     ),
                     Arg(), Arg(), 0, 255, torch.uint8,
+                    out_dtype=_DQ_OUT_DTYPE,
                 ),
                 Arg(),
             ),
@@ -592,6 +655,7 @@ def qint8_dq_addmm_per_tensor_channel_replacement_decorated(
                     torch.ops.quantized_decomposed.dequantize_per_channel.default,
                     Arg(),  # primals_2
                     Arg(), Arg(), 0, -128, 127, torch.int8,
+                    out_dtype=_DQ_OUT_DTYPE,
                 ),
                 [1, 0],
             ),
@@ -613,6 +677,8 @@ def qint8_dq_addmm_view_per_tensor_channel_replacement_decorated(
     weight_scale_arg,
     weight_zp_arg,
     output_aten_arg,
+    *,
+    out_dtype=None,
 ):
     _splice_zentorch_qlinear(
         match,
@@ -624,6 +690,7 @@ def qint8_dq_addmm_view_per_tensor_channel_replacement_decorated(
         weight_scale_arg=weight_scale_arg,
         weight_zp_arg=weight_zp_arg,
         weight_zp_needs_int32_cast=True,
+        out_dtype=out_dtype,
     )
 
 
