@@ -24,8 +24,16 @@ stable_expand_as(const torch::stable::Tensor &self,
   return torch::stable::detail::to<torch::stable::Tensor>(stack[0]);
 }
 
+// weight_sizes and weight_strides describe weight as the [.., K, N] right-hand
+// side of the matmul. IntHeaderOnlyArrayRef is the stable-ABI counterpart of
+// c10::IntArrayRef: a non-owning (pointer, length) view of int64_t values that
+// is implemented only in headers, so it does not depend on libtorch. It is the
+// type torch::stable::Tensor::sizes()/strides() return, and it also binds to
+// the swapped std::array from get_linear_weight_kn without a copy.
 torch::stable::Tensor zendnnl_matmul_impl(
     const torch::stable::Tensor &input, const torch::stable::Tensor &weight,
+    const torch::headeronly::IntHeaderOnlyArrayRef weight_sizes,
+    const torch::headeronly::IntHeaderOnlyArrayRef weight_strides,
     const torch::stable::Tensor &bias, torch::stable::Tensor &result,
     const std::vector<int64_t> &post_op_ids,
     const std::vector<torch::stable::Tensor> &post_op_buffers,
@@ -41,6 +49,14 @@ torch::stable::Tensor zendnnl_matmul_impl(
   ZENTORCH_LOG(INFO) << "result dimensions: ["
                      << c10::Join(", ", result.sizes()) << "]";
   ZENTORCH_LOG(INFO) << "beta : " << beta << " and alpha : " << alpha;
+
+  const int64_t weight_dim = static_cast<int64_t>(weight_sizes.size());
+  ZENTORCH_CHECK(weight_dim == 2 || weight_dim == 3,
+                 "unsupported dims for mat1 and mat2");
+  ZENTORCH_CHECK(weight_dim == weight.dim() &&
+                     weight_strides.size() == weight_sizes.size(),
+                 "weight_sizes and weight_strides do not match the weight's "
+                 "dims");
 
   // ZenDNNL has implementation for matmul and batched matmul which bypasses the
   // tensor creation and other over-heads to directly start the matmul
@@ -63,12 +79,16 @@ torch::stable::Tensor zendnnl_matmul_impl(
   // "use_zendnnl_direct_kernel". "use_zendnnl_direct_kernel" takes its final
   // value based on the env variable enablement and the return value of
   // "validate_zendnnl_direct_kernel_usage" function.
+  const int64_t k = weight_sizes[weight_dim - 2];
+  const int64_t n = weight_sizes[weight_dim - 1];
   const bool use_zendnnl_direct_kernel =
-      int_env_value && validate_zendnnl_direct_kernel_usage(
-                           input, weight, beta_bias, result, post_op_buffers);
+      int_env_value &&
+      validate_zendnnl_direct_kernel_usage(input, weight, k, n, beta_bias,
+                                           result, post_op_buffers);
   if (use_zendnnl_direct_kernel) {
     ZENTORCH_LOG(INFO) << "Using zendnn direct kernel for matmul";
-    zendnnl_direct_kernel(input, weight, beta_bias, result, alpha, post_op_ids,
+    zendnnl_direct_kernel(input, weight, weight_sizes, weight_strides,
+                          beta_bias, result, alpha, post_op_ids,
                           post_op_buffers, is_weight_const, is_weight_prepacked,
                           zentorch_op_name);
     return result;
@@ -85,7 +105,8 @@ torch::stable::Tensor zendnnl_matmul_impl(
 
   check_valid_dtypes_for_matmul(input_, weight_, bias, result_,
                                 post_op_buffers);
-  check_valid_sizes_for_matmul(input_, weight_, bias, result_, post_op_buffers);
+  check_valid_sizes_for_matmul(input_, weight_, k, n, bias, result_,
+                               post_op_buffers);
 
   if (alpha == 0) {
     if (beta == 0.0f) {
@@ -109,8 +130,10 @@ torch::stable::Tensor zendnnl_matmul_impl(
   }
 
   tensor_t mat2_tensor = tensor_t();
-  set_zendnnl_tensor_attributes(weight_, mat2_tensor, "weights",
-                                is_weight_prepacked);
+  set_zendnnl_tensor_attributes(
+      weight_, mat2_tensor, "weights", is_weight_prepacked,
+      std::vector<unsigned long>(weight_sizes.begin(), weight_sizes.end()),
+      std::vector<unsigned long>(weight_strides.begin(), weight_strides.end()));
 
   tensor_t input_tensor = tensor_t();
   if (input_.dim() == 2) {
@@ -205,9 +228,10 @@ torch::stable::Tensor zentorch_matmul_impl(
     const float &beta, const float &alpha, std::string zentorch_op_name,
     const bool is_weight_const, const bool is_weight_prepacked) {
 
-  return zendnnl_matmul_impl(input, weight, bias, result, post_op_ids,
-                             post_op_buffers, beta, alpha, zentorch_op_name,
-                             is_weight_const, is_weight_prepacked);
+  return zendnnl_matmul_impl(input, weight, weight.sizes(), weight.strides(),
+                             bias, result, post_op_ids, post_op_buffers, beta,
+                             alpha, zentorch_op_name, is_weight_const,
+                             is_weight_prepacked);
 }
 
 torch::stable::Tensor zentorch_addmm_1dbias(const torch::stable::Tensor &self,

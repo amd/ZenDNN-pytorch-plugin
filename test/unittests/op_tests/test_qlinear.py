@@ -23,6 +23,7 @@ from unittest_utils import (  # noqa: 402
     q_zero_points_dtype_opt,
     q_linear_dtype_opt,
     get_comp_zero_points,
+    _clear_weight_cache,
 )
 from quant_utils import qdq_linear  # noqa: 402
 
@@ -657,6 +658,80 @@ class Test_Qlinear(QLinearTestCase):
             output_zero_points=output_zero_points,
             output_dtype=actual_output_dtype,
         )
+
+    @QLinearTestCase.hypothesis_params_qlinear_itr(
+        input_dim_opt_list=input_dim_opt,
+        q_weight_list_opt_list=q_weight_list_opt,
+        bias_opt_list=bias_opt,
+        q_granularity_opt_list=q_granularity_opt,
+        q_zero_points_dtype_opt_list=q_zero_points_dtype_opt,
+        q_linear_dtype_opt_list=q_linear_dtype_opt,
+        dtype_list=qlinear_dtypes,
+        q_linear_output_dtype_opt_list=q_linear_dtype_opt,
+    )
+    @torch.inference_mode()
+    def test_qlinear_square_weight_accuracy(
+        self,
+        dtype,
+        input_dim,
+        q_weight_idx,
+        bias_opt_idx,
+        q_granularity_val,
+        q_zero_points_dtype,
+        input_dtype,
+        output_dtype,
+    ):
+        # A square weight has the same shape as its transpose, so only the
+        # values show whether input @ weight^T was computed.
+        self.skip_if_does_not_support_arg_combination_for_qlinear(
+            bias_opt_idx, input_dtype, output_dtype
+        )
+
+        actual_output_dtype = DataTypes.get_torch_type(output_dtype)
+        weight = self.data.y_int8_square[0]
+        bias = self.data.bias_for_qlinear_square[bias_opt_idx]
+        if output_dtype == "uint8":
+            output_zero_points = get_comp_zero_points(
+                self.data.output_zero_points["per_tensor"][output_dtype]
+            )
+        else:
+            output_zero_points = None
+
+        qdq_linear_output = qdq_linear(
+            self.data.x_for_qlinear[input_dtype][input_dim],
+            weight,
+            bias,
+            self.data.x_scales["per_tensor"],
+            self.data.x_zero_points["per_tensor"][input_dtype][q_zero_points_dtype],
+            self.data.y_scales_square[q_granularity_val],
+            self.data.y_zero_points_square[q_granularity_val],
+            None,
+            actual_output_dtype,
+            self.data.output_scales["per_tensor"][output_dtype]["positive_scales"],
+            self.data.output_zero_points["per_tensor"][output_dtype],
+        )
+        # Row-major and column-major [N, K] weights.
+        for layout_weight in (weight, weight.t().contiguous().t()):
+            _clear_weight_cache()
+            self.get_and_compare_qlinear_output(
+                qdq_linear_output,
+                self.data.x_for_qlinear[input_dtype][input_dim],
+                layout_weight,
+                self.data.x_scales["per_tensor"],
+                get_comp_zero_points(
+                    self.data.x_zero_points["per_tensor"][input_dtype][
+                        q_zero_points_dtype
+                    ]
+                ),
+                self.data.y_scales_square[q_granularity_val],
+                get_comp_zero_points(self.data.y_zero_points_square[q_granularity_val]),
+                bias=bias,
+                output_scales=self.data.output_scales["per_tensor"][output_dtype][
+                    "positive_scales"
+                ],
+                output_zero_points=output_zero_points,
+                output_dtype=actual_output_dtype,
+            )
 
 
 if __name__ == "__main__":

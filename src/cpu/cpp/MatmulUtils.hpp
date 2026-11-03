@@ -6,6 +6,7 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <functional>
 #include <optional>
 #include <unordered_map>
@@ -104,27 +105,46 @@ inline torch::stable::Tensor mul_by_scalar(const torch::stable::Tensor &self,
   return torch::stable::Tensor(ret);
 }
 
+// Sizes and strides of a 2-d [N, K] (nn.Linear layout) weight read as the
+// [K, N] right-hand side of input @ weight^T. No data is copied.
+struct LinearWeightKN {
+  std::array<int64_t, 2> sizes;
+  std::array<int64_t, 2> strides;
+};
+
+inline LinearWeightKN
+get_linear_weight_kn(const torch::stable::Tensor &weight) {
+  return {{weight.size(1), weight.size(0)},
+          {weight.stride(1), weight.stride(0)}};
+}
+
+inline std::vector<int64_t>
+get_matmul_output_sizes(const torch::stable::Tensor &tensor1, const int64_t n) {
+  auto tensor1_size = tensor1.sizes();
+  std::vector<int64_t> output_size(tensor1_size.begin(),
+                                   tensor1_size.end() - 1);
+  output_size.push_back(n);
+  return output_size;
+}
+
 // this function returns the output size for matrix multiplication of two
-// tensors - tensor1 @ tensor2 and also it returns the output size for
-// linear operation of these two tensors, and if tensor2 is packed on the
-// last dim it will support the unpacking the size of last dim of tensor2
+// tensors - tensor1 @ tensor2, where tensor2 is laid out as [.., K, N]. Its
+// remaining linear user is WOQ linear, whose packed weight is [K, N]. If
+// tensor2 is packed on the last dim it will support the unpacking the size of
+// last dim of tensor2
 inline std::vector<int64_t>
 get_matmul_and_linear_output_sizes(const torch::stable::Tensor &tensor1,
                                    const torch::stable::Tensor &tensor2,
                                    const int64_t unpacking_ratio = 1) {
-  auto tensor1_size = tensor1.sizes();
-  std::vector<int64_t> output_size(tensor1_size.begin(),
-                                   tensor1_size.end() - 1);
-
-  auto tensor2_last_dim_size = tensor2.size(tensor2.dim() - 1);
-  auto calculated_last_dim_size = tensor2_last_dim_size * unpacking_ratio;
-  output_size.push_back(calculated_last_dim_size);
-  return output_size;
+  return get_matmul_output_sizes(tensor1, tensor2.size(tensor2.dim() - 1) *
+                                              unpacking_ratio);
 }
 
+// mat2 is multiplied as a [.., k, n] matrix, whatever its own layout is.
 inline void check_valid_sizes_for_matmul(
     const torch::stable::Tensor &mat1, const torch::stable::Tensor &mat2,
-    const torch::stable::Tensor &bias, const torch::stable::Tensor &result,
+    const int64_t k, const int64_t n, const torch::stable::Tensor &bias,
+    const torch::stable::Tensor &result,
     const std::vector<torch::stable::Tensor> &post_op_buffers) {
 
   // The flow of this check is as follows:
@@ -178,7 +198,7 @@ inline void check_valid_sizes_for_matmul(
         "Tensor shapes incompatible for batch matrix multiplication");
   }
 
-  ZENTORCH_CHECK(mat1_sizes[mat1_dim - 1] == mat2_sizes[mat1_dim - 2],
+  ZENTORCH_CHECK(mat1_sizes[mat1_dim - 1] == k,
                  "Tensor shapes incompatible for matrix multiplication");
 
   ZENTORCH_CHECK(result.dim() == mat1_dim,
@@ -192,14 +212,13 @@ inline void check_valid_sizes_for_matmul(
     }
     const auto bias_sizes = bias.sizes();
     if (mat1_dim == 2) {
-      ZENTORCH_CHECK(bias_sizes[0] == mat2_sizes[1],
+      ZENTORCH_CHECK(bias_sizes[0] == n,
                      "input/bias/self shape is incompatible for addition with "
                      "matrix multiplication product (",
-                     mat1_sizes[0], "x", mat1_sizes[1], " @ ", mat2_sizes[0],
-                     "x", mat2_sizes[1], " != ", mat1_sizes[0], "x",
-                     bias_sizes[0], ")");
+                     mat1_sizes[0], "x", mat1_sizes[1], " @ ", k, "x", n,
+                     " != ", mat1_sizes[0], "x", bias_sizes[0], ")");
     } else if (mat1_dim == 3) {
-      ZENTORCH_CHECK(bias_sizes[0] == mat2_sizes[2],
+      ZENTORCH_CHECK(bias_sizes[0] == n,
                      "input/bias/self shape is incompatible for addition with "
                      "matrix multiplication product (",
                      mat1_sizes[0], "x", mat1_sizes[1], "x", mat1_sizes[2],
@@ -450,7 +469,7 @@ inline void check_valid_dtypes_for_quantized_matmul(
   }
 }
 
-inline void check_valid_sizes_for_quantized_matmul(
+inline void check_valid_sizes_for_quantized_linear(
     const torch::stable::Tensor &bias, const torch::stable::Tensor &input,
     const torch::stable::Tensor &weight, const torch::stable::Tensor &result,
     const torch::stable::Tensor &input_scales,
@@ -460,7 +479,9 @@ inline void check_valid_sizes_for_quantized_matmul(
     const torch::stable::Tensor &output_scales,
     const torch::stable::Tensor &output_zero_points,
     const std::vector<torch::stable::Tensor> &post_op_buffers) {
-  check_valid_sizes_for_matmul(input, weight, bias, result, post_op_buffers);
+  check_valid_sizes_for_matmul(input, weight, weight.size(1) /* k */,
+                               weight.size(0) /* n */, bias, result,
+                               post_op_buffers);
 
   // Size checks specfic for quantized matmul.
   // Per-tensor config check.
@@ -486,7 +507,7 @@ inline void check_valid_sizes_for_quantized_matmul(
                  "unsupported dims for weight_scales with respect "
                  "to weight tensor");
   ZENTORCH_CHECK(
-      (weight_scales.numel() == 1) || (weight_scales.numel() == weight.size(1)),
+      (weight_scales.numel() == 1) || (weight_scales.numel() == weight.size(0)),
       "unsupported number of elements for weight_scales with respect "
       "to weight tensor");
   if (weight_zero_points.defined()) {
@@ -495,7 +516,7 @@ inline void check_valid_sizes_for_quantized_matmul(
         "only scalar and 1-d weight_zero_points are supported");
     ZENTORCH_CHECK(
         (weight_zero_points.numel() == 1) ||
-            (weight_zero_points.numel() == weight.size(1)),
+            (weight_zero_points.numel() == weight.size(0)),
         "only supporting per-tensor and per-channel quantization for weight");
   }
   if (output_scales.defined() && output_zero_points.defined()) {
@@ -527,7 +548,7 @@ inline void check_valid_sizes_for_quantized_matmul(
       are_postops_shape_compatible =
           are_postops_shape_compatible &&
           (std::vector<int64_t>(buffer.sizes().begin(), buffer.sizes().end()) ==
-           get_matmul_and_linear_output_sizes(input, weight));
+           get_matmul_output_sizes(input, weight.size(0)));
     }
 
     ZENTORCH_CHECK(are_postops_dim_compatible,
@@ -623,17 +644,16 @@ create_linear_and_matmul_output_tensor(const torch::stable::Tensor &input,
 // `out.view(...)` reshape. The Inductor lowering already allocates a contiguous
 // `out`, but this covers other callers (eager, export) where that isn't
 // guaranteed. Gated behind ZENTORCH_ENABLE_CHECKS.
-inline void
-check_linear_and_matmul_out_tensor(const torch::stable::Tensor &input,
-                                   const torch::stable::Tensor &weight,
-                                   const torch::stable::Tensor &out) {
+inline void check_matmul_out_tensor(const torch::stable::Tensor &input,
+                                    const int64_t n,
+                                    const torch::stable::Tensor &out) {
   const bool enable_checks = static_cast<bool>(
       EnvReader::getEnvVariableAsInt("ZENTORCH_ENABLE_CHECKS"));
   if (!enable_checks)
     return;
   ZENTORCH_CHECK(out.defined(),
                  "'out' tensor in the linear out variant must be defined");
-  const auto expected_sizes = get_matmul_and_linear_output_sizes(input, weight);
+  const auto expected_sizes = get_matmul_output_sizes(input, n);
   const auto out_sizes =
       std::vector<int64_t>(out.sizes().begin(), out.sizes().end());
   ZENTORCH_CHECK(out_sizes == expected_sizes,
@@ -648,17 +668,21 @@ check_linear_and_matmul_out_tensor(const torch::stable::Tensor &input,
 // TODO
 // Check if this and the is_zendnn_optimized_format function can be merged into
 // one
-inline bool is_transposed(const torch::stable::Tensor &t) {
-  const auto sizes = t.sizes();
-  const auto strides = t.strides();
+inline bool
+is_transposed(const torch::headeronly::IntHeaderOnlyArrayRef sizes,
+              const torch::headeronly::IntHeaderOnlyArrayRef strides) {
   // check for transposed tensors
-  if (t.dim() == 2) {
+  if (sizes.size() == 2) {
     return strides[0] == 1 && strides[1] >= sizes[0];
   } else {
     // dim = 3
     return strides[0] >= sizes[1] * sizes[2] && strides[1] == 1 &&
            strides[2] >= sizes[1];
   }
+}
+
+inline bool is_transposed(const torch::stable::Tensor &t) {
+  return is_transposed(t.sizes(), t.strides());
 }
 
 inline bool is_stride_valid(const torch::stable::Tensor &t) {
@@ -674,7 +698,8 @@ inline bool is_stride_valid(const torch::stable::Tensor &t) {
 
 inline bool validate_zendnnl_direct_kernel_usage(
     const torch::stable::Tensor &input, const torch::stable::Tensor &weight,
-    const torch::stable::Tensor &bias, const torch::stable::Tensor &result,
+    const int64_t k, const int64_t n, const torch::stable::Tensor &bias,
+    const torch::stable::Tensor &result,
     const std::vector<torch::stable::Tensor> &post_op_buffers) {
 
   auto is_dtype_supported = [](const torch::stable::Tensor &x) {
@@ -712,13 +737,18 @@ inline bool validate_zendnnl_direct_kernel_usage(
     return false;
   }
 
-  check_valid_sizes_for_matmul(input, weight, bias, result, post_op_buffers);
+  check_valid_sizes_for_matmul(input, weight, k, n, bias, result,
+                               post_op_buffers);
 
   return true;
 }
 
+// weight_sizes and weight_strides describe weight as the [.., K, N] right-hand
+// side of the matmul.
 inline void zendnnl_direct_kernel(
     const torch::stable::Tensor &input, const torch::stable::Tensor &weight,
+    const torch::headeronly::IntHeaderOnlyArrayRef weight_sizes,
+    const torch::headeronly::IntHeaderOnlyArrayRef weight_strides,
     const torch::stable::Tensor &bias, const torch::stable::Tensor &result,
     const float &alpha, const std::vector<int64_t> &post_op_ids,
     const std::vector<torch::stable::Tensor> &post_op_buffers,
@@ -730,8 +760,19 @@ inline void zendnnl_direct_kernel(
 
   torch::stable::Tensor input_ =
       is_stride_valid(input) ? input : get_contiguous_view(input);
+  // The contiguous copy has its own sizes and strides, so it is only correct
+  // when weight_sizes and weight_strides are the weight's own layout.
+  const bool is_weight_stride_valid = is_stride_valid(weight);
+  ZENTORCH_CHECK(is_weight_stride_valid ||
+                     (weight_sizes.equals(weight.sizes()) &&
+                      weight_strides.equals(weight.strides())),
+                 "a weight that needs a contiguous copy must be passed with "
+                 "its own sizes and strides");
   torch::stable::Tensor weight_ =
-      is_stride_valid(weight) ? weight : get_contiguous_view(weight);
+      is_weight_stride_valid ? weight : get_contiguous_view(weight);
+  const auto sizesB = is_weight_stride_valid ? weight_sizes : weight_.sizes();
+  const auto stridesB =
+      is_weight_stride_valid ? weight_strides : weight_.strides();
 
   // By the time the control comes to this function, we are working with tensors
   // that are of 2d or 3d shape and all the tensors are of same shape. So,
@@ -741,15 +782,22 @@ inline void zendnnl_direct_kernel(
   bool is_matmul_2d = input_.dim() == 2;
 
   bool transA = is_transposed(input_);
-  bool transB = is_transposed(weight_);
+  bool transB = is_transposed(sizesB, stridesB);
   int batch_A = is_matmul_2d ? 1 : input_.size(0);
-  int batch_B = is_matmul_2d ? 1 : weight_.size(0);
+  int batch_B = is_matmul_2d ? 1 : sizesB[0];
   int M = is_matmul_2d ? input_.size(0) : input_.size(1);
   int K = is_matmul_2d ? input_.size(1) : input_.size(2);
-  int N = is_matmul_2d ? weight_.size(1) : weight_.size(2);
+  int N = is_matmul_2d ? sizesB[1] : sizesB[2];
+
+  // matmul_direct takes a single leading dimension (ldb) for the weight, so the
+  // other dimension must have unit stride. transB already implies a unit
+  // stride along K; otherwise N must have it.
+  ZENTORCH_CHECK(transB || N == 1 || stridesB[is_matmul_2d ? 1 : 2] == 1,
+                 "zendnnl direct kernel requires the weight to have a "
+                 "unit-stride dimension, got strides [",
+                 c10::Join(", ", stridesB), "]");
 
   auto stridesA = input_.strides();
-  auto stridesB = weight_.strides();
   auto stridesC = result.strides();
   int lda, ldb, ldc;
 

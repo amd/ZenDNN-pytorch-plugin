@@ -73,6 +73,7 @@ quantize_to_int8(const torch::stable::Tensor &input,
   return q_input;
 }
 
+// weight is a 2-d [N, K] (nn.Linear layout) weight.
 void zendnnl_quantized_matmul_impl(
     const torch::stable::Tensor &input, const torch::stable::Tensor &weight,
     const std::optional<torch::stable::Tensor> &bias,
@@ -123,7 +124,7 @@ void zendnnl_quantized_matmul_impl(
       bias_t, input, weight, result, input_scales, input_zero_points,
       weight_scales, weight_zero_points, output_scales_t, output_zero_points_t,
       post_op_buffers);
-  check_valid_sizes_for_quantized_matmul(
+  check_valid_sizes_for_quantized_linear(
       bias_t, input, weight, result, input_scales, input_zero_points,
       weight_scales, weight_zero_points, output_scales_t, output_zero_points_t,
       post_op_buffers);
@@ -168,6 +169,7 @@ void zendnnl_quantized_matmul_impl(
   const int int_env_value =
       EnvReader::getEnvVariableAsInt("USE_ZENDNN_MATMUL_DIRECT");
   const bool use_zendnnl_direct_kernel = static_cast<bool>(int_env_value);
+  const LinearWeightKN weight_kn = get_linear_weight_kn(weight);
 
   torch::stable::Tensor inv_output_scales;
   if (output_scales_defined) {
@@ -232,8 +234,9 @@ void zendnnl_quantized_matmul_impl(
                                output_zero_points_t.sizes().end());
     }
 
-    zendnnl_direct_kernel(is_input_quantized ? input : q_input, weight, bias_t,
-                          result, 1.0f, post_op_ids, post_op_buffers,
+    zendnnl_direct_kernel(is_input_quantized ? input : q_input, weight,
+                          weight_kn.sizes, weight_kn.strides, bias_t, result,
+                          1.0f, post_op_ids, post_op_buffers,
                           true /* is_weight_const */, is_weight_prepacked,
                           zentorch_op_name, quantization_params);
 
@@ -291,7 +294,10 @@ void zendnnl_quantized_matmul_impl(
   tensor_t z_q_weight = tensor_t();
   set_zendnnl_tensor_attributes(
       weight, z_q_weight, "z_q_weight", is_weight_prepacked,
-      {} /* tensor_sizes */, {} /* tensor_strides */,
+      std::vector<unsigned long>(weight_kn.sizes.begin(),
+                                 weight_kn.sizes.end()),
+      std::vector<unsigned long>(weight_kn.strides.begin(),
+                                 weight_kn.strides.end()),
       {} /* tensor_aligned_sizes */, -1 /* nbytes */,
       z_weight_scales_opt_ref /*, z_weight_zero_points_opt_ref*/);
 
@@ -408,9 +414,6 @@ void zentorch_qlinear_out_unary(
   // `input` is viewed as 2d for matmul computation.
   auto input_2d_view = get_2d_view(get_contiguous_view(input));
 
-  // `weight` is transposed for matmul computation.
-  auto weight_transposed = torch::stable::transpose(weight, 0, 1);
-
   // `result` is viewed as 2d for matmul computation.
   auto result_2d_view = get_2d_view(result);
   auto output_stride = result_2d_view.stride(0);
@@ -421,7 +424,7 @@ void zentorch_qlinear_out_unary(
   ZENTORCH_LOG(INFO) << "Calling zendnnl_quantized_matmul_impl from "
                      << __FUNCTION__ << "!\n";
   zendnnl_quantized_matmul_impl(
-      input_2d_view, weight_transposed, bias, result_2d_view, input_scales,
+      input_2d_view, weight, bias, result_2d_view, input_scales,
       input_zero_points, weight_scales, weight_zero_points, post_op_ids,
       post_op_buffers, output_scales, output_zero_points, output_stride,
       is_weight_prepacked, zentorch_op_name);
@@ -444,10 +447,9 @@ torch::stable::Tensor zentorch_qlinear_unary(
                      << "Executing function: " << __FUNCTION__;
 
   c10::ScalarType out_dtype = output_dtype.value_or(c10::kFloat);
-  auto weight_transposed = torch::stable::transpose(weight, 0, 1);
 
   // `result` tensor's dtype will depend on output_dtype argument.
-  auto output_sz = get_matmul_and_linear_output_sizes(input, weight_transposed);
+  auto output_sz = get_matmul_output_sizes(input, weight.size(0));
   torch::stable::Tensor result =
       torch::stable::new_empty(input, output_sz, out_dtype);
 
@@ -496,11 +498,8 @@ inline torch::stable::Tensor zentorch_qlinear_binary_binary(
   auto binary1_input_2d_view = get_2d_view(get_contiguous_view(binary1_input));
   auto binary2_input_2d_view = get_2d_view(get_contiguous_view(binary2_input));
 
-  // `weight` is transposed for matmul computation.
-  auto weight_transposed = torch::stable::transpose(weight, 0, 1);
-
   // `result` tensor's dtype will depend on output_dtype argument.
-  auto output_sz = get_matmul_and_linear_output_sizes(input, weight_transposed);
+  auto output_sz = get_matmul_output_sizes(input, weight.size(0));
   torch::stable::Tensor result =
       torch::stable::new_empty(input, output_sz, out_dtype);
 
@@ -514,7 +513,7 @@ inline torch::stable::Tensor zentorch_qlinear_binary_binary(
   ZENTORCH_LOG(INFO) << "Calling zendnnl_quantized_matmul_impl from "
                      << __FUNCTION__ << "!\n";
   zendnnl_quantized_matmul_impl(
-      input_2d_view, weight_transposed, bias, result_2d_view, input_scales,
+      input_2d_view, weight, bias, result_2d_view, input_scales,
       input_zero_points, weight_scales, weight_zero_points, post_op_ids,
       post_op_buffers, output_scales, output_zero_points,
       result_2d_view.stride(0), is_weight_prepacked, zentorch_op_name);

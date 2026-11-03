@@ -202,7 +202,7 @@ void zentorch_woq_linear_unary_out(
 
   // Validate the caller-supplied `out` (shape/contiguity) before viewing it;
   // gated behind ZENTORCH_ENABLE_CHECKS.
-  check_linear_and_matmul_out_tensor(input, weight, out);
+  check_matmul_out_tensor(input, weight.size(weight.dim() - 1), out);
 
   // `input` is viewed as 2d for matmul computation.
   auto input_2d_view = get_2d_view(get_contiguous_view(input));
@@ -253,7 +253,7 @@ void zentorch_woq_linear_unary_binary_out(
   ZENTORCH_LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
                      << "Executing function: " << __FUNCTION__;
 
-  check_linear_and_matmul_out_tensor(input, weight, out);
+  check_matmul_out_tensor(input, weight.size(weight.dim() - 1), out);
 
   // `input` is viewed as 2d for matmul computation.
   auto input_2d_view = get_2d_view(get_contiguous_view(input));
@@ -307,7 +307,7 @@ void zentorch_woq_linear_binary_binary_out(
   ZENTORCH_LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
                      << "Executing function: " << __FUNCTION__;
 
-  check_linear_and_matmul_out_tensor(input, weight, out);
+  check_matmul_out_tensor(input, weight.size(weight.dim() - 1), out);
 
   // `input` is viewed as 2d for matmul computation.
   auto input_2d_view = get_2d_view(get_contiguous_view(input));
