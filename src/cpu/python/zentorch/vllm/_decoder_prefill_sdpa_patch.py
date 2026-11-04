@@ -47,8 +47,10 @@ def should_use_zentorch_prefill_sdpa(
     dtype: torch.dtype,
 ) -> bool:
     """True for plain decoder self-attention that zentorch_sdpa can run."""
+    from vllm.v1.attention.backend import AttentionType
+
     if attn_type != AttentionType.DECODER or alibi_slopes is not None:
-            return False
+        return False
     if logits_soft_cap or sinks is not None:
         return False
     return zentorch_sdpa_supports_dtype(dtype)

@@ -561,7 +561,7 @@ class Test_Sdpa_Varlen(Zentorch_TestCase):
                     generator = torch.Generator(device="cpu").manual_seed(case_index)
                     key_lens = q_lens if kv_lens is None else kv_lens
 
-                    def _draw(lengths, heads):
+                    def _draw(lengths, heads, head_dim, generator, dtype):
                         return [
                             torch.randn(
                                 heads,
@@ -573,9 +573,15 @@ class Test_Sdpa_Varlen(Zentorch_TestCase):
                             for length in lengths
                         ]
 
-                    query, cu_q = _pack_sequences(_draw(q_lens, num_heads))
-                    key, cu_k = _pack_sequences(_draw(key_lens, kv_heads))
-                    value, _ = _pack_sequences(_draw(key_lens, kv_heads))
+                    query, cu_q = _pack_sequences(
+                        _draw(q_lens, num_heads, head_dim, generator, dtype)
+                    )
+                    key, cu_k = _pack_sequences(
+                        _draw(key_lens, kv_heads, head_dim, generator, dtype)
+                    )
+                    value, _ = _pack_sequences(
+                        _draw(key_lens, kv_heads, head_dim, generator, dtype)
+                    )
                     scale = 1.0 / math.sqrt(head_dim)
                     out = torch.empty_like(query)
                     torch.ops.zentorch.zentorch_sdpa.out(
