@@ -256,9 +256,7 @@ class Test_Sdpa_Out_Variant(Zentorch_TestCase):
         return torch.log(torch.triu(mask, diagonal=-self.sliding_window))
 
     def test_out_writes_callers_buffer(self):
-        dtypes = [torch.float32]
-        if zentorch._C.is_bf16_supported():
-            dtypes.append(torch.bfloat16)
+        dtypes = [DataTypes.get_torch_type(name) for name in supported_dtypes]
         cases = itertools.product(self.layouts.items(), dtypes, (False, True))
 
         for (layout, (batch, order)), dtype, masked in cases:
@@ -463,6 +461,152 @@ class Test_Sdpa_Attn(SDPATestCase):
         )
         atol, rtol = default_tolerance(dtype)
         self.assertEqual(native_out, dense_out, atol=atol, rtol=rtol)
+
+
+def _pack_sequences(sequences):
+    """Stack ``[heads, seq, dim]`` sequences into ``[total, heads, dim]``."""
+    packed = torch.cat(
+        [sequence.transpose(0, 1).contiguous() for sequence in sequences], dim=0
+    )
+    offsets = [0]
+    for sequence in sequences:
+        offsets.append(offsets[-1] + sequence.size(1))
+    return packed, offsets
+
+
+def _varlen_reference(
+    query, key, value, cu_q, cu_k, scale, is_causal, sliding_window_size
+):
+    """Per-sequence SDPA. Query row ``r`` sits at key ``r + (kv_len - q_len)``."""
+    repeat = query.size(1) // key.size(1)
+    reference = torch.empty_like(query)
+    win_left = sliding_window_size - 1 if sliding_window_size > 0 else 0
+    win_right = (
+        sliding_window_size - 1 if sliding_window_size > 0 and not is_causal else 0
+    )
+    banded = is_causal or sliding_window_size > 0
+    for index in range(len(cu_q) - 1):
+        q0, q1 = cu_q[index], cu_q[index + 1]
+        k0, k1 = cu_k[index], cu_k[index + 1]
+        q_len, kv_len = q1 - q0, k1 - k0
+        query_i = query[q0:q1].transpose(0, 1).unsqueeze(0)
+        key_i = (
+            key[k0:k1]
+            .transpose(0, 1)
+            .unsqueeze(0)
+            .repeat_interleave(repeat, dim=1)
+        )
+        value_i = (
+            value[k0:k1]
+            .transpose(0, 1)
+            .unsqueeze(0)
+            .repeat_interleave(repeat, dim=1)
+        )
+        attn_mask = None
+        if banded:
+            positions = torch.arange(q_len) + (kv_len - q_len)
+            columns = torch.arange(kv_len)
+            allowed = columns.unsqueeze(0) <= (positions + win_right).unsqueeze(1)
+            if sliding_window_size > 0:
+                allowed &= columns.unsqueeze(0) >= (positions - win_left).unsqueeze(1)
+            attn_mask = torch.zeros(1, 1, q_len, kv_len, dtype=query.dtype)
+            attn_mask.masked_fill_(~allowed, float("-inf"))
+        attended = scaled_dot_product_attention(
+            query_i,
+            key_i,
+            value_i,
+            attn_mask=attn_mask,
+            scale=scale,
+            dropout_p=0.0,
+        )
+        reference[q0:q1] = attended.squeeze(0).transpose(0, 1)
+    return reference
+
+
+@unittest.skipIf(not has_zentorch, "ZENTORCH is not installed")
+@unittest.skipIf(
+    not zentorch._C.is_avx512_supported(),
+    "zentorch_sdpa fp32 requires AVX512 on this hardware",
+)
+class Test_Sdpa_Varlen(Zentorch_TestCase):
+    """Packed ``zentorch_sdpa.out`` against per-sequence SDPA.
+
+    ``kv_lens is None`` omits ``cu_seqlens_k``, which the kernel treats as the
+    query offsets. A longer key sequence is a cached prefix: each query is
+    aligned to the end of its keys.
+    """
+
+    cases = (
+        # q_lens, kv_lens, heads, kv_heads, head_dim, causal, window
+        ((4, 7, 3), None, 4, 4, 16, False, 0),
+        ((4, 7, 3), None, 4, 4, 16, True, 0),
+        ((3, 5), (8, 11), 4, 4, 16, True, 0),
+        ((6, 4), (6, 4), 4, 2, 16, False, 4),
+        ((4, 3), (9, 6), 2, 1, 32, True, 4),
+    )
+
+    @torch.inference_mode()
+    def test_packed_varlen_matches_sdpa(self):
+        for dtype_name in supported_dtypes:
+            dtype = DataTypes.get_torch_type(dtype_name)
+            for case_index, case in enumerate(self.cases):
+                q_lens, kv_lens, num_heads, kv_heads, head_dim, is_causal, window = case
+                with self.subTest(
+                    dtype=dtype_name,
+                    q_lens=q_lens,
+                    kv_lens=kv_lens,
+                    causal=is_causal,
+                    window=window,
+                ):
+                    generator = torch.Generator(device="cpu").manual_seed(case_index)
+                    key_lens = q_lens if kv_lens is None else kv_lens
+
+                    def _draw(lengths, heads):
+                        return [
+                            torch.randn(
+                                heads,
+                                length,
+                                head_dim,
+                                generator=generator,
+                                dtype=dtype,
+                            )
+                            for length in lengths
+                        ]
+
+                    query, cu_q = _pack_sequences(_draw(q_lens, num_heads))
+                    key, cu_k = _pack_sequences(_draw(key_lens, kv_heads))
+                    value, _ = _pack_sequences(_draw(key_lens, kv_heads))
+                    scale = 1.0 / math.sqrt(head_dim)
+                    out = torch.empty_like(query)
+                    torch.ops.zentorch.zentorch_sdpa.out(
+                        query,
+                        key,
+                        value,
+                        dropout_p=0.0,
+                        is_causal=is_causal,
+                        scale=scale,
+                        sliding_window_size=window,
+                        cu_seqlens_q=cu_q,
+                        cu_seqlens_k=None if kv_lens is None else cu_k,
+                        out=out,
+                    )
+                    reference = _varlen_reference(
+                        query,
+                        key,
+                        value,
+                        cu_q,
+                        cu_k,
+                        scale,
+                        is_causal,
+                        window,
+                    )
+                    atol, rtol = default_tolerance(dtype)
+                    self.assertEqual(
+                        out,
+                        reference,
+                        atol=max(atol, 1e-3),
+                        rtol=max(rtol, 1e-2),
+                    )
 
 
 if __name__ == "__main__":

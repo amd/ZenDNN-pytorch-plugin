@@ -28,6 +28,7 @@ EXPECTED_PATCHES = [
     "FusedMoE",
     "FusedMLP",
     "CPUSdpa",
+    "DecoderPrefillSdpa",
     "MMEncoderSdpa",
     "Da8w4Kernel",
     "Wna16CanImplement",

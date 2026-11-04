@@ -13,13 +13,14 @@
 #include "kernels/zen_cpukernels.hpp"
 
 #include <ATen/OpMathType.h>
-#include <c10/util/StringUtil.h>
 #include <cmath>
+#include <cstdint>
 #include <optional>
 #include <torch/csrc/inductor/aoti_torch/utils.h>
 #include <torch/csrc/stable/library.h>
 #include <torch/csrc/stable/ops.h>
 #include <tuple>
+#include <vector>
 
 namespace zentorch {
 
@@ -49,32 +50,53 @@ inline void zendnnl_sdpa_direct_kernel(
     const torch::stable::Tensor &value, torch::stable::Tensor &output,
     const double dropout_p, const bool is_causal,
     const std::optional<torch::stable::Tensor> &attn_mask,
-    const std::optional<double> &scale, int64_t sliding_window_size) {
+    const std::optional<double> &scale, int64_t sliding_window_size,
+    const std::optional<std::vector<int32_t>> &cu_seqlens_q = std::nullopt,
+    const std::optional<std::vector<int32_t>> &cu_seqlens_k = std::nullopt) {
   zendnnl::lowoha::sdpa::sdpa_params fp{};
-  fp.batch = query.size(0);
+  // Packed Q/K/V are [tokens, heads, dim]; dense Q/K/V are
+  // [batch, heads, seq, dim]. Head is axis 1 in both. Packed seq/dim are 0/2;
+  // dense seq/dim are 2/3.
+  const bool packed = cu_seqlens_q.has_value();
+  const int64_t seq_axis = packed ? 0 : 2;
+  const int64_t dim_axis = packed ? 2 : 3;
+
   fp.num_heads = query.size(1);
   fp.kv_num_heads = key.size(1);
-  fp.seq_len = query.size(2);
-  fp.kv_seq_len = key.size(2);
-  fp.head_dim = query.size(3);
-
-  fp.q_stride_b = query.stride(0);
+  fp.head_dim = query.size(dim_axis);
+  fp.seq_len = query.size(seq_axis);
+  fp.kv_seq_len = key.size(seq_axis);
   fp.q_stride_h = query.stride(1);
-  fp.q_stride_s = query.stride(2);
-  fp.q_stride_d = query.stride(3);
-  fp.k_stride_b = key.stride(0);
+  fp.q_stride_s = query.stride(seq_axis);
+  fp.q_stride_d = query.stride(dim_axis);
   fp.k_stride_h = key.stride(1);
-  fp.k_stride_s = key.stride(2);
-  fp.k_stride_d = key.stride(3);
-  fp.v_stride_b = value.stride(0);
+  fp.k_stride_s = key.stride(seq_axis);
+  fp.k_stride_d = key.stride(dim_axis);
   fp.v_stride_h = value.stride(1);
-  fp.v_stride_s = value.stride(2);
-  fp.v_stride_d = value.stride(3);
-  // output layout is BSHD after transpose(1,2)
-  fp.o_stride_b = output.stride(0);
-  fp.o_stride_s = output.stride(1);
-  fp.o_stride_h = output.stride(2);
-  fp.o_stride_d = output.stride(3);
+  fp.v_stride_s = value.stride(seq_axis);
+  fp.v_stride_d = value.stride(dim_axis);
+
+  if (packed) {
+    // seq_len / kv_seq_len are loose upper bounds; batch strides are unused.
+    fp.batch = static_cast<int64_t>(cu_seqlens_q->size()) - 1;
+    fp.o_stride_s = output.stride(0);
+    fp.o_stride_h = output.stride(1);
+    fp.o_stride_d = output.stride(2);
+    // sdpa_params::cu_seqlens_q / cu_seqlens_k are added by an upcoming
+    // ZenDNN PR. The lists are already int32, which is what those fields store.
+    fp.cu_seqlens_q = cu_seqlens_q->data();
+    fp.cu_seqlens_k = cu_seqlens_k.has_value() ? cu_seqlens_k->data() : nullptr;
+  } else {
+    fp.batch = query.size(0);
+    fp.q_stride_b = query.stride(0);
+    fp.k_stride_b = key.stride(0);
+    fp.v_stride_b = value.stride(0);
+    // output layout is BSHD after transpose(1,2)
+    fp.o_stride_b = output.stride(0);
+    fp.o_stride_s = output.stride(1);
+    fp.o_stride_h = output.stride(2);
+    fp.o_stride_d = output.stride(3);
+  }
 
   fp.qkv_dt = get_zendnnl_dtype(query);
   fp.out_dt = get_zendnnl_dtype(query);
@@ -85,7 +107,8 @@ inline void zendnnl_sdpa_direct_kernel(
   fp.dropout_p = dropout_p;
 
   const void *mask_ptr = nullptr;
-  if (attn_mask.has_value() && attn_mask->defined()) {
+  if (!cu_seqlens_q.has_value() && attn_mask.has_value() &&
+      attn_mask->defined()) {
     const torch::stable::Tensor &mask = *attn_mask;
     mask_ptr = mask.data_ptr();
     fp.mask_ndims = static_cast<int>(mask.dim());
@@ -151,11 +174,12 @@ zentorch_scaled_dot_product_attention_impl(
                  "zentorch_sdpa.out: output should have the same data type as "
                  "Query, but got ",
                  output.scalar_type(), " instead.");
-  ZENTORCH_CHECK(output.sizes().equals(query.sizes()),
-                 "zentorch_sdpa.out: output should have the same shape as "
-                 "Query, expected [",
-                 c10::Join(", ", query.sizes()), "] but got [",
-                 c10::Join(", ", output.sizes()), "]");
+  ZENTORCH_CHECK(
+      output.sizes().equals(query.sizes()),
+      "zentorch_sdpa.out: output should have the same shape as "
+      "Query, expected ",
+      c10::IntArrayRef(query.sizes().data(), query.sizes().size()), " but got ",
+      c10::IntArrayRef(output.sizes().data(), output.sizes().size()));
   // Input validation for tensor types, shapes,attention mask and AVX512
   // support.
   bool is_dtype_supported =
@@ -295,11 +319,31 @@ void zentorch_sdpa_out(const torch::stable::Tensor &query,
                        bool is_causal,
                        std::optional<torch::stable::Tensor> attn_mask,
                        std::optional<double> scale, int64_t sliding_window_size,
+                       std::optional<std::vector<int32_t>> cu_seqlens_q,
+                       std::optional<std::vector<int32_t>> cu_seqlens_k,
                        std::string zentorch_op_name,
                        torch::stable::Tensor &out) {
   LOG(INFO) << "[" << __FILE__ << ": " << __LINE__ << "] "
             << "Executing function: " << __FUNCTION__
             << " zentorch_op_name: " << zentorch_op_name;
+  // Packed [total_tokens, heads, head_dim]. A missing cu_seqlens_k uses the
+  // query offsets. seq_len / kv_seq_len are loose upper bounds.
+  if (cu_seqlens_q.has_value()) {
+    ZENTORCH_CHECK(out.scalar_type() == query.scalar_type(),
+                   "zentorch_sdpa.out: output should have the same data type "
+                   "as Query, but got ",
+                   out.scalar_type(), " instead.");
+    ZENTORCH_CHECK(out.sizes().equals(query.sizes()),
+                   "zentorch_sdpa.out: output should have the same shape as "
+                   "Query, expected ",
+                   c10::IntArrayRef(query.sizes().data(), query.sizes().size()),
+                   " but got ",
+                   c10::IntArrayRef(out.sizes().data(), out.sizes().size()));
+    zendnnl_sdpa_direct_kernel(query, key, value, out, dropout_p, is_causal,
+                               /*attn_mask=*/std::nullopt, scale,
+                               sliding_window_size, cu_seqlens_q, cu_seqlens_k);
+    return;
+  }
   zentorch_scaled_dot_product_attention_impl(query, key, value, dropout_p,
                                              is_causal, std::move(attn_mask),
                                              scale, sliding_window_size, out);
@@ -330,8 +374,10 @@ STABLE_TORCH_LIBRARY_FRAGMENT(zentorch, m) {
         "Tensor value , float dropout_p=0.0, "
         "bool is_causal=False, *, Tensor? attn_mask=None, float? scale=None, "
         "int sliding_window_size=0, "
+        "int[]? cu_seqlens_q=None, int[]? cu_seqlens_k=None, "
         "str zentorch_op_name = "
-        "'zentorch::zentorch_sdpa.out', Tensor(a!) out)-> ()");
+        "'zentorch::zentorch_sdpa.out', "
+        "Tensor(a!) out)-> ()");
 }
 STABLE_TORCH_LIBRARY_IMPL(zentorch, CPU, m) {
   m.impl("zentorch_sdpa", TORCH_BOX(&zentorch::zentorch_sdpa));

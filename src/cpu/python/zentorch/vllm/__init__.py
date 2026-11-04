@@ -80,6 +80,9 @@ from zentorch.vllm._fused_mlp_patch import (  # noqa: E402, F401
 from zentorch.vllm._mm_encoder_sdpa_patch import (  # noqa: E402, F401
     _apply_mm_encoder_sdpa_patch,
 )
+from zentorch.vllm._decoder_prefill_sdpa_patch import (  # noqa: E402, F401
+    _apply_prefill_sdpa_patch,
+)
 from zentorch.vllm._sdpa_utils import (  # noqa: E402
     zentorch_sdpa_supports_dtype,
 )
@@ -530,6 +533,7 @@ _PATCHES = (
     ("FusedMoE", _apply_fused_moe_patch),
     ("FusedMLP", _apply_fused_mlp_patch_impl),
     ("CPUSdpa", _apply_cpu_sdpa_patch),
+    ("DecoderPrefillSdpa", _apply_prefill_sdpa_patch),
     ("MMEncoderSdpa", _apply_mm_encoder_sdpa_patch),
     ("Da8w4Kernel", _apply_da8w4_patch),
     ("Wna16CanImplement", _apply_wna16_can_implement_patch),

@@ -271,11 +271,13 @@ if hasattr(torch.ops.zentorch, "zentorch_sdpa"):
         attn_mask=None,
         scale=None,
         sliding_window_size=0,
+        cu_seqlens_q=None,
+        cu_seqlens_k=None,
         zentorch_op_name="zentorch::zentorch_sdpa.out",
         out=None,
     ):
         # The kernel writes through `out` and returns nothing (matches the
-        # other zentorch .out ops).
+        # other zentorch .out ops). Packed cu_seqlens select the varlen layout.
         return
 
 
