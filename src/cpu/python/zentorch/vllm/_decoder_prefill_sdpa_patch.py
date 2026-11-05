@@ -53,6 +53,9 @@ def should_use_zentorch_prefill_sdpa(
         return False
     if logits_soft_cap or sinks is not None:
         return False
+    # Gemma KV-shared layers project Q only and pass key/value as None.
+    if kv_sharing_target_layer_name is not None:
+        return False
     return zentorch_sdpa_supports_dtype(dtype)
 
 
