@@ -61,7 +61,7 @@ jobs:
   ready-required:
     name: ready-required
     if: github.event_name == 'pull_request'
-    runs-on: amd-zenai-arc-xsmall-dind
+    runs-on: amd-zenai-arc-nano-dind
     steps:
       - name: Require READY label to merge
         env:
@@ -88,7 +88,7 @@ jobs:
   drop-ready-on-push:
     name: drop-ready-on-push
     if: github.event_name == 'pull_request' && github.event.action == 'synchronize'
-    runs-on: amd-zenai-arc-xsmall-dind
+    runs-on: amd-zenai-arc-nano-dind
     steps:
       - name: Remove READY so a later re-apply can retrigger full CI
         env:
@@ -1265,7 +1265,7 @@ jobs:
     name: report-status
     needs: [zentorch-build, unit-tests, vllm-build]
     if: always() && !cancelled() && (github.event_name != 'pull_request' || github.event.action != 'unlabeled')
-    runs-on: amd-zenai-arc-xsmall-dind
+    runs-on: amd-zenai-arc-nano-dind
     steps:
       - name: Aggregate job results
         id: agg
