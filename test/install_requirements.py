@@ -64,14 +64,12 @@ if __name__ == "__main__":
     torch_version = torch.__version__
     torch_version = torch_version.split("+")[0]
     torchvision_compatibility = {
-        "2.13.0": "torchvision==0.28.0",
         "2.14.0": "torchvision==0.29.0",
         "2.14.1": "torchvision==0.29.1",
         "2.15.0": "torchvision==0.29.2",
     }
 
     torchao_compatibility = {
-        "2.13.0": "torchao==0.17.0",
         "2.14.0": "torchao==0.17.0",
         "2.14.1": "torchao==0.17.0",
         "2.15.0": "torchao==0.17.0",
@@ -100,7 +98,7 @@ if __name__ == "__main__":
         else:
             print("Could not find the valid torchao version which is \
                 compatible with installed torch version. Supported Torch versions \
-                are 2.13.0, 2.14.0, 2.14.1 and 2.15.0")
+                are 2.14.0, 2.14.1 and 2.15.0")
             sys.exit(1)
 
     if find_spec("torchvision") is not None:
@@ -126,5 +124,5 @@ if __name__ == "__main__":
         else:
             print("Could not find the valid torchvision version which is \
                 compatible with installed torch version. Supported Torch versions \
-                are 2.13.0/2.14.0/2.14.1/2.15.0")
+                are 2.14.0/2.14.1/2.15.0")
             sys.exit(1)

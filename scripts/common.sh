@@ -55,7 +55,7 @@ detect_pytorch_version() {
 
 # Additional supported PyTorch versions (space-separated) for the current branch.
 detect_pytorch_alternates() {
-    echo "2.14.1 2.14.0 2.13.0"
+    echo "2.14.1 2.14.0"
 }
 
 # Name of the active Python environment (empty if none).

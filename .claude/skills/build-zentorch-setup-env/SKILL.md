@@ -103,7 +103,7 @@ version.
 
 | Branch          | Primary PyTorch (recommended) | Alternates                       |
 |-----------------|-------------------------------|----------------------------------|
-| `main`/`master` | 2.15.0                        | 2.14.1, 2.14.0, 2.13.0 (minimum) |
+| `main`/`master` | 2.15.0                        | 2.14.1, 2.14.0 (minimum) |
 
 > See [README.md](../../../README.md) for the authoritative PyTorch/Python
 > compatibility matrix. Use Python 3.12 by default.

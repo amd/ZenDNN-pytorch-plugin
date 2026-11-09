@@ -7,7 +7,7 @@ cmake_minimum_required(VERSION 3.21 FATAL_ERROR)
 project(zentorch)
 include(FetchContent)
 
-# C++ standard: PyTorch >= 2.13 headers require C++20. setup.py always passes
+# C++ standard: PyTorch >= 2.14 headers require C++20. setup.py always passes
 # -DCMAKE_CXX_STANDARD=20. ZenDNN is added via FetchContent (child scope) and
 # pins its own standard, so this stays scoped to zentorch's targets.
 if(NOT DEFINED CMAKE_CXX_STANDARD)

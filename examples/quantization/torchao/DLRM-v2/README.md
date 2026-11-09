@@ -119,7 +119,7 @@ compiled = torch.compile(quantized, backend="inductor")
 
 ## Requirements
 
-- PyTorch 2.15.0 (recommended), 2.14.1, 2.14.0, or 2.13.0 (minimum), with PT2E support
+- PyTorch 2.15.0 (recommended), 2.14.1, or 2.14.0 (minimum), with PT2E support
 - TorchAO (`torchao.quantization.pt2e`) (recommended version- 0.17.0)
 - DLRMv2 model (`dlrm_model.DLRMMLPerf`)
 - Dataset(`multihot-criteo`)

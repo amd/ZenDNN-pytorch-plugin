@@ -17,10 +17,10 @@ import torch
 import warnings
 
 _pt_parsed = parse(torch_version)
-if (_pt_parsed.major, _pt_parsed.minor) < (2, 13):
+if (_pt_parsed.major, _pt_parsed.minor) < (2, 14):
     raise ImportError(
         "zentorch Plugin requires torch version "
-        "2.13.0 or higher. Please upgrade your torch version "
+        "2.14.0 or higher. Please upgrade your torch version "
         "and retry the build."
     )
 
@@ -195,7 +195,6 @@ PACKAGE_NAME = "zentorch"
 # <torch>.0 without a code change. Only bump a value when cutting a follow-up
 # zentorch release for the same torch base.
 _PLUGIN_PATCH_BY_TORCH = {
-    "2.13.0": 4,
     "2.14.0": 3,
     "2.14.1": 1,
     "2.15.0": 0,
