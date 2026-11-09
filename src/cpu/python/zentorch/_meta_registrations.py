@@ -511,6 +511,58 @@ def meta_zentorch_rms_norm(
     return input.new_empty(input.size())
 
 
+@register_meta("zentorch_hstu_mha", "out")
+def meta_zentorch_hstu_mha_out(
+    max_seq_len,
+    alpha,
+    q,
+    k,
+    v,
+    seq_offsets,
+    causal=True,
+    num_targets=None,
+    attn_scale=None,
+    max_attn_len=0,
+    contextual_seq_len=0,
+    min_full_attn_seq_len=0,
+    zentorch_op_name="zentorch::zentorch_hstu_mha",
+    out=None,
+):
+    return
+
+
+@register_meta("zentorch_delta_hstu_mha", "out")
+def meta_zentorch_delta_hstu_mha_out(
+    max_seq_len,
+    alpha,
+    delta_q,
+    k,
+    v,
+    seq_offsets,
+    num_targets=None,
+    max_attn_len=0,
+    contextual_seq_len=0,
+    zentorch_op_name="zentorch::zentorch_delta_hstu_mha",
+    out=None,
+):
+    return
+
+
+@register_meta("zentorch_gated_layer_norm", "out")
+def meta_zentorch_gated_layer_norm_out(
+    input,
+    gate,
+    weight,
+    bias,
+    eps,
+    silu_gate=False,
+    concat=False,
+    zentorch_op_name="zentorch::zentorch_gated_layer_norm",
+    out=None,
+):
+    return
+
+
 @register_meta("zentorch_weight_prepack_for_linear")
 def meta_zentorch_weight_prepack_for_linear(weight):
     return weight.new_empty(weight.size())
@@ -1350,3 +1402,6 @@ for _gdn_op in (
     "gdn_fused_recurrent_gated_delta_rule_packed_decode",
 ):
     _make_fallback_if_present(_gdn_op)
+make_fallback(torch.ops.zentorch.zentorch_hstu_mha.out)
+make_fallback(torch.ops.zentorch.zentorch_delta_hstu_mha.out)
+make_fallback(torch.ops.zentorch.zentorch_gated_layer_norm.out)
