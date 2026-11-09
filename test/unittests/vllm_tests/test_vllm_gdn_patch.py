@@ -68,13 +68,17 @@ class TestGDNPatch(unittest.TestCase):
 
     def test_custom_op_schema_can_be_inferred(self):
         """Regression test for a missing/unresolvable LayerNameType annotation."""
+        import vllm.utils.torch_utils as torch_utils
         from torch._library.infer_schema import infer_schema
 
         gdn_patch = self._gdn_patch()
-        schema = infer_schema(
-            gdn_patch._gdn_attention_core_cpu,
-            mutates_args=["core_attn_out"],
-        )
+        # The annotation resolves against _vllm_torch_utils, which _do_patch_gdn
+        # binds right before it registers the op; bind it the same way here.
+        with unittest.mock.patch.object(gdn_patch, "_vllm_torch_utils", torch_utils):
+            schema = infer_schema(
+                gdn_patch._gdn_attention_core_cpu,
+                mutates_args=["core_attn_out"],
+            )
 
         self.assertIn("LayerName layer_name", schema)
         self.assertIn("Tensor(a3!) core_attn_out", schema)
@@ -119,10 +123,11 @@ class TestGDNPatch(unittest.TestCase):
         )
         tensor = torch.empty(0)
         with (
+            # Bound lazily by _do_patch_gdn; stand in for it here.
             unittest.mock.patch.object(
-                gdn_patch._vllm_torch_utils,
-                "_resolve_layer_name",
-                return_value="layer",
+                gdn_patch,
+                "_vllm_torch_utils",
+                types.SimpleNamespace(_resolve_layer_name=lambda name: "layer"),
             ),
             unittest.mock.patch.object(
                 forward_context,
@@ -139,19 +144,29 @@ class TestGDNPatch(unittest.TestCase):
             )
 
     def test_clean_vllm_startup_has_no_plugin_import_failure(self):
-        """Catch imports from a partially initialized vllm.utils.torch_utils."""
-        result = subprocess.run(
-            [sys.executable, "-c", "import vllm"],
-            capture_output=True,
-            check=False,
-            text=True,
-            timeout=120,
-        )
-        output = result.stdout + result.stderr
+        """Catch imports from a partially initialized vllm.utils.torch_utils.
 
-        self.assertEqual(result.returncode, 0, output)
-        self.assertNotIn("Failed to load plugin zentorch", output)
-        self.assertNotIn("partially initialized module", output)
+        Resolving the platform first is the path that re-enters plugin loading
+        on vLLM 0.33 (vllm.utils.torch_utils resolves the platform at import).
+        """
+        for code in (
+            "import vllm",
+            "from vllm.platforms import current_platform; "
+            "print(type(current_platform).__name__)",
+        ):
+            with self.subTest(code=code):
+                result = subprocess.run(
+                    [sys.executable, "-c", code],
+                    capture_output=True,
+                    check=False,
+                    text=True,
+                    timeout=120,
+                )
+                output = result.stdout + result.stderr
+
+                self.assertEqual(result.returncode, 0, output)
+                self.assertNotIn("Failed to load plugin zentorch", output)
+                self.assertNotIn("partially initialized module", output)
 
 
 if __name__ == "__main__":

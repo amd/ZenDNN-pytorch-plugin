@@ -5,8 +5,8 @@
 
 """vLLM - zentorch integration via the plugin pattern.
 
-Supports released vLLM in the inclusive [VLLM_MIN_VERSION, VLLM_MAX_VERSION]
-window on PyTorch 2.13; other versions fall back to the stock CPU platform.
+Supports released vLLM 0.33.0 on PyTorch 2.14.x; other versions fall back to the
+stock CPU platform.
 
 Entry points:
 - vllm.platform_plugins -> returns the ZenCPUPlatform class path
@@ -43,42 +43,12 @@ from zentorch.vllm._int8_moe_patch import (  # noqa: E402, F401
 from zentorch.vllm._wna16_moe_patch import (  # noqa: E402, F401
     _apply_wna16_moe_patch_impl,
 )
-from zentorch.vllm._mixtral_moe_loader_patch import (  # noqa: E402, F401
-    _apply_mixtral_loader_patch_impl,
-)
-from zentorch.vllm._gemma4_hetero_config_patch import (  # noqa: E402, F401
-    _apply_gemma4_hetero_patch,
-)
-from zentorch.vllm._qwen3_vl_text_config_patch import (  # noqa: E402, F401
-    _apply_qwen3_vl_text_config_patch,
-)
-from zentorch.vllm._da8w4_kernel_patch import (  # noqa: E402, F401
-    _apply_da8w4_patch,
-)
-from zentorch.vllm._wna16_can_implement_patch import (  # noqa: E402, F401
-    _apply_wna16_can_implement_patch,
-)
-from zentorch.vllm._whisper_w4a16_patch import (  # noqa: E402, F401
-    _apply_whisper_w4a16_patch,
-)
-from zentorch.vllm._whisper_truncation_patch import (  # noqa: E402, F401
-    _apply_whisper_truncation_patch,
-)
-from zentorch.vllm._sw_blocksize_patch import (  # noqa: E402, F401
-    _apply_sw_blocksize_patch,
-)
-from zentorch.vllm._gptoss_streamed_expert_patch import (  # noqa: E402, F401
-    _apply_gptoss_streamed_expert_patch_impl,
-)
 from zentorch.vllm._gdn_patch import (  # noqa: E402, F401
     _apply_gdn_patch,
 )
 from zentorch.vllm._import_hook import patch_now_or_on_import  # noqa: E402
 from zentorch.vllm._fused_mlp_patch import (  # noqa: E402, F401
     _apply_fused_mlp_patch_impl,
-)
-from zentorch.vllm._mm_encoder_sdpa_patch import (  # noqa: E402, F401
-    _apply_mm_encoder_sdpa_patch,
 )
 from zentorch.vllm._decoder_prefill_sdpa_patch import (  # noqa: E402, F401
     _apply_prefill_sdpa_patch,
@@ -95,9 +65,11 @@ logger = get_logger(__name__)
 # Inclusive window of released vLLM versions validated against this plugin. The
 # upper bound is explicit, not an open "< next minor" range: bump VLLM_MAX_VERSION
 # after validating each new patch release.
-VLLM_MIN_VERSION = "0.27.0"
-VLLM_MAX_VERSION = "0.32.0"
-TORCH_MIN_VERSION = (2, 13)
+VLLM_MIN_VERSION = "0.33.0"
+VLLM_MAX_VERSION = "0.33.0"
+# vLLM 0.33 pins torch 2.14.0; any 2.14.x patch release is accepted (zentorch's
+# native library is minor-locked, see zentorch/__init__.py).
+TORCH_VERSION = (2, 14)
 
 
 def get_vllm_version() -> str | None:
@@ -137,36 +109,19 @@ def is_supported_vllm(ver: str | None) -> bool:
 
 
 def is_supported_torch() -> bool:
-    """True iff the running PyTorch is >= 2.13 (the vLLM 0.27 CPU baseline)."""
+    """True iff the running PyTorch is 2.14.x (the vLLM 0.33 CPU pin)."""
     from torch.torch_version import TorchVersion
 
-    return TorchVersion(torch.__version__) >= TORCH_MIN_VERSION
+    version = TorchVersion(torch.__version__)
+    return TORCH_VERSION <= version < (TORCH_VERSION[0], TORCH_VERSION[1] + 1)
 
 
 # ---------------------------------------------------------------------------
-# RMSNorm: register a zentorch vLLM IR provider
-# ---------------------------------------------------------------------------
-
-
-def _apply_rmsnorm_patch() -> bool:
-    """Register a zentorch provider for the residual ``fused_add_rms_norm`` IR
-    op (the platform raises it above native); the non-residual ``rms_norm``
-    stays on native."""
-    from zentorch.vllm._ir_rms_norm import register_zentorch_ir_norm_impls
-
-    return register_zentorch_ir_norm_impls()
-
-
-# ---------------------------------------------------------------------------
-# CPUFusedMOE Patch (opt-out via ZENTORCH_FUSED_MOE=0; deferred via import hook)
+# zentorch_fused_moe forward (used by the TorchAO MoE method)
 # ---------------------------------------------------------------------------
 #
-# Replaces vLLM's CPUFusedMOE with a single call to
-# torch.ops.zentorch.zentorch_fused_moe. The op runs the full MoE FFN block
-# (token grouping -> W13 GEMM -> gated activation -> W2 GEMM -> weighted
-# reduce) inside one ZenDNN group_matmul_direct call.
-
-_CPU_FUSED_MOE_MODULE = "vllm.model_executor.layers.fused_moe.cpu_fused_moe"
+# Runs the full MoE FFN block (token grouping -> W13 GEMM -> gated activation
+# -> W2 GEMM -> weighted reduce) inside one ZenDNN group_matmul_direct call.
 
 
 def _moe_forward_zentorch(
@@ -227,8 +182,7 @@ def extract_int8_moe_scales(layer) -> None:
     row-major contiguous, which only holds when the parent ``[E, ...]`` tensor is
     contiguous. Normalizing once here keeps the hot path free of per-call copies.
 
-    Shared by the vLLM 0.27 ``CPUFusedMOE.__init__`` patch and the 0.28
-    ``TorchAOFusedMoEMethod`` (where ``CPUFusedMOE`` no longer exists).
+    Used by ``TorchAOFusedMoEMethod``.
     """
     from vllm.model_executor.layers.quantization.utils.layer_utils import (
         replace_parameter,
@@ -271,45 +225,6 @@ def extract_int8_moe_scales(layer) -> None:
 
     # Bump the per-replacement counter (matches _custom_op_replacement.py).
     counters["zentorch"]["zentorch_fused_moe"] += 1
-
-
-def _do_patch_fused_moe() -> bool:
-    """Patch CPUFusedMOE.__init__ to dispatch through zentorch_fused_moe."""
-    try:
-        from vllm.model_executor.layers.fused_moe.cpu_fused_moe import CPUFusedMOE
-    except ImportError:
-        return False
-
-    if hasattr(CPUFusedMOE, "_zentorch_fused_moe_patched"):
-        return True
-
-    CPUFusedMOE._zentorch_forward = _moe_forward_zentorch
-
-    def _patched_init(self, layer):
-        # Skip vLLM's prepacking + grouped-gemm path; we use the standard
-        # [E, ...] layout that zentorch_fused_moe expects.
-        self.isa = "none"
-        self.forward_method = self._zentorch_forward
-        extract_int8_moe_scales(layer)
-
-    CPUFusedMOE.__init__ = _patched_init
-    CPUFusedMOE._zentorch_fused_moe_patched = True
-    logger.info("[zentorch] Patched CPUFusedMOE forward -> zentorch_fused_moe")
-    return True
-
-
-def _apply_fused_moe_patch() -> bool:
-    """Keep the legacy compatibility hook off the vLLM 0.29 native path."""
-    if os.environ.get("ZENTORCH_FUSED_MOE", "1") == "0":
-        return False
-    vllm_ver = get_vllm_version()
-    if (
-        vllm_ver is not None
-        and pkg_version.parse(_base_version(vllm_ver))
-        >= pkg_version.parse("0.29.0")
-    ):
-        return False
-    return patch_now_or_on_import(_CPU_FUSED_MOE_MODULE, _do_patch_fused_moe)
 
 
 # ---------------------------------------------------------------------------
@@ -523,24 +438,12 @@ def _apply_cpu_sdpa_patch() -> bool:
 # Order matters only in that the import hooks must be armed before the target
 # vLLM modules load; register() runs at process startup, well before that.
 _PATCHES = (
-    ("Gemma4HeteroConfig", _apply_gemma4_hetero_patch),
-    ("Qwen3VLTextConfig", _apply_qwen3_vl_text_config_patch),
     ("TorchAO", _apply_torchao_patch),
     ("Int8MoE", _apply_int8_moe_patch_impl),
     ("Wna16MoE", _apply_wna16_moe_patch_impl),
-    ("MixtralMoELoader", _apply_mixtral_loader_patch_impl),
-    ("RMSNorm", _apply_rmsnorm_patch),
-    ("FusedMoE", _apply_fused_moe_patch),
     ("FusedMLP", _apply_fused_mlp_patch_impl),
     ("CPUSdpa", _apply_cpu_sdpa_patch),
     ("DecoderPrefillSdpa", _apply_prefill_sdpa_patch),
-    ("MMEncoderSdpa", _apply_mm_encoder_sdpa_patch),
-    ("Da8w4Kernel", _apply_da8w4_patch),
-    ("Wna16CanImplement", _apply_wna16_can_implement_patch),
-    ("SWBlockSize", _apply_sw_blocksize_patch),
-    ("WhisperW4A16", _apply_whisper_w4a16_patch),
-    ("WhisperTruncation", _apply_whisper_truncation_patch),
-    ("GptOssStreamedExpert", _apply_gptoss_streamed_expert_patch_impl),
     ("GatedDeltaNet", _apply_gdn_patch),
 )
 
@@ -583,24 +486,23 @@ def register() -> str | None:
     if not is_supported_vllm(vllm_ver):
         logger.warning(
             "[zentorch] Unsupported vLLM %s. This zentorch plugin supports "
-            "released vLLM %s-%s (PyTorch %d.%d+) only. Falling back to the "
+            "released vLLM %s (PyTorch %d.%d) only. Falling back to the "
             "stock CPU platform.",
             vllm_ver,
-            VLLM_MIN_VERSION,
             VLLM_MAX_VERSION,
-            TORCH_MIN_VERSION[0],
-            TORCH_MIN_VERSION[1],
+            TORCH_VERSION[0],
+            TORCH_VERSION[1],
         )
         return None
 
     if not is_supported_torch():
         logger.warning(
             "[zentorch] Unsupported PyTorch %s; vLLM %s requires PyTorch "
-            "%d.%d+. Falling back to the stock CPU platform.",
+            "%d.%d. Falling back to the stock CPU platform.",
             torch.__version__,
             vllm_ver,
-            TORCH_MIN_VERSION[0],
-            TORCH_MIN_VERSION[1],
+            TORCH_VERSION[0],
+            TORCH_VERSION[1],
         )
         return None
 

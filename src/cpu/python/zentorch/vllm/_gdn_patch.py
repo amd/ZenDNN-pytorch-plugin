@@ -15,11 +15,12 @@ vLLM mamba / FLA submodules are imported lazily, after the deferred import
 hook fires, so loading this module during plugin registration stays side-effect
 free.
 
-``vllm.utils.torch_utils`` is bound as a module object rather than via
-``from ... import``: vLLM loads this plugin while that module is still
-executing, so its names (``LayerNameType``) do not exist yet. Going through the
-module defers every lookup -- including the ``LayerNameType`` annotation, which
-torch's ``infer_schema`` eval()s against this module's globals at op
+``vllm.utils.torch_utils`` is bound as a module object, and only when the
+deferred patch runs (``_do_patch_gdn``), never at import: since vLLM 0.33 that
+module resolves the current platform while it executes, so importing it while
+vLLM loads this plugin re-enters plugin loading and fails with a circular
+import. Going through the module also defers the ``LayerNameType`` annotation,
+which torch's ``infer_schema`` eval()s against this module's globals at op
 registration time.
 """
 
@@ -30,12 +31,13 @@ import os
 import torch
 from einops import rearrange
 
-import vllm.utils.torch_utils as _vllm_torch_utils
-
 from zentorch._logging import get_logger
 from zentorch.vllm._import_hook import patch_now_or_on_import
 
 logger = get_logger(__name__)
+
+# vllm.utils.torch_utils, bound by _do_patch_gdn (see the module docstring).
+_vllm_torch_utils = None
 
 __all__ = ["_apply_gdn_patch"]
 
@@ -402,6 +404,9 @@ def forward_cpu_zen(
 
 def _do_patch_gdn() -> bool:
     """Swap ``QwenGatedDeltaNetAttention.forward_cpu`` -> ``forward_cpu_zen``."""
+    global _vllm_torch_utils
+    import vllm.utils.torch_utils as _vllm_torch_utils
+
     try:
         from vllm.model_executor.layers.mamba.gdn.qwen_gdn_linear_attn import (
             QwenGatedDeltaNetAttention,

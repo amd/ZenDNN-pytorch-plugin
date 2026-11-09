@@ -5,7 +5,7 @@
 
 """zentorch CPU Platform for vLLM.
 
-Targets vLLM 0.27.0-0.32.0 / PyTorch 2.13. vLLM's stock CpuPlatform configures
+Targets vLLM 0.33.0 / PyTorch 2.14. vLLM's stock CpuPlatform configures
 the CPU compile defaults and CPU-only profiler handling, so this subclass marks
 the platform as Zen and injects the zentorch inductor optimize pass.
 """
@@ -38,6 +38,18 @@ def _create_platform():
         def is_zen_cpu(self) -> bool:
             return True
 
+        # fp16 compute needs AVX512-FP16 (Venice / 6th Gen EPYC onwards); Turin
+        # and earlier have no zentorch fp16 kernels, so an fp16 model would start
+        # and then fail in zentorch_matmul. Same gate as vLLM's in-tree
+        # ZenCpuPlatform.
+        @property
+        def supported_dtypes(self) -> list:
+            import torch
+
+            if torch.ops.zentorch.zentorch_is_fp16_supported():
+                return [torch.bfloat16, torch.float32, torch.float16]
+            return [torch.bfloat16, torch.float32]
+
         @classmethod
         def import_ir_kernels(cls) -> None:
             """Register zentorch IR providers alongside the built-in kernels."""
@@ -51,9 +63,7 @@ def _create_platform():
             """Prefer registered zentorch IR providers over native.
 
             Only advertise ``zentorch`` for ops that actually got a provider --
-            ``IrOp.set_default`` asserts each entry is a registered impl, and
-            ``register_zentorch_ir_norm_impls`` returns False on older vLLM
-            without ``vllm.ir`` -- so this stays safe and falls back to native.
+            ``IrOp.set_default`` asserts each entry is a registered impl.
             """
             from vllm.config.kernel import IrOpPriorityConfig
 

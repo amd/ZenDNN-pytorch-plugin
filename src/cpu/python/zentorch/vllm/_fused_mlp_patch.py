@@ -113,22 +113,23 @@ def _unwrap_proj_weight(
     an unusable scale are rejected here, before DA8W4 packs them.
     """
     # DA8W4 is packed here instead of in vLLM's sweep, which then skips it.
-    # The eligibility and packing hooks come from _da8w4_kernel_patch.
+    # vLLM's ZentorchWNA16LinearKernel checks eligibility and packs in one
+    # call, and returns False with the layer untouched when not eligible.
     bits = _scheme_weight_bits(linear)
     if bits is not None and bits < 8:
         if not getattr(linear, "_zentorch_da8w4", False):
             kernel = getattr(linear.scheme, "kernel", None)
-            if not (
-                hasattr(kernel, "_zentorch_da8w4_eligible")
-                and kernel._zentorch_da8w4_eligible(linear)
-            ):
+            pack = getattr(kernel, "_maybe_process_da8w4_weights", None)
+            if pack is None:
                 return None, None
-            # Eligibility accepts per-channel; the fused kernel needs G > 1.
+            # The fused kernel needs G > 1; check before packing.
             # The checkpoint scale is [N, G].
-            if getattr(linear, kernel.w_s_name).size(1) == 1:
+            scale = getattr(linear, kernel.w_s_name, None)
+            if scale is None or scale.dim() != 2 or scale.size(1) == 1:
                 logger.debug("[zentorch] CPU MLP fusion: per-channel DA8W4")
                 return None, None
-            kernel._process_da8w4_weights(linear)
+            if not pack(linear):
+                return None, None
         return linear._zentorch_da8w4_packed, linear._zentorch_da8w4_scale
 
     weight = getattr(linear, "weight", None)

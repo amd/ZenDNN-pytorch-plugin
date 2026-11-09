@@ -18,7 +18,6 @@ import importlib
 import unittest
 import unittest.mock
 
-from packaging import version as pkg_version
 
 from ._test_constants import VLLM_AVAILABLE, vllm
 
@@ -30,41 +29,15 @@ from ._test_constants import VLLM_AVAILABLE, vllm
 _PATCH_TARGETS = [
     ("CPUSdpa", "vllm.v1.attention.backends.cpu_attn",
      "CPUAttentionBackendImpl", "_zentorch_sdpa_patched", "forward"),
-    # Marker and wrapped function both sit on the module, not on a class.
-    ("MMEncoderSdpa", "vllm.v1.attention.ops.vit_attn_wrappers",
-     None, "_zentorch_mm_encoder_sdpa_patched", "apply_sdpa"),
     ("Int8MoE",
      "vllm.model_executor.layers.quantization.compressed_tensors."
      "compressed_tensors_moe.compressed_tensors_moe_w8a8_int8",
      "CompressedTensorsW8A8Int8MoEMethod", "_zentorch_int8_moe_patched", None),
-    ("MixtralMoELoader", "vllm.model_executor.models.mixtral", "MixtralModel",
-     "_zentorch_mixtral_loader_patched", "load_weights"),
     ("TorchAO", "vllm.model_executor.layers.quantization.torchao",
      "TorchAOConfig", "_zentorch_moe_patched", None),
-    ("Da8w4Kernel", "vllm.model_executor.kernels.linear.mixed_precision.zentorch",
-     "ZentorchWNA16LinearKernel", "_zentorch_da8w4_patched", None),
-    ("Wna16CanImplement",
-     "vllm.model_executor.kernels.linear.mixed_precision.zentorch",
-     "ZentorchWNA16LinearKernel", "_zentorch_wna16_can_implement_patched",
-     "can_implement"),
-    ("WhisperW4A16", "vllm.model_executor.models.whisper",
-     "WhisperForConditionalGeneration", "_zentorch_whisper_w4a16_patched",
-     "load_weights"),
-    ("WhisperTruncation", "vllm.model_executor.models.whisper",
-     "WhisperMultiModalProcessor", "_zentorch_whisper_truncation_patched",
-     ("_preprocess_hf_mm_data", "_get_hf_mm_inputs")),
-    ("GptOssStreamedExpert", "vllm.model_executor.models.gpt_oss", "GptOssModel",
-     "_zentorch_gptoss_streamed_patched", "_load_weights_other"),
     ("GatedDeltaNet",
      "vllm.model_executor.layers.mamba.gdn.qwen_gdn_linear_attn",
      "QwenGatedDeltaNetAttention", "_zentorch_gdn_patched", "forward_cpu"),
-]
-
-# Gemma-4 wraps get_config by name in each of these; marker sits on the module.
-_GEMMA_MODULES = [
-    "vllm.transformers_utils.config",
-    "vllm.config.model",
-    "vllm.tokenizers.registry",
 ]
 
 # Pre-0.29 import-hook state to reset when testing those releases.
@@ -129,41 +102,19 @@ class TestPatchApplication(unittest.TestCase):
             f"{name}: patch did NOT apply -- {modname}.{attr or ''} lacks {marker}",
         )
 
-    def test_gemma4_get_config_patched_on_every_module(self):
-        for modname in _GEMMA_MODULES:
-            with self.subTest(module=modname):
-                self._assert_applied(
-                    "Gemma4HeteroConfig", modname, None,
-                    "_zentorch_gemma4_hetero_patched",
-                )
-
-    def test_qwen3_vl_text_config_backport_scope(self):
-        import zentorch.vllm as plugin
-
-        current = pkg_version.parse(vllm.__version__.split("+")[0])
-        if current == pkg_version.parse("0.29.0"):
-            self._assert_applied(
-                "Qwen3VLTextConfig",
-                "vllm.config.vllm",
-                "VllmConfig",
-                "_zentorch_qwen3_vl_text_config_patched",
-            )
-        else:
-            self.assertNotIn(
-                "Qwen3VLTextConfig",
-                plugin.APPLIED_PATCHES,
-            )
-
     def test_applies_RMSNorm(self):
-        """zentorch registers an IR provider for the residual
-        ``fused_add_rms_norm`` (the platform raises it above native); the
-        non-residual ``rms_norm`` stays on native.
+        """The platform's ``import_ir_kernels`` registers a zentorch IR provider
+        for the residual ``fused_add_rms_norm`` (and raises it above native);
+        the non-residual ``rms_norm`` stays on native.
 
-        RMSNorm applies by registering a provider in the ``vllm.ir`` op stack
-        (a dict), not by a class-attr marker, so it doesn't fit the generic
-        ``_PATCH_TARGETS`` tuple -- hence a dedicated check, like Gemma4.
+        vLLM calls ``import_ir_kernels`` while building its kernel config, so the
+        test calls it directly instead of building a full config.
         """
         from vllm import ir
+
+        from zentorch.vllm._platform import ZenCPUPlatform
+
+        ZenCPUPlatform.import_ir_kernels()
 
         self.assertIn(
             "zentorch", ir.ops.fused_add_rms_norm.impls,
@@ -173,22 +124,6 @@ class TestPatchApplication(unittest.TestCase):
             "zentorch", ir.ops.rms_norm.impls,
             "RMSNorm: non-residual rms_norm should stay on native",
         )
-
-    def test_legacy_fused_moe_patch_scope(self):
-        import zentorch.vllm as plugin
-
-        current = pkg_version.parse(vllm.__version__.split("+")[0])
-        if current < pkg_version.parse("0.28.0"):
-            self._assert_applied(
-                "FusedMoE",
-                "vllm.model_executor.layers.fused_moe.cpu_fused_moe",
-                "CPUFusedMOE",
-                "_zentorch_fused_moe_patched",
-            )
-        elif current < pkg_version.parse("0.29.0"):
-            self.assertIn("FusedMoE", plugin.APPLIED_PATCHES)
-        else:
-            self.assertNotIn("FusedMoE", plugin.APPLIED_PATCHES)
 
     def test_wna16_moe_patch_scope(self):
         """Applied until vLLM ships its own ZEN_CPU WNA16 MoE backend (0.31)."""
@@ -214,34 +149,19 @@ class TestPatchApplication(unittest.TestCase):
                 "_zentorch_wna16_moe_patched", "process_weights_after_loading",
             )
 
-    def test_sliding_window_alignment_scope(self):
-        import zentorch.vllm as plugin
+    def test_sliding_window_alignment_is_native(self):
+        """vLLM aligns CPU sliding-window blocks to 32 itself (what the removed
+        SWBlockSize patch used to do); guard against that regressing."""
+        from vllm.v1.attention.backend import MultipleOf
+        from vllm.v1.attention.backends.cpu_attn import CPUAttentionBackend
 
-        current = pkg_version.parse(vllm.__version__.split("+")[0])
-        if current < pkg_version.parse("0.29.0"):
-            self._assert_applied(
-                "SWBlockSize",
-                "vllm.model_executor.layers.attention.attention",
-                "Attention",
-                "_zentorch_sw_blocksize_patched",
-                "get_kv_cache_spec",
+        supported_sizes = CPUAttentionBackend.get_supported_kernel_block_sizes()
+        self.assertTrue(
+            any(
+                isinstance(size, MultipleOf) and size.base == 32
+                for size in supported_sizes
             )
-        else:
-            from vllm.v1.attention.backend import MultipleOf
-            from vllm.v1.attention.backends.cpu_attn import (
-                CPUAttentionBackend,
-            )
-
-            self.assertNotIn("SWBlockSize", plugin.APPLIED_PATCHES)
-            supported_sizes = (
-                CPUAttentionBackend.get_supported_kernel_block_sizes()
-            )
-            self.assertTrue(
-                any(
-                    isinstance(size, MultipleOf) and size.base == 32
-                    for size in supported_sizes
-                )
-            )
+        )
 
 
 # One independently-skippable test method per marker-based patch.

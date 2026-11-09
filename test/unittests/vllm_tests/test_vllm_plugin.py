@@ -11,34 +11,22 @@ import unittest
 import unittest.mock
 
 import torch
-from packaging import version as pkg_version
 
 from ._test_constants import VLLM_AVAILABLE, vllm
 from ._test_utils import load_source_vllm_module
 
 
 EXPECTED_PATCHES = [
-    "Gemma4HeteroConfig",
-    "Qwen3VLTextConfig",
     "TorchAO",
     "Int8MoE",
     "Wna16MoE",
-    "MixtralMoELoader",
-    "RMSNorm",
-    "FusedMoE",
     "FusedMLP",
     "CPUSdpa",
     "DecoderPrefillSdpa",
-    "MMEncoderSdpa",
-    "Da8w4Kernel",
-    "Wna16CanImplement",
-    "SWBlockSize",
-    "WhisperW4A16",
-    "WhisperTruncation",
-    "GptOssStreamedExpert",
     "GatedDeltaNet",
 ]
 
+# Backports and shims that vLLM now does natively; they must stay gone.
 REMOVED_PATCHES = [
     "CppIndirectAssert",
     "CPURunnerShutdown",
@@ -48,12 +36,24 @@ REMOVED_PATCHES = [
     "CompilationConfigRepr",
     "GptOssMoEWeightRemap",
     "GptOssMoELoader",
+    "Gemma4HeteroConfig",
+    "Qwen3VLTextConfig",
+    "MixtralMoELoader",
+    "RMSNorm",
+    "FusedMoE",
+    "MMEncoderSdpa",
+    "Wna16CanImplement",
+    "SWBlockSize",
+    "WhisperW4A16",
+    "WhisperTruncation",
+    "GptOssStreamedExpert",
+    "Da8w4Kernel",
 ]
 
 
 @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
 class TestVersionContract(unittest.TestCase):
-    """Accept only the validated vLLM window on PyTorch 2.13 or newer."""
+    """Accept only released vLLM 0.33.0 on PyTorch 2.14.x."""
 
     def test_base_version_strips_suffixes(self):
         from zentorch.vllm import _base_version
@@ -69,25 +69,7 @@ class TestVersionContract(unittest.TestCase):
     def test_is_supported_vllm_accepts_validated_window(self):
         from zentorch.vllm import is_supported_vllm
 
-        for version in [
-            "0.27.0",
-            "0.27.0+cpu",
-            "0.27.1",
-            "0.27.1+cpu",
-            "0.27.2",
-            "0.27.5+cpu",
-            "0.27.99",
-            "0.28.0",
-            "0.28.0+cpu",
-            "0.29.0",
-            "0.29.0+cpu",
-            "0.30.0",
-            "0.30.0+cpu",
-            "0.31.0",
-            "0.31.0+cpu",
-            "0.32.0",
-            "0.32.0+cpu",
-        ]:
+        for version in ["0.33.0", "0.33.0+cpu"]:
             self.assertTrue(
                 is_supported_vllm(version),
                 f"{version} should be supported",
@@ -100,18 +82,17 @@ class TestVersionContract(unittest.TestCase):
             None,
             "",
             "0.26.0",
-            "0.26.9+cpu",
-            "0.25.1",
-            "0.27.0rc1+cpu",
-            "0.27.0.dev123+cpu",
-            "0.28.0rc1+cpu",
-            "0.29.0rc1+cpu",
-            "0.30.0rc1+cpu",
-            "0.31.0rc1+cpu",
-            "0.32.0rc1+cpu",
-            "0.32.1",
+            "0.27.0+cpu",
+            "0.31.0",
+            "0.32.0",
+            "0.32.0+cpu",
             "0.32.1+cpu",
-            "0.33.0",
+            "0.33.0rc1+cpu",
+            "0.33.0rc3",
+            "0.33.0.dev12+gabc1234.cpu",
+            "0.33.1",
+            "0.33.1+cpu",
+            "0.34.0",
             "1.0.0",
             "not-a-version",
         ]:
@@ -120,17 +101,16 @@ class TestVersionContract(unittest.TestCase):
                 f"{version} should NOT be supported",
             )
 
-    def test_is_supported_torch_enforces_213(self):
+    def test_is_supported_torch_requires_214(self):
         from zentorch.vllm import is_supported_torch
 
         for version, expected in [
-            ("2.11.0+cpu", False),
-            ("2.12.1+cpu", False),
-            ("2.13.0+cpu", True),
-            ("2.13.1", True),
+            ("2.13.0+cpu", False),
+            ("2.13.1", False),
             ("2.14.0+cpu", True),
-            ("2.14.1", True),
-            ("2.15.0+cpu", True),
+            ("2.14.0", True),
+            ("2.14.1+cpu", True),
+            ("2.15.0+cpu", False),
         ]:
             with unittest.mock.patch.object(torch, "__version__", version):
                 self.assertEqual(
@@ -188,56 +168,26 @@ class TestRegisterContract(unittest.TestCase):
 
     def test_accepts_supported_runtime(self):
         plugin = self._fresh_source_module()
-        result, apply_all = self._register_with(plugin, "0.27.0+cpu")
+        result, apply_all = self._register_with(plugin, "0.33.0+cpu")
         self.assertEqual(result, "zentorch.vllm._platform.ZenCPUPlatform")
         apply_all.assert_called_once_with()
 
     def test_rejects_old_vllm(self):
         plugin = self._fresh_source_module()
-        result, apply_all = self._register_with(plugin, "0.26.0+cpu")
+        result, apply_all = self._register_with(plugin, "0.32.0+cpu")
         self.assertIsNone(result)
         apply_all.assert_not_called()
 
-    def test_accepts_supported_runtime_028(self):
-        plugin = self._fresh_source_module()
-        result, apply_all = self._register_with(plugin, "0.28.0+cpu")
-        self.assertEqual(result, "zentorch.vllm._platform.ZenCPUPlatform")
-        apply_all.assert_called_once_with()
-
-    def test_accepts_supported_runtime_029(self):
-        plugin = self._fresh_source_module()
-        result, apply_all = self._register_with(plugin, "0.29.0+cpu")
-        self.assertEqual(result, "zentorch.vllm._platform.ZenCPUPlatform")
-        apply_all.assert_called_once_with()
-
-    def test_accepts_supported_runtime_030(self):
-        plugin = self._fresh_source_module()
-        result, apply_all = self._register_with(plugin, "0.30.0+cpu")
-        self.assertEqual(result, "zentorch.vllm._platform.ZenCPUPlatform")
-        apply_all.assert_called_once_with()
-
-    def test_accepts_supported_runtime_031(self):
-        plugin = self._fresh_source_module()
-        result, apply_all = self._register_with(plugin, "0.31.0+cpu")
-        self.assertEqual(result, "zentorch.vllm._platform.ZenCPUPlatform")
-        apply_all.assert_called_once_with()
-
-    def test_accepts_supported_runtime_032(self):
-        plugin = self._fresh_source_module()
-        result, apply_all = self._register_with(plugin, "0.32.0+cpu")
-        self.assertEqual(result, "zentorch.vllm._platform.ZenCPUPlatform")
-        apply_all.assert_called_once_with()
-
     def test_rejects_future_vllm(self):
         plugin = self._fresh_source_module()
-        result, apply_all = self._register_with(plugin, "0.32.1+cpu")
+        result, apply_all = self._register_with(plugin, "0.33.1+cpu")
         self.assertIsNone(result)
         apply_all.assert_not_called()
 
     def test_rejects_unsupported_torch(self):
         plugin = self._fresh_source_module()
         result, apply_all = self._register_with(
-            plugin, "0.27.0+cpu", torch_ok=False
+            plugin, "0.33.0+cpu", torch_ok=False
         )
         self.assertIsNone(result)
         apply_all.assert_not_called()
@@ -245,7 +195,7 @@ class TestRegisterContract(unittest.TestCase):
     def test_falls_back_without_avx512(self):
         plugin = self._fresh_source_module()
         result, apply_all = self._register_with(
-            plugin, "0.27.0+cpu", avx512=False
+            plugin, "0.33.0+cpu", avx512=False
         )
         self.assertIsNone(result)
         apply_all.assert_not_called()
@@ -253,7 +203,7 @@ class TestRegisterContract(unittest.TestCase):
     def test_patches_applied_only_once(self):
         plugin = self._fresh_source_module()
         fake_vllm = types.ModuleType("vllm")
-        fake_vllm.__version__ = "0.27.0+cpu"
+        fake_vllm.__version__ = "0.33.0+cpu"
         with (
             unittest.mock.patch.dict(sys.modules, {"vllm": fake_vllm}),
             unittest.mock.patch.object(
@@ -323,25 +273,18 @@ class TestPatchWiring(unittest.TestCase):
         ):
             plugin.register()
 
-        self.assertIn("RMSNorm", plugin.APPLIED_PATCHES)
-        if pkg_version.parse(vllm.__version__.split("+")[0]) < pkg_version.parse(
-            "0.29.0"
-        ):
-            self.assertIn("FusedMoE", plugin.APPLIED_PATCHES)
-        else:
-            self.assertNotIn("FusedMoE", plugin.APPLIED_PATCHES)
+        self.assertIn("FusedMLP", plugin.APPLIED_PATCHES)
+        self.assertLessEqual(set(plugin.APPLIED_PATCHES), set(EXPECTED_PATCHES))
 
 
 @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
 class TestFusedMLPPatch(unittest.TestCase):
     """FusedMLP dense-MLP fusion is wired in and opt-in via ZENTORCH_FUSED_FFN."""
 
-    def test_wired_right_after_fused_moe(self):
+    def test_wired_in_patches(self):
         from zentorch.vllm import _PATCHES
 
-        names = [name for name, _ in _PATCHES]
-        self.assertIn("FusedMLP", names)
-        self.assertEqual(names[names.index("FusedMoE") + 1], "FusedMLP")
+        self.assertIn("FusedMLP", [name for name, _ in _PATCHES])
 
     def test_enabled_via_env_arms_hook(self):
         import os
@@ -444,10 +387,7 @@ class TestFusedMLPPatch(unittest.TestCase):
 
         from zentorch._C import clear_weight_cache
         from zentorch.vllm import _fused_mlp_patch as fmp
-        from zentorch.vllm._da8w4_kernel_patch import _do_patch_da8w4
 
-        if not _do_patch_da8w4():
-            self.skipTest("ZentorchWNA16LinearKernel not importable")
         hidden, intermediate, tokens = 128, 64, 4
 
         def make_mlp(group_size):
@@ -510,6 +450,23 @@ class TestPlatformConfiguration(unittest.TestCase):
 
         instance = ZenCPUPlatform.__new__(ZenCPUPlatform)
         self.assertTrue(ZenCPUPlatform.is_zen_cpu(instance))
+
+    def test_fp16_offered_only_with_zentorch_fp16_kernels(self):
+        """Without AVX512-FP16 (e.g. Turin) an fp16 model would start and then
+        fail in zentorch_matmul, so fp16 must not be offered there."""
+        from zentorch.vllm._platform import ZenCPUPlatform
+
+        instance = ZenCPUPlatform.__new__(ZenCPUPlatform)
+        for fp16_ok in (False, True):
+            with unittest.mock.patch.object(
+                torch.ops.zentorch,
+                "zentorch_is_fp16_supported",
+                return_value=fp16_ok,
+            ):
+                self.assertEqual(
+                    torch.float16 in instance.supported_dtypes, fp16_ok
+                )
+                self.assertIn(torch.bfloat16, instance.supported_dtypes)
 
 
 @unittest.skipUnless(VLLM_AVAILABLE, "vLLM not installed")
