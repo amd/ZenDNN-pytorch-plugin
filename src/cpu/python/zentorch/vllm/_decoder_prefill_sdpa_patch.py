@@ -13,13 +13,14 @@ fresh prefills and cached-prefix prefills use the same op with packed
 kernels); values stay token-major. AMX tiles stay on native attention.
 Decode stays on the paged CPU kernel.
 
-Set ``ZENTORCH_SDPA=0`` to opt out. A vLLM that already records
-``_record_prefill_split`` is left alone.
+Off unless ``ZENTORCH_PREFILL_SDPA=1``. ``ZENTORCH_SDPA=0`` still opts out.
+A vLLM that already records ``_record_prefill_split`` is left alone.
 """
 
 from __future__ import annotations
 
 import copy
+import os
 
 import torch
 
@@ -575,7 +576,13 @@ def _do_patch_prefill_sdpa() -> bool:
 
 
 def _apply_prefill_sdpa_patch() -> bool:
-    """Opt out with ``ZENTORCH_SDPA=0``."""
+    """Opt in with ``ZENTORCH_PREFILL_SDPA=1``. ``ZENTORCH_SDPA=0`` still opts out."""
+    if os.environ.get("ZENTORCH_PREFILL_SDPA", "0") != "1":
+        logger.debug(
+            "[zentorch] prefill SDPA patch disabled "
+            "(set ZENTORCH_PREFILL_SDPA=1 to enable)"
+        )
+        return False
     if not zentorch_sdpa_enabled():
         logger.debug("[zentorch] prefill SDPA patch disabled or op unavailable")
         return False

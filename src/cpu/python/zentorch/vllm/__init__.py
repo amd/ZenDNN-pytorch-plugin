@@ -443,7 +443,7 @@ _PATCHES = (
     ("Wna16MoE", _apply_wna16_moe_patch_impl),
     ("FusedMLP", _apply_fused_mlp_patch_impl),
     ("CPUSdpa", _apply_cpu_sdpa_patch),
-    ("DecoderPrefillSdpa", _apply_prefill_sdpa_patch),
+    ("DecoderPrefillSdpa", _apply_prefill_sdpa_patch),  # ZENTORCH_PREFILL_SDPA=1
     ("GatedDeltaNet", _apply_gdn_patch),
 )
 
