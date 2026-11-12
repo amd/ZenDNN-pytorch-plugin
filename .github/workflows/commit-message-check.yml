@@ -24,16 +24,28 @@ jobs:
         with:
           fetch-depth: 0  # Ensure full history is available
 
-      - name: Check each commit message for Signed-off-by and Change-Id
+      - name: Check each commit message for Jira ID, Signed-off-by, and Change-Id
         run: |
           set -e
           base_ref="${{ github.event.pull_request.base.sha }}"
           head_ref="${{ github.event.pull_request.head.sha }}"
           # Get all commits in the PR range (excluding merge base)
           commits=$(git rev-list ${base_ref}..${head_ref})
+          # ZENAI-<n>, LWPZENDNN-<n>, or APRO-<n>. <n> must contain a non-zero digit,
+          # so ZENAI-0, ZENAI-00, ZENAI-000, and any longer all-zero id are rejected
+          # (same rule for LWPZENDNN and APRO).
+          jira_re='(^|[^A-Za-z0-9])(ZENAI|LWPZENDNN|APRO)-[0-9]*[1-9][0-9]*([^A-Za-z0-9]|$)'
           fail=0
           for commit in $commits; do
             msg=$(git log -1 --pretty=%B $commit)
+            if ! grep -qE "$jira_re" <<< "$msg"; then
+              echo "::error::Commit $commit is missing a valid Jira ID."
+              echo "Add a Jira ID to the commit subject or body."
+              echo "Allowed: ZENAI-<number>, LWPZENDNN-<number>, APRO-<number>."
+              echo "The number must include at least one non-zero digit."
+              echo "Rejected: ZENAI-0, ZENAI-00, ZENAI-000, ZENAI-0000, ZENAI-00000, and the same all-zero forms for LWPZENDNN and APRO."
+              fail=1
+            fi
             if ! grep -qE '^Change-Id: I[a-f0-9]{40}' <<< "$msg"; then
               echo "::error::Commit $commit is missing a valid Change-Id line."
               echo "To fix: Use the following shell hook in your repo's .git/hooks/commit-msg:"
@@ -60,6 +72,6 @@ jobs:
             fi
           done
           if [ $fail -ne 0 ]; then
-            echo "ERROR: One or more commits in this PR are missing Signed-off-by or Change-Id."
+            echo "ERROR: One or more commits in this PR are missing a valid Jira ID, Signed-off-by, or Change-Id."
             exit 1
           fi
